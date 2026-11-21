@@ -477,6 +477,8 @@
     {
       "id": "rust-axum",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "rust",
       "port": 5367,
       "readiness": "/ready",
@@ -489,6 +491,8 @@
     {
       "id": "rust-actix",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "rust",
       "port": 5375,
       "readiness": "/ready",
