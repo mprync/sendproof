@@ -7,10 +7,23 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 /**
- * The driver session a handler sees during a Preview. It is the Preview's own session, so every command it carries
- * joins the Preview transaction, but it cannot end it:
+ * The sessions that stand for the Preview's real driver session. There are two, sharing one {@link Gate}:
+ *
+ * <ul>
+ *   <li>the <b>handler's session</b>, the only one handler code can reach ({@code startSession}, Spring Data's bound
+ *       session). Its {@code getOriginator()} answers the <em>guarded</em> client, never the raw one. The driver accepts
+ *       a session only from the client it came from, so passing the handler's session to any raw client fails in the
+ *       driver before anything is sent: a {@code commitTransaction} of the Preview transaction through another client
+ *       is never sent;</li>
+ *   <li>the <b>driver's session</b>, which guarded handles substitute for the handler's session on every call they
+ *       make. Its {@code getOriginator()} answers the real client, as the driver requires. Handler code never sees
+ *       it.</li>
+ * </ul>
+ *
+ * <p>Both carry the Preview's {@code lsid}, so every command joins the Preview transaction, and neither can end it:
  *
  * <ul>
  *   <li>{@code startTransaction} does nothing, because the transaction is already open;</li>
@@ -47,14 +60,30 @@ final class PreviewSessions {
         }
     }
 
-    /** Wraps the real session. The result implements the backend's {@code ClientSession} interface. */
-    static Object create(MongoBackend backend, Object real, RequestCapture capture, Gate gate) {
-        InvocationHandler handler = (proxy, method, args) -> handle(backend, real, capture, gate, proxy, method, args);
+    private static final StackWalker WALKER = StackWalker.getInstance();
+
+    /** Whether the code asking is the MongoDB driver itself, past the proxy and reflection frames. */
+    private static boolean calledByDriver() {
+        return WALKER.walk(frames -> frames.map(StackWalker.StackFrame::getClassName)
+                .filter(name -> !name.startsWith(PreviewSessions.class.getName()) && !name.startsWith("jdk.proxy")
+                        && !name.startsWith("com.sun.proxy") && !name.startsWith("java.lang.reflect")
+                        && !name.startsWith("jdk.internal.reflect"))
+                .findFirst().map(name -> name.startsWith("com.mongodb.")).orElse(false));
+    }
+
+    /**
+     * Wraps the real session. The result implements the backend's {@code ClientSession} interface.
+     *
+     * @param originator {@code null} for the driver's session, whose originator is the real client; for the handler's
+     *                   session, supplies the guarded client its {@code getOriginator()} answers
+     */
+    static Object create(MongoBackend backend, Object real, RequestCapture capture, Gate gate, Supplier<Object> originator) {
+        InvocationHandler handler = (proxy, method, args) -> handle(backend, real, capture, gate, originator, proxy, method, args);
         return Proxy.newProxyInstance(PreviewSessions.class.getClassLoader(), new Class<?>[] {backend.sessionType()}, handler);
     }
 
-    private static Object handle(MongoBackend backend, Object real, RequestCapture capture, Gate gate, Object proxy,
-                                 Method method, Object[] args) throws Throwable {
+    private static Object handle(MongoBackend backend, Object real, RequestCapture capture, Gate gate,
+                                 Supplier<Object> originator, Object proxy, Method method, Object[] args) throws Throwable {
         String name = method.getName();
         if (method.getDeclaringClass() == Object.class) {
             return switch (name) {
@@ -62,6 +91,19 @@ final class PreviewSessions {
                 case "hashCode" -> System.identityHashCode(proxy);
                 default -> "Sendproof Preview session " + real;
             };
+        }
+        if (originator != null && name.equals("getOriginator") && (args == null || args.length == 0)) {
+            if (calledByDriver()) {
+                // A client Sendproof doesn't guard is about to send a command with the Preview's session, such as a
+                // commitTransaction. Its own originator check would refuse it anyway; record the escape so the Preview
+                // fails with 500 even if the handler swallows the error, and refuse before the driver goes further.
+                var escape = new PreviewTransactionControlException("The Preview's MongoDB session was passed to a client "
+                        + "Sendproof doesn't guard; nothing was sent, and the Preview can't be confirmed.");
+                capture.refuse(escape);
+                throw escape;
+            }
+            // Handler code never gets a route to the raw client from its session.
+            return originator.get();
         }
         switch (name) {
             case "startTransaction", "close":

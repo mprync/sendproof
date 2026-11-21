@@ -228,15 +228,38 @@ class MongoStoreTest {
     }
 
     @Test
-    void aCommitThatReachesTheServerAroundTheGuardTripsTheTripwire() throws Exception {
+    void aCommitOfThePreviewSessionThroughAnotherClientIsNeverSent() throws Exception {
         PreviewOutcome outcome = Harness.preview(() -> {
             ClientSession session = client.startSession();
             documents().insertOne(session, new Document("_id", "around"));
-            // Through the raw client, with the Preview's own session: no guard sees it, monitoring does.
-            raw.getDatabase("admin").runCommand(session, new Document("commitTransaction", 1));
+            // Through the raw client, with the handler's session: the driver must refuse it before anything is sent.
+            try {
+                raw.getDatabase("admin").runCommand(session, new Document("commitTransaction", 1));
+            } catch (RuntimeException refused) {
+                // A careless handler swallows the refusal.
+            }
         }, store);
         assertThat(outcome.confirmed()).isFalse();
         assertThat(outcome.status()).isEqualTo(500);
+        assertThat(committed("around")).as("the Preview transaction must never commit").isZero();
+    }
+
+    @Test
+    void theHandlersSessionLeadsOnlyToTheGuardedClient() throws Exception {
+        PreviewOutcome outcome = Harness.preview(() -> {
+            ClientSession session = client.startSession();
+            documents().insertOne(session, new Document("_id", "originator"));
+            Object originator = session.getOriginator();
+            assertThat(originator).isNotSameAs(raw).isInstanceOf(MongoClient.class);
+            assertThat(java.lang.reflect.Proxy.isProxyClass(originator.getClass())).isTrue();
+            try {
+                ((MongoClient) originator).getDatabase("admin").runCommand(session, new Document("commitTransaction", 1));
+            } catch (RuntimeException refused) {
+                // Swallowed.
+            }
+        }, store);
+        assertThat(outcome.status()).isEqualTo(500);
+        assertThat(committed("originator")).as("the Preview transaction must never commit").isZero();
     }
 
     @Test

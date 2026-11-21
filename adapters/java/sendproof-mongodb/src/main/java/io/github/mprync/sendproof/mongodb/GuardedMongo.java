@@ -95,7 +95,7 @@ final class GuardedMongo {
             }
             RequestCapture preview = StoreGuard.currentPreview();
             if (preview == null || MongoCommands.inert(name)) {
-                return call(method, target, args);
+                return call(method, target, engine.driverSessions(args));
             }
             MongoCommands.Rule rule = switch (kind) {
                 case COLLECTION -> MongoCommands.collection(name);
@@ -128,15 +128,20 @@ final class GuardedMongo {
                     || backend.clientType().isAssignableFrom(type) || backend.clusterType().isAssignableFrom(type);
         }
 
-        /** Calls the driver's overload that takes the Preview session, or refuses a session that isn't the Preview's. */
+        /**
+         * Calls the driver's overload that takes the Preview session, or refuses a session that isn't the Preview's. The
+         * driver always gets the driver's session (see {@link PreviewSessions}), never the handler's.
+         */
         private Object callInSession(Method method, Object[] args, MongoEngine.PreviewState state) throws Throwable {
             Class<?>[] parameters = method.getParameterTypes();
             if (parameters.length > 0 && backend.sessionType().isAssignableFrom(parameters[0])) {
                 Object given = args[0];
-                if (given != null && given != state.guardedSession() && given != state.realSession()) {
+                if (given != null && given != state.guardedSession() && given != state.driverSession()) {
                     throw refuse("A MongoDB call passed its own session during a Preview; the Preview session must carry every command.");
                 }
-                return call(method, target, args);
+                Object[] swapped = args.clone();
+                swapped[0] = state.driverSession();
+                return call(method, target, swapped);
             }
             Class<?>[] withSession = new Class<?>[parameters.length + 1];
             withSession[0] = backend.sessionType();
@@ -149,7 +154,7 @@ final class GuardedMongo {
                 throw refuse("MongoDB " + method.getName() + " can't join the Preview transaction.");
             }
             Object[] sessionArgs = new Object[args == null ? 1 : args.length + 1];
-            sessionArgs[0] = state.guardedSession();
+            sessionArgs[0] = state.driverSession();
             if (args != null) {
                 System.arraycopy(args, 0, sessionArgs, 1, args.length);
             }

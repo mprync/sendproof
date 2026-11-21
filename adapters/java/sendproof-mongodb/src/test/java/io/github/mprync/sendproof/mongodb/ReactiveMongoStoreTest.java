@@ -110,6 +110,22 @@ class ReactiveMongoStoreTest {
     }
 
     @Test
+    void aCommitOfThePreviewSessionThroughAnotherClientIsNeverSent() throws Exception {
+        PreviewOutcome outcome = Harness.preview(() -> {
+            ClientSession session = ReactiveBackend.first(client.startSession());
+            ReactiveBackend.first(documents().insertOne(session, new Document("_id", "around")));
+            assertThat(session.getOriginator()).isNotSameAs(raw);
+            try {
+                ReactiveBackend.first(raw.getDatabase("admin").runCommand(session, new Document("commitTransaction", 1)));
+            } catch (RuntimeException refused) {
+                // Swallowed.
+            }
+        }, store);
+        assertThat(outcome.status()).isEqualTo(500);
+        assertThat(committed("around")).as("the Preview transaction must never commit").isZero();
+    }
+
+    @Test
     void anOutStageIsBlockedBeforeSending() throws Exception {
         PreviewOutcome outcome = Harness.preview(() -> assertThatThrownBy(() -> documents().aggregate(List.of(
                 new Document("$out", "archive")))).isInstanceOf(PreviewWriteBlockedException.class), store);

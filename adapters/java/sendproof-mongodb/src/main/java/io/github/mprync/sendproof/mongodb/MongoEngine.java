@@ -113,7 +113,10 @@ final class MongoEngine {
     /** The state of one {@code preview}-mode Preview. */
     final class PreviewState {
         final Object session;
+        /** The handler's session: the only one handler code can reach. */
         final Object guarded;
+        /** The session guarded handles hand to the driver in place of the handler's; never given to handler code. */
+        Object driver;
         final String lsid;
         /** Set once a command carried the session to the server. */
         volatile boolean used;
@@ -142,6 +145,11 @@ final class MongoEngine {
         /** The driver session the handler sees: it joins the Preview transaction and refuses to end it. */
         Object guardedSession() {
             return guarded;
+        }
+
+        /** The session guarded handles pass to the driver: see {@link PreviewSessions}. */
+        Object driverSession() {
+            return driver;
         }
 
         /** The real driver session, used only by the engine. */
@@ -235,6 +243,31 @@ final class MongoEngine {
         return capture == null ? null : states.get(capture);
     }
 
+    /**
+     * Replaces a handler's Preview session among call arguments with its driver session, for a call made where no
+     * Preview is current (another thread the handler handed its session to). The driver accepts only the driver's
+     * session: see {@link PreviewSessions}.
+     */
+    Object[] driverSessions(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        Object[] result = args;
+        for (int i = 0; i < args.length; i++) {
+            if (args[i] != null && java.lang.reflect.Proxy.isProxyClass(args[i].getClass())) {
+                synchronized (states) {
+                    for (PreviewState state : states.values()) {
+                        if (state.guarded == args[i]) {
+                            result = result == args ? args.clone() : result;
+                            result[i] = state.driver;
+                        }
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     private Mode modeOf(RequestCapture capture) {
         Mode value = modes.get(capture);
         return value == null ? Mode.GUARD : value;
@@ -262,8 +295,18 @@ final class MongoEngine {
         try {
             String lsid = backend.lsid(real);
             var gate = new PreviewSessions.Gate();
-            Object guarded = PreviewSessions.create(backend, real, capture, gate);
+            Object originator = ((com.mongodb.session.ClientSession) real).getOriginator();
+            Object[] guardedOriginator = new Object[1];
+            Object guarded = PreviewSessions.create(backend, real, capture, gate, () -> {
+                synchronized (guardedOriginator) {
+                    if (guardedOriginator[0] == null && originator != null) {
+                        guardedOriginator[0] = new GuardedMongo(this).wrap(originator);
+                    }
+                    return guardedOriginator[0];
+                }
+            });
             state = new PreviewState(real, guarded, lsid, binder, gate);
+            state.driver = PreviewSessions.create(backend, real, capture, gate, null);
         } catch (RuntimeException failure) {
             internal(() -> {
                 backend.abort(real);
