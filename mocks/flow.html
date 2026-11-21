@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Bench v4 navigation flows</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Flow boards: rendered screens in sequence, with what the user did and where Back goes.
+     Images come from screens/, so tools/shoot-mocks.mjs renders these after the screens. */
+  body { background: var(--sunken); }
+  .flow { inline-size: 1440px; padding: 2rem 2.5rem 3rem; display: grid; gap: 1.5rem; }
+  .flow > header h1 { margin: 0; font-size: 1.375rem; font-weight: 600; letter-spacing: -0.014em; }
+  .flow > header p { margin: 0.4rem 0 0; color: var(--text-2); max-inline-size: 90ch; font-size: var(--fs-base); }
+  .step { display: grid; grid-template-columns: 60rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+  .shot { position: relative; inline-size: 60rem; border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-pop); background: var(--bg); }
+  .shot img { display: block; inline-size: 100%; }
+  .note { display: grid; gap: 0.6rem; padding-block-start: 0.25rem; font-size: var(--fs-base); color: var(--text-2); }
+  .note .n { display: inline-grid; place-items: center; inline-size: 1.75rem; block-size: 1.75rem; border-radius: 50%; background: var(--text); color: var(--bg); font-weight: 600; font-size: var(--fs-md); }
+  .note h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+  .note p { margin: 0; }
+  .note code { font-size: var(--fs-sm); }
+  .note .url { font: 400 var(--fs-sm)/1.4 var(--mono); color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: var(--r); padding: 0.4rem 0.55rem; overflow-wrap: anywhere; }
+  .note ul { margin: 0; padding-inline-start: 1.1rem; display: grid; gap: 0.3rem; }
+  .note .bad { color: var(--danger); font-weight: 500; }
+  .note .good { color: var(--ok); font-weight: 500; }
+  /* Alignment board: guides at the measured column edges and bar lines of each view. */
+  .guide { position: absolute; pointer-events: none; }
+  .guide.v { inset-block: 0; inline-size: 0; border-inline-start: 1.5px dashed oklch(0.62 0.2 25); }
+  .guide.h { inset-inline: 0; block-size: 0; border-block-start: 1.5px dashed oklch(0.62 0.2 25); }
+  .guide-label { position: absolute; padding: 0.1rem 0.35rem; border-radius: var(--r-sm); background: oklch(0.62 0.2 25); color: white; font: 500 0.6875rem/1.3 var(--mono); }
+</style>
+</head>
+<!-- ?set=before | after | align. "align" also takes guides=x1,x2,x3;y1,y2 measured by the capture script. -->
+<body>
+<div class="flow" id="flow"></div>
+<script>
+(function () {
+  const q = Object.fromEntries(new URLSearchParams(location.search));
+  const set = q.set || 'after';
+  const sets = {
+    before: {
+      title: 'Before: the live v3 workbench (owner’s screenshots)',
+      lede: 'Moving from Try it to Docs to a model changes every column’s width, and the model page leaves the operation behind.',
+      steps: [
+        ['before/b1-try-it.png', 'Try it', ['Columns: sidebar, request, result.', 'Footer: “Locked operations need sign-in” is small grey text at the bottom of the sidebar.', 'The three panes end at different heights: the sidebar footer, the action bar and no bar on the result.'], 'bad'],
+        ['before/b2-docs.png', 'Press D for Docs', ['The right column shrinks and the main column grows: the layout jumps.', 'Every response has an expand arrow, even “no body” ones that open to nothing.'], 'bad'],
+        ['before/b3-model.png', 'Click a type in Docs', ['The sidebar switches to Models on its own and gets wider: a second jump.', 'Breadcrumbs say “Counterparty › Account”: the operation you came from is gone, so there is no way back to Docs except the browser.', 'Some properties show format tags, others show nothing; there are no descriptions.'], 'bad'],
+        ['before/b4-json-collapsed.png', 'Send List counterparties', ['The JSON response opens collapsed: “{ 3 keys · Northwind Logistics GmbH }”. Reading it takes a click per object.'], 'bad'],
+      ],
+    },
+    after: {
+      title: 'After: one reference space, one stable shell',
+      lede: 'The same three columns in every view. Docs and Models are one reference space: a model opened from an operation keeps that operation as its breadcrumb, and Back returns to the exact place.',
+      steps: [
+        ['57-shell-try-it.png', 'Start in Try it', ['Signed out: a notice at the top of the sidebar says how many operations need sign-in, with Sign in.', 'All groups are open; locked rows carry a lock.', 'The three bottom bars share one height and one top line.'], 'good', '#op/PaymentsController.Create'],
+        ['58-shell-docs.png', 'Press D for Docs', ['Nothing moves. The main column becomes the reference page; the right column holds the outline and samples.', 'The sidebar keeps its tab and its selection.'], 'good', '#docs/PaymentsController.Create'],
+        ['60-docs-inline-expand.png', 'Expand a $ref in place', ['In the 201 response, the counterparty’s chevron opens the Counterparty schema inline, with indent guides.', 'Only rows that have something inside get a chevron. Responses without a body have none.'], 'good', '#docs/PaymentsController.Create (unchanged: expanding isn’t navigation)'],
+        ['59-shell-model.png', 'Open the Payment model', ['Clicking the type name opens the model page in the same columns.', 'Breadcrumbs: Payments › Create payment › Payment. One Back control in the head row, “Back to Create payment ⌥←”, returns to Docs at the same scroll position.', 'The sidebar stays on Operations; Create payment is marked as the current context.'], 'good', '#model/Payment?from=docs/PaymentsController.Create'],
+        ['61-model-nested-ref.png', 'Follow approvals to Approval', ['The trail grows: Payments › Create payment › Payment › Approval.', 'Back goes to Payment, then to Docs. Browser back and forward follow the same history; every step is a deep link.'], 'good', '#model/Approval?from=docs/PaymentsController.Create&via=Payment'],
+        ['62-models-tab.png', 'Or pick the Models tab', ['The tab switches only when the user picks it. The breadcrumbs then start at Models.', 'Models are grouped: resources, request bodies, enums and errors. List pages start collapsed.'], 'good', '#model/Payment'],
+      ],
+    },
+  };
+
+  const root = document.getElementById('flow');
+  if (set === 'align') {
+    const [xs, ys] = (q.guides || '').split(';').map(part => (part || '').split(',').filter(Boolean).map(Number));
+    const scale = 960 / 1440;
+    const views = [['57-shell-try-it.png', 'Try it'], ['58-shell-docs.png', 'Docs'], ['59-shell-model.png', 'Model page']];
+    root.innerHTML = `<header><h1>Alignment: the same columns and bars in every view</h1>
+      <p>Guides are measured from the rendered mocks by <code>tools/shoot-mocks.mjs</code>, which fails if any view differs. Column edges at ${xs.map(x => x + ' px').join(', ')}; head line at ${ys[0]} px and bottom-bar line at ${ys[1]} px (1440×900).</p></header>` +
+      views.map(([src, label]) => `<section class="step"><div class="shot"><img src="screens/${src}" alt="${label}">
+        ${xs.map(x => `<span class="guide v" style="inset-inline-start:${x * scale}px"></span>`).join('')}
+        ${ys.map(y => `<span class="guide h" style="inset-block-start:${y * scale}px"></span>`).join('')}
+        <span class="guide-label" style="inset-block-start:${ys[1] * scale + 6}px;inset-inline-start:8px">bars ${ys[1]} px</span>
+      </div><div class="note"><h2>${label}</h2><p>Sidebar ${xs[0]} px · main ${xs[1] - xs[0]} px · right ${1440 - xs[1]} px.</p></div></section>`).join('');
+    return;
+  }
+  const s = sets[set];
+  root.innerHTML = `<header><h1>${s.title}</h1><p>${s.lede}</p></header>` + s.steps.map(([src, title, points, tone, url], i) => `
+    <section class="step">
+      <div class="shot"><img src="screens/${src}" alt="${title}"></div>
+      <div class="note"><span class="n">${i + 1}</span><h2>${title}</h2>${url ? `<div class="url">/bench/${url}</div>` : ''}
+        <ul>${points.map(p => `<li>${p}</li>`).join('')}</ul>
+        <p class="${tone}">${tone === 'bad' ? 'Problem' : 'Solved'}</p></div>
+    </section>`).join('');
+})();
+</script>
+</body>
+</html>

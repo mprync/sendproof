@@ -1,0 +1,462 @@
+/* =====================================================================
+   Test Bench — v5 layer, on top of styles.css and views.css. styles.css stays byte-identical
+   to ui/styles.css (tests/ui/mock-styles.test.mjs). Everything here is scoped to
+   :root[data-v5], set by v5-spec.js when ?v5=1, so the v3 and v4 screens render as before.
+
+   1. Attribute list in the Stripe reading style (Models, Docs, the response Schema view)
+   2. Field anatomy: label row, control, description, one reserved status line
+   3. Select: a field-styled combobox with a joined trigger, and its listbox popover
+   4. Radio group for short enums
+   5. Deprecation notice and sidebar tooltip
+   6. Response viewer: one-line toolbar, schema match, Pretty, Raw, Table, Schema
+   7. Language picker
+   8. Scripts: Japanese and Hebrew faces
+   9. Phones and coarse pointers
+   ===================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600&family=Noto+Sans+Hebrew:wght@400;500;600&display=swap");
+
+/* ---------- 8. Scripts ---------- */
+:root[data-v5]:lang(ja) { --font: "Geist", "Noto Sans JP", "Hiragino Sans", ui-sans-serif, system-ui, sans-serif; --lh: 1.6; }
+:root[data-v5]:lang(he) { --font: "Geist", "Noto Sans Hebrew", ui-sans-serif, system-ui, sans-serif; }
+/* CJK has no italics or letter-spacing; headings keep their weight. */
+:root[data-v5]:lang(ja) :is(h1, .op-title) { letter-spacing: 0; }
+
+/* ---------- 1. Attribute list ---------- */
+[data-v5] .attrs { list-style: none; margin: 0; padding: 0; }
+[data-v5] .attr { padding-block: 0.875rem; border-block-start: 1px solid var(--line); min-inline-size: 0; }
+[data-v5] .attrs > .attr:first-child { border-block-start: 0; }
+[data-v5] .attr.is-hl { background: color-mix(in oklch, var(--accent-soft) 60%, transparent); }
+[data-v5] .attr-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.125rem 0.5rem; min-inline-size: 0; }
+[data-v5] .attr-name { font: 600 var(--fs-md)/1.45 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+[data-v5] .attr-type { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; }
+[data-v5] .attr-type.is-ref { color: var(--accent-text); text-decoration: none; }
+[data-v5] .attr-type.is-ref:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+[data-v5] .attr-head > .attr-type + .attr-type { margin-inline-start: -0.25rem; }
+/* "Required" reads as text, not as a colour: darker and medium, Optional lighter. */
+[data-v5] .attr-req { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+[data-v5] .attr-req.is-req { color: var(--text-2); font-weight: 500; }
+[data-v5] .attr-req.is-undoc { color: var(--warn); font-weight: 500; }
+[data-v5] .attr-note { font-size: var(--fs-xs); color: var(--text-3); }
+[data-v5] .attr-desc { margin: 0.25rem 0 0; font-size: var(--fs-md); line-height: 1.5; color: var(--text-2); max-inline-size: 68ch; }
+[data-v5] .attr-desc.is-quiet { color: var(--text-3); font-size: var(--fs-sm); }
+[data-v5] .attr-desc code { font-size: 0.92em; }
+/* Constraints as quiet inline text: "Max length 42   Pattern ^[A-Z]{2}…". */
+[data-v5] .attr-facts { display: flex; flex-wrap: wrap; gap: 0.125rem 1rem; margin: 0.3125rem 0 0; font-size: var(--fs-sm); color: var(--text-3); }
+[data-v5] .attr-facts code { font-size: var(--fs-xs); color: var(--text-2); }
+[data-v5] .attr-facts .pat { overflow-wrap: anywhere; }
+[data-v5] .attr-enum { margin-block-start: 0.625rem; }
+[data-v5] .attr-enum-h { margin: 0 0 0.375rem; font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+[data-v5] .enum-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3125rem 1rem; margin: 0; align-items: baseline; }
+[data-v5] .enum-dl > div { display: contents; }
+[data-v5] .enum-dl dt code { font-size: var(--fs-sm); color: var(--text); padding: 0.0625rem 0.3125rem; border-radius: var(--r-sm); background: var(--sunken); }
+[data-v5] .enum-dl dd { margin: 0; font-size: var(--fs-md); color: var(--text-2); }
+[data-v5] .enum-dl dd.is-quiet { color: var(--text-3); font-size: var(--fs-sm); }
+[data-v5] .enum-inline { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; }
+[data-v5] .enum-inline code { font-size: var(--fs-sm); color: var(--text-2); }
+[data-v5] .link-btn { margin-block-start: 0.375rem; padding: 0; border: 0; background: none; color: var(--accent-text); font: 500 var(--fs-sm)/1.4 var(--font); cursor: pointer; }
+[data-v5] .link-btn:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+/* "Show child attributes": a small pill; open, it becomes the head of a bordered, inset list. */
+[data-v5] .attr-toggle { display: inline-flex; align-items: center; gap: 0.375rem; margin-block-start: 0.625rem; block-size: 1.625rem; padding-inline: 0.5rem 0.75rem;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--raised); color: var(--text-2); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; }
+[data-v5] .attr-toggle:hover { color: var(--text); background: var(--hover); }
+[data-v5] .attr-toggle .i { inline-size: 0.8125rem; block-size: 0.8125rem; }
+[data-v5] .attr-kids { margin-block-start: 0.625rem; border: 1px solid var(--line); border-radius: var(--r-lg); max-inline-size: 100%; }
+[data-v5] .attr-kids > .attr-toggle { display: flex; inline-size: 100%; margin: 0; block-size: 2.25rem; padding-inline: 0.875rem; border: 0; border-block-end: 1px solid var(--line);
+  border-radius: var(--r-lg) var(--r-lg) 0 0; background: transparent; }
+[data-v5] .attr-kids > .attr-toggle:hover { background: var(--hover); }
+[data-v5] .attr-kids > .attrs > .attr { padding-inline: 1rem; }
+[data-v5] .attr-variants { display: flex; align-items: center; flex-wrap: wrap; gap: 0 0.75rem; padding: 0 1rem; min-block-size: 2.25rem; border-block-end: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text-2); }
+[data-v5] .attr-variants .attr-type { margin-inline-start: auto; }
+[data-v5] .attr-variants code { font-size: var(--fs-xs); }
+[data-v5] .v-tabs { border: 0; min-block-size: 0; padding: 0; gap: 0; }
+[data-v5] .v-tabs .tab { block-size: 2.25rem; padding-inline: 0.625rem; font-size: var(--fs-sm); }
+[data-v5] .v-tabs { align-self: stretch; }
+[data-v5] .v-tabs .tab[aria-selected="true"]::after { inset-block-end: -1px; }
+[data-v5] .attr-top > .attr-variants { padding-inline: 0; }
+/* Presence markers in the response Schema view: at the end of the line, never an indent. */
+[data-v5] .attr-mark { inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; flex: none; align-self: center; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+[data-v5] .attr-mark.is-on { background: var(--ok); box-shadow: none; }
+[data-v5] .attr-mark.is-issue { background: var(--warn); box-shadow: none; border-radius: 2px; rotate: 45deg; inline-size: 0.4375rem; block-size: 0.4375rem; }
+[data-v5] .attr.is-off > .attr-head .attr-name { color: var(--text-3); font-weight: 500; }
+[data-v5] .attr-issue { display: flex; align-items: center; gap: 0.375rem; margin: 0.25rem 0 0; font-size: var(--fs-sm); color: var(--warn); }
+[data-v5] .attr.is-issue, [data-v5] .attr.is-extra { background: color-mix(in oklch, var(--warn-soft) 55%, transparent); }
+[data-v5] .attrs.is-compact .attr { padding-block: 0.5rem; padding-inline: 0.875rem; }
+[data-v5] .attrs.is-compact .attr-toggle { margin-block-start: 0.375rem; }
+[data-v5] .attrs.is-compact .attr-kids { margin-block-end: 0.125rem; }
+[data-v5] .attrs.is-compact .attr-kids > .attrs > .attr { padding-inline: 0.75rem; }
+
+/* The v4 cards around a tree flatten into a section: a quiet head row, then hairlines. */
+[data-v5] .doc-pane .card:has(> .stree, > .attrs, > .attr-top) { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+[data-v5] .doc-pane .card:has(> .stree, > .attrs, > .attr-top) > .card-head { background: transparent; padding-inline: 0; min-block-size: 2.25rem; }
+[data-v5] .doc-pane .card:has(> .stree, > .attrs, > .attr-top) > .tabs { padding-inline: 0 !important; }
+[data-v5] .doc-pane .resp-item .attrs > .attr { padding-inline: 0.875rem; }
+[data-v5] .doc-pane .resp-item .attrs .attr-kids > .attrs > .attr { padding-inline: 1rem; }
+[data-v5] .attr-enum.is-page { margin-block-start: 0.25rem; }
+[data-v5] .enum-dl.is-page { gap: 0.625rem 1.25rem; padding-block-start: 0.875rem; border-block-start: 1px solid var(--line); }
+
+/* ---------- 2. Field anatomy ---------- */
+/* Fields sit on a subgrid, so in two columns the label rows, controls, descriptions and
+   status lines line up across the pair whatever each description's length. */
+[data-v5] .fields.f5s { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 1.125rem; row-gap: 0; }
+[data-v5] .f5 { grid-column: 1 / -1; grid-row: span 4; display: grid; grid-template-rows: subgrid; min-inline-size: 0; padding-block-end: 0.75rem; }
+[data-v5] .f5.half { grid-column: auto; }
+[data-v5] .f5-label { display: flex; align-items: center; gap: 0.375rem; min-inline-size: 0; min-block-size: 1.5rem; margin-block-end: 0.375rem; font-size: var(--fs-base); font-weight: 500; }
+[data-v5] .f5-label .opt { font-weight: 400; color: var(--text-3); font-size: var(--fs-sm); }
+[data-v5] .f5-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .f5-end { margin-inline-start: auto; display: flex; align-items: center; gap: 0.625rem; flex: none; }
+[data-v5] .f5-type { font: 400 var(--fs-sm)/1 var(--mono); color: var(--text-3); white-space: nowrap; direction: ltr; }
+[data-v5] .f5-clear { block-size: 1.5rem; padding-inline: 0.3125rem; margin-inline: -0.3125rem 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--accent-text); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; }
+[data-v5] .f5-clear:hover { background: var(--accent-soft); }
+[data-v5] .f5-desc { margin: 0.4375rem 0 0; font-size: var(--fs-md); line-height: 1.45; color: var(--text-2); }
+[data-v5] .f5-desc:empty { margin: 0; }
+[data-v5] .f5-desc code { font-size: 0.92em; }
+/* One reserved line: constraints, what gets sent, or the error. It never pushes the next field. */
+[data-v5] .f5-status { display: flex; align-items: center; gap: 0.375rem; margin: 0.125rem 0 0; min-block-size: var(--assist-h); font-size: var(--fs-sm); line-height: 1.3; color: var(--text-3); min-inline-size: 0; }
+[data-v5] .f5-desc:empty + .f5-status { margin-block-start: 0.375rem; }
+[data-v5] .f5-status .msg { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .f5-status code { font-size: var(--fs-xs); color: var(--text-2); }
+[data-v5] .f5-status .count { margin-inline-start: auto; font: 400 var(--fs-xs)/1 var(--mono); font-variant-numeric: tabular-nums; }
+[data-v5] .f5-status.is-error { color: var(--danger); font-weight: 500; }
+[data-v5] .f5-status.is-error code { color: inherit; }
+[data-v5] .f5-status.is-generated { color: var(--accent-text); }
+[data-v5] .f5-status .undo { margin-inline-start: auto; border: 0; background: none; padding: 0 0.15rem; color: var(--accent-text); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; }
+[data-v5] .control.is-hover { border-color: color-mix(in oklch, var(--line-strong) 60%, var(--text-3)); }
+[data-v5] .control.is-disabled, [data-v5] .control:has(input:disabled) { background: var(--sunken); box-shadow: none; border-color: var(--line); cursor: not-allowed; }
+[data-v5] .control.is-disabled > *, [data-v5] .control:has(input:disabled) > * { opacity: 0.6; }
+[data-v5] .f5.is-disabled .f5-label { color: var(--text-2); }
+[data-v5] .f5.is-disabled .info-btn { opacity: 0.6; }
+
+/* ---------- 3. Select ---------- */
+/* Looks like an input. The trigger is part of the control: a joined segment behind a divider. */
+[data-v5] .sel5 { padding-inline-end: 0; gap: 0.375rem; cursor: pointer; }
+[data-v5] .sel5-value { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .sel5 .placeholder { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .sel5 .picked .main { overflow: hidden; text-overflow: ellipsis; }
+[data-v5] .sel5-trigger { align-self: stretch; display: grid; place-items: center; inline-size: calc(var(--control-h) - 0.125rem); flex: none; margin-inline-start: 0.125rem;
+  border-inline-start: 1px solid var(--line); background: var(--panel); color: var(--text-2);
+  border-start-end-radius: calc(var(--r) - 1px); border-end-end-radius: calc(var(--r) - 1px); transition: background 120ms var(--ease); }
+[data-v5] .sel5:hover .sel5-trigger, [data-v5] .sel5.is-hover .sel5-trigger { background: var(--hover); color: var(--text); }
+[data-v5] .sel5.is-open .sel5-trigger { background: var(--selected); color: var(--text); }
+[data-v5] .sel5.is-open .sel5-trigger .i { rotate: 180deg; }
+[data-v5] .sel5.is-invalid .sel5-trigger { border-inline-start-color: color-mix(in oklch, var(--danger-line) 50%, var(--line)); background: transparent; }
+[data-v5] .sel5.is-disabled .sel5-trigger { background: transparent; }
+[data-v5] .money5 > .sel5-seg { gap: 0.375rem; background: var(--panel); color: var(--text); border-start-end-radius: calc(var(--r) - 1px); border-end-end-radius: calc(var(--r) - 1px); }
+[data-v5] .money5 > .sel5-seg:hover { background: var(--hover); }
+[data-v5] .money5 > .sel5-seg .i { color: var(--text-2); }
+[data-v5] .control .mono-val { font: 400 var(--fs-base)/1 var(--mono); }
+
+/* The listbox popover. Active (keyboard) row is tinted; the chosen row has a check. */
+[data-v5] .lb5 { display: flex; flex-direction: column; min-inline-size: 16rem; max-inline-size: min(32rem, calc(100vw - 1.5rem)); }
+[data-v5] .lb5-search { display: flex; align-items: center; gap: 0.5rem; block-size: 2.5rem; padding-inline: 0.75rem; border-block-end: 1px solid var(--line); color: var(--text-3); flex: none; }
+[data-v5] .lb5-search input { flex: 1; min-inline-size: 0; border: 0; outline: 0; background: none; padding: 0; font-size: var(--fs-base); color: var(--text); }
+[data-v5] .lb5-search input::placeholder { color: var(--text-3); }
+[data-v5] .lb5-count { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; }
+[data-v5] .lb5-list { list-style: none; margin: 0; padding: 0.25rem; overflow: auto; max-block-size: 19rem; }
+[data-v5] .lb5-opt { display: flex; align-items: flex-start; gap: 0.5rem; min-block-size: 2rem; padding: 0.4375rem 0.625rem 0.4375rem 0.5rem; border-radius: var(--r); cursor: pointer; }
+[data-v5] .lb5-opt.is-active { background: var(--hover); }
+[data-v5] .lb5-opt.is-unset { margin-block-end: 0.25rem; position: relative; }
+[data-v5] .lb5-opt.is-unset::after { content: ""; position: absolute; inset-inline: 0.5rem; inset-block-end: -0.1875rem; block-size: 1px; background: var(--line); }
+[data-v5] .lb5-check { display: flex; inline-size: var(--icon-sm); block-size: 1.3em; align-items: center; flex: none; color: var(--accent-text); }
+[data-v5] .lb5-check .i { stroke-width: 2.2; }
+[data-v5] .lb5-text { display: grid; gap: 0.0625rem; min-inline-size: 0; flex: 1; line-height: 1.35; }
+[data-v5] .lb5-text .v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .lb5-text .v.mono { font: 400 var(--fs-md)/1.45 var(--mono); }
+[data-v5] .lb5-opt[aria-selected="true"] .v { font-weight: 500; }
+[data-v5] .lb5-opt.is-unset .v { color: var(--text-2); }
+[data-v5] .lb5-text .d { font-size: var(--fs-sm); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v5] .lb5 mark { background: none; color: var(--accent-text); font-weight: 600; }
+[data-v5] .lb5-empty { padding: 0.875rem 0.75rem; color: var(--text-3); font-size: var(--fs-md); }
+[data-v5] .lb5 .pop-foot { gap: 0.875rem; padding: 0.5rem 0.75rem; flex-wrap: wrap; row-gap: 0.25rem; }
+[data-v5] .lb5 .pop-foot .kbd { margin-inline-end: 0.125rem; }
+[data-v5] .lb5 .typed code { color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 0.25rem; font-size: var(--fs-xs); }
+[data-v5] .lb5-group { padding: 0.375rem 0.625rem 0.25rem; font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); display: flex; gap: 0.375rem; }
+[data-v5] .lb5-sep { block-size: 1px; background: var(--line); margin: 0.25rem 0.5rem; }
+/* Lookup rows: the record's name, its detail in mono, the currency at the end. */
+[data-v5] .lb5-opt .chip-ico { margin-block-start: 0.0625rem; }
+[data-v5] .lb5-opt .end { margin-inline-start: auto; display: flex; align-items: center; gap: 0.375rem; flex: none; font: 400 var(--fs-xs)/1.3 var(--mono); color: var(--text-3); padding-block-start: 0.1875rem; }
+[data-v5] .lb5-opt .end .tag { font-family: var(--font); }
+[data-v5] .lb5-text .d.mono { font-family: var(--mono); font-size: var(--fs-xs); direction: ltr; unicode-bidi: isolate; text-align: start; }
+[data-v5] .lb5-opt .lead-ico { display: flex; color: var(--text-3); padding-block-start: 0.0625rem; }
+[data-v5] .lb5-src { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-block-start: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm); color: var(--text-3); min-inline-size: 0; }
+[data-v5] .lb5-src > span { flex: 1; min-inline-size: 0; line-height: 1.4; overflow-wrap: anywhere; }
+[data-v5] .lb5-src code { font-size: var(--fs-xs); color: var(--text-2); }
+[data-v5] .lb5-state { display: grid; gap: 0.375rem; justify-items: start; padding: 0.875rem 0.75rem 0.75rem; font-size: var(--fs-md); color: var(--text-2); }
+[data-v5] .lb5-state strong { color: var(--text); font-weight: 500; display: flex; align-items: center; gap: 0.4rem; }
+[data-v5] .lb5-state p { margin: 0; color: var(--text-3); font-size: var(--fs-sm); }
+[data-v5] .lb5-state.is-error strong .i { color: var(--danger); }
+[data-v5] .lb5-state .btn { margin-block-start: 0.25rem; }
+[data-v5] .lb5-sk { display: flex; align-items: center; gap: 0.5rem; min-block-size: 2.75rem; padding-inline: 1.5rem 0.625rem; }
+[data-v5] .lb5-sk .sk-box { inline-size: 1.5rem; block-size: 1.5rem; border-radius: var(--r-sm); flex: none; }
+[data-v5] .lb5-sk .stack { display: grid; gap: 0.375rem; flex: 1; }
+
+/* ---------- 4. Radio group (short enums) ---------- */
+/* Separate options with a radio dot: the chosen one has a filled dot, an accent border and a
+   tint. It never relies on a subtle raised background, and it works in both themes. */
+[data-v5] .rg5 { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+[data-v5] .rg5-opt { display: inline-flex; align-items: center; gap: 0.5rem; block-size: var(--control-h); padding-inline: 0.625rem 0.75rem; border: 1px solid var(--line-strong); border-radius: var(--r);
+  background: var(--raised); box-shadow: var(--shadow-sm); color: var(--text-2); font-size: var(--fs-base); white-space: nowrap; cursor: pointer; transition: border-color 120ms var(--ease), background 120ms var(--ease); }
+[data-v5] .rg5-opt:hover, [data-v5] .rg5-opt.is-hover { background: var(--hover); color: var(--text); border-color: color-mix(in oklch, var(--line-strong) 60%, var(--text-3)); }
+[data-v5] .rg5-dot { inline-size: 1rem; block-size: 1rem; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px var(--text-3); background: var(--raised); }
+[data-v5] .rg5-opt[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 500; box-shadow: inset 0 0 0 1px var(--accent); }
+[data-v5] .rg5-opt[aria-checked="true"] .rg5-dot { box-shadow: inset 0 0 0 0.3125rem var(--accent); background: var(--on-accent); }
+[data-v5] .rg5-opt.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+[data-v5] .rg5.is-invalid .rg5-opt { border-color: var(--danger-line); background: color-mix(in oklch, var(--danger-soft) 45%, var(--raised)); }
+[data-v5] .rg5.is-disabled .rg5-opt { background: var(--sunken); box-shadow: none; border-color: var(--line); color: var(--text-3); cursor: not-allowed; }
+[data-v5] .rg5.is-disabled .rg5-opt[aria-checked="true"] { box-shadow: none; border-color: var(--line-strong); }
+[data-v5] .rg5.is-disabled .rg5-opt[aria-checked="true"] .rg5-dot { box-shadow: inset 0 0 0 0.3125rem var(--text-3); }
+
+/* ---------- 5. Deprecation ---------- */
+[data-v5] .dep5 { display: grid; gap: 0.4375rem; margin-block-start: 0.875rem; padding: 0.75rem 0.875rem 0.8125rem; border-radius: var(--r-lg); background: var(--warn-soft);
+  border: 1px solid color-mix(in oklch, var(--warn) 24%, transparent); font-size: var(--fs-md); color: var(--text); }
+[data-v5] .dep5 > :not(.dep5-head) { margin-inline-start: calc(var(--icon-sm) + 0.5rem); }
+[data-v5] .dep5-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; }
+[data-v5] .dep5-head > .i { color: var(--warn); }
+[data-v5] .dep5-head strong { font-weight: 600; }
+[data-v5] .dep5-sunset { color: var(--text-2); }
+[data-v5] .dep5-sunset::before { content: "·"; margin-inline-end: 0.5rem; color: var(--text-3); }
+[data-v5] .dep5-lede { margin: 0; color: var(--text-2); }
+[data-v5] .dep5-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3125rem; }
+[data-v5] .dep5-list li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.125rem 0.625rem; }
+[data-v5] .dep5-op { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text); font-weight: 500; text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--text-3) 60%, transparent); text-underline-offset: 0.22em; }
+[data-v5] .dep5-op:hover { text-decoration-color: currentColor; }
+[data-v5] .dep5-op .method { min-inline-size: 2.5rem; align-self: center; }
+[data-v5] .dep5-why { color: var(--text-2); }
+[data-v5] .dep5-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem 0.75rem; margin-block-start: 0.25rem; }
+[data-v5] .dep5-actions .btn { background: var(--raised); }
+[data-v5] .dep5-carry { font-size: var(--fs-sm); color: var(--text-2); }
+[data-v5] .dep5-carry code { font-size: var(--fs-xs); }
+[data-v5] .doc-pane .dep5 { margin-block-start: 1rem; }
+[data-v5] .dep-tip { max-inline-size: 20rem; gap: 0.25rem; padding: 0.5rem 0.625rem; }
+[data-v5] .dep-tip .row { gap: 0.4rem; }
+[data-v5] .dep-tip .row .i { color: oklch(0.85 0.12 80); }
+[data-v5] .dep-tip .dim { color: oklch(0.8 0.008 268); }
+[data-v5] .nav-item.is-hover { background: var(--hover); color: var(--text); }
+
+/* ---------- 6. Response viewer ---------- */
+/* The schema match lives in the status line: a small, quiet toggletip button. */
+[data-v5] .match5 { display: inline-flex; align-items: center; gap: 0.3125rem; block-size: 1.5rem; padding-inline: 0.3125rem; margin-inline-start: -0.125rem; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--text-3); font: 400 var(--fs-sm)/1 var(--font); white-space: nowrap; cursor: pointer; }
+[data-v5] .match5 .i { color: var(--ok); inline-size: 0.875rem; block-size: 0.875rem; }
+[data-v5] .match5 span { text-decoration: underline dotted; text-decoration-color: color-mix(in oklch, var(--text-3) 70%, transparent); text-underline-offset: 0.28em; }
+[data-v5] .match5:hover, [data-v5] .match5[aria-expanded="true"] { background: var(--hover); color: var(--text-2); }
+[data-v5] .match5.is-fail { color: var(--warn); font-weight: 500; }
+[data-v5] .match5.is-fail .i { color: var(--warn); }
+[data-v5] .resp-head .metric + .match5::before { content: "·"; margin-inline-end: 0.3125rem; color: var(--text-3); font-weight: 400; }
+
+/* One toolbar line at every width: views at the start, icon actions at the end. */
+[data-v5] .v5-viewer { container: viewer / inline-size; overflow: hidden; }
+[data-v5] .vb5 { min-block-size: 2.5rem; flex-wrap: nowrap; gap: 0.125rem; padding-inline: 0.375rem; }
+[data-v5] .segmented.sm { padding: 0.125rem; flex: none; }
+[data-v5] .segmented.sm button { block-size: 1.5rem; padding-inline: 0.5625rem; font-size: var(--fs-sm); }
+[data-v5] .vb5 .btn { flex: none; }
+@container viewer (max-width: 26rem) {
+  [data-v5] .vb5-lbl .lbl { display: none; }
+  [data-v5] .vb5-lbl { inline-size: var(--btn-xs-h); padding: 0; justify-content: center; }
+}
+[data-v5] .vb5-body { overflow: auto; border-end-start-radius: var(--r-lg); border-end-end-radius: var(--r-lg); }
+/* Pretty: no wrapping. Lines scroll sideways; the line numbers and fold column stay put. */
+[data-v5] .vb5-body .code-view { inline-size: max-content; min-inline-size: 100%; }
+[data-v5] .vb5-body .ln .src { overflow: visible; text-overflow: clip; padding-inline-end: 1.25rem; }
+[data-v5] .vb5-body .ln .no, [data-v5] .vb5-body .ln .fold { position: sticky; z-index: 1; background: var(--raised); align-self: stretch; display: flex; align-items: center; }
+[data-v5] .vb5-body .ln .no { inset-inline-start: 0; justify-content: flex-end; }
+[data-v5] .vb5-body .ln .fold { inset-inline-start: 2.75rem; }
+[data-v5] .ln.is-issue, [data-v5] .ln.is-issue .no, [data-v5] .ln.is-issue .fold { background: color-mix(in oklch, var(--warn-soft) 80%, var(--raised)); }
+[data-v5] .ln.is-issue .no { color: var(--warn); font-weight: 600; }
+[data-v5] .ln-note { display: inline-flex; align-items: center; gap: 0.3rem; margin-inline-start: 1.25rem; font: 500 var(--fs-xs)/1 var(--font); color: var(--warn); vertical-align: 1px; }
+[data-v5] .ln-note .i { inline-size: 0.8125rem; block-size: 0.8125rem; }
+/* Raw: exactly the bytes received, monospace, one line unless Wrap is on. */
+[data-v5] .raw5 { display: grid; grid-template-columns: 2.75rem max-content; padding-block: 0.5rem; font: 400 var(--fs-md)/1.7 var(--mono); }
+[data-v5] .raw5 .no { position: sticky; inset-inline-start: 0; background: var(--raised); text-align: end; padding-inline-end: 0.6rem; color: var(--text-3); font-size: var(--fs-xs); }
+[data-v5] .raw5 pre { margin: 0; padding-inline: 0.375rem 1.25rem; white-space: pre; font: inherit; color: var(--text); }
+[data-v5] .raw5.is-wrap { grid-template-columns: 2.75rem minmax(0, 1fr); }
+[data-v5] .raw5.is-wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Table: a real table. Sticky header and row numbers, aligned numbers, sideways scroll. */
+[data-v5] .vb5-body.is-table { overflow: visible; }
+[data-v5] .tbl5 { overflow: auto; max-block-size: 32rem; }
+[data-v5] .tbl5 table { border-collapse: separate; border-spacing: 0; min-inline-size: 100%; font: 400 var(--fs-sm)/1.4 var(--mono); }
+[data-v5] .tbl5 th, [data-v5] .tbl5 td { padding: 0.4375rem 0.75rem; text-align: start; white-space: nowrap; border-block-end: 1px solid var(--line); color: var(--text); }
+[data-v5] .tbl5 thead th { position: sticky; inset-block-start: 0; z-index: 2; background: var(--panel); font-weight: 500; color: var(--text-2); }
+[data-v5] .tbl5 .idx { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--raised); color: var(--text-3); font-size: var(--fs-xs); text-align: end; padding-inline: 0.5rem 0.625rem; border-inline-end: 1px solid var(--line); min-inline-size: 2.5rem; }
+[data-v5] .tbl5 thead .idx { z-index: 3; background: var(--panel); }
+[data-v5] .tbl5 .num { text-align: end; font-variant-numeric: tabular-nums; }
+[data-v5] .tbl5 tbody tr:hover > * { background: var(--hover); }
+[data-v5] .tbl5 .null { color: var(--text-3); }
+[data-v5] .tbl5 .obj { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--sunken); color: var(--text-2); font: 400 var(--fs-xs)/1 var(--font); padding: 0.1875rem 0.375rem; cursor: pointer; }
+[data-v5] .tbl5.is-kv tbody th { color: var(--text-2); font-weight: 400; inline-size: 1%; }
+[data-v5] .tbl5-foot { display: flex; align-items: center; gap: 0.75rem; margin: 0; padding: 0.5rem 0.875rem; border-block-start: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; }
+[data-v5] .tbl5-foot code { font-size: var(--fs-xs); }
+/* Schema: a one-line legend, then the attribute list with markers at the line end. */
+[data-v5] .legend5 { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 0.875rem; border-block-end: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; }
+[data-v5] .legend5 > span { display: inline-flex; align-items: center; gap: 0.4375rem; }
+[data-v5] .legend5 .type-link { display: inline-flex; align-items: center; gap: 0.25rem; flex: none; }
+[data-v5] .vb5-body.is-schema { overflow: visible; }
+[data-v5] .match-tip { inline-size: 24rem; }
+[data-v5] .match-tip h3 .i { color: var(--ok); }
+[data-v5] .match-tip.is-fail h3 .i { color: var(--warn); }
+[data-v5] .issue-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line); border-radius: var(--r); }
+[data-v5] .issue-list li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.75rem; padding: 0.4375rem 0.625rem; border-block-start: 1px solid var(--line); font-size: var(--fs-sm); }
+[data-v5] .issue-list li:first-child { border-block-start: 0; }
+[data-v5] .issue-list code { font-size: var(--fs-xs); color: var(--text); }
+[data-v5] .tt-foot { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 1rem; border-block-start: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm); color: var(--text-3); border-end-start-radius: var(--r-lg); border-end-end-radius: var(--r-lg); }
+
+/* ---------- 7. Language picker ---------- */
+[data-v5] .lang5 { inline-size: 25rem; }
+[data-v5] .lang5 .lb5-list { max-block-size: 22rem; }
+[data-v5] .lang5 .lb5-opt { align-items: center; }
+[data-v5] .lang5 .lb5-check { block-size: auto; }
+[data-v5] .lang5 .native { color: var(--text); font-size: var(--fs-base); }
+[data-v5] .lang5 .lb5-opt .end { font-family: var(--font); padding: 0; gap: 0.5rem; }
+[data-v5] .lang5 .sample { font: 400 var(--fs-xs)/1 var(--mono); color: var(--text-3); direction: ltr; unicode-bidi: isolate; }
+[data-v5] .lang5 .rtl-tag { font: 500 0.625rem/1 var(--font); letter-spacing: 0.04em; color: var(--text-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0.1875rem 0.25rem; }
+[data-v5] .lang-preview { display: grid; gap: 0.5rem; padding: 0.75rem 0.875rem 0.875rem; border-block-start: 1px solid var(--line); background: var(--panel); }
+[data-v5] .lang-preview .lp-h { display: flex; align-items: center; gap: 0.5rem; font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); }
+[data-v5] .lang-preview .lp-box { border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); padding: 0.625rem 0.75rem 0.25rem; }
+[data-v5] .lang-preview .f5 { padding-block-end: 0.25rem; grid-template-rows: auto auto auto auto; }
+[data-v5] .lang-btn { inline-size: 100%; }
+[data-v5] .lang-btn .sel5-value { display: flex; gap: 0.5rem; align-items: baseline; }
+[data-v5] .lang-btn .sub { color: var(--text-3); font-size: var(--fs-sm); }
+
+/* ---------- 9. Phones and coarse pointers ---------- */
+@media (max-width: 56rem) {
+  [data-v5] .fields.f5s { grid-template-columns: minmax(0, 1fr); }
+  [data-v5] .f5.half { grid-column: 1 / -1; }
+  [data-v5] .f5-status { block-size: auto; }
+  [data-v5] .f5-status .msg { white-space: normal; }
+  [data-v5] .f5-label { flex-wrap: wrap; row-gap: 0.125rem; }
+  [data-v5] .f5-clear { block-size: 2.75rem; margin-block: -0.625rem; padding-inline: 0.625rem; margin-inline-end: -0.625rem; }
+  [data-v5] .f5-end { gap: 0.375rem; }
+  [data-v5] .rg5-opt { flex: 1 1 auto; justify-content: flex-start; }
+  [data-v5] .sel5-trigger { inline-size: 2.75rem; }
+  [data-v5] .lb5 { max-inline-size: none; }
+  [data-v5] .lb5-opt { min-block-size: 2.75rem; padding-block: 0.5rem; }
+  [data-v5] .lb5-text .d { white-space: normal; }
+  /* Touch has no keys to advertise: the hint footer goes; Esc becomes the scrim tap. */
+  [data-v5] .lb5 .pop-foot { display: none; }
+  [data-v5] .attr-toggle { block-size: 2.75rem; padding-inline: 0.75rem 1rem; }
+  [data-v5] .attr-kids > .attr-toggle { block-size: 2.75rem; }
+  [data-v5] .attr-kids > .attrs > .attr { padding-inline: 0.75rem; }
+  [data-v5] .enum-dl { grid-template-columns: minmax(0, 1fr); row-gap: 0.125rem; }
+  [data-v5] .enum-dl dd { margin-block-end: 0.375rem; }
+  [data-v5] .dep5 > :not(.dep5-head) { margin-inline-start: 0; }
+  [data-v5] .dep5-actions .btn { min-block-size: 2.75rem; }
+  [data-v5] .match5 { block-size: 2.75rem; margin-block: -0.5rem; }
+  [data-v5] .vb5 .btn-xs { inline-size: 2.75rem; block-size: 2.75rem; }
+  [data-v5] .segmented.sm button { block-size: 2.375rem; padding-inline: 0.5rem; }
+  [data-v5] .legend5 { gap: 0.75rem; }
+}
+
+/* ---------- Boards (controls.html) ---------- */
+[data-v5] .board5 { gap: 1rem; }
+[data-v5] .board5 .board-head code { font-size: 0.9em; }
+[data-v5] .cb5 { display: grid; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); overflow: hidden; }
+[data-v5] .cb5-row { display: grid; grid-template-columns: 8.5rem repeat(4, minmax(0, 1fr)); border-block-start: 1px solid var(--line); }
+[data-v5] .cb5-row:first-child { border-block-start: 0; }
+[data-v5] .cb5-h { background: var(--panel); font-size: var(--fs-sm); color: var(--text-3); }
+[data-v5] .cb5-h > span { padding: 0.5rem 1rem; }
+[data-v5] .cb5-h code { font-size: var(--fs-xs); }
+[data-v5] .cb5-state { display: grid; gap: 0.25rem; align-content: start; padding: 1rem; background: var(--panel); border-inline-end: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text-3); }
+[data-v5] .cb5-state strong { color: var(--text); font-size: var(--fs-md); font-weight: 500; }
+[data-v5] .cb5-cell { padding: 0.875rem 0.75rem 0.25rem; min-inline-size: 0; display: grid; }
+[data-v5] .cb5-cell + .cb5-cell { border-inline-start: 1px solid var(--line); }
+[data-v5] .cb5-cell > .f5 { grid-row: auto; grid-template-rows: auto auto auto auto; }
+[data-v5] .cb5-h2 { margin: 0.75rem 0 0; font-size: var(--fs-lg); font-weight: 600; }
+[data-v5] .cb5-open { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+[data-v5] .cb5-open.is-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-v5] .board5 figure { margin: 0; }
+[data-v5] .cb5-frame .frame-cap { flex-wrap: wrap; }
+[data-v5] .cb5-pad { padding: 1rem 1.25rem 1.25rem; background: var(--bg); display: grid; }
+[data-v5] .cb5-pad > .f5 { grid-row: auto; grid-template-rows: auto auto auto auto; padding-block-end: 0; }
+[data-v5] .cb5-pad > .pop { position: static; margin-block-start: -1.5rem; inline-size: auto; max-inline-size: none; z-index: 1; }
+[data-v5] .an5 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 1rem; align-items: start; }
+[data-v5] .an5-map { grid-template-columns: minmax(0, 1fr) 15rem; grid-template-rows: repeat(4, auto); column-gap: 1.25rem; }
+[data-v5] .an5-map > .an5-field { grid-column: 1; grid-row: 1 / span 4; grid-template-rows: subgrid; padding-block-end: 0; }
+[data-v5] .an5-field > * { outline: 1px dashed color-mix(in oklch, var(--accent) 45%, transparent); outline-offset: 1px; }
+[data-v5] .an5-note { grid-column: 2; display: grid; align-content: center; gap: 0.125rem; padding-inline-start: 0.75rem; border-inline-start: 2px solid color-mix(in oklch, var(--accent) 45%, transparent); font-size: var(--fs-sm); color: var(--text-3); line-height: 1.35; margin-block: 0.25rem; }
+[data-v5] .an5-note strong { color: var(--text); font-weight: 500; font-size: var(--fs-md); }
+[data-v5] .an5-form { max-inline-size: 46rem; }
+/* Trailing text (a weekday) keeps its width when the wand appears beside it. */
+[data-v5] .control .trail { flex: none; overflow: visible; }
+[data-v5] .control:has(.trail) input { flex: 1 1 auto; inline-size: 100%; }
+/* An operationId named in a description becomes a link with the operation's method and name. */
+[data-v5] .op-ref { display: inline-flex; align-items: baseline; gap: 0.3rem; color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--text-3) 55%, transparent); text-underline-offset: 0.22em; white-space: nowrap; }
+[data-v5] .op-ref .method { min-inline-size: 0; block-size: 1.0625rem; font-size: 0.59375rem; padding-inline: 0.25rem; align-self: center; text-decoration: none; }
+[data-v5] .op-ref:hover { text-decoration-color: currentColor; }
+/* RTL: spec text keeps its own direction (punctuation, word order) but lines up with the
+   UI's start edge, so a description sits under its attribute name instead of across the row. */
+:root[data-v5][dir="rtl"] :is(p, dd, li, .lb5-text > span)[lang="en"], :root[data-v5][dir="rtl"] [lang="en"] :is(p, li) { text-align: right; }
+[data-v5] .tbl5 .lead { position: sticky; inset-inline-start: 2.5rem; z-index: 1; background: var(--raised); box-shadow: inset -1px 0 0 var(--line); }
+[dir="rtl"][data-v5] .tbl5 .lead { box-shadow: inset 1px 0 0 var(--line); }
+[data-v5] .tbl5 thead .lead { z-index: 3; background: var(--panel); }
+[data-v5] .tbl5 .idx { inline-size: 2.5rem; max-inline-size: 2.5rem; }
+:root[data-v5][dir="rtl"] .sel5-value, :root[data-v5][dir="rtl"] .picked .main { text-align: right; }
+@media (max-width: 56rem) {
+  /* Status, code, metrics, then the schema match; Copy as cURL ends the second line. */
+  [data-v5] .resp-head > .metric { order: 0; }
+  [data-v5] .resp-head > .copy { order: 1; margin-inline-start: auto; }
+}
+[data-v5] .match5 .short { display: none; }
+/* A narrow result pane: the match keeps its icon and a count, the size drops, nothing wraps. */
+@container result (max-width: 34rem) {
+  [data-v5] .match5 .full { display: none; }
+  [data-v5] .match5 .short { display: inline; }
+}
+@container result (max-width: 28rem) {
+  [data-v5] .resp-head .metric .size { display: none; }
+}
+[data-v5] .lang5 .pop-foot { font-size: var(--fs-xs); }
+[data-v5] .lang5 .pop-foot { flex-wrap: nowrap; }
+[data-v5] .lang5 .pop-foot > span:first-child { min-inline-size: 0; }
+
+/* ---------- Review fixes (v5.1) ---------- */
+/* Lookup footer: one line. The query string truncates first; the full request is its title. */
+[data-v5] .lb5-src { flex-wrap: nowrap; white-space: nowrap; gap: 0.4375rem; }
+[data-v5] .lb5-src > .src-q { display: inline-flex; min-inline-size: 0; flex: 0 1 auto; overflow: hidden; font-size: var(--fs-xs); color: var(--text-2); }
+[data-v5] .lb5-src > .src-q > span:first-child { flex: none; }
+[data-v5] .lb5-src > .src-q > .qs { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+[data-v5] .lb5-src > .meta { flex: none; }
+[data-v5] .lb5-src > .spacer { flex: 1; min-inline-size: 0.25rem; }
+[data-v5] .lb5-src > .btn { flex: none; margin-block: -0.25rem; }
+
+/* Table: an edge fade while columns remain off to the side, a shadow on the sticky name
+   column once scrolled, and a footer whose text is one flex item (no gaps around code). */
+[data-v5] .tbl5-wrap { position: relative; }
+[data-v5] .tbl5-wrap::after { content: ""; position: absolute; inset-block: 0; inset-inline-end: 0; inline-size: 3rem; pointer-events: none; opacity: 0; transition: opacity 150ms var(--ease);
+  background: linear-gradient(to right, transparent, var(--raised)); }
+[dir="rtl"][data-v5] .tbl5-wrap::after { background: linear-gradient(to left, transparent, var(--raised)); }
+[data-v5] .tbl5-wrap.more-end::after { opacity: 1; }
+[data-v5] .tbl5-wrap.is-scrolled .lead { box-shadow: inset -1px 0 0 var(--line), 6px 0 8px -6px oklch(0.2 0.02 268 / 0.25); }
+[dir="rtl"][data-v5] .tbl5-wrap.is-scrolled .lead { box-shadow: inset 1px 0 0 var(--line), -6px 0 8px -6px oklch(0.2 0.02 268 / 0.25); }
+[data-theme="dark"][data-v5] .tbl5-wrap.is-scrolled .lead { box-shadow: inset -1px 0 0 var(--line), 6px 0 10px -6px oklch(0 0 0 / 0.6); }
+[data-v5] .tbl5-foot > span:first-child { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+[data-v5] .tbl5-foot code { font-size: var(--fs-xs); color: var(--text-2); padding: 0; }
+[data-v5] .tbl5-more { display: inline-flex; align-items: center; gap: 0.3125rem; flex: none; block-size: 1.5rem; padding-inline: 0.5rem 0.375rem; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--raised); color: var(--text-2); font: 500 var(--fs-xs)/1 var(--font); cursor: pointer; }
+[data-v5] .tbl5-more:hover { color: var(--text); background: var(--hover); }
+[data-v5] .tbl5-more[hidden] { display: none; }
+
+/* Bottom sheet: selects, lookups and the language picker on a phone. */
+[data-v5] .sheet-head { display: none; }
+@media (max-width: 56rem) {
+  [data-v5] .sheet-scrim { position: fixed; inset: 0; z-index: 65; background: oklch(0.2 0.02 268 / 0.4); }
+  [data-theme="dark"][data-v5] .sheet-scrim { background: oklch(0 0 0 / 0.55); }
+  [data-v5] .lb5.is-sheet { position: fixed !important; inset: auto 0 0 0 !important; inline-size: auto !important; max-inline-size: none; max-block-size: min(78vh, 44rem); z-index: 70;
+    border-radius: 0.875rem 0.875rem 0 0; box-shadow: 0 -12px 40px -12px oklch(0.2 0.02 268 / 0.35); padding-block-end: max(env(safe-area-inset-bottom), 0.5rem); }
+  [data-v5] .lb5.is-sheet .sheet-head { display: flex; align-items: flex-start; gap: 0.5rem; position: relative; padding: 1.125rem 0.375rem 0.5rem 1rem; border-block-end: 1px solid var(--line); flex: none; }
+  [dir="rtl"][data-v5] .lb5.is-sheet .sheet-head { padding: 1.125rem 1rem 0.5rem 0.375rem; }
+  [data-v5] .lb5.is-sheet .grab { position: absolute; inset-block-start: 0.4375rem; inset-inline-start: 50%; translate: -50% 0; inline-size: 2.25rem; block-size: 0.25rem; border-radius: 999px; background: var(--line-strong); }
+  [dir="rtl"][data-v5] .lb5.is-sheet .grab { translate: 50% 0; }
+  [data-v5] .lb5.is-sheet .sheet-title { flex: 1; min-inline-size: 0; display: grid; gap: 0.125rem; padding-block-start: 0.375rem; }
+  [data-v5] .lb5.is-sheet .sheet-title strong { font-size: var(--fs-lg); font-weight: 600; }
+  [data-v5] .lb5.is-sheet .sheet-title span { font-size: var(--fs-sm); color: var(--text-3); }
+  [data-v5] .lb5.is-sheet .sheet-head .btn-icon { inline-size: 2.75rem; block-size: 2.75rem; }
+  [data-v5] .lb5.is-sheet .lb5-search { block-size: 3rem; }
+  [data-v5] .lb5.is-sheet .lb5-list { max-block-size: none !important; flex: 1; min-block-size: 0; padding: 0.375rem; }
+  [data-v5] .lb5.is-sheet .lang-preview { flex: none; }
+  [data-v5] .lb5.is-sheet .lb5-src { padding-block: 0.625rem; }
+}
+/* The query string gives way first, then the path; on a phone "as Ada Admin" drops (the
+   avatar already says who), leaving the request and the count. */
+[data-v5] .lb5-src > .src-q > span:first-child { flex: 0 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+[data-v5] .lb5-src > .src-q > .qs { flex: 0 10000 auto; }
+@media (max-width: 56rem) { [data-v5] .lb5-src .who { display: none; } }

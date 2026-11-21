@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Bench v3 mock</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="views.css">
+</head>
+<!--
+  One page renders every v3 state. See README.md for the full parameter list. Common ones:
+    view=try|docs|model|signin   op=create|get|list|update|login   tab=body|params|headers|auth|code
+    state=blank|filled|validation|running|generated   run=none|running|preview|send|401|neterror
+    rtab=response|database|effects|logs|headers   overlay=display|toggletip|wand|issues|send-tip|history
+    theme=dark  density=compact|comfortable  text=130  lang=en|de|ar  platform=mac|win  auth=out
+  v5=1 turns on the v5 layer (v5-*.js, v5.css): see the v5 section of README.md.
+-->
+<body>
+<a class="skip-link" href="#request">Skip to request</a>
+<div class="app">
+  <div data-shell="topbar"></div>
+  <div class="mobile-switch">
+    <div class="segmented" role="group" aria-label="Show">
+      <button data-switch="request">Request</button>
+      <button data-switch="result">Result</button>
+    </div>
+  </div>
+  <div class="workspace">
+    <div data-shell="sidebar"></div>
+    <div data-shell="request"></div>
+    <div data-shell="response"></div>
+  </div>
+</div>
+<script src="i18n.js"></script>
+<script src="shell.js"></script>
+<script src="spec.js"></script>
+<script src="v5-spec.js"></script>
+<script src="schema.js"></script>
+<script src="v5.js"></script>
+<script src="sidebar.js"></script>
+<script src="request.js"></script>
+<script src="results.js"></script>
+<script src="docs.js"></script>
+<script src="models.js"></script>
+<script src="v5-panes.js"></script>
+<script src="states.js"></script>
+<script src="overlays.js"></script>
+<script src="v5-overlays.js"></script>
+<script src="handles.js"></script>
+</body>
+</html>
