@@ -138,6 +138,8 @@ class TransactionControlTest {
                 assertThat(TransactionControl.find(sql, system, NONE)).as(system + ": " + sql).isNotNull();
             }
             assertThat(TransactionControl.find("SAVE TRANSACTION nested", system, NONE)).as(system).isNull();
+            assertThat(TransactionControl.find("SET IMPLICIT_TRANSACTIONS OFF", system, NONE)).as(system).isNull();
+            assertThat(TransactionControl.find("SET IMPLICIT_TRANSACTIONS ON", system, NONE)).as(system).isNotNull();
             assertThat(TransactionControl.find("ROLLBACK TO SAVEPOINT nested", system, NONE)).as(system).isNull();
         }
     }

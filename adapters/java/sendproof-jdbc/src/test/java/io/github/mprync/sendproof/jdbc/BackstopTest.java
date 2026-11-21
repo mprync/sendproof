@@ -61,6 +61,45 @@ class BackstopTest {
         scenario(new Database("postgresql", source, () -> admin(server, "bench", "bench_local", "DROP DATABASE IF EXISTS " + name)));
     }
 
+    /**
+     * A unique violation the handler answers with 409 leaves the PostgreSQL transaction aborted; the check (a rollback to
+     * the savepoint, which also unwinds a nested savepoint the handler left open) still succeeds, so the Preview stays
+     * confirmable.
+     */
+    @Test
+    void aPostgreSqlHandlerErrorAnsweredAs409KeepsThePreviewConfirmable() throws Exception {
+        String server = "jdbc:postgresql://127.0.0.1:55432/postgres";
+        assumeTrue(answers(server, "bench", "bench_local"),
+                "PostgreSQL isn't running: docker compose -f tests/conformance/compose.yml up -d --wait postgres");
+        String name = "sp_jdbc_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        admin(server, "bench", "bench_local", "CREATE DATABASE " + name);
+        try {
+            var source = new org.postgresql.ds.PGSimpleDataSource();
+            source.setURL("jdbc:postgresql://127.0.0.1:55432/" + name);
+            source.setUser("bench");
+            source.setPassword("bench_local");
+            try (Connection connection = source.getConnection(); Statement statement = connection.createStatement()) {
+                statement.execute("CREATE TABLE items (id VARCHAR(40) PRIMARY KEY, name VARCHAR(100))");
+                statement.execute("INSERT INTO items (id, name) VALUES ('taken', 'x')");
+            }
+            var enrolled = new PreviewDataSource(source, () -> true);
+            var provider = new JdbcPreviewProvider(enrolled, () -> "Test", () -> "postgresql");
+            Exception failure = preview(provider, enrolled, connection -> {
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("SAVEPOINT handler_nested");
+                }
+                try {
+                    insert(connection, "taken");
+                } catch (SQLException uniqueViolation) {
+                    // The handler answers 409; the transaction is now aborted.
+                }
+            });
+            assertThat(failure).as("the Preview stays confirmable").isNull();
+        } finally {
+            admin(server, "bench", "bench_local", "DROP DATABASE IF EXISTS " + name + " WITH (FORCE)");
+        }
+    }
+
     @Test
     void sqlServer() throws Exception {
         String server = "jdbc:sqlserver://127.0.0.1:51433;encrypt=false;trustServerCertificate=true;loginTimeout=3";

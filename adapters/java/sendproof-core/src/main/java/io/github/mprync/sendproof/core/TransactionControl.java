@@ -240,7 +240,9 @@ public final class TransactionControl {
             String token = lower(tokens.get(i));
             String bare = token.substring(token.lastIndexOf('.') + 1);
             boolean userVariable = tokens.get(i - 1).equals("@") && !(i >= 2 && tokens.get(i - 2).equals("@"));
-            if (!userVariable && (bare.equals("autocommit") || bare.equals("implicit_transactions"))) {
+            // SQL Server's SET IMPLICIT_TRANSACTIONS OFF leaves an open transaction open (EF Core starts batches with it).
+            boolean turnedOff = i + 1 < tokens.size() && lower(tokens.get(i + 1)).equals("off");
+            if (!userVariable && (bare.equals("autocommit") || (bare.equals("implicit_transactions") && !turnedOff))) {
                 return "set " + bare;
             }
             if (mysql && i == 1 && token.equals("password")) {
