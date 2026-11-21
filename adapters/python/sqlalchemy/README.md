@@ -67,11 +67,12 @@ Read these before advertising an operation for Preview.
   Names are exact (a schema-qualified call needs the qualified name) and, like MySQL,
   case-insensitive; wildcards are rejected. This is your statement that the procedure never
   commits: the binding trusts it.
-- **Backstop (MySQL and MariaDB):** the Preview opens its transaction with
-  `SAVEPOINT sendproof_preview` and, before rolling back, checks that savepoint still exists. Any
-  commit erases it, so if something committed anyway (a declared procedure that does commit, a
-  driver call around the engine), the Preview answers 500 without confirmation, whatever the
-  handler returned. The writes made before that commit are durable; the check only stops the
+- **Backstop (every database):** the Preview opens its transaction with
+  `SAVEPOINT sendproof_preview` and, before rolling back, rolls back to it. Any commit erases it,
+  so if something committed anyway (a declared procedure that does commit, a driver call around
+  the engine, after which the driver opens a new transaction by itself), the Preview answers 500
+  without confirmation, whatever the handler returned. A handler's `RELEASE` or `ROLLBACK TO` of
+  that savepoint is refused. The writes made before that commit are durable; the check only stops the
   Preview from claiming otherwise.
 - **Deadlocks (MySQL and MariaDB):** a deadlock (1213), or a lock wait timeout (1205) with
   `innodb_rollback_on_timeout` on, rolls back the whole Preview transaction. The handler still gets

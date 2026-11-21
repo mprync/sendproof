@@ -107,10 +107,11 @@ performs. The row before an update or delete is read from the database; that rea
   SENDPROOF = {"PROVIDER": lambda: DjangoOrmPreview(safe_procedures=["refresh_totals"]), ...}
   ```
 
-- **Backstop on MySQL and MariaDB:** the Preview opens its transaction with
+- **Backstop on every database:** the Preview opens its transaction with
   `SAVEPOINT sendproof_preview` and checks, before rolling back, that it still exists. Any commit
-  erases it, so a Preview whose transaction was committed anyway answers 500 without
-  confirmation (the writes before that commit stay).
+  erases it, so a Preview whose transaction was committed anyway (on the driver's own connection,
+  say, which then begins a new transaction) answers 500 without confirmation (the writes before
+  that commit stay).
 - **Deadlocks on MySQL and MariaDB:** a deadlock (1213), or a lock wait timeout (1205) with
   `innodb_rollback_on_timeout` on, rolls back the whole Preview transaction. The handler still gets
   the original error; every later statement in that Preview except Django's own savepoint

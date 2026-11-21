@@ -26,7 +26,7 @@ from sendproof_core.scope import current_scope
 
 from . import changes as change_capture
 from .connection import SAVEPOINT, Hold, ensure_supported
-from .turns import SERIAL_DIALECTS, take_turn
+from .turns import take_turn
 from sendproof_core.redaction import describe_parameters, python_type_name
 from sendproof_core.txguard import escapes_transaction, normalize_procedures, server_ended_transaction
 
@@ -288,14 +288,16 @@ class _Session(PreviewSession):
             raise PreviewRollbackError(unsafe)
 
     def _rollback_hold(self, hold: Hold) -> BaseException | None:
-        if hold.engine.dialect.name in SERIAL_DIALECTS and not hold.unsafe:
-            # The backstop on MySQL and MariaDB: the savepoint the Preview opened its transaction with
-            # must still exist. Any commit, explicit or implicit, erases every savepoint, and with
-            # autocommit off MySQL then opens a new transaction by itself, so only a savepoint made at
-            # the start (never one made now) proves the Preview transaction is the one still open.
+        if not hold.unsafe:
+            # The backstop, on every dialect: the savepoint the Preview opened its transaction with must
+            # still exist. Any commit, explicit or implicit, erases every savepoint, and the driver (or
+            # MySQL with autocommit off) then opens a new transaction by itself, so only a savepoint made
+            # at the start, never one made now, proves the Preview transaction is the one still open.
+            # ROLLBACK TO rather than RELEASE: it also works on a PostgreSQL transaction aborted by an
+            # error, which commits nothing and must not fail the Preview.
             try:
                 hold.run("ROLLBACK TO SAVEPOINT " + SAVEPOINT)
-            except BaseException as error:  # noqa: BLE001 - 1305 "SAVEPOINT does not exist", or a lost connection
+            except BaseException as error:  # noqa: BLE001 - "no such savepoint" (MySQL 1305), or a lost connection
                 hold.unsafe = (
                     "The Preview transaction was committed before its rollback (its savepoint is gone), "
                     "so the Preview can't be confirmed."

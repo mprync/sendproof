@@ -242,6 +242,60 @@ def test_a_handler_rollback_only_undoes_work_since_its_last_commit(engine):
     provider.uninstall()
 
 
+def test_a_preview_committed_on_the_raw_driver_connection_is_never_confirmed(engine):
+    """The start-savepoint backstop on every dialect: a commit the pre-send guard can't see (the driver's own
+    commit) ends the Preview transaction, and the driver opens a new one for the next write, so a plain
+    rollback would succeed. The savepoint made when the Preview began is gone, so it answers 500."""
+    provider = SQLAlchemyPreview(engine)
+    with Running(provider) as run:
+        try:
+            held = engine.raw_connection()  # the Preview's held connection
+            cursor = held.cursor()
+            cursor.execute("INSERT INTO items VALUES ('escaped', 'E')")
+            held.dbapi_connection._tb_real.commit()  # around every guard
+            cursor.execute("INSERT INTO items VALUES ('after', 'A')")  # the driver begins a new transaction
+            cursor.close()
+            held.close()
+            with pytest.raises(PreviewRollbackError, match="committed"):
+                run.session.rollback()
+        finally:
+            run.session.close()
+    assert names(engine) == ["E"]
+    provider.uninstall()
+
+
+POSTGRES_URL = os.environ.get("BENCH_POSTGRES_URL", "postgresql://bench:bench_local@127.0.0.1:55432/postgres")
+
+
+@pytest.fixture
+def postgres_engine():
+    """A fresh PostgreSQL database on the compose server (or ``BENCH_POSTGRES_URL``); skips when none answers."""
+    from sqlalchemy.engine import make_url
+
+    server = make_url(POSTGRES_URL).set(drivername="postgresql+psycopg")
+    admin = create_engine(server, isolation_level="AUTOCOMMIT", connect_args={"connect_timeout": 2})
+    name = "sp_backstop_" + uuid.uuid4().hex[:10]
+    try:
+        with admin.connect() as connection:
+            connection.execute(text(f"CREATE DATABASE {name}"))
+    except Exception as error:  # noqa: BLE001 - no server: skip, with the command that starts one
+        admin.dispose()
+        pytest.skip(f"PostgreSQL is not running ({error.__class__.__name__}): docker compose -f tests/conformance/compose.yml up -d --wait postgres")
+    engine = create_engine(server.set(database=name))
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+    with admin.connect() as connection:
+        connection.execute(text(f"DROP DATABASE {name}"))
+    admin.dispose()
+
+
+def test_a_postgresql_preview_committed_on_the_raw_driver_connection_is_never_confirmed(postgres_engine):
+    """psycopg opens a new transaction for the next statement after its own commit, so only the savepoint
+    made when the Preview began shows the Preview transaction is gone."""
+    test_a_preview_committed_on_the_raw_driver_connection_is_never_confirmed(postgres_engine)
+
+
 def test_unsupported_dialects_are_refused():
     from sendproof_sqlalchemy.connection import ensure_supported
 

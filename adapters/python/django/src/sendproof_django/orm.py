@@ -31,7 +31,7 @@ STATE_KEY = "django_orm"
 _UID = "sendproof_django"
 _connected = False
 
-#: The savepoint a MySQL Preview opens its transaction with. Django names its own savepoints
+#: The savepoint every Preview opens its transaction with. Django names its own savepoints
 #: ``s<thread>_x<n>``, so it never makes this one, and a handler's ``RELEASE`` or ``ROLLBACK TO`` of it
 #: is refused like a ``COMMIT``.
 SAVEPOINT = "sendproof_preview"
@@ -334,10 +334,9 @@ class DjangoOrmPreview(PreviewProvider):
                 if connection.vendor == "mysql":
                     state.turns.append(_take_mysql_turn(alias))
                 state.atomics.append((alias, _enter_atomic(alias)))
-                if connection.vendor == "mysql":
-                    # The backstop's mark, made first thing in the Preview transaction (see ``rollback``).
-                    _raw(alias, "SAVEPOINT " + SAVEPOINT)
-                    state.marked.append(alias)
+                # The backstop's mark, made first thing in the Preview transaction (see ``rollback``).
+                _raw(alias, "SAVEPOINT " + SAVEPOINT)
+                state.marked.append(alias)
             state.install_wrappers()
         except BaseException:
             _Session(state).close()
@@ -387,9 +386,9 @@ class _Session(PreviewSession):
         state = self._state
         errors: list[BaseException] = []
         for alias in state.marked:
-            # The backstop on MySQL and MariaDB: the savepoint made when the Preview transaction opened
-            # must still exist. Any commit, explicit or implicit, erases every savepoint, and with
-            # autocommit off MySQL then opens a new transaction by itself, so a savepoint made now would
+            # The backstop, on every database: the savepoint made when the Preview transaction opened
+            # must still exist. Any commit, explicit or implicit, erases every savepoint, and the driver
+            # (or MySQL with autocommit off) then opens a new transaction by itself, so a savepoint made now would
             # prove nothing. Error 1305 (or a lost connection) means the rollback can't be confirmed.
             try:
                 _raw(alias, "ROLLBACK TO SAVEPOINT " + SAVEPOINT)
