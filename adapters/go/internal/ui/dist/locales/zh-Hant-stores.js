@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "用 {mark} 標記該路由，預覽按鈕就會在有人運行前說明這一點。",
   "blk.copy": "複製",
   "blk.raw": "響應正文",
-  "blk.what.snippet": "特性",
   "blk.tabTitle": "被阻止的預覽不保留任何內容",
   "blk.tabBody": "寫入防護在 {store} 處停止了此預覽，因此沒有記錄任何內容。真實傳送會在提交時記錄變更、副作用和記錄。",
   "bar.previewBlocked": "預覽已阻止",

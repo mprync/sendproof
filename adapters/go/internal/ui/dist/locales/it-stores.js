@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Segna la rotta con {mark} così il pulsante Anteprima lo spiega prima che qualcuno la esegua.",
   "blk.copy": "Copia",
   "blk.raw": "Corpo della risposta",
-  "blk.what.snippet": "Attributo",
   "blk.tabTitle": "Un’anteprima bloccata non conserva nulla",
   "blk.tabBody": "La protezione di scrittura ha fermato questa anteprima a {store}, quindi non è stato catturato nulla. Invia davvero registra modifiche, effetti e log mentre vengono salvati.",
   "bar.previewBlocked": "Anteprima bloccata",

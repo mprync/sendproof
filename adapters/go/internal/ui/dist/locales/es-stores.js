@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Marca la ruta con {mark} para que el botón Vista previa lo explique antes de que nadie la ejecute.",
   "blk.copy": "Copiar",
   "blk.raw": "Cuerpo de la respuesta",
-  "blk.what.snippet": "Atributo",
   "blk.tabTitle": "Una vista previa bloqueada no conserva nada",
   "blk.tabBody": "La protección de escritura detuvo esta vista previa en {store}, así que no se capturó nada. Enviar de verdad registra cambios, efectos y registros a medida que se confirman.",
   "bar.previewBlocked": "Vista previa bloqueada",

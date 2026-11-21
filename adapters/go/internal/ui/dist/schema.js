@@ -1,6 +1,7 @@
 import { renderField } from './fields/render.js';
 import { validateSchema } from './fields/validate.js';
 import { newUuid } from './uuid.js';
+import { unwrapNull } from './schema-model.js';
 
 // Schema-driven controls for OpenAPI request bodies and parameters.
 const renderers = [];
@@ -22,6 +23,24 @@ export function registerFieldRenderer(predicate, render) {
     const index = renderers.indexOf(entry);
     if (index >= 0) renderers.splice(index, 1);
   };
+}
+
+/**
+ * A `oneOf`/`anyOf` that offers `null` next to real options is how OpenAPI 3.1 writes "optional":
+ * ASP.NET emits `oneOf: [{type: null}, {$ref}]` for a nullable body or property. That is one schema
+ * that may also be null, not a choice between alternatives, so the null option is dropped (and
+ * `nullable: true` set, which validation honours) and a single remaining option is merged in.
+ * Without this the form showed a "Value · json" field and an "Option 1" select for the wrapper.
+ */
+function collapseNullOption(schema, document, seen) {
+  for (const key of ['oneOf', 'anyOf']) {
+    if (!Array.isArray(schema[key])) continue;
+    const { schema: rest, nullable } = unwrapNull(schema);
+    if (!nullable || rest === schema) continue;
+    const merged = rest[key] ? rest : resolveSchema(rest, document, seen);
+    return { ...merged, nullable: true };
+  }
+  return schema;
 }
 
 /** Resolve local JSON pointers; unresolved and recursive references remain usable as JSON. */
@@ -48,7 +67,7 @@ export function resolveSchema(schema, document = {}, seen = new Set()) {
     }
     return merged;
   }
-  return schema;
+  return collapseNullOption(schema, document, seen);
 }
 
 function kind(schema) {

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Označte trasu pomocí {mark}, aby to tlačítko Náhled vysvětlilo dřív, než ji někdo spustí.",
   "blk.copy": "Kopírovat",
   "blk.raw": "Tělo odpovědi",
-  "blk.what.snippet": "Atribut",
   "blk.tabTitle": "Zablokovaný náhled si nic neponechá",
   "blk.tabBody": "Ochrana zápisu zastavila tento náhled u {store}, takže se nic nezaznamenalo. Skutečné odeslání zaznamená změny, efekty a logy při ukládání.",
   "bar.previewBlocked": "Náhled zablokován",

@@ -87,7 +87,7 @@ export default {
   'blk.sendNote': 'Commits for real and asks first.',
   'blk.sendNoteTraced': 'Commits for real and asks first. Traced Send records the rows, documents and commands as they’re committed.',
   'blk.author': 'For the API author', 'blk.authorBody': 'Mark the route with {mark} so the Preview button explains this before anyone runs it.',
-  'blk.copy': 'Copy', 'blk.raw': 'Response body', 'blk.what.snippet': 'Attribute',
+  'blk.copy': 'Copy', 'blk.raw': 'Response body',
   'blk.tabTitle': 'A blocked Preview keeps nothing',
   'blk.tabBody': 'The write guard stopped this Preview at {store}, so nothing was captured. Send for real records changes, effects and logs as they’re committed.',
   'bar.previewBlocked': 'Preview blocked',

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Merkitse reitti merkinnällä {mark}, niin Esikatsele-painike kertoo tämän ennen kuin kukaan suorittaa sen.",
   "blk.copy": "Kopioi",
   "blk.raw": "Vastauksen sisältö",
-  "blk.what.snippet": "Attribuutti",
   "blk.tabTitle": "Estetty esikatselu ei säilytä mitään",
   "blk.tabBody": "Kirjoitussuojaus pysäytti tämän esikatselun kohteessa {store}, joten mitään ei tallennettu. Oikea lähetys tallentaa muutokset, vaikutukset ja lokit sitä mukaa kuin ne tallennetaan.",
   "bar.previewBlocked": "Esikatselu estetty",

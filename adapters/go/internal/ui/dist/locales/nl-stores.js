@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Markeer de route met {mark}, zodat de knop Voorbeeld dit uitlegt voordat iemand hem uitvoert.",
   "blk.copy": "Kopiëren",
   "blk.raw": "Antwoordinhoud",
-  "blk.what.snippet": "Attribuut",
   "blk.tabTitle": "Een geblokkeerd voorbeeld bewaart niets",
   "blk.tabBody": "De schrijfbewaking stopte dit voorbeeld bij {store}, dus er is niets vastgelegd. Echt verzenden legt wijzigingen, effecten en logs vast terwijl ze worden opgeslagen.",
   "bar.previewBlocked": "Voorbeeld geblokkeerd",

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "ルートに {mark} を指定すると、実行前にプレビューボタンがこれを説明します。",
   "blk.copy": "コピー",
   "blk.raw": "レスポンス本文",
-  "blk.what.snippet": "属性",
   "blk.tabTitle": "ブロックされたプレビューは何も残しません",
   "blk.tabBody": "書き込みガードがこのプレビューを {store} で停止したため、何も記録されていません。実際に送信すると、保存される変更・副作用・ログが記録されます。",
   "bar.previewBlocked": "プレビューをブロック",

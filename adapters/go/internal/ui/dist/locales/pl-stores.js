@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Oznacz trasę jako {mark}, aby przycisk Podgląd wyjaśniał to, zanim ktoś ją uruchomi.",
   "blk.copy": "Kopiuj",
   "blk.raw": "Treść odpowiedzi",
-  "blk.what.snippet": "Atrybut",
   "blk.tabTitle": "Zablokowany podgląd niczego nie zachowuje",
   "blk.tabBody": "Ochrona zapisu zatrzymała ten podgląd na {store}, więc nic nie zarejestrowano. Prawdziwa wysyłka rejestruje zmiany, efekty i logi w trakcie zapisu.",
   "bar.previewBlocked": "Podgląd zablokowany",

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Önizleme düğmesinin bunu kimse çalıştırmadan açıklaması için rotayı {mark} ile işaretleyin.",
   "blk.copy": "Kopyala",
   "blk.raw": "Yanıt gövdesi",
-  "blk.what.snippet": "Öznitelik",
   "blk.tabTitle": "Engellenen önizleme hiçbir şey saklamaz",
   "blk.tabBody": "Yazma koruması bu önizlemeyi {store} noktasında durdurdu, bu yüzden hiçbir şey kaydedilmedi. Gerçek gönderim değişiklikleri, etkileri ve günlükleri kaydedildikçe kaydeder.",
   "bar.previewBlocked": "Önizleme engellendi",

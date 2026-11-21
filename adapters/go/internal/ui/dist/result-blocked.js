@@ -8,6 +8,7 @@ import { formatDuration, t, th } from './i18n.js';
 import { shortcutAttrs, shortcutHint } from './shortcuts.js';
 import { copyText } from './copy.js';
 import { authorReason, dataStore, dataStores, sqlSystem, storeMark, storeName } from './stores.js';
+import { PREVIEW_FALSE_LANGUAGES, bindingOf, chooseLanguage, chosenLanguage, languageName, previewFalseSnippet } from './preview-false.js';
 
 const databaseName = capabilities => typeof capabilities?.database === 'string' ? capabilities.database : capabilities?.database?.name;
 
@@ -28,12 +29,28 @@ function problemJson(body) {
 }
 
 /**
- * The .NET mark an API author adds so the Preview button explains itself before anyone runs it.
- * The reason is the server's own detail without "Preview unavailable:".
+ * The language and framework the snippet is written for: the host's own when capabilities carry
+ * `binding`, otherwise the switch's current choice (`switchable` tells the markup to offer it).
  */
-export function previewFalseSnippet(detail) {
-  const reason = authorReason(detail) || 'Writes to a store that can’t roll back';
-  return `[SendproofPreview(Enabled = false, Reason = ${JSON.stringify(reason)})]`;
+function snippetTarget(capabilities, chosen) {
+  const binding = bindingOf(capabilities);
+  return binding ? { ...binding, switchable: false } : { language: chosen ?? chosenLanguage(), framework: '', switchable: true };
+}
+
+/** The snippet for a blocked Preview: the author's reason, the refused operation's route, the target's idiom. */
+function blockedSnippet(result, context, target) {
+  const { op } = context;
+  return previewFalseSnippet({ language: target.language, framework: target.framework, reason: result.blocked.detail, method: op?.method, path: op?.path });
+}
+
+/**
+ * The line above the snippet: the host's framework (or language) when discovery names it, otherwise
+ * a native select, so the author can read the mark in their own language. Names stay left to right.
+ */
+function snippetLabel(target) {
+  if (!target.switchable) return `<span class="blk-lang" data-blk-lang>${esc(target.framework || languageName(target.language))}</span>`;
+  const options = PREVIEW_FALSE_LANGUAGES.map(({ id, name }) => `<option value="${id}"${id === target.language ? ' selected' : ''}>${esc(name)}</option>`).join('');
+  return `<span class="blk-lang"><select class="blk-lang-select ltr" data-blk-lang-select aria-label="${esc(t('lang.label'))}">${options}</select></span>`;
 }
 
 /** Each store's outcome: the refused store, the SQL rollback, aborted transactions, side effects. */
@@ -57,6 +74,7 @@ export function blockedMarkup(result, context = {}) {
   const store = storeName(blocked.store);
   const guarded = dataStore(capabilities, blocked.store)?.mode !== 'preview';
   const op = `<code class="ltr">${esc(blocked.operation)}</code>`;
+  const target = snippetTarget(capabilities);
   // A guarded store can't roll back; a Preview-mode store refused a command it can't run in a
   // transaction, and the server's detail says which.
   const body = guarded ? th('blk.bodyGuard', { op, store: esc(store) })
@@ -80,7 +98,7 @@ export function blockedMarkup(result, context = {}) {
         <p>${esc(t(context.traceAvailable ? 'blk.sendNoteTraced' : 'blk.sendNote'))}</p></div></div>
       <div class="blk-step"><span class="n" aria-hidden="true">2</span><div class="grow">
         <p class="blk-author"><strong>${esc(t('blk.author'))}</strong> ${th('blk.authorBody', { mark: '<code class="ltr">preview: false</code>' })}</p>
-        <div class="blk-code ltr"><span class="blk-lang">ASP.NET Core</span><pre lang="en" data-blk-snippet>${esc(previewFalseSnippet(blocked.detail))}</pre>${copyTextButton(t('blk.copy'), { cls: 'btn-xs', data: 'data-blk-copy="snippet"' })}</div>
+        <div class="blk-code ltr">${snippetLabel(target)}<pre lang="en" data-blk-snippet>${esc(blockedSnippet(result, context, target))}</pre>${copyTextButton(t('blk.copy'), { cls: 'btn-xs', data: 'data-blk-copy="snippet"' })}</div>
       </div></div>
     </div>
     <div class="blk-raw"><div class="blk-raw-bar"><span>${esc(t('blk.raw'))}</span><code class="ltr">application/problem+json</code><span class="spacer"></span>${copyTextButton(t('blk.copy'), { cls: 'btn-xs', data: 'data-blk-copy="body"' })}</div>
@@ -98,14 +116,28 @@ export function blockedTab(tab, result, context = {}) {
   });
 }
 
-/** Copy buttons for the snippet and the body copy exactly what is shown. */
-export function bindBlocked(container, result) {
+/**
+ * Copy buttons for the snippet and the body copy exactly what is shown; the language switch (when
+ * discovery names no binding) rewrites the snippet and is remembered for the next 409.
+ * `context` is results.js's context(), as for blockedMarkup.
+ */
+export function bindBlocked(container, result, context = {}) {
+  const capabilities = context.capabilities || {};
+  let target = snippetTarget(capabilities);
+  container.addEventListener('change', event => {
+    const select = event.target.closest?.('[data-blk-lang-select]');
+    if (!select) return;
+    chooseLanguage(select.value);
+    target = snippetTarget(capabilities, select.value);
+    const pre = container.querySelector('[data-blk-snippet]');
+    if (pre) pre.textContent = blockedSnippet(result, context, target);
+  });
   container.addEventListener('click', event => {
     const button = event.target.closest('[data-blk-copy]');
     if (!button) return;
     const snippet = button.dataset.blkCopy === 'snippet';
-    copyText(snippet ? previewFalseSnippet(result.blocked.detail) : (result.raw || JSON.stringify(result.body, null, 2)), {
-      button, what: t(snippet ? 'blk.what.snippet' : 'copy.what.body'),
+    copyText(snippet ? blockedSnippet(result, context, target) : (result.raw || JSON.stringify(result.body, null, 2)), {
+      button, what: t(snippet ? 'copy.what.snippet' : 'copy.what.body'),
       select: container.querySelector(snippet ? '[data-blk-snippet]' : '[data-blk-body]'),
       notice: button.closest('.blk-code, .blk-raw'),
     });

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "경로에 {mark}을(를) 지정하면 실행하기 전에 미리보기 버튼이 이를 설명합니다.",
   "blk.copy": "복사",
   "blk.raw": "응답 본문",
-  "blk.what.snippet": "특성",
   "blk.tabTitle": "차단된 미리보기는 아무것도 남기지 않습니다",
   "blk.tabBody": "쓰기 보호가 이 미리보기를 {store}에서 멈춰 아무것도 기록되지 않았습니다. 실제로 보내면 저장되는 변경, 부수 효과, 로그가 기록됩니다.",
   "bar.previewBlocked": "미리보기 차단됨",
