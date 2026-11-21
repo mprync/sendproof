@@ -16,6 +16,7 @@ module Sendproof
 
       def initialize(safe_procedures: [])
         @safe_procedures = safe_procedures
+        @ended = {}.compare_by_identity
         @mutex = Mutex.new
         @changes = []
         @frozen = false
@@ -24,6 +25,14 @@ module Sendproof
         @tracked_writes = 0
         @previous = nil
       end
+
+      # Records that the server itself ended the Preview transaction on +connection+ (a MySQL deadlock).
+      def end_transaction(connection, reason)
+        @mutex.synchronize { @ended[connection] ||= reason }
+      end
+
+      # @return [String, nil] why the server ended the Preview transaction on +connection+, if it did
+      def ended(connection) = @mutex.synchronize { @ended[connection] }
 
       # Makes this tracker current on the calling thread.
       def activate

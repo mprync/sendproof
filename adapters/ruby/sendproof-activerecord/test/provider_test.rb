@@ -438,6 +438,47 @@ class ObservationTest < Minitest::Test
     assert_raises(ArgumentError) { Sendproof::ActiveRecord::Provider.new(safe_procedures: ["reads_*"]) }
   end
 
+  # A deadlock (1213) rolls back the whole Preview transaction. Rails runs MySQL with autocommit=1 outside BEGIN, so
+  # a retry would commit for real: every later statement in the Preview is refused before sending, and it answers 500.
+  def test_mysql_deadlock_refuses_every_later_statement_in_the_preview
+    skip "Set BENCH_DATABASE=mysql to run this against a MySQL server." unless MYSQL
+    Item.create!(id: "a", name: "A")
+    Item.create!(id: "b", name: "B")
+    locked = Queue.new
+    go = Queue.new
+    other = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do |connection|
+        connection.transaction do
+          # More locks than the Preview holds, so InnoDB picks the Preview as the deadlock victim.
+          connection.execute("SELECT id FROM items WHERE id = 'b' FOR UPDATE")
+          10.times { |n| connection.execute("INSERT INTO items (id, name) VALUES ('f#{n}', 'filler')") }
+          locked << true
+          go.pop
+          connection.execute("SELECT id FROM items WHERE id = 'a' FOR UPDATE")
+        end
+      end
+    end
+    locked.pop
+    deadlock = nil
+    assert_raises(RuntimeError) do # the savepoint check: the Preview is never confirmed
+      preview do
+        connection = Item.lease_connection
+        connection.execute("SELECT id FROM items WHERE id = 'a' FOR UPDATE")
+        go << true
+        sleep 0.3 # the other transaction now waits on the Preview's row
+        deadlock = assert_raises(ActiveRecord::Deadlocked) { connection.execute("SELECT id FROM items WHERE id = 'b' FOR UPDATE") }
+        other.join(5)
+        assert_raises(Sendproof::PreviewTransactionControl, ActiveRecord::StatementInvalid) { Item.create!(id: "retry", name: "Retry") }
+      end
+    end
+    refute_nil deadlock, "the handler still gets the original error"
+    refute_includes durable_items, "retry"
+    assert_kind_of Sendproof::PreviewTransactionControl, recorder.fault
+  ensure
+    other&.join(5)
+    Item.delete_all
+  end
+
   # With autocommit off (a driver that turns it off for transactions), MySQL opens a new transaction by itself
   # after a commit, so only the savepoint made when the Preview began shows that its transaction is gone.
   def test_mysql_preview_whose_transaction_was_committed_anyway_is_never_confirmed
