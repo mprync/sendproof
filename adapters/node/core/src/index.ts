@@ -13,7 +13,8 @@ export { Capture, currentCapture, currentPreview, deliverEffect } from './captur
 export { looksSecret, redacted, redactDeep, redactRow } from './secrets.js';
 export { classifyDynamo, classifyMongo, classifyRedis, partiqlVerb, type CommandKind, type MongoClassification } from './stores/classify.js';
 export {
-  guard, PreviewTransactionControlError, PreviewWriteBlockedError, refuseInPreview, sanitizeDocument, storeName, storeNames, writeReason,
+  guard, PreviewTransactionControlError, PreviewWriteBlockedError, readSet, refuseInPreview, sanitizeDocument, storeLabel, storeName, storeNames,
+  writeReason,
 } from './stores/guard.js';
 export { dynamodbTable, mongodbTable, redisTable } from './stores/tables.js';
 export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';

@@ -92,3 +92,25 @@ export function sanitizeDocument(value: unknown): unknown {
   if (isPlainObject(value)) return Object.fromEntries(Object.entries(value).map(([name, inner]) => [name, sanitizeDocument(inner)]));
   return '?';
 }
+
+/**
+ * Validate the optional label a host gives a store for capabilities `dataStores`. Discovery is
+ * shown to anyone who can open the workbench, so the label must be a display name such as
+ * `catalog`: never a connection string, URL, host:port, user or password.
+ */
+export function storeLabel(name: unknown): string | undefined {
+  if (name === undefined) return undefined;
+  if (typeof name !== 'string' || !name.trim() || name.length > 64 || /[\p{Cc}/\\@=;:?#%]/u.test(name)) {
+    throw new TypeError('A data store name must be a display label such as "catalog", not a connection string, URL or host.');
+  }
+  return name;
+}
+
+/** Normalize host-declared reads ("TreatAsRead") into an exact-match set, after `transform`. */
+export function readSet(names: readonly string[] | undefined, transform: (name: string) => string = name => name): ReadonlySet<string> | undefined {
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names) || names.some(name => typeof name !== 'string' || !name || /[*?\s]/.test(name))) {
+    throw new TypeError('treatAsRead takes exact command names, without wildcards.');
+  }
+  return new Set(names.map(transform));
+}
