@@ -34,6 +34,17 @@ final class MongoHook
     public const DATABASE = 'database';
     public const CLIENT = 'client';
 
+    /**
+     * Methods refused in every Preview, whatever the mode. A GridFS bucket builds its own
+     * collections around the driver's manager and takes no session, so its uploads would commit
+     * outside the Preview transaction (and outside the guard): the bucket is refused before any
+     * command is sent.
+     */
+    private const REFUSED = [
+        'getGridFSBucket' => "Preview unavailable: MongoDB GridFS can't join the Preview transaction",
+        'selectGridFSBucket' => "Preview unavailable: MongoDB GridFS can't join the Preview transaction",
+    ];
+
     /** @var array<string,array<string,array{0:\Closure,1:int,2?:mixed}>>|null */
     private static ?array $rules = null;
 
@@ -55,6 +66,10 @@ final class MongoHook
         $guard = $this->engine->guard;
         if (!$guard->inPreview()) {
             return $args;
+        }
+        if (isset(self::REFUSED[$method])) {
+            // In both modes: nothing the call leads to could carry the Preview session.
+            $guard->guard('mongodb', $method, CommandKind::Write, self::REFUSED[$method]);
         }
         $rule = (self::rules()[$scope][$method] ?? null);
         if ($rule === null) {
@@ -133,8 +148,6 @@ final class MongoHook
                 'modifyCollection' => [static fn (string $name, array $args): array => ['collMod' => $args[0] ?? ''], 2],
                 'renameCollection' => [static fn (string $name, array $args): array => ['renameCollection' => $args[0] ?? ''], 3, null],
                 'watch' => [static fn (string $name, array $args): array => ['aggregate' => 1, 'pipeline' => [['$changeStream' => new \stdClass()], ...self::pipeline($args[0] ?? [])]], 1],
-                // GridFS buckets build their own collections around the driver's manager, so a Preview can't carry their session.
-                'getGridFSBucket' => [static fn (): array => ['gridFsBucket' => 1], 0], 'selectGridFSBucket' => [static fn (): array => ['gridFsBucket' => 1], 0],
             ],
             self::CLIENT => [
                 'bulkWrite' => $one('bulkWrite', 1), 'dropDatabase' => $one('dropDatabase', 1),

@@ -363,6 +363,21 @@ final class MongoStoreTest extends TestCase
         $client->selectDatabase($this->database)->getGridFSBucket();
     }
 
+    public function testGridFsIsRefusedInPreviewModeBecauseItsWritesCantJoinTheTransaction(): void
+    {
+        // A bucket builds its own collections around the driver's manager, so its writes would commit outside the Preview.
+        [$recorder, $client, $store] = $this->hooked();
+        $result = $this->preview($recorder, [$store], function () use ($client): void {
+            try {
+                $client->selectDatabase($this->database)->selectGridFSBucket()->uploadFromStream('notes.txt', fopen('data://text/plain,hello', 'r'));
+            } catch (PreviewWriteBlockedException) {
+            }
+        });
+        $this->assertSame(409, $result->status);
+        $this->assertStringContainsString('GridFS', $result->problem()['detail']);
+        $this->assertSame(0, $this->documents('fs.files')->countDocuments(), 'No GridFS file may reach the server.');
+    }
+
     public function testTheLibraryFactoryHooksAClientForPlainUse(): void
     {
         $recorder = new Recorder();
