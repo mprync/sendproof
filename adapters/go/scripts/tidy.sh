@@ -15,7 +15,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base="$(tr -d '[:space:]' < "$here/MODULE_PATH")"
 modules=("$@")
-[[ ${#modules[@]} -gt 0 ]] || modules=(. chi echo gin gorm examples tools/modzip)
+[[ ${#modules[@]} -gt 0 ]] || modules=(. chi echo gin gorm redisbench dynamobench mongobench examples tools/modzip)
 
 # Directory of each internal module, keyed by module path suffix.
 dir_of() { case "$1" in "$base") echo "$here" ;; "$base"/*) echo "$here/${1#"$base"/}" ;; *) return 1 ;; esac; }

@@ -22,7 +22,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$(cd "$here/../.." && pwd)"
 out="${2:-$root/artifacts/go-packages}"
 base="$(tr -d '[:space:]' < "$here/MODULE_PATH")"
-modules=(. chi gin echo gorm)
+modules=(. chi gin echo gorm redisbench dynamobench mongobench)
 
 echo "Checking module metadata"
 node "$root/tools/set-go-module-path.mjs" --check

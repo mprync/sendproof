@@ -16,7 +16,7 @@ base="$(tr -d '[:space:]' < "$dir/MODULE_PATH")"
 
 mkdir -p "$out"
 rm -f "$out"/*@"$version".zip
-for module in . chi gin echo gorm; do
+for module in . chi gin echo gorm redisbench dynamobench mongobench; do
   path="$base"; [[ "$module" == . ]] || path="$base/$module"
   required="go.mod"
   [[ "$module" != . ]] || required="internal/ui/dist/index.html,internal/ui/dist/manifest.json,go.mod,MODULE_PATH"
