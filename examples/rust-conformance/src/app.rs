@@ -23,9 +23,9 @@ use rust_conformance_common::{
 };
 use serde_json::Value;
 use sqlx::Pool;
-use testbench_axum::{TestBench, TestBenchRouterExt};
-use testbench_core::Headers;
-use testbench_sqlx::{Backend, Db, DbError};
+use sendproof_axum::{Sendproof, SendproofRouterExt};
+use sendproof_core::Headers;
+use sendproof_sqlx::{Backend, Db, DbError};
 
 pub struct AppState<B: Backend> {
     pool: Pool<B>,
@@ -95,7 +95,7 @@ where
         outbox: Outbox::default(),
         base: base.into(),
     };
-    let bench = TestBench::new(setup::config(scenario, base, pool, label, sessions)?);
+    let bench = Sendproof::new(setup::config(scenario, base, pool, label, sessions)?);
 
     let items = Router::new()
         .route("/items", post(create::<B>))

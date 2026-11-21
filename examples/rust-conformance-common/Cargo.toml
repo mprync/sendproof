@@ -8,8 +8,8 @@ publish = false
 workspace = "../../adapters/rust"
 
 [dependencies]
-testbench-core.workspace = true
-testbench-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
+sendproof-core.workspace = true
+sendproof-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 http.workspace = true
 serde.workspace = true
 serde_json.workspace = true

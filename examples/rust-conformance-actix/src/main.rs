@@ -22,9 +22,9 @@ use rust_conformance_common::{
 };
 use serde_json::Value;
 use sqlx::Pool;
-use testbench_actix::TestBench;
-use testbench_core::Headers;
-use testbench_sqlx::{Backend, Db, DbError};
+use sendproof_actix::Sendproof;
+use sendproof_core::Headers;
+use sendproof_sqlx::{Backend, Db, DbError};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 struct Fixture {
@@ -228,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Copy the events of preview and observed requests into their capture.
     tracing_subscriber::registry()
-        .with(testbench_core::TestBenchLayer::new())
+        .with(sendproof_core::SendproofLayer::new())
         .init();
 
     let database = Database::open().await?;
@@ -255,7 +255,7 @@ where
     usize: sqlx::ColumnIndex<B::Row>,
 {
     let sessions = Arc::new(Sessions::default());
-    let bench = TestBench::new(setup::config(
+    let bench = Sendproof::new(setup::config(
         scenario,
         &base,
         pool.clone(),

@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    "testbench-core",
-    "testbench-axum",
-    "testbench-actix",
-    "testbench-sqlx",
+    "sendproof-core",
+    "sendproof-axum",
+    "sendproof-actix",
+    "sendproof-sqlx",
     "../../examples/rust-conformance",
     "../../examples/rust-conformance-common",
     "../../examples/rust-conformance-actix",
@@ -15,17 +15,17 @@ version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
-authors = ["Test Bench contributors"]
+authors = ["Sendproof contributors"]
 keywords = ["openapi", "api-testing", "axum", "actix-web", "rollback"]
 categories = ["development-tools::testing", "web-programming"]
 
-# The testbench-* entries carry no version here; tools/release/crates.mjs stamps the release version
+# The sendproof-* entries carry no version here; tools/release/crates.mjs stamps the release version
 # (and the repository and homepage URLs) into a staged copy when it packs the crates.
 [workspace.dependencies]
-testbench-core = { path = "testbench-core" }
-testbench-actix = { path = "testbench-actix" }
-testbench-axum = { path = "testbench-axum" }
-testbench-sqlx = { path = "testbench-sqlx" }
+sendproof-core = { path = "sendproof-core" }
+sendproof-actix = { path = "sendproof-actix" }
+sendproof-axum = { path = "sendproof-axum" }
+sendproof-sqlx = { path = "sendproof-sqlx" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 http = "1"

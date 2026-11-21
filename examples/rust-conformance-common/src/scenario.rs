@@ -1,6 +1,6 @@
 //! The fixture scenarios selected by `BENCH_SCENARIO`.
 
-use testbench_core::{BoxError, BoxFuture, Changes, PreviewProvider, PreviewSession};
+use sendproof_core::{BoxError, BoxFuture, Changes, PreviewProvider, PreviewSession};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {

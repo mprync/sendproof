@@ -3,8 +3,8 @@
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
-use testbench_core::capture::{self, EmailEffect};
-use testbench_sqlx::{Backend, Db, DbError, RowsAffected};
+use sendproof_core::capture::{self, EmailEffect};
+use sendproof_sqlx::{Backend, Db, DbError, RowsAffected};
 
 /// What an operation answers with.
 pub struct Outcome {

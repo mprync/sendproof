@@ -1,0 +1,20 @@
+[package]
+name = "sendproof-axum"
+description = "Axum integration for Sendproof: an embedded API workbench with rollback previews and observed sends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+sendproof-core.workspace = true
+axum.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tower = { version = "0.5", default-features = false, features = ["util"] }

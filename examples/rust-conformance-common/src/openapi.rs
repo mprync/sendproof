@@ -21,7 +21,7 @@ fn action(summary: &str, status: &str) -> Value {
 pub fn document() -> Value {
     json!({
         "openapi": "3.0.3",
-        "info": { "title": "Test Bench Conformance", "version": "1.0.0" },
+        "info": { "title": "Sendproof Conformance", "version": "1.0.0" },
         "paths": {
             "/items": { "post": {
                 "summary": "Create an item", "requestBody": item_body(),

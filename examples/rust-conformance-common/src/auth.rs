@@ -9,7 +9,7 @@ use std::{
 };
 
 use serde::Serialize;
-use testbench_core::{Headers, Identity};
+use sendproof_core::{Headers, Identity};
 
 /// The name of the session cookie.
 pub const COOKIE: &str = "bench_session";
@@ -77,7 +77,7 @@ impl Sessions {
             .cloned()
     }
 
-    /// The identity Test Bench shows and uses to own traces.
+    /// The identity Sendproof shows and uses to own traces.
     pub fn identity(&self, headers: &Headers) -> Option<Identity> {
         self.lookup(headers).map(|persona| Identity {
             name: Some(persona.name.into()),

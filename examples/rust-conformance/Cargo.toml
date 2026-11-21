@@ -1,6 +1,6 @@
 [package]
 name = "rust-conformance"
-description = "Test Bench conformance fixture for the Rust adapters: Axum + SQLx (SQLite, PostgreSQL or MySQL)."
+description = "Sendproof conformance fixture for the Rust adapters: Axum + SQLx (SQLite, PostgreSQL or MySQL)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,9 +9,9 @@ workspace = "../../adapters/rust"
 
 [dependencies]
 rust-conformance-common = { path = "../rust-conformance-common" }
-testbench-axum.workspace = true
-testbench-core.workspace = true
-testbench-sqlx = { workspace = true, features = ["axum", "sqlite", "postgres", "mysql"] }
+sendproof-axum.workspace = true
+sendproof-core.workspace = true
+sendproof-sqlx = { workspace = true, features = ["axum", "sqlite", "postgres", "mysql"] }
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true

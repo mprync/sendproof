@@ -1,4 +1,4 @@
-//! Database and Test Bench configuration shared by the fixtures.
+//! Database and Sendproof configuration shared by the fixtures.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -8,8 +8,8 @@ use sqlx::{
     postgres::PgPoolOptions,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use testbench_core::{Config, ConfigBuilder};
-use testbench_sqlx::{Backend, SqlxProvider};
+use sendproof_core::{Config, ConfigBuilder};
+use sendproof_sqlx::{Backend, SqlxProvider};
 
 use crate::{
     auth::Sessions,
@@ -48,7 +48,7 @@ impl Database {
         Ok(match kind.as_str() {
             "sqlite" => {
                 let file = std::env::temp_dir()
-                    .join(format!("testbench-rust-fixture-{}.db", std::process::id()));
+                    .join(format!("sendproof-rust-fixture-{}.db", std::process::id()));
                 remove(&file);
                 let options = SqliteConnectOptions::new()
                     .filename(&file)
@@ -131,15 +131,15 @@ fn remove(file: &std::path::Path) {
     }
 }
 
-/// The Test Bench configuration of the fixture for a scenario.
+/// The Sendproof configuration of the fixture for a scenario.
 pub fn config<B: Backend>(
     scenario: Scenario,
     base: &str,
     pool: Pool<B>,
     label: &str,
     sessions: Arc<Sessions>,
-) -> Result<Config, testbench_core::ConfigError> {
-    let mut config: ConfigBuilder = Config::builder("Test Bench Conformance")
+) -> Result<Config, sendproof_core::ConfigError> {
+    let mut config: ConfigBuilder = Config::builder("Sendproof Conformance")
         .environment(if scenario == Scenario::Disabled {
             "Production"
         } else {

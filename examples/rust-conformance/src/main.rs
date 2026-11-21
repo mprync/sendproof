@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Copy the events of preview and observed requests into their capture.
     tracing_subscriber::registry()
-        .with(testbench_core::TestBenchLayer::new())
+        .with(sendproof_core::SendproofLayer::new())
         .init();
 
     let database = Database::open().await?;
