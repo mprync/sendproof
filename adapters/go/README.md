@@ -120,7 +120,8 @@ Updates that leave a row unchanged are not reported. No table size makes Preview
 
 ### Preview safety
 
-- A preview refuses statements that could end its transaction with `dbsql.ErrUnsafeStatement`: `COMMIT`, `ROLLBACK`, `BEGIN`, MySQL statements that commit implicitly (DDL, `LOCK TABLES`, `SET autocommit` and others) and procedure calls on MySQL (`CALL`) and SQL Server (`EXEC`). Use `BeginTx` for application transactions; it runs them on savepoints.
+- A preview refuses statements that could end its transaction with `dbsql.ErrUnsafeStatement`: `COMMIT`, `ROLLBACK`, `BEGIN`, MySQL statements that commit implicitly (DDL, `LOCK TABLES`, `SET autocommit` and others), SQL-level `PREPARE` and `EXECUTE` on MySQL, and procedure calls on MySQL (`CALL`) and SQL Server (`EXEC`). Use `BeginTx` for application transactions; it runs them on savepoints. Declare MySQL procedures that never commit with `dbsql.WithSafeProcedures("name", "schema.name")` (exact names, no wildcards). **Warning:** a declared procedure that does commit keeps the handler's writes; the preview still fails.
+- On MySQL and MariaDB a preview sets the savepoint `sendproof_preview` when it starts and releases it before rolling back. Any commit erases it, so a missing savepoint fails the preview with 500, also under `autocommit=0`. A handler may not set, release or roll back to that savepoint.
 - SQLite's commit hook and a PostgreSQL deferred guard trigger turn any commit that still reaches the database into a rollback. MySQL and SQL Server previews check after a failed statement that the transaction is still open (a deadlock or severe error rolls it back), and stop with an unconfirmed preview if it is not.
 - A PostgreSQL preview runs each statement outside an application transaction on a savepoint, so a failed statement is undone alone, as with autocommit, instead of aborting the rest of the request.
 
