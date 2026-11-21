@@ -22,8 +22,9 @@
 //
 // Only clients built with the middleware are covered, and only calls made with
 // the request's context: pass r.Context() to every call. A client created
-// separately, a call with context.Background() and DynamoDB Streams are not
-// covered. Marking a route preview: false (HandleUnavailable) saves a round trip.
+// separately and DynamoDB Streams are not covered. A write sent with
+// context.Background() while a Preview is open runs, and fails that Preview with
+// 500 (see sendproof.ReportWrite and sendproof.Detached). Marking a route preview: false (HandleUnavailable) saves a round trip.
 package dynamobench
 
 import (

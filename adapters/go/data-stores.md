@@ -16,17 +16,31 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you hook and only for calls that carry the request's context. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a call made with `context.Background()`, go-redis Pub/Sub connections, MongoDB change streams and GridFS, and rueidis. **Pass `r.Context()` (or a context derived from it) to every store call**, and hook every client your handlers use, at startup.
+> The binding covers a store only through the client you hook and only for calls that carry the request's context. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, go-redis Pub/Sub connections, MongoDB change streams and GridFS, and rueidis. **Pass `r.Context()` (or a context derived from it) to every store call**, and hook every client your handlers use, at startup.
+
+### Calls without the request's context
+
+Go hands the request to a store call only through the context you pass. A hooked client called with `context.Background()` can't tell which request the call belongs to, so the guard can't block it and MongoDB can't put it in the Preview's transaction. The write runs. So that a Preview never confirms a rollback that didn't happen, such a write fails every Preview that is open at that moment with 500.
+
+Writes made with the context of any other request that passed through `bench.Middleware` never fail a Preview. Background work that runs while Previews may be open, such as a job worker or a scheduled task writing through a hooked client, should mark its context:
+
+```go
+ctx := sendproof.Detached(context.Background()) // this work belongs to no request
+rdb.Incr(ctx, "jobs:processed")
+```
+
+Use `sendproof.Detached` only outside request handlers. A handler that writes with a detached context escapes its Preview, like an unhooked client. Store calls on routes outside `bench.Middleware` count as unattributed too.
 
 ## Register the stores
 
 Hook each client at startup and pass the stores to `sendproof.New`:
 
 ```go
-// MongoDB: install the store's command monitor before connecting, then wrap what handlers use.
+// MongoDB: Connect installs the store's command monitor and returns only the guarded client.
 catalog := mongobench.New(mongobench.WithName("catalog"))
-mongoClient, _ := mongo.Connect(catalog.ClientOptions(options.Client().ApplyURI(mongoURL)))
-documents := catalog.Database(mongoClient.Database("catalog")).Collection("documents") // handlers use this
+mongoClient, _ := catalog.Connect(options.Client().ApplyURI(mongoURL))
+defer mongoClient.Disconnect(context.Background())
+documents := mongoClient.Database("catalog").Collection("documents") // handlers use this
 
 // Redis: a go-redis hook.
 rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
@@ -54,11 +68,11 @@ Use `sendproof.WithFramework("chi")` (or `"Gin"`, `"Echo"`) so the workbench wri
 
 ### MongoDB
 
-`mongobench.Store.Database` and `Client` return guarded handles with the driver's own method names (`InsertOne`, `UpdateOne`, `Aggregate`, `FindOne` and so on). A method the guarded handle does not have is not offered, so it cannot be called unguarded by accident. `Distinct` also returns an `error`, because a `DistinctResult` cannot carry the error of a refused call.
+`mongobench.Store.Connect` creates the client and returns a guarded `*mongobench.Client`. Its `Database` and `Collection` handles have the driver's own method names (`InsertOne`, `UpdateOne`, `Aggregate`, `FindOne` and so on). A method the guarded handle does not have is not offered, so it cannot be called unguarded by accident. `Distinct` also returns an `error`, because a `DistinctResult` cannot carry the error of a refused call.
 
-- Create the client with `store.ClientOptions(...)`. The store relies on command monitoring; a Preview without it answers 500 rather than run unmonitored.
+- Prefer `store.Connect(opts)`: the application then never holds an unguarded `*mongo.Client`. When the client is built elsewhere, create it with `mongo.Connect(store.ClientOptions(opts))` and wrap it with `store.Client(client)` or `store.Database(client.Database(name))`. The store relies on command monitoring on that client; a Preview without it answers 500 rather than run unmonitored.
 - During a Preview in `preview` mode each call joins the Preview's transaction (snapshot read concern, majority write concern). A call that passes a different session in its context is refused, and the Preview answers 500.
-- `Client.StartSession(ctx)` and `Client.UseSession` join the Preview transaction. `Session.StartTransaction` is a no-op and `WithTransaction` runs its body in the Preview's transaction. `CommitTransaction`, `AbortTransaction` and a raw `{commitTransaction: 1}` or `{abortTransaction: 1}` through `Database.RunCommand` are refused before they are sent and fail the Preview with 500, like a raw SQL `COMMIT`. If one reaches the server by another route, such as a raw client given the request's context, the command monitor sees it and fails the Preview with 500, because it may have committed the Preview's writes.
+- `Client.StartSession(ctx)` and `Client.UseSession` join the Preview transaction. `Session.StartTransaction` is a no-op and `WithTransaction` runs its body in the Preview's transaction. During a Preview the context these give your function carries no driver session (`mongo.SessionFromContext` returns `nil`): the guarded handles add the Preview's session to each call, and the Preview's transaction is never within reach of handler code. Outside a Preview, `Session.Context(ctx)` binds your own session for the calls between `StartTransaction` and `CommitTransaction`. `CommitTransaction`, `AbortTransaction` and a raw `{commitTransaction: 1}` or `{abortTransaction: 1}` through `Database.RunCommand` are refused before they are sent and fail the Preview with 500, like a raw SQL `COMMIT`. If one reaches the server by another route, such as a raw client given the request's context, the command monitor sees it and fails the Preview with 500, because it may have committed the Preview's writes.
 - A pipeline given to `Aggregate` is scanned at any depth (`$facet`, `$lookup` and `$unionWith` sub-pipelines included) for `$out` and `$merge` before anything is sent.
 - A Preview may hold its transaction for `WithPreviewTimeout`, 50 seconds by default (below MongoDB's 60-second transaction lifetime). A handler still running at the limit loses the transaction: its later commands fail, nothing commits, and the Preview answers 500.
 - The monitor also sees a write that a raw `*mongo.Client` makes with the request's context. It carries no Preview session, so the Preview answers 500 and never claims a rollback it did not do. That is a safety net, not coverage: the write has already happened. Use the guarded handles in previewed handlers.
@@ -97,7 +111,7 @@ When the guard refuses a write, the command never reaches the store and the hand
   "detail": "Preview unavailable: this operation writes to Redis", "store": "redis", "operation": "INCR", "rolledBack": false }
 ```
 
-The SQL transaction rolls back as usual. A failed rollback or abort, a handler `COMMIT` or `commitTransaction`, or a write that escaped the MongoDB session answers 500 without confirmation instead; the failure outranks a blocked write.
+The SQL transaction rolls back as usual. A failed rollback or abort, a handler `COMMIT` or `commitTransaction`, a write that escaped the MongoDB session, or a store write sent without a request context while the Preview ran answers 500 without confirmation instead; the failure outranks a blocked write.
 
 In `preview` mode MongoDB blocks only what a transaction can't run, such as `$out`, `$merge`, `count` (`EstimatedDocumentCount`), an explicit `create` (`CreateCollection`) or `listCollections`, with a reason like "Preview unavailable: MongoDB can't run $out inside a transaction".
 

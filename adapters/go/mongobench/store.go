@@ -15,17 +15,19 @@
 // Preview with 500, because the binding cannot undo it.
 //
 //	store := mongobench.New(mongobench.WithName("catalog"))
-//	client, _ := mongo.Connect(store.ClientOptions(options.Client().ApplyURI(url)))
-//	catalog := store.Database(client.Database("catalog")) // handlers use catalog
+//	client, _ := store.Connect(options.Client().ApplyURI(url)) // a guarded *mongobench.Client
+//	catalog := client.Database("catalog")                       // handlers use catalog
 //	bench, _ := sendproof.New(sendproof.WithDataStore(store))
 //
 // # Coverage
 //
 // Only the guarded handles are covered, and only calls made with the request's
-// context: pass r.Context() to every call. The raw *mongo.Client, a second client,
-// a call with context.Background(), change streams and GridFS are not guarded.
-// The monitor does see a write that a raw client makes with the request's context,
-// and fails the Preview with 500 instead of confirming a rollback it did not do.
+// context: pass r.Context() to every call. A raw *mongo.Client, a second client,
+// change streams and GridFS are not guarded. The monitor does see a write that a
+// raw client makes with the request's context, and fails the Preview with 500
+// instead of confirming a rollback it did not do. A write sent with
+// context.Background() while a Preview is open fails that Preview the same way
+// (see sendproof.ReportWrite and sendproof.Detached).
 package mongobench
 
 import (

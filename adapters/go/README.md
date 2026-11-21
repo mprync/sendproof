@@ -128,7 +128,7 @@ Drivers without named parameters (pgx, MySQL) receive `sql.Named` values positio
 
 ## Data stores
 
-MongoDB (driver v2), Redis (go-redis v9) and DynamoDB (AWS SDK for Go v2) are covered only through the clients you hook, and only for calls made with the request's context. [Data stores in the Go binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
+MongoDB (driver v2), Redis (go-redis v9) and DynamoDB (AWS SDK for Go v2) are covered only through the clients you hook, and only for calls made with the request's context; a store write sent without one while a Preview is open fails that Preview with 500. [Data stores in the Go binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
 
 ## Authentication and policy
 
