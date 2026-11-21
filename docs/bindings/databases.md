@@ -4,7 +4,7 @@ The [conformance manifest](../../tests/conformance/bindings.json) lists the exac
 
 | Framework and provider | SQLite | PostgreSQL | MySQL | SQL Server | H2 |
 | --- | --- | --- | --- | --- | --- |
-| ASP.NET Core and EF Core | 11/11 | — | — | — | — |
+| ASP.NET Core and EF Core | 24/24 | — | 11/11 | — | — |
 | Treasury example | 7/7 | — | — | — | — |
 | Express, Fastify, Hono and NestJS with Node SQLite | 11/11 each | — | — | — | — |
 | Express and Drizzle | 11/11 | 11/11 | 11/11 | — | — |
@@ -29,7 +29,7 @@ Frameworks can use another provider from their ecosystem. The table identifies t
 
 ## Concurrent previews on MySQL and SQLite run one at a time
 
-On MySQL and MariaDB, each provider (including the Spring JPA and Ktor JDBC providers) lets one preview run at a time in each process, and further previews wait their turn. InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the same key and the first one rolls back, as every preview does, InnoDB aborts all but one of the rest with a deadlock (error 1213), at any isolation level. Sent for real, the first insert would commit and the others would get a duplicate-key error. SQLite previews already queue the same way, because each one opens with `BEGIN IMMEDIATE` (Django included). Previews sent to different processes or servers of one application still run at the same time, so they can still hit this deadlock. (PHP serves requests in separate worker processes, so its turn is a file lock that orders the Previews of every process on the host.) When that happens, the preview fails safely and nothing is written. Sends and observed sends never wait for a turn.
+On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor JDBC providers) lets one preview run at a time in each process, and further previews wait their turn. InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the same key and the first one rolls back, as every preview does, InnoDB aborts all but one of the rest with a deadlock (error 1213), at any isolation level. Sent for real, the first insert would commit and the others would get a duplicate-key error. SQLite previews already queue the same way, because each one opens with `BEGIN IMMEDIATE` (Django included). Previews sent to different processes or servers of one application still run at the same time, so they can still hit this deadlock. (PHP serves requests in separate worker processes, so its turn is a file lock that orders the Previews of every process on the host.) When that happens, the preview fails safely and nothing is written. Sends and observed sends never wait for a turn.
 
 ## Local test coverage
 
@@ -49,7 +49,7 @@ On MySQL and MariaDB, each provider (including the Spring JPA and Ktor JDBC prov
 
 Other local suites passed as follows:
 
-- **.NET, 50:** ASP.NET Core 30, EF Core 18 and Treasury 2.
+- **.NET, 163:** ASP.NET Core 55, EF Core 58 (the MySQL regression test and the EF MongoDB provider test need the compose services and skip without them), data stores 48 (13 Redis, 11 DynamoDB and 24 MongoDB, against the compose services and skipping without them) and Treasury 2.
 - **Python, 80:** core 29, FastAPI 10, Django 8, Flask 20 (including 13 extension tests on SQLite) and SQLAlchemy 13. The PostgreSQL and MySQL extension runs are listed separately above.
 - **JVM, 185:** core 56, Spring Boot 46, JPA 13, Ktor 16, JDBC 12, MongoDB 25, Redis 9 and DynamoDB 8. The MongoDB, Redis, DynamoDB and Spring Data tests need the `mongodb`, `redis` and `dynamodb` Compose services and skip when they are down. The Spring MySQL run uses the same fixture with `BENCH_DATABASE=mysql`.
 - **PHP, 248:** core 136 (30 of them data-store tests for MongoDB, Redis and DynamoDB, which need the compose services and skip without them), Laravel 71 (31 data-store tests that need the services, the MySQL turn and the transaction-control checks) and Symfony 41. The Laravel MySQL conformance entry runs the fixture with eight workers, so its concurrent-Preview check exercises the turn.

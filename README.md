@@ -21,6 +21,7 @@ Open **http://localhost:5080/sendproof**. The API overview explains Preview and 
 | NuGet package | What it adds |
 | --- | --- |
 | `Sendproof.AspNetCore` | The embedded workbench, authentication discovery and Preview protocol for .NET 10. |
+| `Sendproof.MongoDB`, `Sendproof.Redis`, `Sendproof.DynamoDB` | Preview for MongoDB (a transaction that is aborted) and write guards for Redis and DynamoDB. See [data stores](adapters/dotnet/data-stores.md). |
 | `Sendproof.EntityFrameworkCore` | Relational transaction rollback and tracked row changes for one scoped EF Core context. Includes the ASP.NET Core adapter as a dependency. |
 
 To try the first prerelease from this checkout, build both packages and install from the local feed. Keep nuget.org enabled for third-party dependencies.
