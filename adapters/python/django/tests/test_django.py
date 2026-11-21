@@ -71,6 +71,45 @@ def test_update_has_before_and_after_snapshots_and_rolls_back():
         assert cursor.fetchone() == ("Old",)
 
 
+def test_concurrent_previews_that_read_then_write_one_row_queue_instead_of_failing():
+    """On SQLite a deferred BEGIN lets two previews both read and then fail at once to write ("database is locked").
+
+    The provider opens SQLite previews with BEGIN IMMEDIATE, so they wait for the write lock instead, and each still
+    sees only the committed value and its own update.
+    """
+    import threading
+
+    from django.db import connections
+
+    post(client(), "/items", {"id": "row", "name": "Initial"})
+    names = [f"Temp{index}" for index in range(8)]
+    barrier = threading.Barrier(len(names))
+    results: dict[str, tuple[int, dict]] = {}
+
+    def run(name):
+        try:
+            barrier.wait()
+            response = client().patch("/sendproof/_preview/items/row", data=json.dumps({"name": name}),
+                                      content_type="application/json", **ROLLBACK)
+            results[name] = (response.status_code, response.json())
+        finally:
+            connections.close_all()  # each thread opened its own connection
+
+    threads = [threading.Thread(target=run, args=(name,)) for name in names]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    assert sorted(results) == sorted(names)
+    for name, (status, body) in results.items():
+        assert status == 200 and body["status"] == 200, body
+        change = body["changes"][0]
+        assert change["before"]["name"] == "Initial" and change["after"]["name"] == name
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT name FROM items WHERE id = 'row'")
+        assert cursor.fetchone() == ("Initial",)
+
+
 def test_unhandled_exception_is_an_unconfirmed_500_and_rolls_back():
     response = post(client(raise_request_exception=False), "/sendproof/_preview/boom", **ROLLBACK)
     assert response.status_code == 500 and "rolledBack" not in response.content.decode()
@@ -113,3 +152,21 @@ def test_disabled_environment_is_inert(monkeypatch):
         assert post(http, "/items", {"id": "p", "name": "P"}, **ROLLBACK).status_code == 201  # ordinary route
     finally:
         conf.reset()
+
+
+def test_mysql_previews_on_one_alias_take_turns():
+    """A MySQL preview waits for the one before it; InnoDB would otherwise deadlock same-key inserts."""
+    import threading
+
+    from sendproof_django.orm import _take_mysql_turn
+
+    first = _take_mysql_turn("turns-test")
+    second: list[threading.Lock] = []
+    waiter = threading.Thread(target=lambda: second.append(_take_mysql_turn("turns-test")))
+    waiter.start()
+    waiter.join(0.2)
+    assert waiter.is_alive() and second == []  # still waiting for the first preview's turn
+    first.release()
+    waiter.join(5)
+    assert second == [first]
+    second[0].release()

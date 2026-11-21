@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from typing import Any, Iterable
 
@@ -29,6 +30,52 @@ STATE_KEY = "django_orm"
 _UID = "sendproof_django"
 _connected = False
 
+#: One lock per MySQL database alias; a preview holds it from its first transaction until rollback.
+_mysql_turns: dict[str, threading.Lock] = {}
+_mysql_turns_guard = threading.Lock()
+
+
+def _take_mysql_turn(alias: str) -> threading.Lock:
+    """Wait until no other preview on ``alias`` runs, and answer the held lock.
+
+    InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the
+    same key and the first one rolls back, as every preview does, the waiters each hold that shared lock and
+    each need the exclusive one, so InnoDB aborts all but one with a deadlock (error 1213). Sent for real,
+    the first insert commits and the others get a duplicate-key error instead. MySQL previews therefore take
+    turns, as SQLite previews queue behind ``BEGIN IMMEDIATE``.
+    """
+    with _mysql_turns_guard:
+        lock = _mysql_turns.setdefault(alias, threading.Lock())
+    lock.acquire()
+    return lock
+
+
+def _enter_atomic(alias: str) -> Any:
+    """Open the preview's ``atomic`` block on ``alias`` and answer it.
+
+    On SQLite the outermost block opens with ``BEGIN IMMEDIATE`` unless the database already sets an
+    IMMEDIATE or EXCLUSIVE ``transaction_mode``. A deferred ``BEGIN`` takes only a read lock, so two
+    previews that read and then write one row both hold it, and the second to write fails at once with
+    "database is locked" instead of waiting. Taking the write lock up front makes previews queue instead.
+    """
+    connection = connections[alias]
+    atomic = transaction.atomic(using=alias)
+    immediate = (
+        connection.vendor == "sqlite"
+        and connection.get_autocommit()
+        and (getattr(connection, "transaction_mode", None) or "DEFERRED") == "DEFERRED"
+    )
+    if not immediate:
+        atomic.__enter__()
+        return atomic
+    # Django starts an SQLite transaction through this hook; Django 4.2 to 5.0 always issue a plain BEGIN.
+    connection._start_transaction_under_autocommit = lambda: connection.cursor().execute("BEGIN IMMEDIATE")
+    try:
+        atomic.__enter__()
+    finally:
+        del connection._start_transaction_under_autocommit  # back to the class's method
+    return atomic
+
 
 def _json_value(value: Any) -> Any:
     shown = snapshot(value)
@@ -46,6 +93,8 @@ class _State:
         self.silent = 0  # >0 while Sendproof runs its own reads
         self.pending: dict[int, dict[str, Any] | None] = {}
         self.atomics: list[tuple[str, Any]] = []
+        #: The MySQL turns this preview holds (see ``_take_mysql_turn``), released when it ends.
+        self.turns: list[threading.Lock] = []
         self.wrappers: list[tuple[Any, Any]] = []
         self.finished = False
         #: Why the rollback cannot be trusted, set when SQL tried to end the preview transaction.
@@ -204,9 +253,9 @@ class DjangoOrmPreview(PreviewProvider):
                 connection = connections[alias]
                 if not connection.features.supports_transactions:
                     raise PreviewUnavailable(f"Database '{alias}' does not support transactions.")
-                atomic = transaction.atomic(using=alias)
-                atomic.__enter__()
-                state.atomics.append((alias, atomic))
+                if connection.vendor == "mysql":
+                    state.turns.append(_take_mysql_turn(alias))
+                state.atomics.append((alias, _enter_atomic(alias)))
             state.install_wrappers()
         except BaseException:
             _Session(state).close()
@@ -273,13 +322,18 @@ class _Session(PreviewSession):
         state.finished = True
         state.remove_wrappers()
         failure: BaseException | None = None
-        while state.atomics:  # only when rollback() did not run or failed part way
-            alias, atomic = state.atomics.pop()
-            try:
-                atomic.__exit__(RuntimeError, RuntimeError("preview abandoned"), None)
-            except RuntimeError:
-                pass
-            except BaseException as error:  # noqa: BLE001
-                failure = failure or error
+        try:
+            while state.atomics:  # only when rollback() did not run or failed part way
+                alias, atomic = state.atomics.pop()
+                try:
+                    atomic.__exit__(RuntimeError, RuntimeError("preview abandoned"), None)
+                except RuntimeError:
+                    pass
+                except BaseException as error:  # noqa: BLE001
+                    failure = failure or error
+        finally:
+            # The preview's transactions have ended, so the next MySQL preview may run.
+            while state.turns:
+                state.turns.pop().release()
         if failure is not None:
             raise failure
