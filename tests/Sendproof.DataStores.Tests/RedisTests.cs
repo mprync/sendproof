@@ -132,6 +132,21 @@ public sealed class RedisTests
             redis.GetServer(redis.GetEndPoints()[0]).FlushDatabase();
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/derived/{via}", async (string via, IConnectionMultiplexer redis) =>
+        {
+            // Every handle points back at its multiplexer: that one must be the guarded decorator, not the real connection.
+            var multiplexer = via switch
+            {
+                "database" => redis.GetDatabase().Multiplexer,
+                "batch" => redis.GetDatabase().CreateBatch().Multiplexer,
+                "server" => redis.GetServer(redis.GetEndPoints()[0]).Multiplexer,
+                _ => redis.GetSubscriber().Multiplexer
+            };
+            await multiplexer.GetDatabase().StringSetAsync(Key("derived-" + via), "x");
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/reconfigure", async (IConnectionMultiplexer redis) =>
+            Results.Ok(new { receivers = await redis.PublishReconfigureAsync() })).AllowAnonymous().WithSendproofPreview();
     }
 
     [ServiceFact("redis")]
@@ -211,6 +226,19 @@ public sealed class RedisTests
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/publish"), "redis", "PUBLISH");
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/server-flush"), "redis", "FLUSHDB");
         Assert.Equal("1", await f.Db.StringGetAsync(f.Prefix + "counter:keep"));
+    }
+
+    [ServiceFact("redis")]
+    public async Task TheMultiplexerAHandleReturnsIsGuardedAndReconfigurePublishesNothing()
+    {
+        await using var f = await Fixture.StartAsync();
+        foreach (var via in new[] { "database", "batch", "server", "subscriber" })
+        {
+            await Expect.BlockedAsync(await f.App.PreviewAsync("POST", $"/derived/{via}"), "redis", "SET");
+            Assert.False(await f.Db.KeyExistsAsync(f.Prefix + "counter:derived-" + via), $"The write through {via}.Multiplexer reached Redis.");
+        }
+
+        await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/reconfigure"), "redis", "PUBLISH");
     }
 
     [ServiceFact("redis")]

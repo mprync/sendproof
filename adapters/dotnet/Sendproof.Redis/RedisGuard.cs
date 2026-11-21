@@ -18,13 +18,17 @@ namespace Sendproof.Redis;
 /// </remarks>
 internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? treatAsRead)
 {
-    /// <summary>Wraps a multiplexer in a guarded decorator.</summary>
-    internal IConnectionMultiplexer Guard(IConnectionMultiplexer inner) => Create<IConnectionMultiplexer>(inner, Kind.Multiplexer, 0);
+    private readonly CaptureContext capture = capture;
+    private readonly IReadOnlySet<string>? treatAsRead = treatAsRead;
 
-    private T Create<T>(object inner, Kind kind, int database) where T : class
+    /// <summary>Wraps a multiplexer in a guarded decorator.</summary>
+    internal IConnectionMultiplexer Guard(IConnectionMultiplexer inner) => Create<IConnectionMultiplexer>(inner, Kind.Multiplexer, 0, null);
+
+    private T Create<T>(object inner, Kind kind, int database, IConnectionMultiplexer? multiplexer) where T : class
     {
         var proxy = DispatchProxy.Create<T, GuardProxy>();
-        ((GuardProxy)(object)proxy).Initialize(this, inner, kind, database);
+        // Every handle reports the guarded multiplexer as its own, so handle.Multiplexer never reaches the real connection.
+        ((GuardProxy)(object)proxy).Initialize(this, inner, kind, database, multiplexer ?? (IConnectionMultiplexer)(object)proxy);
         return proxy;
     }
 
@@ -37,13 +41,15 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
         private object _inner = null!;
         private Kind _kind;
         private int _database;
+        private IConnectionMultiplexer _multiplexer = null!;
 
-        internal void Initialize(RedisGuard guard, object inner, Kind kind, int database)
+        internal void Initialize(RedisGuard guard, object inner, Kind kind, int database, IConnectionMultiplexer multiplexer)
         {
             _guard = guard;
             _inner = inner;
             _kind = kind;
             _database = database;
+            _multiplexer = multiplexer;
         }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
@@ -53,6 +59,11 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
             if (_kind == Kind.Multiplexer)
             {
                 return InvokeMultiplexer(method, arguments);
+            }
+
+            if (method.Name == "get_Multiplexer")
+            {
+                return _multiplexer;
             }
 
             // Properties, connection details and disposal describe the handle; they send no command.
@@ -65,8 +76,8 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
             {
                 var batch = Call(method, arguments)!;
                 return method.ReturnType == typeof(ITransaction)
-                    ? _guard.Create<ITransaction>(batch, Kind.Batch, _database)
-                    : _guard.Create<IBatch>(batch, Kind.Batch, _database);
+                    ? _guard.Create<ITransaction>(batch, Kind.Batch, _database, _multiplexer)
+                    : _guard.Create<IBatch>(batch, Kind.Batch, _database, _multiplexer);
             }
 
             if (_kind == Kind.Batch && method.Name is "Execute" or "ExecuteAsync" && method.DeclaringType != typeof(IDatabaseAsync) &&
@@ -81,18 +92,32 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
 
         private object? InvokeMultiplexer(MethodInfo method, object?[] arguments)
         {
+            if (method.Name is "PublishReconfigure" or "PublishReconfigureAsync")
+            {
+                // Publishes to the configuration channel, which every connected client acts on: a write like PUBLISH.
+                try
+                {
+                    _guard.capture.Check("redis", "PUBLISH", StoreClassifier.ClassifyRedis("PUBLISH", null, _guard.treatAsRead));
+                }
+                catch (PreviewWriteBlockedException error)
+                {
+                    return TaskFault.Create(method.ReturnType, error) ?? throw error;
+                }
+            }
+
             var result = Call(method, arguments);
+            var self = (IConnectionMultiplexer)(object)this;
             switch (method.Name)
             {
                 case "GetDatabase":
                     var database = result as IDatabase;
-                    return _guard.Create<IDatabase>(result!, Kind.Database, database?.Database ?? -1);
+                    return _guard.Create<IDatabase>(result!, Kind.Database, database?.Database ?? -1, self);
                 case "GetServer":
-                    return _guard.Create<IServer>(result!, Kind.Server, 0);
+                    return _guard.Create<IServer>(result!, Kind.Server, 0, self);
                 case "GetServers":
-                    return ((IServer[])result!).Select(server => _guard.Create<IServer>(server, Kind.Server, 0)).ToArray();
+                    return ((IServer[])result!).Select(server => _guard.Create<IServer>(server, Kind.Server, 0, self)).ToArray();
                 case "GetSubscriber":
-                    return _guard.Create<ISubscriber>(result!, Kind.Subscriber, 0);
+                    return _guard.Create<ISubscriber>(result!, Kind.Subscriber, 0, self);
                 default:
                     return result;
             }
