@@ -2,7 +2,7 @@
 
 This plan takes MongoDB, Redis and DynamoDB (batch one), then Cassandra, Elasticsearch and OpenSearch, Cosmos DB and Firestore (batch two), to all eight bindings. The rules are in [spec/data-stores.md](../../spec/data-stores.md); this page says how each binding implements them and in what order.
 
-**Status:** the foundation is done: the spec, the shared classification tables and vectors in `spec/data-stores/`, the conformance checks, the compose services, and a working reference in `tests/conformance/fixtures/data-stores-reference/`. Per-language work has not started.
+**Status:** the foundation is done: the spec, the shared classification tables and vectors in `spec/data-stores/`, the conformance checks, the compose services, and a working reference in `tests/conformance/fixtures/data-stores-reference/`. Node is done for batch one (see [How the Node binding did it](#how-the-node-binding-did-it)); the other seven languages have not started.
 
 ## What the foundation gives each binding
 
@@ -371,3 +371,49 @@ The runner defaults to the compose ports; set `BENCH_MONGODB_SERVER_URL`, `BENCH
 - Updates open on Diff with "Changes only" off.
 - The .NET attribute is `[SendproofPreview(Enabled = false, Reason = "...")]`.
 - The UI follows the approved v6 mocks (`mocks/screens/113-131`, `m26-m31`; `mocks/README.md`, v6 section).
+
+## How the Node binding did it
+
+Node went first so the other languages can copy its shape. Everything below is in `adapters/node/`; the user-facing page is [adapters/node/data-stores.md](../../adapters/node/data-stores.md).
+
+### File layout
+
+| Piece | Where |
+| --- | --- |
+| Embedded tables | `core/src/stores/tables.ts`, generated from `spec/data-stores/*.json` by `core/scripts/embed-store-tables.mjs` (`npm run embed-store-tables --workspace @sendproof/core`). Never edit it by hand. |
+| Classifiers | `core/src/stores/classify.ts`: `classifyRedis`, `classifyMongo`, `classifyDynamo`, `partiqlVerb`. Pure functions; each takes an optional exact-match `treatAsRead` set. |
+| Guard and errors | `core/src/stores/guard.ts`: `guard(store, operation, kind, detail?)`, `refuseInPreview(message)`, `PreviewWriteBlockedError`, `PreviewTransactionControlError`, `sanitizeDocument`, `storeLabel`, `readSet`, `writeReason`. |
+| Scope fields | `core/src/capture.ts`: the request's `Capture` (already in `AsyncLocalStorage`) gained `blocked`, `fault`, `block()`, `refuse()` and `db()`. `currentPreview()` returns the Preview capture even after it finished, so a late write is still refused. `change()` now redacts at any depth (`redactDeep` in `secrets.ts`). |
+| Pipeline order, 409, discovery | `createBench` in `core/src/index.ts`: stores' `around` wrap the dispatch; after the handler every store's `finishPreview` runs inside the SQL provider's callback; then a failed finish or a fault answers 500, a block answers 409 (`blockedPreview`), otherwise the envelope. A handler that throws after a block still gets 409 when the provider rethrew that same error. `dataStores` come from `store.describe()`; `previewUnavailable` from operations registered with `preview: false`. |
+| `DataStore` interface | `core/src/types.ts`: `system`, `describe()`, optional `around(capture, dispatch)` and `finishPreview(capture)`. |
+| Store hooks | One package per store: `redis/src/index.ts` (ioredis, node-redis), `dynamodb/src/index.ts` (initialize-step middleware), `mongodb/src/{engine,driver,mongoose,index}.ts`. |
+| `preview: false` | `unavailableOperation()` in core validates the mark; `unavailable(method, path, { reason?, stores? }, …handlers)` in Express, Fastify and Hono; `@SendproofPreview(method, path, { enabled: false, reason })` in NestJS. The route is registered for Send only, so a Preview finds no operation. |
+| Transaction-control guard | SQLite: `sqlite/src/index.ts` records a fault for `COMMIT`/`ROLLBACK`/`BEGIN` (`endsTransaction` in `core/src/statements.ts`). Knex, Drizzle, TypeORM and Prisma already refused them and fail the Preview. |
+| Fixture routes | `examples/fixture-stores.mjs` (store routes, hooked only when the runner passes their variables) and the accounts and commit routes in `examples/fixture-service.mjs`, shared by the Express, Fastify, Hono and NestJS fixtures. |
+
+### Tests
+
+| File | What it proves |
+| --- | --- |
+| `tests/stores-core.test.mts` | `embedded data-store tables match spec/data-stores` (parity), `the classifiers pass every shared classification vector`, host reads, deep redaction, the guard's mark, `a blocked Preview answers 409 even when the handler catches the error and returns 200`, `the guard checks fail when the hook is removed` (the negative test), the pipeline order, discovery and `preview: false`. |
+| `tests/redis.test.mts` | Per client (ioredis, node-redis): reads, writes, `GETDEL`, pipelines and `MULTI` refused before any byte is sent (read back by an unhooked client), observed Send, and the same checks failing unhooked. |
+| `tests/dynamodb.test.mts` | Base and document clients, PartiQL `SELECT` versus `UPDATE`, credentials never captured, the checks failing unhooked. |
+| `tests/mongodb.test.mts` | Driver: preview mode, nested redacted changes, `via`, `$out` blocked, `a write sent without the Preview session fails the Preview with 500` (the tripwire), a foreign session and a handler commit refused, `withTransaction` joining, guard mode on a standalone server (simulated `hello`), the checks failing unhooked. Mongoose: models, queries, `insertMany`, aggregation and `connection.transaction()` joining; `Model.collection` writes failing with 500. |
+| `tests/support/stores.mts` | The shared harness: an Express app with SQLite, `assertBlocked`, `assertUnconfirmed`, and `needs(store)`, which skips a test when its compose service isn't running. |
+
+Run them with the compose services up: `npm test --prefix adapters/node`. The store tests skip, with the compose command in the reason, when a service is down.
+
+### What later languages should copy, and what they can skip
+
+- **Mark first, response second.** The guard records the block on the request scope before throwing, and the pipeline reads the scope, never the handler's status. Copy the `swallow` route test: it catches the refusal and returns 200.
+- **Classify batches before queueing.** Pipelines and `MULTI` are checked as a whole before the first command is written; refusing one command mid-pipeline corrupts reply matching in both Node Redis clients. ioredis auto-pipelining mixes requests in one batch, so it is refused at registration.
+- **MongoDB uses monitoring for everything after the guard.** Command monitoring (in the request's async context) supplies the tripwire, the 263 block, the change candidates (`insert` documents, `update`/`delete`/`findAndModify` filters, `upserted` replies, client `bulkWrite` ops) and the `Db` log entries. The guarded proxies only inject the session and run the guard. Driver internals run under a private async-local flag so the engine's own reads and abort are ignored.
+- **Join, don't nest.** The Preview session's `startTransaction`, `withTransaction`, `commitTransaction`, `abortTransaction` and `endSession` are replaced on the session object for the Preview; commit and abort record a fault. The engine calls the prototype methods to abort.
+- **Before images** come from the majority-committed view (allowed by the spec); the Node driver exposes `operationTime`, so `atClusterTime` is a possible refinement.
+- **Fail closed on unknown methods.** A guarded MongoDB handle refuses, in a Preview, any method its table doesn't list.
+
+### Spikes, resolved
+
+- node-redis 5: every typed command goes through the inner client's public `sendCommand`; `createClient()` returns an object inheriting from that inner client (`_self`), so hooks go on `_self`. `MULTI` and pipelines go through `_executeMulti` and `_executePipeline`, which are hooked to classify the batch first. node-redis 4's send path is private: unsupported.
+- Mongoose 8: `transactionAsyncLocalStorage` covers queries, `save()`, `Model.create`, `insertMany`, `Model.bulkWrite`, `Connection.bulkWrite` and aggregations, so the Preview runs its dispatch inside it. Guarding before send in `guard` mode needs the plugin's `pre` hooks; model statics such as `Model.updateOne` are queries and covered. `Model.collection.*` bypasses both and is caught by the tripwire.
+- AWS SDK v3: the document client's commands resolve through the base command, so `context.commandName` is the base name (`UpdateItemCommand`) and one middleware on the shared stack covers both clients.
