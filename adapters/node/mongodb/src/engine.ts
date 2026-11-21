@@ -503,6 +503,12 @@ export class MongoEngine {
       try {
         if (state.session.inTransaction()) await state.controls.abortTransaction.call(state.session);
       } catch { /* Ignored, as the transactions specification requires; nothing was committed. */ }
+      // Guarded handles refuse calls from now on (see refuseEnded), but a call that passed that check just before
+      // could still be on its way to the server. A fresh transaction, never committed, carries it instead of letting it
+      // run with no transaction and commit on its own; ending the session discards it.
+      try {
+        state.controls.startTransaction.call(state.session);
+      } catch { /* Ending the session below still refuses later commands. */ }
       try {
         await state.controls.endSession.call(state.session);
       } catch { /* The server ends the session itself once its timeout passes. */ }

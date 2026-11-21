@@ -14,6 +14,7 @@
  */
 import { refuseInPreview } from '@sendproof/core';
 import type { ClientSession, MongoClient } from 'mongodb';
+import { refuseEnded } from './driver.js';
 import type { MongoEngine } from './engine.js';
 
 /** The parts of a Mongoose instance the store uses. */
@@ -58,6 +59,8 @@ export function hookMongoose(mongoose: MongooseLike, engine: MongoEngine, databa
 
   /** Refuse an explicit session other than the Preview's, then classify the command. */
   const check = (command: Record<string, unknown>, session: unknown) => {
+    // A Preview that has ended refuses every further operation, so a late write can't run outside its transaction.
+    refuseEnded(engine);
     const state = engine.state();
     if (state && session && session !== state.session) {
       throw refuseInPreview('A Mongoose operation passed its own session during a Preview; the Preview session must carry every command.')!;

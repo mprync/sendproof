@@ -115,11 +115,23 @@ function fail(method: string, error: unknown): unknown {
 }
 
 /**
+ * Refuse any call from a Preview that has ended for any reason (the handler settled, or the time limit aborted it).
+ * Between the abort and the end of the session, a command carrying the session would run with no transaction and
+ * commit on its own; after it, the driver's expired-session error would be the only stop. The guard stops it first.
+ */
+export function refuseEnded(engine: MongoEngine): void {
+  if (engine.state()?.finished) {
+    throw refuseInPreview('The Preview has ended, so its MongoDB session and handles refuse every further call.')!;
+  }
+}
+
+/**
  * Prepare one call during a Preview: guard it, and give its options the Preview session. Returns
  * the arguments to call the driver with. Throws the guard's error, or a refusal for a foreign
  * session.
  */
 function prepare(engine: MongoEngine, rule: Rule, method: string, name: string, args: unknown[], database: string | undefined): unknown[] {
+  refuseEnded(engine);
   const command = rule.command(name, args);
   engine.check(command, Object.keys(command)[0] ?? method, database);
   const state = engine.state();
@@ -134,6 +146,29 @@ function prepare(engine: MongoEngine, rule: Rule, method: string, name: string, 
   return next;
 }
 
+const bulkBuilders = new Set(['initializeOrderedBulkOp', 'initializeUnorderedBulkOp']);
+
+/**
+ * Guard a bulk operation builder. It takes the Preview session when it is created and sends its writes only at
+ * `execute()`, so `execute()` from a Preview that has since ended is refused like any other late call.
+ */
+function guardBulk<T extends object>(bulk: T, engine: MongoEngine): T {
+  return new Proxy(bulk, {
+    get(object, property, receiver) {
+      const value = Reflect.get(object, property, receiver);
+      if (property !== 'execute' || typeof value !== 'function') return value;
+      return function execute(...args: unknown[]) {
+        try {
+          if (currentPreview()) refuseEnded(engine);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        return (value as (...a: unknown[]) => unknown).apply(object, args);
+      };
+    },
+  });
+}
+
 /** Wrap a driver handle so each listed method is prepared during a Preview. Unknown methods fail closed. */
 function guarded<T extends object>(target: T, engine: MongoEngine, rules: Record<string, Rule>, name: string, database: string | undefined, special: Record<string, (...args: unknown[]) => unknown> = {}): T {
   return new Proxy(target, {
@@ -144,7 +179,9 @@ function guarded<T extends object>(target: T, engine: MongoEngine, rules: Record
       const rule = rules[property];
       const run = (args: unknown[]) => {
         const result = (value as (...a: unknown[]) => unknown).apply(object, args);
-        return property === 'aggregate' && result && typeof result === 'object' ? guardCursor(result, engine, name, database) : result;
+        if (!result || typeof result !== 'object') return result;
+        if (property === 'aggregate') return guardCursor(result, engine, name, database);
+        return bulkBuilders.has(property) ? guardBulk(result, engine) : result;
       };
       return function call(...args: unknown[]) {
         if (!currentPreview()) return run(args);

@@ -522,6 +522,24 @@ test('driver: a Preview that outlives its time limit is aborted and never confir
   assert.throws(() => mongoStore(new MongoClient(services.mongodb), { previewTimeoutMs: 0 }), TypeError);
 });
 
+test('driver: once a Preview has ended, its guarded handles refuse every call, so a late write never runs outside the transaction', await needs('mongodb'), async t => {
+  // Between the abort and the end of the session, a write carrying the session would run with no transaction and
+  // autocommit; the guard must refuse it itself rather than rely on the driver's expired-session error.
+  let late: Promise<string> | undefined;
+  const app = await hookedApp(t, collection => bench => {
+    bench.operation('POST', '/documents/{id}/outlive', handle(async (req, res) => {
+      await collection().insertOne({ _id: req.params.id as never });
+      late = new Promise(resolve => setTimeout(resolve, 600)).then(() => collection().insertOne({ _id: req.params.id + '-late' as never }))
+        .then(() => 'ran', (error: Error) => error.message);
+      await new Promise(resolve => setTimeout(resolve, 400));
+      res.status(201).json({ ok: true });
+    }));
+  }, { previewTimeoutMs: 200 });
+  await assertUnconfirmed(await app.preview('POST', '/documents/outlive/outlive'));
+  assert.match(await late!, /Preview has ended/);
+  assert.deepEqual(await app.documents({ _id: { $in: ['outlive', 'outlive-late'] } }), []);
+});
+
 test('driver: concurrent Previews and Sends never share a session', await needs('mongodb'), async t => {
   const app = await hookedApp(t, collection => bench => {
     bench.operation('POST', '/documents/{id}', handle(async (req, res) => {
