@@ -196,6 +196,7 @@ Change records gain optional fields so one list holds rows, documents, items and
 - `table` holds the collection name for MongoDB, the table name for DynamoDB, and the key's prefix up to the first `:` (or the whole key) for Redis. `namespace` is the database.
 - `key` is `{ "_id": … }` for MongoDB, the item's primary key attributes for DynamoDB, and `{ "key": "…" }` for Redis.
 - `operation` stays `insert`, `update` or `delete`. A MongoDB replacement is an `update`; an upsert that created a document is an `insert`.
+- `via` is optional and says how the change was made when the operation alone hides it: `"upsert"` for a change made by an upsert (an `insert` when it created the document, an `update` when it matched one), and `"replace"` for a whole-document replacement. The UI labels these. Absent means an ordinary insert, update or delete.
 - `before` and `after` are whole documents, nested as stored. BSON types without a JSON equivalent use [MongoDB Extended JSON v2 relaxed form](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/) (`{"$oid": …}`, `{"$date": …}`).
 
 Only `preview`-mode stores produce change records in a Preview, because a blocked Preview returns no envelope. Observed Send may record changes for any store whose hook can see them.

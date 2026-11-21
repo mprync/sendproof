@@ -24,6 +24,7 @@
         "table": {"type": "string", "description": "SQL table, MongoDB collection, DynamoDB table, or Redis key prefix."},
         "store": {"type": "string", "description": "Data store id from capabilities dataStores; absent for the SQL database. See data-stores.md."},
         "namespace": {"type": "string", "description": "Database that holds the collection or table."},
+        "via": {"enum": ["upsert", "replace"], "description": "How a store change was made, when it was an upsert or a whole-document replacement. See data-stores.md."},
         "key": true,
         "before": {"type": ["null", "object"]},
         "after": {"type": ["null", "object"]}
