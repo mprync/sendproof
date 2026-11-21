@@ -7,6 +7,7 @@ members = [
     "sendproof-sqlx",
     "sendproof-redis",
     "sendproof-dynamodb",
+    "sendproof-mongodb",
     "../../examples/rust-conformance",
     "../../examples/rust-conformance-common",
     "../../examples/rust-conformance-actix",
@@ -30,6 +31,7 @@ sendproof-axum = { path = "sendproof-axum" }
 sendproof-sqlx = { path = "sendproof-sqlx" }
 sendproof-redis = { path = "sendproof-redis" }
 sendproof-dynamodb = { path = "sendproof-dynamodb" }
+sendproof-mongodb = { path = "sendproof-mongodb" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 http = "1"
@@ -45,6 +47,8 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 uuid = { version = "1", features = ["v4"] }
 redis = { version = "1", default-features = false }
 aws-sdk-dynamodb = { version = "1", default-features = false, features = ["rt-tokio", "behavior-version-latest"] }
+# `rustls-tls` is required by the driver; an application enables `dns-resolver` (for `mongodb+srv`) itself.
+mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls"] }
 aws-smithy-runtime-api = "1"
 aws-smithy-types = "1"
 aws-smithy-runtime = "1"
