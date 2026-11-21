@@ -404,6 +404,7 @@ export default {
     'signin.noProvider': 'Diese API meldet keine interaktive Anmeldemethode.', 'signin.discovered': 'Von der API gemeldete Anmeldemethoden: {names}.',
     'signin.seeded': 'Vorhandene Konten', 'signin.seededBody': 'Als vorhandener Benutzer in {db} anmelden. Ein Klick, kein Passwort.',
     'signin.seededBodyHere': 'Als vorhandener Benutzer in dieser Umgebung anmelden. Ein Klick, kein Passwort.',
+    'signin.seededUnavailable': 'Vorhandene Konten sind von dieser Adresse aus nicht verfügbar. Melden Sie sich stattdessen mit einem Passwort oder auf anderem Weg an.',
     'signin.loadingAccounts': 'Konten werden geladen …', 'signin.noAccounts': 'Keine Konten verfügbar.',
     'signin.accountsStatus': 'Konten konnten nicht geladen werden ({status}).', 'signin.accountsInvalid': 'Die Kontoliste hatte nicht das erwartete Format.',
     'signin.wrong': 'Falsche E-Mail oder falsches Passwort.', 'signin.wrongWithSeeded': 'Falsche E-Mail oder falsches Passwort. Oder wählen Sie ein Seed-Konto.',

@@ -4,12 +4,9 @@
 import { esc, icon } from './components.js';
 import { t } from './i18n.js';
 import { closePopover, openPopoverAt } from './popover.js';
+import { isPersonaRefusal, personasProvider } from './personas.js';
 
 const initials = name => String(name || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?';
-
-/** The personas provider advertised by discovery, if any. */
-export const personasProvider = capabilities =>
-  (capabilities?.authProviders || []).find(provider => provider.kind?.toLowerCase() === 'personas' && provider.url);
 
 /**
  * Opens the menu under `button`. `onSignedIn()` runs after the API accepted the sign-in; failures
@@ -25,6 +22,12 @@ export async function openSeededMenu(button, { capabilities, onSignedIn }) {
   let users;
   try {
     const response = await fetch(provider.url, { credentials: 'include', redirect: 'error' });
+    if (isPersonaRefusal(response.status)) {
+      // The host does not offer seeded accounts to this caller: drop the option, show no error.
+      closePopover();
+      button.hidden = true;
+      return;
+    }
     if (!response.ok) throw new Error(t('signin.accountsStatus', { status: response.status }));
     users = await response.json();
     if (!Array.isArray(users)) throw new Error(t('signin.accountsInvalid'));

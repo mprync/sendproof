@@ -6,6 +6,7 @@ import { formatDateTime, formatDuration, t, th } from './i18n.js';
 import { copyText } from './copy.js';
 import { initials } from './view.js';
 import { shortcutAttrs, shortcutHint } from './shortcuts.js';
+import { isPersonaRefusal } from './personas.js';
 
 function providerGlyph(provider) {
   const label = String(provider.label || provider.kind || '');
@@ -58,6 +59,12 @@ function personaPanel(provider, database) {
     <div id="personas"><div class="persona-row" role="status"><span class="faint">${esc(t('signin.loadingAccounts'))}</span></div></div>
   </section>`;
 }
+
+/**
+ * Replaces the seeded-account panel when the host does not offer it to this caller (it answered
+ * 401, 403 or 404): a quiet pointer to the other sign-in methods, in the panel's place, not an error.
+ */
+const personaRefusedNote = () => `<p class="inline-note persona-refused" id="personas-refused">${icon('info', true)}<span>${esc(t('signin.seededUnavailable'))}</span></p>`;
 
 function personaMarkup(user, index) {
   const roles = (Array.isArray(user.roles) ? user.roles : user.role ? [user.role] : []).map(role => `<span class="tag tag-mono">${esc(role)}</span>`).join(' ');
@@ -130,7 +137,7 @@ export async function showSignIn(root, capabilities, onSignedIn, onCancel) {
           ${otherProviders(secondary)}
           ${!password && !links.length && !personas ? `<p class="faint">${esc(t('signin.noProvider'))}</p>` : ''}
         </section>
-        ${personas || providers.length ? `<div>${personaPanel(personas, database)}${discovery(providers)}</div>` : ''}
+        ${personas || providers.length || capabilities.personasRefused ? `<div>${capabilities.personasRefused ? personaRefusedNote() : personaPanel(personas, database)}${discovery(providers)}</div>` : ''}
       </div>
     </main>
   </div>`;
@@ -228,6 +235,13 @@ export async function showSignIn(root, capabilities, onSignedIn, onCancel) {
     const container = root.querySelector('#personas');
     try {
       const response = await fetch(personas.url, { credentials: 'include', redirect: 'error', signal: controller.signal });
+      if (active && isPersonaRefusal(response.status)) {
+        // Not offered here: swap the panel for the pointer to password sign-in. No error.
+        const card = container.closest?.('.persona-card');
+        card?.insertAdjacentHTML('beforebegin', personaRefusedNote());
+        card?.remove();
+        return;
+      }
       if (!response.ok) throw new Error(t('signin.accountsStatus', { status: response.status }));
       const users = await response.json();
       if (!Array.isArray(users)) throw new Error(t('signin.accountsInvalid'));

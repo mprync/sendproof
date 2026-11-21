@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'API นี้ไม่รายงานวิธีเข้าสู่ระบบแบบโต้ตอบ', 'signin.discovered': 'วิธีเข้าสู่ระบบที่ API รายงาน: {names}',
     'signin.seeded': 'บัญชีตัวอย่าง', 'signin.seededBody': 'เข้าสู่ระบบในฐานะผู้ใช้ที่มีอยู่ใน {db} คลิกเดียว ไม่ต้องใช้รหัสผ่าน',
     'signin.seededBodyHere': 'เข้าสู่ระบบในฐานะผู้ใช้ที่มีอยู่ในสภาพแวดล้อมนี้ คลิกเดียว ไม่ต้องใช้รหัสผ่าน',
+    'signin.seededUnavailable': 'ไม่สามารถใช้บัญชีตัวอย่างจากที่อยู่นี้ได้ ให้ลงชื่อเข้าใช้ด้วยรหัสผ่านหรือวิธีอื่นแทน',
     'signin.loadingAccounts': 'กำลังโหลดบัญชี…', 'signin.noAccounts': 'ไม่มีบัญชีให้ใช้',
     'signin.accountsStatus': 'โหลดบัญชีไม่ได้ ({status})', 'signin.accountsInvalid': 'รายการบัญชีไม่อยู่ในรูปแบบที่คาดไว้',
     'signin.wrong': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'signin.wrongWithSeeded': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือเลือกบัญชีตัวอย่าง',

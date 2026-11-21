@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'API này không báo cáo cách đăng nhập tương tác nào.', 'signin.discovered': 'Các cách đăng nhập do API báo cáo: {names}.',
     'signin.seeded': 'Tài khoản có sẵn', 'signin.seededBody': 'Đăng nhập với tư cách một người dùng hiện có trong {db}. Một cú nhấp, không cần mật khẩu.',
     'signin.seededBodyHere': 'Đăng nhập với tư cách một người dùng hiện có trong môi trường này. Một cú nhấp, không cần mật khẩu.',
+    'signin.seededUnavailable': 'Không thể dùng tài khoản có sẵn từ địa chỉ này. Hãy đăng nhập bằng mật khẩu hoặc phương thức khác.',
     'signin.loadingAccounts': 'Đang tải tài khoản…', 'signin.noAccounts': 'Không có tài khoản nào.',
     'signin.accountsStatus': 'Không thể tải tài khoản ({status}).', 'signin.accountsInvalid': 'Danh sách tài khoản không đúng định dạng mong đợi.',
     'signin.wrong': 'Sai email hoặc mật khẩu.', 'signin.wrongWithSeeded': 'Sai email hoặc mật khẩu. Hoặc chọn một tài khoản có sẵn.',

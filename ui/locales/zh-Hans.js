@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': '此 API 未报告任何交互式登录方式。', 'signin.discovered': 'API 报告的登录方式：{names}。',
     'signin.seeded': '预置账户', 'signin.seededBody': '以 {db} 中已有的用户身份登录。一键完成，无需密码。',
     'signin.seededBodyHere': '以此环境中已有的用户身份登录。一键完成，无需密码。',
+    'signin.seededUnavailable': '无法从此地址使用预置账户。请改用密码或其他方式登录。',
     'signin.loadingAccounts': '正在加载账户…', 'signin.noAccounts': '没有可用的账户。',
     'signin.accountsStatus': '无法加载账户（{status}）。', 'signin.accountsInvalid': '账户列表的格式不符合预期。',
     'signin.wrong': '电子邮件或密码错误。', 'signin.wrongWithSeeded': '电子邮件或密码错误。也可以选择一个预置账户。',

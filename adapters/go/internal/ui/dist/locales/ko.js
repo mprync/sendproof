@@ -407,6 +407,7 @@ export default {
     'signin.noProvider': '이 API는 대화형 로그인 방법을 제공하지 않습니다.', 'signin.discovered': 'API가 알려 준 로그인 방법: {names}.',
     'signin.seeded': '시드 계정', 'signin.seededBody': '{db}의 기존 사용자로 로그인합니다. 클릭 한 번, 비밀번호 없이.',
     'signin.seededBodyHere': '이 환경의 기존 사용자로 로그인합니다. 클릭 한 번, 비밀번호 없이.',
+    'signin.seededUnavailable': '이 주소에서는 시드 계정을 사용할 수 없습니다. 대신 비밀번호나 다른 방법으로 로그인하세요.',
     'signin.loadingAccounts': '계정 불러오는 중…', 'signin.noAccounts': '사용 가능한 계정이 없습니다.',
     'signin.accountsStatus': '계정을 불러올 수 없습니다({status}).', 'signin.accountsInvalid': '계정 목록이 예상한 형식이 아닙니다.',
     'signin.wrong': '이메일 또는 비밀번호가 올바르지 않습니다.', 'signin.wrongWithSeeded': '이메일 또는 비밀번호가 올바르지 않습니다. 또는 시드 계정을 선택하세요.',

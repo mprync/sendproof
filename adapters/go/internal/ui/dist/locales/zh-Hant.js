@@ -407,6 +407,7 @@ export default {
     'signin.noProvider': '此 API 未回報任何互動式登入方式。', 'signin.discovered': 'API 回報的登入方式：{names}。',
     'signin.seeded': '種子帳戶', 'signin.seededBody': '以 {db} 中現有的使用者身分登入。只需點一下，不需要密碼。',
     'signin.seededBodyHere': '以此環境中現有的使用者身分登入。只需點一下，不需要密碼。',
+    'signin.seededUnavailable': '無法從此位址使用種子帳戶。請改用密碼或其他方式登入。',
     'signin.loadingAccounts': '正在載入帳戶…', 'signin.noAccounts': '沒有可用的帳戶。',
     'signin.accountsStatus': '無法載入帳戶（{status}）。', 'signin.accountsInvalid': '帳戶清單不是預期的格式。',
     'signin.wrong': '電子郵件或密碼錯誤。', 'signin.wrongWithSeeded': '電子郵件或密碼錯誤。或者選擇種子帳戶。',

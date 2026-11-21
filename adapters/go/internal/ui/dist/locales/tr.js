@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'Bu API etkileşimli bir oturum açma yöntemi bildirmiyor.', 'signin.discovered': 'API’nin bildirdiği oturum açma yöntemleri: {names}.',
     'signin.seeded': 'Hazır hesaplar', 'signin.seededBody': '{db} içindeki mevcut bir kullanıcı olarak oturum açın. Tek tık, parola yok.',
     'signin.seededBodyHere': 'Bu ortamdaki mevcut bir kullanıcı olarak oturum açın. Tek tık, parola yok.',
+    'signin.seededUnavailable': 'Hazır hesaplar bu adresten kullanılamıyor. Bunun yerine parolayla veya başka bir yöntemle oturum açın.',
     'signin.loadingAccounts': 'Hesaplar yükleniyor…', 'signin.noAccounts': 'Kullanılabilir hesap yok.',
     'signin.accountsStatus': 'Hesaplar yüklenemedi ({status}).', 'signin.accountsInvalid': 'Hesap listesi beklenen biçimde değildi.',
     'signin.wrong': 'E-posta veya parola yanlış.', 'signin.wrongWithSeeded': 'E-posta veya parola yanlış. Ya da hazır bir hesap seçin.',

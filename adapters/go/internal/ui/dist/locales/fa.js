@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'این API هیچ روش ورود تعاملی گزارش نمی‌کند.', 'signin.discovered': 'روش‌های ورودی که API گزارش کرده: {names}.',
     'signin.seeded': 'حساب‌های از پیش‌ساخته', 'signin.seededBody': 'به‌عنوان یک کاربر موجود در {db} وارد شوید. یک کلیک، بدون گذرواژه.',
     'signin.seededBodyHere': 'به‌عنوان یک کاربر موجود در این محیط وارد شوید. یک کلیک، بدون گذرواژه.',
+    'signin.seededUnavailable': 'حساب‌های از پیش‌ساخته از این نشانی در دسترس نیستند. به‌جای آن با گذرواژه یا روشی دیگر وارد شوید.',
     'signin.loadingAccounts': 'در حال بارگذاری حساب‌ها…', 'signin.noAccounts': 'هیچ حسابی در دسترس نیست.',
     'signin.accountsStatus': 'بارگذاری حساب‌ها ممکن نشد ({status}).', 'signin.accountsInvalid': 'فهرست حساب‌ها در قالب مورد انتظار نبود.',
     'signin.wrong': 'ایمیل یا گذرواژه اشتباه است.', 'signin.wrongWithSeeded': 'ایمیل یا گذرواژه اشتباه است. یا یک حساب از پیش‌ساخته انتخاب کنید.',

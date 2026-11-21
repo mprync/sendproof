@@ -403,6 +403,7 @@ export default {
     'signin.noProvider': 'Det här API:et rapporterar ingen interaktiv inloggningsmetod.', 'signin.discovered': 'Inloggningsmetoder som API:et rapporterar: {names}.',
     'signin.seeded': 'Förskapade konton', 'signin.seededBody': 'Logga in som en befintlig användare i {db}. Ett klick, inget lösenord.',
     'signin.seededBodyHere': 'Logga in som en befintlig användare i den här miljön. Ett klick, inget lösenord.',
+    'signin.seededUnavailable': 'Förskapade konton är inte tillgängliga från den här adressen. Logga in med ett lösenord eller på något annat sätt i stället.',
     'signin.loadingAccounts': 'Läser in konton …', 'signin.noAccounts': 'Inga konton är tillgängliga.',
     'signin.accountsStatus': 'Det gick inte att läsa in kontona ({status}).', 'signin.accountsInvalid': 'Kontolistan hade inte det förväntade formatet.',
     'signin.wrong': 'Fel e-postadress eller lösenord.', 'signin.wrongWithSeeded': 'Fel e-postadress eller lösenord. Eller välj ett förskapat konto.',

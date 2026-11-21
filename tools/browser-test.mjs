@@ -874,6 +874,60 @@ async function openIn(page, url, hash, language) {
 }
 
 /**
+ * The host may refuse the seeded-account list (the Treasury example answers 403 when the workbench is
+ * opened from another machine). Then the option is hidden everywhere, with no error and no layout
+ * shift: the sidebar notice has no seeded button, the sign-in page shows a pointer to password
+ * sign-in instead of the panel, and the notice does not move once the page has settled. A 500 keeps
+ * today's behaviour (the option stays, the sign-in panel shows its error row).
+ */
+async function verifyPersonaRefusal(browser, url) {
+  const open = async status => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
+    await serveUiFromDirectory(context);
+    await context.route(/\/auth\/personas$/, route => route.fulfill({ status, contentType: 'application/json', body: status === 500 ? 'boom' : '{}' }));
+    const view = await context.newPage();
+    view.setDefaultTimeout(5000);
+    const shifts = [];
+    await view.addInitScript(() => {
+      window.__noticeRects = [];
+      new MutationObserver(() => {
+        const notice = document.querySelector('.sidebar .auth-notice');
+        if (notice) { const box = notice.getBoundingClientRect(); window.__noticeRects.push([box.top, box.height]); }
+      }).observe(document, { childList: true, subtree: true });
+    });
+    await view.goto(`${url}/bench/#op/PaymentsController.Create`);
+    await view.locator('.sidebar .auth-notice').waitFor();
+    await view.waitForTimeout(600);
+    shifts.push(...await view.evaluate(() => [...new Set(window.__noticeRects.map(rect => rect.join(':')))]));
+    return { context, view, shifts };
+  };
+  for (const status of [403, 401, 404]) {
+    const { context, view, shifts } = await open(status);
+    try {
+      assert.equal(await view.locator('.sidebar .auth-notice [data-action="signin"]').isVisible(), true, `${status}: Sign in stays`);
+      assert.equal(await view.locator('.sidebar .auth-notice [data-action="seeded-menu"]').count(), 0, `${status}: no seeded-account button`);
+      assert.equal(await view.locator('[role="alert"]').count(), 0, `${status}: no error shown`);
+      assert.equal(shifts.length, 1, `${status}: the notice is drawn once and never moves (${shifts.join(' → ')})`);
+      await view.locator('.sidebar .auth-notice [data-action="signin"]').click();
+      await view.locator('#email').waitFor();
+      await view.locator('#personas-refused').waitFor();
+      assert.equal(await view.locator('.persona-card, .persona-row').count(), 0, `${status}: no seeded panel on the sign-in page`);
+      assert.equal(await view.locator('#signin-form [type="submit"]').isVisible(), true, `${status}: password sign-in remains`);
+      assert.deepEqual(await view.evaluate(clipProblems), [], `${status}: the sign-in page does not clip`);
+      await audit(view, `sign-in without seeded accounts (${status})`);
+    } finally { await context.close(); }
+  }
+  const { context, view } = await open(500);
+  try {
+    assert.equal(await view.locator('.sidebar .auth-notice [data-action="seeded-menu"]').count(), 1, '500: the seeded-account button stays');
+    await view.locator('.sidebar .auth-notice [data-action="signin"]').click();
+    await view.locator('#email').waitFor();
+    await view.locator('#personas [role="alert"]').waitFor();
+    assert.equal(await view.locator('#personas-refused').count(), 0, '500: no pointer, the error row shows instead');
+  } finally { await context.close(); }
+}
+
+/**
  * Every catalogue (one language each; Arabic, Hebrew and Persian are the right-to-left ones), signed
  * out, at 320, 768, 1100 and 1440 px and at 100 % and 130 % text: no sidebar control may clip (the
  * navigation drawer is opened where the sidebar is one), and the page may never scroll sideways.
@@ -1312,6 +1366,7 @@ try {
   await verifyCodeSamples(page, url);
   await verifyV5Controls(page, url);
   await verifyNoClipping(page, url);
+  await verifyPersonaRefusal(browser, url);
   await verifyLocaleLayouts(browser, url);
   await page.setViewportSize({ width: 390, height: 844 });
   await mock.setViewportSize({ width: 390, height: 844 });

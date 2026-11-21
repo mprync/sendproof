@@ -407,6 +407,7 @@ export default {
     'signin.noProvider': 'This API reports no interactive sign-in method.', 'signin.discovered': 'Sign-in methods reported by the API: {names}.',
     'signin.seeded': 'Seeded accounts', 'signin.seededBody': 'Sign in as an existing user in {db}. One click, no password.',
     'signin.seededBodyHere': 'Sign in as an existing user in this environment. One click, no password.',
+    'signin.seededUnavailable': 'Seeded accounts aren’t available from this address. Sign in with a password or another method instead.',
     'signin.loadingAccounts': 'Loading accounts…', 'signin.noAccounts': 'No accounts are available.',
     'signin.accountsStatus': 'Couldn’t load the accounts ({status}).', 'signin.accountsInvalid': 'The account list wasn’t in the expected format.',
     'signin.wrong': 'Wrong email or password.', 'signin.wrongWithSeeded': 'Wrong email or password. Or pick a seeded account.',

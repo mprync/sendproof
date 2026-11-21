@@ -500,6 +500,7 @@ export default {
     'signin.noProvider': 'Toto API nehlásí žádný interaktivní způsob přihlášení.', 'signin.discovered': 'Způsoby přihlášení hlášené API: {names}.',
     'signin.seeded': 'Předpřipravené účty', 'signin.seededBody': 'Přihlaste se jako existující uživatel v {db}. Jedním kliknutím, bez hesla.',
     'signin.seededBodyHere': 'Přihlaste se jako existující uživatel v tomto prostředí. Jedním kliknutím, bez hesla.',
+    'signin.seededUnavailable': 'Předpřipravené účty nejsou z této adresy dostupné. Přihlaste se místo toho heslem nebo jiným způsobem.',
     'signin.loadingAccounts': 'Načítání účtů…', 'signin.noAccounts': 'Nejsou k dispozici žádné účty.',
     'signin.accountsStatus': 'Účty se nepodařilo načíst ({status}).', 'signin.accountsInvalid': 'Seznam účtů nebyl v očekávaném formátu.',
     'signin.wrong': 'Nesprávný e-mail nebo heslo.', 'signin.wrongWithSeeded': 'Nesprávný e-mail nebo heslo. Nebo vyberte předpřipravený účet.',

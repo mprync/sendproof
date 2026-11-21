@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'Questa API non segnala alcun metodo di accesso interattivo.', 'signin.discovered': 'Metodi di accesso segnalati dall’API: {names}.',
     'signin.seeded': 'Account predefiniti', 'signin.seededBody': 'Accedi come utente esistente in {db}. Un clic, nessuna password.',
     'signin.seededBodyHere': 'Accedi come utente esistente in questo ambiente. Un clic, nessuna password.',
+    'signin.seededUnavailable': 'Gli account predefiniti non sono disponibili da questo indirizzo. Accedi invece con una password o con un altro metodo.',
     'signin.loadingAccounts': 'Caricamento degli account…', 'signin.noAccounts': 'Nessun account disponibile.',
     'signin.accountsStatus': 'Impossibile caricare gli account ({status}).', 'signin.accountsInvalid': 'L’elenco degli account non era nel formato previsto.',
     'signin.wrong': 'Email o password errata.', 'signin.wrongWithSeeded': 'Email o password errata. Oppure scegli un account predefinito.',

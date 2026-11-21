@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'Dette API-et oppgir ingen interaktiv innloggingsmåte.', 'signin.discovered': 'Innloggingsmåter oppgitt av API-et: {names}.',
     'signin.seeded': 'Forhåndsopprettede kontoer', 'signin.seededBody': 'Logg inn som en eksisterende bruker i {db}. Ett klikk, uten passord.',
     'signin.seededBodyHere': 'Logg inn som en eksisterende bruker i dette miljøet. Ett klikk, uten passord.',
+    'signin.seededUnavailable': 'Forhåndsopprettede kontoer er ikke tilgjengelige fra denne adressen. Logg inn med passord eller en annen metode i stedet.',
     'signin.loadingAccounts': 'Laster inn kontoer…', 'signin.noAccounts': 'Ingen kontoer er tilgjengelige.',
     'signin.accountsStatus': 'Kunne ikke laste inn kontoene ({status}).', 'signin.accountsInvalid': 'Kontolisten var ikke i det forventede formatet.',
     'signin.wrong': 'Feil e-post eller passord.', 'signin.wrongWithSeeded': 'Feil e-post eller passord. Eller velg en forhåndsopprettet konto.',

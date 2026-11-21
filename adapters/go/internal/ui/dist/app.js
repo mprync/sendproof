@@ -31,6 +31,7 @@ import { backTarget, createHistory, followModel, formatRoute, parseRoute } from 
 import { findOperation, opKey } from './operations.js';
 import { contextBar } from './context-bar.js';
 import { openSeededMenu } from './seeded-menu.js';
+import { resolvePersonaAccess } from './personas.js';
 import { carriedValues, replacements } from './deprecation.js';
 
 applySettings();
@@ -137,9 +138,14 @@ async function start() {
     if (generation !== startup) return;
     if (capabilities.protocolVersion !== 1 || !capabilities.openApiUrl) throw new Error(t('boot.unsupported'));
     state.cap = capabilities;
+    // Ask the host whether it offers seeded accounts to this browser while the document loads, so
+    // the shell is drawn once with the answer and the option never appears and then vanishes.
+    const personaAccess = resolvePersonaAccess(capabilities);
     // A login entry point must also work when the OpenAPI document requires a session.
     if (signInEntry) {
       signInEntry = false;
+      state.cap = await personaAccess;
+      if (generation !== startup) return;
       const back = () => { history.replaceState(null, '', new URL('./', location.href)); return start(); };
       showSignIn(root, state.cap, back, back);
       return;
@@ -147,6 +153,8 @@ async function start() {
     await loadFieldModules(capabilities.fieldModules);
     if (generation !== startup) return;
     if (!(await loadDocument(state.cap.openApiUrl)) || generation !== startup) return;
+    state.cap = await personaAccess;
+    if (generation !== startup) return;
     routeFromAddress();
     renderShell();
     // "Sign in and retry" runs the same request again once the session exists.

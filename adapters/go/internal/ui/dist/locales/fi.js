@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'Tämä API ei ilmoita interaktiivista kirjautumistapaa.', 'signin.discovered': 'APIn ilmoittamat kirjautumistavat: {names}.',
     'signin.seeded': 'Valmiit tilit', 'signin.seededBody': 'Kirjaudu sisään kohteen {db} olemassa olevana käyttäjänä. Yksi napsautus, ei salasanaa.',
     'signin.seededBodyHere': 'Kirjaudu sisään tämän ympäristön olemassa olevana käyttäjänä. Yksi napsautus, ei salasanaa.',
+    'signin.seededUnavailable': 'Valmiit tilit eivät ole käytettävissä tästä osoitteesta. Kirjaudu sen sijaan salasanalla tai toisella tavalla.',
     'signin.loadingAccounts': 'Ladataan tilejä…', 'signin.noAccounts': 'Tilejä ei ole saatavilla.',
     'signin.accountsStatus': 'Tilien lataus epäonnistui ({status}).', 'signin.accountsInvalid': 'Tililuettelo ei ollut odotetussa muodossa.',
     'signin.wrong': 'Väärä sähköposti tai salasana.', 'signin.wrongWithSeeded': 'Väärä sähköposti tai salasana. Tai valitse valmis tili.',

@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'API ini tidak melaporkan metode masuk interaktif.', 'signin.discovered': 'Metode masuk yang dilaporkan API: {names}.',
     'signin.seeded': 'Akun bawaan', 'signin.seededBody': 'Masuk sebagai pengguna yang sudah ada di {db}. Satu klik, tanpa kata sandi.',
     'signin.seededBodyHere': 'Masuk sebagai pengguna yang sudah ada di lingkungan ini. Satu klik, tanpa kata sandi.',
+    'signin.seededUnavailable': 'Akun bawaan tidak tersedia dari alamat ini. Masuklah dengan kata sandi atau metode lain.',
     'signin.loadingAccounts': 'Memuat akun…', 'signin.noAccounts': 'Tidak ada akun yang tersedia.',
     'signin.accountsStatus': 'Tidak dapat memuat akun ({status}).', 'signin.accountsInvalid': 'Daftar akun tidak dalam format yang diharapkan.',
     'signin.wrong': 'Email atau kata sandi salah.', 'signin.wrongWithSeeded': 'Email atau kata sandi salah. Atau pilih akun bawaan.',

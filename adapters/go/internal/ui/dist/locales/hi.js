@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'यह API कोई इंटरैक्टिव साइन-इन तरीका नहीं बताता।', 'signin.discovered': 'API द्वारा बताए गए साइन-इन तरीके: {names}।',
     'signin.seeded': 'सीड किए गए खाते', 'signin.seededBody': '{db} में मौजूद किसी उपयोगकर्ता के रूप में साइन इन करें। एक क्लिक, पासवर्ड नहीं।',
     'signin.seededBodyHere': 'इस परिवेश में मौजूद किसी उपयोगकर्ता के रूप में साइन इन करें। एक क्लिक, पासवर्ड नहीं।',
+    'signin.seededUnavailable': 'सीड किए गए खाते इस पते से उपलब्ध नहीं हैं। इसके बजाय पासवर्ड या किसी अन्य तरीके से साइन इन करें।',
     'signin.loadingAccounts': 'खाते लोड हो रहे हैं…', 'signin.noAccounts': 'कोई खाता उपलब्ध नहीं है।',
     'signin.accountsStatus': 'खाते लोड नहीं हो सके ({status})।', 'signin.accountsInvalid': 'खातों की सूची अपेक्षित फ़ॉर्मैट में नहीं थी।',
     'signin.wrong': 'ईमेल या पासवर्ड गलत है।', 'signin.wrongWithSeeded': 'ईमेल या पासवर्ड गलत है। या कोई सीड किया गया खाता चुनें।',

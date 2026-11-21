@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'Esta API não indica nenhum método de início de sessão interativo.', 'signin.discovered': 'Métodos de início de sessão indicados pela API: {names}.',
     'signin.seeded': 'Contas de exemplo', 'signin.seededBody': 'Iniciar sessão como um utilizador existente em {db}. Um clique, sem palavra-passe.',
     'signin.seededBodyHere': 'Iniciar sessão como um utilizador existente neste ambiente. Um clique, sem palavra-passe.',
+    'signin.seededUnavailable': 'As contas de exemplo não estão disponíveis a partir deste endereço. Inicie sessão com uma palavra-passe ou outro método.',
     'signin.loadingAccounts': 'A carregar contas…', 'signin.noAccounts': 'Não há contas disponíveis.',
     'signin.accountsStatus': 'Não foi possível carregar as contas ({status}).', 'signin.accountsInvalid': 'A lista de contas não estava no formato esperado.',
     'signin.wrong': 'E-mail ou palavra-passe incorretos.', 'signin.wrongWithSeeded': 'E-mail ou palavra-passe incorretos. Ou escolher uma conta de exemplo.',

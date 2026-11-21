@@ -406,6 +406,7 @@ export default {
     'signin.noProvider': 'この API は対話型のサインイン方法を報告していません。', 'signin.discovered': 'API が報告したサインイン方法: {names}。',
     'signin.seeded': 'シードアカウント', 'signin.seededBody': '{db} にある既存のユーザーとしてサインインします。クリック 1 回、パスワードは不要です。',
     'signin.seededBodyHere': 'この環境にある既存のユーザーとしてサインインします。クリック 1 回、パスワードは不要です。',
+    'signin.seededUnavailable': 'このアドレスからはシードアカウントを利用できません。代わりにパスワードか別の方法でサインインしてください。',
     'signin.loadingAccounts': 'アカウントを読み込み中…', 'signin.noAccounts': '利用できるアカウントはありません。',
     'signin.accountsStatus': 'アカウントを読み込めませんでした ({status})。', 'signin.accountsInvalid': 'アカウント一覧が想定された形式ではありませんでした。',
     'signin.wrong': 'メールアドレスまたはパスワードが違います。', 'signin.wrongWithSeeded': 'メールアドレスまたはパスワードが違います。または、シードアカウントを選択してください。',

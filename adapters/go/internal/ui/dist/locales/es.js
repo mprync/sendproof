@@ -410,6 +410,7 @@ export default {
     'signin.noProvider': 'Esta API no informa de ningún método de inicio de sesión interactivo.', 'signin.discovered': 'Métodos de inicio de sesión que informa la API: {names}.',
     'signin.seeded': 'Cuentas precargadas', 'signin.seededBody': 'Inicia sesión como un usuario existente de {db}. Un clic, sin contraseña.',
     'signin.seededBodyHere': 'Inicia sesión como un usuario existente de este entorno. Un clic, sin contraseña.',
+    'signin.seededUnavailable': 'Las cuentas precargadas no están disponibles desde esta dirección. Inicie sesión con una contraseña o con otro método.',
     'signin.loadingAccounts': 'Cargando cuentas…', 'signin.noAccounts': 'No hay cuentas disponibles.',
     'signin.accountsStatus': 'No se pudieron cargar las cuentas ({status}).', 'signin.accountsInvalid': 'La lista de cuentas no tenía el formato esperado.',
     'signin.wrong': 'Correo o contraseña incorrectos.', 'signin.wrongWithSeeded': 'Correo o contraseña incorrectos. O elige una cuenta precargada.',

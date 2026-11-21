@@ -414,6 +414,7 @@ export default {
     'signin.noProvider': 'ה-API הזה לא מדווח על שיטת התחברות אינטראקטיבית.', 'signin.discovered': 'שיטות התחברות שה-API מדווח עליהן: {names}.',
     'signin.seeded': 'חשבונות מוכנים מראש', 'signin.seededBody': 'התחברו כמשתמש קיים ב-{db}. לחיצה אחת, בלי סיסמה.',
     'signin.seededBodyHere': 'התחברו כמשתמש קיים בסביבה הזו. לחיצה אחת, בלי סיסמה.',
+    'signin.seededUnavailable': 'חשבונות מוכנים מראש אינם זמינים מכתובת זו. היכנסו במקום זאת עם סיסמה או בדרך אחרת.',
     'signin.loadingAccounts': 'החשבונות נטענים…', 'signin.noAccounts': 'אין חשבונות זמינים.',
     'signin.accountsStatus': 'לא ניתן לטעון את החשבונות ({status}).', 'signin.accountsInvalid': 'רשימת החשבונות לא הייתה בפורמט הצפוי.',
     'signin.wrong': 'אימייל או סיסמה שגויים.', 'signin.wrongWithSeeded': 'אימייל או סיסמה שגויים. או בחרו חשבון מוכן מראש.',

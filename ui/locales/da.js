@@ -407,6 +407,7 @@ export default {
     'signin.noProvider': 'Dette API rapporterer ingen interaktiv loginmetode.', 'signin.discovered': 'Loginmetoder rapporteret af API’et: {names}.',
     'signin.seeded': 'Forudoprettede konti', 'signin.seededBody': 'Log ind som en eksisterende bruger i {db}. Ét klik, ingen adgangskode.',
     'signin.seededBodyHere': 'Log ind som en eksisterende bruger i dette miljø. Ét klik, ingen adgangskode.',
+    'signin.seededUnavailable': 'Forudoprettede konti er ikke tilgængelige fra denne adresse. Log ind med en adgangskode eller på en anden måde i stedet.',
     'signin.loadingAccounts': 'Indlæser konti…', 'signin.noAccounts': 'Ingen konti er tilgængelige.',
     'signin.accountsStatus': 'Kunne ikke indlæse kontiene ({status}).', 'signin.accountsInvalid': 'Kontolisten havde ikke det forventede format.',
     'signin.wrong': 'Forkert e-mail eller adgangskode.', 'signin.wrongWithSeeded': 'Forkert e-mail eller adgangskode. Eller vælg en forudoprettet konto.',

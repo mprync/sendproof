@@ -405,6 +405,7 @@ export default {
     'signin.noProvider': 'Deze API meldt geen interactieve inlogmethode.', 'signin.discovered': 'Inlogmethoden gemeld door de API: {names}.',
     'signin.seeded': 'Vooraf aangemaakte accounts', 'signin.seededBody': 'Log in als een bestaande gebruiker in {db}. Eén klik, geen wachtwoord.',
     'signin.seededBodyHere': 'Log in als een bestaande gebruiker in deze omgeving. Eén klik, geen wachtwoord.',
+    'signin.seededUnavailable': 'Vooraf aangemaakte accounts zijn niet beschikbaar vanaf dit adres. Meld u in plaats daarvan aan met een wachtwoord of een andere methode.',
     'signin.loadingAccounts': 'Accounts laden…', 'signin.noAccounts': 'Er zijn geen accounts beschikbaar.',
     'signin.accountsStatus': 'De accounts konden niet worden geladen ({status}).', 'signin.accountsInvalid': 'De lijst met accounts had niet de verwachte notatie.',
     'signin.wrong': 'Onjuist e-mailadres of wachtwoord.', 'signin.wrongWithSeeded': 'Onjuist e-mailadres of wachtwoord. Of kies een vooraf aangemaakt account.',

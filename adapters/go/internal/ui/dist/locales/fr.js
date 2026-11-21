@@ -410,6 +410,7 @@ export default {
     'signin.noProvider': 'Cette API ne signale aucune méthode de connexion interactive.', 'signin.discovered': 'Méthodes de connexion signalées par l’API : {names}.',
     'signin.seeded': 'Comptes préchargés', 'signin.seededBody': 'Connectez-vous en tant qu’utilisateur existant de {db}. Un clic, sans mot de passe.',
     'signin.seededBodyHere': 'Connectez-vous en tant qu’utilisateur existant de cet environnement. Un clic, sans mot de passe.',
+    'signin.seededUnavailable': 'Les comptes préchargés ne sont pas disponibles depuis cette adresse. Connectez-vous plutôt avec un mot de passe ou une autre méthode.',
     'signin.loadingAccounts': 'Chargement des comptes…', 'signin.noAccounts': 'Aucun compte n’est disponible.',
     'signin.accountsStatus': 'Impossible de charger les comptes ({status}).', 'signin.accountsInvalid': 'La liste des comptes n’était pas au format attendu.',
     'signin.wrong': 'E-mail ou mot de passe incorrect.', 'signin.wrongWithSeeded': 'E-mail ou mot de passe incorrect. Ou choisissez un compte préchargé.',

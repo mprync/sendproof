@@ -413,6 +413,7 @@ export default {
     'signin.noProvider': 'To API nie zgłasza żadnej interaktywnej metody logowania.', 'signin.discovered': 'Metody logowania zgłoszone przez API: {names}.',
     'signin.seeded': 'Konta testowe', 'signin.seededBody': 'Zaloguj się jako istniejący użytkownik w {db}. Jedno kliknięcie, bez hasła.',
     'signin.seededBodyHere': 'Zaloguj się jako istniejący użytkownik w tym środowisku. Jedno kliknięcie, bez hasła.',
+    'signin.seededUnavailable': 'Konta testowe nie są dostępne z tego adresu. Zaloguj się zamiast tego hasłem lub inną metodą.',
     'signin.loadingAccounts': 'Ładowanie kont…', 'signin.noAccounts': 'Brak dostępnych kont.',
     'signin.accountsStatus': 'Nie udało się załadować kont ({status}).', 'signin.accountsInvalid': 'Lista kont ma nieoczekiwany format.',
     'signin.wrong': 'Nieprawidłowy e-mail lub hasło.', 'signin.wrongWithSeeded': 'Nieprawidłowy e-mail lub hasło. Możesz też wybrać konto testowe.',

@@ -408,6 +408,7 @@ export default {
     'signin.noProvider': 'Esta API não informa nenhum método de login interativo.', 'signin.discovered': 'Métodos de login informados pela API: {names}.',
     'signin.seeded': 'Contas de exemplo', 'signin.seededBody': 'Entre como um usuário existente em {db}. Um clique, sem senha.',
     'signin.seededBodyHere': 'Entre como um usuário existente neste ambiente. Um clique, sem senha.',
+    'signin.seededUnavailable': 'As contas de exemplo não estão disponíveis a partir deste endereço. Entre com uma senha ou outro método.',
     'signin.loadingAccounts': 'Carregando contas…', 'signin.noAccounts': 'Nenhuma conta disponível.',
     'signin.accountsStatus': 'Não foi possível carregar as contas ({status}).', 'signin.accountsInvalid': 'A lista de contas não estava no formato esperado.',
     'signin.wrong': 'E-mail ou senha incorretos.', 'signin.wrongWithSeeded': 'E-mail ou senha incorretos. Ou escolha uma conta de exemplo.',
