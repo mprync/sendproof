@@ -1,0 +1,21 @@
+[package]
+name = "testbench-axum"
+description = "Axum integration for Test Bench: an embedded API workbench with rollback previews and observed sends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+testbench-core.workspace = true
+axum.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tower = { version = "0.5", default-features = false, features = ["util"] }

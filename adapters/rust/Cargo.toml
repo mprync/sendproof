@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "testbench-core",
+    "testbench-axum",
+    "testbench-actix",
+    "testbench-sqlx",
+    "../../examples/rust-conformance",
+    "../../examples/rust-conformance-common",
+    "../../examples/rust-conformance-actix",
+]
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+authors = ["Test Bench contributors"]
+repository = "https://github.com/test-bench/test-bench"
+keywords = ["openapi", "api-testing", "axum", "actix-web", "rollback"]
+categories = ["development-tools::testing", "web-programming"]
+
+[workspace.dependencies]
+testbench-core = { path = "testbench-core", version = "0.1.0-alpha.1" }
+testbench-actix = { path = "testbench-actix", version = "0.1.0-alpha.1" }
+testbench-axum = { path = "testbench-axum", version = "0.1.0-alpha.1" }
+testbench-sqlx = { path = "testbench-sqlx", version = "0.1.0-alpha.1" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
+actix-web = { version = "4", default-features = false, features = ["macros"] }
+http = "1"
+http-body-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libsqlite3-sys = { version = "0.40", default-features = false }
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+lto = "thin"
