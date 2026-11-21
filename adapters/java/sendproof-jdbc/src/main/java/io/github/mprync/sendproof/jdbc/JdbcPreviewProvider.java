@@ -4,7 +4,10 @@ import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
 import io.github.mprync.sendproof.core.PreviewSession;
 import io.github.mprync.sendproof.core.PreviewTurns;
+import io.github.mprync.sendproof.core.TransactionControl;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -19,6 +22,7 @@ public final class JdbcPreviewProvider implements PreviewProvider {
     private final Supplier<String> database;
     private final Supplier<String> system;
     private final PreviewTurns turns = new PreviewTurns();
+    private volatile Set<String> safeProcedures = Set.of();
 
     /**
      * Creates the provider.
@@ -37,6 +41,23 @@ public final class JdbcPreviewProvider implements PreviewProvider {
         this.dataSource = dataSource;
         this.database = database;
         this.system = system;
+    }
+
+    /**
+     * Declares stored procedures that never commit, so a Preview on MySQL or MariaDB may {@code CALL} them. Every other
+     * {@code CALL} is refused during a Preview, because a procedure can run {@code COMMIT} or an implicitly committing
+     * statement inside the Preview transaction (spec/data-stores.md "Transaction-control statements from the handler").
+     *
+     * <p><b>Warning:</b> this is your statement that the procedures never commit. Sendproof trusts it: a listed procedure
+     * that does commit persists the Preview's writes. Names match exactly ({@code audit_touch} or
+     * {@code reports.refresh_totals}), case-insensitively, with no wildcards.
+     *
+     * @return this provider
+     * @throws IllegalArgumentException for a blank name or one with a wildcard
+     */
+    public JdbcPreviewProvider safeProcedures(String... names) {
+        this.safeProcedures = TransactionControl.safeProcedures(List.of(names));
+        return this;
     }
 
     @Override
@@ -60,12 +81,13 @@ public final class JdbcPreviewProvider implements PreviewProvider {
      */
     @Override
     public PreviewSession begin() throws SQLException {
-        if (!PreviewTurns.needed(system.get())) {
-            return dataSource.beginPreview();
+        String id = system.get();
+        if (!PreviewTurns.needed(id)) {
+            return dataSource.beginPreview(id, safeProcedures);
         }
         turns.acquire();
         try {
-            return turns.holding(dataSource.beginPreview());
+            return turns.holding(dataSource.beginPreview(id, safeProcedures));
         } catch (SQLException | RuntimeException | Error failure) {
             turns.release();
             throw failure;

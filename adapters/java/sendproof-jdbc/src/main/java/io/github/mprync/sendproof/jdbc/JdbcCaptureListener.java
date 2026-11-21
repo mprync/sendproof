@@ -120,7 +120,7 @@ final class JdbcCaptureListener extends SqlLogListener {
             return;
         }
         for (QueryInfo query : queries) {
-            String keyword = TransactionControl.find(query.getQuery());
+            String keyword = TransactionControl.find(query.getQuery(), session.system(), session.safeProcedures());
             if (keyword != null) {
                 throw session.refuse("The SQL statement " + keyword.toUpperCase(Locale.ROOT));
             }

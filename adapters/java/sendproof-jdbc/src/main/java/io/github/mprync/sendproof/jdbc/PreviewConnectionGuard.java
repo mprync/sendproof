@@ -30,14 +30,23 @@ final class PreviewConnectionGuard implements MethodExecutionListener {
                     throw session.refuse("Connection.setAutoCommit(true)");
                 }
             }
+            case "setSavepoint", "releaseSavepoint", "rollback" -> session.checkSavepointCall(method.getName(), args);
             default -> {
                 // Everything else keeps the transaction open.
             }
         }
     }
 
+    /** A handler's whole-transaction rollback erases the MySQL backstop savepoint; the session makes it again. */
     @Override
     public void afterMethod(MethodExecutionContext context) {
-        // Nothing to do.
+        if (!(context.getTarget() instanceof Connection) || !context.getMethod().getName().equals("rollback")
+                || (context.getMethodArgs() != null && context.getMethodArgs().length > 0) || context.getThrown() != null) {
+            return;
+        }
+        JdbcPreviewSession session = JdbcPreviewSession.owning(context.getTarget());
+        if (session != null) {
+            session.rolledBackEarly();
+        }
     }
 }

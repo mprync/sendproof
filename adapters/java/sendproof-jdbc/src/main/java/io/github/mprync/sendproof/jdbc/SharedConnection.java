@@ -42,10 +42,11 @@ final class SharedConnection {
                 }
                 case "abort" -> throw session.refuse("Connection.abort()");
                 case "rollback" -> {
-                    if (args == null || args.length == 0) {
-                        session.rolledBackEarly();
-                    }
+                    // A whole-transaction rollback reaches the real connection, where PreviewConnectionGuard records it
+                    // and makes the backstop savepoint again.
+                    session.checkSavepointCall("rollback", args);
                 }
+                case "setSavepoint", "releaseSavepoint" -> session.checkSavepointCall(method.getName(), args);
                 default -> {
                     // Delegate everything else to the real connection.
                 }

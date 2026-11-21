@@ -58,13 +58,20 @@ public final class PreviewDataSource implements DataSource {
         return system;
     }
 
-    /** Starts the preview transaction for the request that owns the current {@link JdbcScope}. */
-    JdbcPreviewSession beginPreview() throws SQLException {
+    /**
+     * Starts the preview transaction for the request that owns the current {@link JdbcScope}.
+     *
+     * @param system         the SQL provider id, which selects the MySQL refusals and backstop, or {@code null} to use
+     *                       the wrapped database's own
+     * @param safeProcedures procedures the host declared never commit, normalised by {@code TransactionControl}
+     */
+    JdbcPreviewSession beginPreview(String system, java.util.Set<String> safeProcedures) throws SQLException {
         JdbcScope scope = JdbcScope.current();
         if (scope == null) {
             throw new IllegalStateException("No Sendproof request scope is active on this thread.");
         }
-        return new JdbcPreviewSession(scope, proxy.getConnection());
+        return new JdbcPreviewSession(scope, proxy.getConnection(), system != null ? system : databaseSystem(),
+                safeProcedures);
     }
 
     @Override
