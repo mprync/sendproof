@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using MongoDB.Bson;
+using MongoDB.Bson.IO;
 using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
@@ -18,6 +20,10 @@ internal static class ApprovalEndpoints
         group.MapPost("/{paymentId:guid}/reject", Reject).WithName("ApprovalsController.Reject").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
+        // The audit trail lives in MongoDB, so its read exists only when the demo has that store.
+        if (app.ServiceProvider.GetRequiredService<DemoStores>().HasMongo)
+            group.MapGet("/{paymentId:guid}/audit", Audit).WithName("ApprovalsController.Audit").RequireAuthorization()
+                .Produces(StatusCodes.Status200OK, contentType: "application/json").ProducesProblem(StatusCodes.Status404NotFound);
     }
 
     /// <summary>List approval queue</summary>
@@ -94,8 +100,8 @@ internal static class ApprovalEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">The payment is not waiting for approval.</response>
     internal static Task<IResult> Approve(Guid paymentId, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, SendproofPreview preview, ApprovePaymentRequest? request = null) =>
-        Decide(paymentId, ApprovalDecision.Approved, request?.Comment, db, principal, notifications, preview);
+        DemoNotificationQueue notifications, SendproofPreview preview, DemoStores stores, ApprovePaymentRequest? request = null) =>
+        Decide(paymentId, ApprovalDecision.Approved, request?.Comment, db, principal, notifications, preview, stores);
 
     /// <summary>Reject payment</summary>
     /// <remarks>
@@ -111,15 +117,31 @@ internal static class ApprovalEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">The payment is not waiting for approval.</response>
     internal static async Task<IResult> Reject(Guid paymentId, RejectPaymentRequest request, TreasuryDbContext db,
-        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview)
+        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview, DemoStores stores)
     {
         var errors = EndpointSupport.Validate(request);
         if (errors.Count > 0) return Results.ValidationProblem(errors);
-        return await Decide(paymentId, ApprovalDecision.Rejected, request.Reason, db, principal, notifications, preview);
+        return await Decide(paymentId, ApprovalDecision.Rejected, request.Reason, db, principal, notifications, preview, stores);
+    }
+
+    /// <summary>Get approval audit trail</summary>
+    /// <remarks>
+    /// Returns the MongoDB `approval_snapshots` document of a payment: the payment as it was last reviewed and every
+    /// decision taken on it, oldest first. Only available when the demo runs with `DemoMongoUrl` set.
+    /// </remarks>
+    /// <param name="paymentId">The payment's ID.</param>
+    /// <response code="200">The audit trail document.</response>
+    /// <response code="404">No decision has been recorded for this payment.</response>
+    internal static async Task<IResult> Audit(Guid paymentId, DemoStores stores)
+    {
+        var snapshot = await stores.SnapshotAsync(paymentId);
+        return snapshot is null
+            ? EndpointSupport.NotFound("approval audit trail for payment", paymentId)
+            : Results.Content(snapshot.ToJson(new JsonWriterSettings { OutputMode = JsonOutputMode.RelaxedExtendedJson }), "application/json");
     }
 
     internal static async Task<IResult> Decide(Guid paymentId, ApprovalDecision decision, string? comment, TreasuryDbContext db,
-        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview)
+        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview, DemoStores stores)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.Id == paymentId);
         if (payment is null) return EndpointSupport.NotFound("payment", paymentId);
@@ -140,6 +162,7 @@ internal static class ApprovalEndpoints
             (await db.Accounts.SingleAsync(a => a.Id == payment.DebitAccountId)).AvailableBalance += payment.Amount;
         db.Audit("Payment", payment.Id, $"Payment.{decision}", approval.ActorEmail);
         await db.SaveChangesAsync();
+        await stores.RecordDecisionAsync(payment, approval); // MongoDB audit trail; a no-op without DemoMongoUrl
         notifications.PaymentReviewed(payment, approval, preview);
         return TypedResults.Ok(await payment.ToContractAsync(db));
     }

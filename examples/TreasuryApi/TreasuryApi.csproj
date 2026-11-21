@@ -19,5 +19,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <ProjectReference Include="../../adapters/dotnet/Sendproof.AspNetCore/Sendproof.AspNetCore.csproj" />
     <ProjectReference Include="../../adapters/dotnet/Sendproof.EntityFrameworkCore/Sendproof.EntityFrameworkCore.csproj" />
+    <!-- Optional data stores: FX quotes and approval limits in Redis, the approvals audit trail in MongoDB. -->
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Redis/Sendproof.Redis.csproj" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.MongoDB/Sendproof.MongoDB.csproj" />
   </ItemGroup>
 </Project>

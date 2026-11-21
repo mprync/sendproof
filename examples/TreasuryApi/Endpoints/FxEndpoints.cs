@@ -13,8 +13,11 @@ internal static class FxEndpoints
     internal static void MapFxEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v2/fx").WithTags("FX deals");
-        group.MapPost("/quotes", Quote).WithName("FxController.Quote").RequireAuthorization()
+        var quote = group.MapPost("/quotes", Quote).WithName("FxController.Quote").RequireAuthorization()
             .Produces<FxQuote>().ProducesValidationProblem();
+        // With Redis configured, quoting writes the quote to the cache, which a Preview cannot roll back: say so up front.
+        if (app.ServiceProvider.GetRequiredService<DemoStores>().HasRedis)
+            quote.WithSendproofPreview(enabled: false, reason: "Quotes are cached in Redis for 30 seconds.", "redis");
         group.MapPost("/deals", Book).WithName("FxController.Book").RequireAuthorization(Policies.Writers)
             .Produces<FxDeal>(StatusCodes.Status201Created).ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict)
             .WithSendproofPreview();
@@ -37,19 +40,21 @@ internal static class FxEndpoints
     /// <param name="request">The deal to price.</param>
     /// <response code="200">The quote.</response>
     /// <response code="400">A field was invalid, such as a forward without a value date.</response>
-    internal static IResult Quote(FxQuoteRequest request)
+    internal static async Task<IResult> Quote(FxQuoteRequest request, DemoStores stores)
     {
         var errors = Check(request.Type, request.BaseAmount, request.ValueDate, request.Pair);
         if (errors.Count > 0) return Results.ValidationProblem(errors);
         var (rate, points, valueDate) = FxMarket.Price(request.Pair, request.Side, request.Type, request.ValueDate, Today());
         var (baseCurrency, quoteCurrency) = Mapping.Currencies(request.Pair);
-        return TypedResults.Ok(new FxQuote
+        var quote = new FxQuote
         {
             Pair = request.Pair, Side = request.Side, Type = request.Type, Rate = rate, ForwardPoints = points,
             BaseAmount = Mapping.Money(request.BaseAmount, baseCurrency),
             QuoteAmount = Mapping.Money(FxMarket.QuoteAmount(request.Pair, request.BaseAmount, rate), quoteCurrency),
             ValueDate = valueDate, ValidUntil = DateTimeOffset.UtcNow.AddSeconds(30)
-        });
+        };
+        await stores.CacheQuoteAsync(quote); // Redis, for its 30 seconds; a no-op without DemoRedisUrl
+        return TypedResults.Ok(quote);
     }
 
     /// <summary>Book FX deal</summary>

@@ -60,12 +60,16 @@ public static class TreasuryApplication
         if (builder.Environment.IsDevelopment())
             sendproof.WithAuthProvider("Seeded accounts", "personas", "/auth/personas");
         sendproof.AddEntityFrameworkCore<TreasuryDbContext>();
+        // Redis and MongoDB are optional: hooked only when DemoRedisUrl and DemoMongoUrl are set.
+        DemoStores.Add(builder.Services, sendproof, builder.Configuration);
 
         var app = builder.Build();
-        if (isNewDatabase)
+        using (var scope = app.Services.CreateScope())
         {
-            using var scope = app.Services.CreateScope();
-            await DemoData.SeedAsync(scope.ServiceProvider);
+            if (isNewDatabase) await DemoData.SeedAsync(scope.ServiceProvider);
+            // Each store fills itself only when empty, so an existing database still gets an audit trail on first use.
+            await scope.ServiceProvider.GetRequiredService<DemoStores>().SeedAsync(
+                scope.ServiceProvider.GetRequiredService<TreasuryDbContext>(), app.Logger);
         }
 
         app.UseRouting();

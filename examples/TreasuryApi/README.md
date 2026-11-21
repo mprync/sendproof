@@ -40,6 +40,32 @@ Lists take `page` and `pageSize` (1 to 100, default 25), filters, a `q` search a
 
 Creating a payment reserves funds and inserts a draft and an audit event in SQLite. The writes that matter are Preview-enabled: create payment, update, submit, cancel, approve, reject, add counterparty, update and archive counterparty, register, update and close account, book and cancel FX deal, change a role. Preview runs the real handler inside the Sendproof EF transaction and rolls it back, and shows the changes, the SQL and the notifications that would be sent: emails, queued jobs and published messages. Send commits. Notifications go to an in-memory queue; nothing is ever delivered. An optional `Idempotency-Key` header on create payment replays a previously committed identical request and rejects a different request using that key.
 
+## Optional data stores: Redis and MongoDB
+
+The demo also runs against the compose Redis and MongoDB, so the workbench's data-store views show real data. Both are optional: each is hooked only when its URL is set (as configuration or an environment variable), and with neither set the demo runs on SQLite alone, exactly as described above.
+
+| Setting | Store | What it holds | In Preview |
+| --- | --- | --- | --- |
+| `DemoRedisUrl` | Redis (`cache`, mode `guard`) | `fx:quote:*`, each FX quote for its 30 seconds; `limits:approvals:{email}`, a per-payment approval limit per approver, read when a decision is recorded | `FxController.Quote` writes the cache, so it is listed under `previewUnavailable` ("Quotes are cached in Redis for 30 seconds.") and a Preview of it answers 409. Reads run and are logged |
+| `DemoMongoUrl` | MongoDB (`treasury`, mode `preview`) | `audit_events`, one event per approve or reject; `approval_snapshots`, one document per payment with its decisions (nested, with an array) | Approve and reject write both collections inside a MongoDB transaction that is aborted, and report the document changes beside the SQL ones |
+
+With MongoDB configured the API gains `ApprovalsController.Audit` (`GET /api/v2/approvals/{paymentId}/audit`, 41 operations in all), which reads a payment's `approval_snapshots` document. On first start the demo fills both stores from the seeded payments (an audit trail per decided payment, limits for `ben.approver`, `devi.approver` and `ada.admin`); each fills only when empty. A store that is down at start is skipped with a warning.
+
+### Run the local demo
+
+Start the compose services, build the release binary and start it detached from the repository root. The demo listens on <http://127.0.0.1:5189> and the workbench is at <http://127.0.0.1:5189/sendproof/>:
+
+```sh
+docker compose -f tests/conformance/compose.yml up -d --wait redis mongodb
+dotnet build examples/TreasuryApi/TreasuryApi.csproj -c Release
+cd examples/TreasuryApi && ASPNETCORE_ENVIRONMENT=Development \
+  DemoRedisUrl='redis://:bench_redis_local@127.0.0.1:56379' \
+  DemoMongoUrl='mongodb://127.0.0.1:57017/treasury?directConnection=true' \
+  nohup dotnet bin/Release/net10.0/TreasuryApi.dll --urls http://127.0.0.1:5189 > /tmp/treasury-demo.log 2>&1 < /dev/null &
+```
+
+Check it with `curl http://127.0.0.1:5189/sendproof/_api/capabilities` (200, with `dataStores` listing `redis` and `mongodb`). Stop it with `pkill -f 'TreasuryApi.dll'`. Leave out the two `Demo…Url` variables to run it without the stores. The command must run from `examples/TreasuryApi`, because the database and keys sit beside the project.
+
 ## Seed data
 
 A new database is filled once with deterministic data (a fixed random seed; dates are relative to the day it is created, so the data is always current): 8 users, 27 accounts across Acme entities in Ireland, Germany, the US, the UK, France, the Netherlands, Switzerland, Sweden and Japan, with checksum-valid IBANs and real-format BICs; 51 counterparties; about 190 payments in every status with value dates from 90 days back to 30 days ahead and an approval history; 31 FX deals; and two weeks of reconciling bank statements for the main accounts. `Operating EUR` always starts with exactly 250,000.00 available and no open payments. Existing databases are never seeded or recreated.
