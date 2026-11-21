@@ -138,6 +138,27 @@ final class ReactiveBackend implements MongoBackend {
         };
     }
 
+    @Override
+    public Object returned(Object value) {
+        return (Publisher<Object>) subscriber -> subscriber.onSubscribe(new Subscription() {
+            private boolean done;
+
+            @Override
+            public void request(long n) {
+                if (!done && n > 0) {
+                    done = true;
+                    subscriber.onNext(value);
+                    subscriber.onComplete();
+                }
+            }
+
+            @Override
+            public void cancel() {
+                done = true;
+            }
+        });
+    }
+
     /** Blocks for the first element of a publisher, or {@code null} when it completes empty. */
     static <T> T first(Publisher<T> publisher) {
         List<T> values = all(publisher, 1);

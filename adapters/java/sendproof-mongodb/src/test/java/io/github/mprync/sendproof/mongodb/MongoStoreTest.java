@@ -300,6 +300,45 @@ class MongoStoreTest {
     }
 
     @Test
+    void aWriteBetweenTheTimeLimitAbortAndTheSessionEndNeverCommits() throws Exception {
+        // The time limit aborts the transaction on its own thread while the handler may still be running. A command sent
+        // after the abort, while the session is still open, must not run outside the transaction and commit.
+        MongoStore quick = MongoStore.builder().previewTimeout(Duration.ofMillis(300)).build();
+        MongoClient own = withListener(quick);
+        var aborted = new CountDownLatch(1);
+        var proceed = new CountDownLatch(1);
+        var slowEnd = new DelegatingBackend(SyncSupport.backend(own)) {
+            @Override
+            public void end(Object session) {
+                aborted.countDown();
+                try {
+                    proceed.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                super.end(session);
+            }
+        };
+        quick.attach(slowEnd, SessionBinder.NONE);
+        MongoDatabase database = quick.guard(own.getDatabase(databaseName));
+        PreviewOutcome outcome = Harness.preview(() -> {
+            database.getCollection("documents").insertOne(new Document("_id", "before-limit"));
+            aborted.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            try {
+                database.getCollection("documents").insertOne(new Document("_id", "after-abort"));
+            } catch (RuntimeException refused) {
+                // The Preview is over: the late write is refused.
+            } finally {
+                proceed.countDown();
+            }
+        }, quick);
+        assertThat(outcome.confirmed()).isFalse();
+        assertThat(outcome.status()).isEqualTo(500);
+        assertThat(committed("before-limit")).isZero();
+        assertThat(committed("after-abort")).as("a write after the abort must not commit").isZero();
+    }
+
+    @Test
     void concurrentPreviewsAndSendsNeverShareASession() throws Exception {
         var results = new AtomicReference<List<PreviewOutcome>>();
         var latch = new CountDownLatch(2);
@@ -577,6 +616,11 @@ class MongoStoreTest {
         @Override
         public Object failed(RuntimeException failure) {
             return delegate.failed(failure);
+        }
+
+        @Override
+        public Object returned(Object value) {
+            return delegate.returned(value);
         }
     }
 }

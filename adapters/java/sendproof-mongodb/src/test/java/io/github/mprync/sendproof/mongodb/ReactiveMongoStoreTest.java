@@ -97,6 +97,19 @@ class ReactiveMongoStoreTest {
     }
 
     @Test
+    void theHandlersOwnSessionJoinsThePreviewAsAPublisher() throws Exception {
+        JsonNode envelope = Harness.envelope(Harness.preview(() -> {
+            // The reactive driver hands out sessions as a Publisher, and so must the guarded client.
+            ClientSession session = ReactiveBackend.first(client.startSession());
+            session.startTransaction();
+            ReactiveBackend.first(documents().insertOne(session, new Document("_id", "joined")));
+        }, store));
+        assertThat(envelope.get("changes")).hasSize(1);
+        assertThat(envelope.get("changes").get(0).get("key").get("_id").asText()).isEqualTo("joined");
+        assertThat(committed("joined")).isZero();
+    }
+
+    @Test
     void anOutStageIsBlockedBeforeSending() throws Exception {
         PreviewOutcome outcome = Harness.preview(() -> assertThatThrownBy(() -> documents().aggregate(List.of(
                 new Document("$out", "archive")))).isInstanceOf(PreviewWriteBlockedException.class), store);

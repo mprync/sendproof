@@ -121,6 +121,11 @@ final class SyncBackend implements MongoBackend {
         throw failure;
     }
 
+    @Override
+    public Object returned(Object value) {
+        return value;
+    }
+
     static String hex(BsonBinary binary) {
         var text = new StringBuilder();
         for (byte value : binary.getData()) {

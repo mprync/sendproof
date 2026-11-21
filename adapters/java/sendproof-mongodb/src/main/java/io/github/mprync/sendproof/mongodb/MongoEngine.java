@@ -128,12 +128,15 @@ final class MongoEngine {
         volatile BsonValue startTime;
         volatile ScheduledFuture<?> timer;
         final SessionBinder binder;
+        /** Closed before the abort, so the handler's session refuses every later call. */
+        final PreviewSessions.Gate gate;
 
-        PreviewState(Object session, Object guarded, String lsid, SessionBinder binder) {
+        PreviewState(Object session, Object guarded, String lsid, SessionBinder binder, PreviewSessions.Gate gate) {
             this.session = session;
             this.guarded = guarded;
             this.lsid = lsid;
             this.binder = binder;
+            this.gate = gate;
         }
 
         /** The driver session the handler sees: it joins the Preview transaction and refuses to end it. */
@@ -258,8 +261,9 @@ final class MongoEngine {
         PreviewState state;
         try {
             String lsid = backend.lsid(real);
-            Object guarded = PreviewSessions.create(backend, real, capture);
-            state = new PreviewState(real, guarded, lsid, binder);
+            var gate = new PreviewSessions.Gate();
+            Object guarded = PreviewSessions.create(backend, real, capture, gate);
+            state = new PreviewState(real, guarded, lsid, binder, gate);
         } catch (RuntimeException failure) {
             internal(() -> {
                 backend.abort(real);
@@ -679,6 +683,8 @@ final class MongoEngine {
             }
             state.finished = true;
         }
+        // From here the handler's session refuses every call, so nothing it sends can run outside the aborted transaction.
+        state.gate.close();
         ScheduledFuture<?> timer = state.timer;
         if (timer != null) {
             timer.cancel(false);

@@ -90,7 +90,7 @@ final class GuardedMongo {
             if (kind == Kind.CLIENT && name.equals("startSession")) {
                 MongoEngine.PreviewState state = engine.state();
                 if (state != null) {
-                    return state.guardedSession();
+                    return backend.returned(state.guardedSession());
                 }
             }
             RequestCapture preview = StoreGuard.currentPreview();

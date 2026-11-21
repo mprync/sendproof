@@ -52,4 +52,10 @@ interface MongoBackend {
 
     /** The failure a guarded handle returns where the driver returns a {@code Publisher}; sync backends throw instead. */
     Object failed(RuntimeException failure);
+
+    /**
+     * A value as the driver returns it: the value itself for the synchronous driver, a {@code Publisher} of it for the
+     * reactive streams driver (whose {@code startSession} answers a {@code Publisher<ClientSession>}).
+     */
+    Object returned(Object value);
 }
