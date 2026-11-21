@@ -5,14 +5,28 @@ module per registry from this directory, in this order:
 
 | Module | Registry | Output in `artifacts/packages/<id>/` |
 | --- | --- | --- |
-| `nuget.mjs` | nuget.org | `.nupkg` + `.snupkg` |
-| `npm.mjs` | npmjs.com | ten `npm pack` tarballs |
+| `nuget.mjs` | nuget.org | five `.nupkg` + `.snupkg` pairs |
+| `npm.mjs` | npmjs.com | thirteen `npm pack` tarballs |
 | `pypi.mjs` | PyPI | a wheel and an sdist per package |
 | `maven.mjs` | Maven Central | a Maven repository layout: jars, sources, javadoc, POMs, Gradle module files |
 | `crates.mjs` | crates.io | `cargo package` `.crate` files |
 | `rubygems.mjs` | RubyGems.org | `.gem` files |
 | `packagist.mjs` | Packagist | one ZIP per package, holding exactly the tree pushed to its split repository |
 | `go.mjs` | Go module proxy | module ZIPs and `tags.txt`; Go itself is released by pushing the tags |
+
+## Where each registry lists its packages
+
+Packages are listed by hand, in dependency order, in the places below. The CI publish jobs and the
+`platforms` matrix name no package: they publish whatever `pack-all` wrote to `artifacts/packages/<id>/`.
+
+| Registry | Packages | Listed in | Consumer smoke test |
+| --- | --- | --- | --- |
+| npm | 10 framework packages plus `@sendproof/redis`, `/dynamodb`, `/mongodb` | `PACKAGES` in `npm.mjs` | `verify` type-checks and loads every entry point |
+| NuGet | `Sendproof.AspNetCore`, `.EntityFrameworkCore`, `.Redis`, `.MongoDB`, `.DynamoDB` | `PROJECTS` in `nuget.mjs`, `PACKAGES` in `tools/check-packages.py` | `check-packages.py` registers all three store guards from the archives |
+| Maven | seven framework modules plus `sendproof-redis`, `-mongodb`, `-dynamodb` | `MODULES` in `maven.mjs`; `adapters/java/settings.gradle.kts` | `consumers/maven` resolves the three store guards (`storesCheck`) |
+| crates.io | `sendproof-core`, `-axum`, `-sqlx`, `-actix`, `-redis`, `-dynamodb`, `-mongodb` | `CRATES` in `crates.mjs` | `consumers/crates/main.rs` builds against all three store crates |
+| Go | core, `chi`, `gin`, `echo`, `gorm`, `redisbench`, `dynamobench`, `mongobench` | `adapters/go/scripts/{package,tags,make-zips,test,verify-release}.sh`, `MODULE_COUNT` in `go.mjs` | `adapters/go/scripts/consumer/main.go.tmpl` imports every module |
+| PyPI, RubyGems, Packagist | no store packages | | The Python, Ruby and PHP store hooks ship inside `sendproof-core`, the `sendproof-core` gem and `sendproof/core`, so there are no extra packages or Packagist mirror repositories |
 
 After a module's `pack` returns, `pack-all` writes `RELEASE.json` (registry, version, repository, commit,
 files) and `SHA256SUMS` into its output directory. CI uploads that directory unchanged, and every publish

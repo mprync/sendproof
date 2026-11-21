@@ -12,14 +12,16 @@ Nothing here has been done yet: no trusted publisher or secret exists. Placehold
 
 | Registry | Packages | GitHub environment | Credentials |
 | --- | --- | --- | --- |
-| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore` (+ symbols) | `nuget` | OIDC trusted publishing, secret `NUGET_USER` |
-| npmjs.com | ten `@sendproof/*` packages, with provenance | `npm` | OIDC trusted publishing |
+| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB` (+ symbols) | `nuget` | OIDC trusted publishing, secret `NUGET_USER` |
+| npmjs.com | thirteen `@sendproof/*` packages, with provenance | `npm` | OIDC trusted publishing |
 | PyPI | `sendproof-core`, `-sqlalchemy`, `-fastapi`, `-flask`, `-django` | `pypi` | OIDC trusted publishing, attestations |
-| Maven Central | `io.github.mprync:sendproof-{core,ui,jdbc,logback,spring-boot,jpa,ktor}` | `maven-central` | Central Portal token + GPG key (secrets) |
-| crates.io | `sendproof-core`, `-axum`, `-actix`, `-sqlx` | `crates-io` | OIDC trusted publishing |
+| Maven Central | `io.github.mprync:sendproof-{core,ui,jdbc,logback,spring-boot,jpa,ktor,redis,mongodb,dynamodb}` | `maven-central` | Central Portal token + GPG key (secrets) |
+| crates.io | `sendproof-core`, `-axum`, `-actix`, `-sqlx`, `-redis`, `-dynamodb`, `-mongodb` | `crates-io` | OIDC trusted publishing |
 | RubyGems.org | `sendproof-core`, `sendproof-activerecord`, `sendproof-rails` | `rubygems` | OIDC trusted publishing |
 | Packagist | `sendproof/core`, `sendproof/laravel`, `sendproof/symfony` via split repositories | `packagist` | GitHub App token for the split repositories |
-| Go proxy | `adapters/go`, `/chi`, `/gin`, `/echo`, `/gorm` modules via tags | `go` | the job's `GITHUB_TOKEN` (`contents: write`) |
+| Go proxy | `adapters/go`, `/chi`, `/gin`, `/echo`, `/gorm`, `/redisbench`, `/dynamobench`, `/mongobench` modules via tags | `go` | the job's `GITHUB_TOKEN` (`contents: write`) |
+
+The Redis, DynamoDB and MongoDB hooks for Python, Ruby and PHP ship inside `sendproof-core`, the `sendproof-core` gem and `sendproof/core` (client libraries are optional extras or `suggest` entries), so those registries and the Packagist mirror repositories gain no packages.
 
 ## Package names
 
@@ -27,13 +29,13 @@ The names come from the rename recorded in [the rename plan](plans/rename-sendpr
 
 | Registry | Name | Note |
 | --- | --- | --- |
-| npm | scope `@sendproof` (`@sendproof/core` and the other nine) | The organisation exists and is owned by `mprync`. |
+| npm | scope `@sendproof` (`@sendproof/core` and the other twelve, including `redis`, `dynamodb` and `mongodb`) | The organisation exists and is owned by `mprync`. |
 | PyPI | `sendproof-core`, `sendproof-sqlalchemy`, `sendproof-fastapi`, `sendproof-flask`, `sendproof-django` | Not yet checked. |
 | Maven Central | group `io.github.mprync`, artifacts `sendproof-*` | Verified automatically when signed in to Central with the `mprync` GitHub account; no domain is needed. |
-| crates.io | `sendproof-core`, `sendproof-axum`, `sendproof-actix`, `sendproof-sqlx` | Not yet checked. |
+| crates.io | `sendproof-core`, `sendproof-axum`, `sendproof-actix`, `sendproof-sqlx`, `sendproof-redis`, `sendproof-dynamodb`, `sendproof-mongodb` | Not yet checked. |
 | RubyGems | `sendproof-core`, `sendproof-activerecord`, `sendproof-rails` | Not yet checked. |
 | Packagist | vendor `sendproof` (`sendproof/core`, `/laravel`, `/symfony`), mirror repositories `mprync/sendproof-*` | Not yet checked. |
-| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore` | Not yet checked; reserving the `Sendproof.` ID prefix may be refused if another owner holds a similar ID. |
+| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB` | Not yet checked; reserving the `Sendproof.` ID prefix may be refused if another owner holds a similar ID. |
 | GitHub | `github.com/mprync/sendproof` | `adapters/go/MODULE_PATH` names it. |
 
 ## Checklist
@@ -77,7 +79,7 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 
 ### 5. npm
 
-1. Sign in as `mprync`, the owner of the `@sendproof` npm organisation, which the ten packages publish under.
+1. Sign in as `mprync`, the owner of the `@sendproof` npm organisation, which the thirteen packages publish under.
 2. Enable two-factor authentication on every maintainer account.
 3. npm only lets you add a trusted publisher to a package that already exists, so the **first** version is published by hand from the verified CI artifact: download `packages-npm` from the tag's workflow run, check it with `sha256sum --check SHA256SUMS`, then publish in the order `RELEASE.json` lists (core, sqlite, then the rest) with `npm publish <file>.tgz --access public --tag next` (`latest` for a stable version).
 4. For each package on npmjs.com → *Settings* → *Trusted publishing*, add GitHub Actions: organisation or user `OWNER`, repository `REPO`, workflow `check.yml`, environment `npm`. Then set *Publishing access* to "Require two-factor authentication and disallow tokens".
@@ -110,7 +112,7 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 
 1. Sign in to crates.io with GitHub and verify your email address.
 2. crates.io only accepts trusted publishing for crates that already exist, so publish the **first** version by hand from the verified artifact: create an API token with the `publish-new` scope limited to `sendproof-*` and a short expiry, download `packages-crates`, check `SHA256SUMS`, then run `CARGO_REGISTRY_TOKEN=<token> node tools/release/publish.mjs crates <dir> --tag vX.Y.Z` (it unpacks each `.crate` and publishes core first). Revoke the token afterwards.
-3. For each of the four crates → *Settings* → *Trusted Publishing*, add GitHub: owner `OWNER`, repository `REPO`, workflow `check.yml`, environment `crates-io`. Optionally enable "trusted publishing only".
+3. For each of the seven crates → *Settings* → *Trusted Publishing*, add GitHub: owner `OWNER`, repository `REPO`, workflow `check.yml`, environment `crates-io`. Optionally enable "trusted publishing only".
 4. No secret is needed afterwards. `rust-lang/crates-io-auth-action` exchanges the OIDC token for a 30-minute publish token.
 
 ### 9. RubyGems.org
@@ -132,7 +134,7 @@ Packagist reads `composer.json` at the root of a repository, and the PHP package
 
 1. No registry account is needed: Go resolves modules from the repository's tags through `proxy.golang.org`.
 2. Allow GitHub Actions to create `adapters/go/*` tags (step 3). The `go` environment needs no secrets.
-3. The job pushes `adapters/go/vX.Y.Z` first and the four framework modules after it, then waits until the public proxy serves each one. Tags are immutable in the Go checksum database: never move or delete one.
+3. The job pushes `adapters/go/vX.Y.Z` first and the seven other modules (four frameworks and the `redisbench`, `dynamobench` and `mongobench` store modules) after it, then waits until the public proxy serves each one. Tags are immutable in the Go checksum database: never move or delete one.
 
 ## Release a version
 
