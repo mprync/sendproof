@@ -85,13 +85,15 @@ internal sealed class DynamoGuard(CaptureContext capture, IReadOnlySet<string>? 
         }
 
         var operation = spanName["DynamoDB.".Length..];
+        // Every request starts unmarked: a marker left by an earlier synchronous call must never be taken as this
+        // request's, or a later hooked call would mark an unchecked PartiQL request seen.
+        _unseen.Value = null;
         if (!StoreTables.Dynamo.PartiQl.Contains(operation))
         {
             capture.Check("dynamodb", operation, StoreClassifier.ClassifyDynamo(operation, null, treatAsRead));
             return;
         }
 
-        _unseen.Value = null;
         if (capture.Current is { InPreview: true } preview)
         {
             var unseen = new Unseen(operation);

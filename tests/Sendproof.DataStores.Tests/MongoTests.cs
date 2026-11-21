@@ -275,6 +275,14 @@ public sealed class MongoTests
             await Documents(derived, database).InsertOneAsync(new BsonDocument("_id", "derived-" + via));
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/hang", async (IMongoClient client, HttpContext context) =>
+        {
+            // Holds the Preview transaction, with an uncommitted insert, until the client goes away.
+            await Documents(client, database).InsertOneAsync(new BsonDocument("_id", "hung"));
+            gates.Started.TrySetResult();
+            await Task.Delay(Timeout.Infinite, context.RequestAborted);
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/gridfs", async (IMongoClient client) =>
         {
             // GridFS sends its commands through the cluster directly, never through a collection handle.
@@ -625,6 +633,26 @@ public sealed class MongoTests
         Assert.Null(await f.FindAsync("preview-doc"));
         f.Engine.AbortOverride = null;
         await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument with { Id = "after" }));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ACancelledRequestStillAbortsThePreviewTransaction()
+    {
+        await using var f = await Fixture.StartAsync();
+        using var cancel = new CancellationTokenSource();
+        var request = new HttpRequestMessage(HttpMethod.Post, "/sendproof/_preview/hang");
+        request.Headers.Add("Prefer", "tx=rollback");
+        var pending = f.App.Client.SendAsync(request, cancel.Token);
+        await f.Gates.Started.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        var cancelled = System.Diagnostics.Stopwatch.StartNew();
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+
+        // While the Preview transaction held its insert, this one would wait for it (until the 50 s limit aborted it).
+        var raw = Documents(f.Raw, f.Database).WithWriteConcern(WriteConcern.WMajority);
+        await raw.InsertOneAsync(new BsonDocument("_id", "hung"));
+        Assert.True(cancelled.Elapsed < TimeSpan.FromSeconds(15), $"The transaction outlived the cancelled request by {cancelled.Elapsed}.");
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument));
     }
 
     [ServiceFact("mongodb")]
