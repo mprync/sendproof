@@ -250,6 +250,50 @@ def test_transaction_guard_refuses_statements_that_end_the_preview():
     assert escapes("BEGIN NULL; END;", "oracle") is None
 
 
+def test_transaction_guard_refuses_every_mysql_escape_before_sending():
+    """spec/data-stores.md, "Transaction-control statements from the handler", on MySQL and MariaDB."""
+    from sendproof_core.txguard import escapes_transaction as escapes
+    from sendproof_core.txguard import normalize_procedures
+
+    refused = (
+        "CALL sendproof_commit_probe()", "call shop.refresh()", "CALL `refresh`", "/*!50000 COMMIT */",
+        "/*M!100100 CREATE TABLE t (n INT) */", "SET @@session.autocommit = 1", "SET sql_mode = '', autocommit = 1",
+        "SET LOCAL autocommit=1", "CREATE TABLE sendproof_escape_1 (n INT)", "TRUNCATE t", "LOCK TABLES t WRITE",
+        "UNLOCK TABLES", "GRANT SELECT ON t TO u", "RENAME TABLE a TO b", "CACHE INDEX t IN hot",
+        "LOAD INDEX INTO CACHE t", "CHECK TABLE t", "STOP REPLICA", "CHANGE REPLICATION SOURCE TO SOURCE_HOST='h'",
+        "SET PASSWORD = 'x'", "EXECUTE stmt", "XA START 'x'",
+        # A quote inside a comment, a "#" comment, or a backslash-escaped quote never hides what follows.
+        "SELECT 1 # it's\n; COMMIT; SELECT 'x'", 'SELECT "a\\" "; COMMIT; SELECT "b"',
+        "SELECT 1 -- it's\n; COMMIT; SELECT 'x'", "SELECT 1--1; COMMIT",
+        "SELECT $a$; COMMIT; SELECT $a$",
+    )
+    for sql in refused:
+        for dialect in ("mysql", "mariadb"):
+            assert escapes(sql, dialect), (dialect, sql)
+    allowed = (
+        "SELECT 'CALL p(); COMMIT'", "SELECT 1 /* CALL p() */", "INSERT INTO t VALUES ('a\\'; COMMIT; --')",
+        "CREATE TEMPORARY TABLE t (n INT)", "SAVEPOINT s1", "ROLLBACK TO SAVEPOINT s1", "SELECT `call` FROM t",
+        "UPDATE t SET checked = 1", "SET @x = 1",
+    )
+    for sql in allowed:
+        assert escapes(sql, "mysql") is None, sql
+    # Host-declared procedures: exact names only, case-insensitive like MySQL, qualified as written.
+    safe = normalize_procedures(["refresh_totals", "shop.Rebuild"])
+    for sql in ("CALL refresh_totals()", "CALL REFRESH_TOTALS", "call `refresh_totals`(1)", "CALL shop.rebuild()"):
+        assert escapes(sql, "mysql", safe_procedures=safe) is None, sql
+    for sql in ("CALL refresh_totals_all()", "CALL other.refresh_totals()", "CALL rebuild()",
+                "CALL refresh_totals(); COMMIT", "CALL `refresh totals`()"):
+        assert escapes(sql, "mysql", safe_procedures=safe), sql
+    for bad in ("refresh_*", "`p`", "a.b.c", "", 3):
+        with pytest.raises(ValueError):
+            normalize_procedures([bad])
+    # Elsewhere, a standard string has no backslash escapes, so "\'" ends it and what follows is seen.
+    assert escapes("SELECT 'a\\'; COMMIT; --'", "postgresql")
+    assert escapes("SELECT E'a\\'; COMMIT; --'", "postgresql") is None
+    assert escapes("SELECT 'a\\'; COMMIT; --'", "sqlite")
+    assert escapes("CALL p()", "postgresql") is None  # CALL is refused on MySQL and MariaDB only
+
+
 def test_malformed_origin_never_matches_a_malformed_host():
     headers = {"origin": ["null"]}
     assert not protocol.is_same_origin(lambda name: headers.get(name, []), "http", "")
