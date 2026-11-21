@@ -42,6 +42,12 @@ internal class GuardedSession : DispatchProxy
                     $"Preview owns the MongoDB transaction, so the handler's {verb} cannot run during Preview.");
                 _preview.Refuse(error);
                 return TaskFault.Create(method.ReturnType, error) ?? throw error;
+            case "Fork" or "get_WrappedCoreSession":
+                // Either would hand handler code the real session or a copy of it, and with it the power to commit it.
+                var leak = new PreviewTransactionControlException(
+                    $"Preview owns the MongoDB session, so the handler can't reach it through {method.Name.Replace("get_", "")}.");
+                _preview.Refuse(leak);
+                throw leak;
             case "WithTransaction" or "WithTransactionAsync":
                 // The callback runs in the Preview transaction, with the handler's view of the session.
                 var self = (IClientSessionHandle)(object)this;

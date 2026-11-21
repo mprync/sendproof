@@ -28,6 +28,7 @@ internal sealed class PreviewTransport
         var recorder = context.RequestServices.GetRequiredService<SendproofPreview>();
         // From here every store hook refuses writes, including ones a handler sends late, after its response settled.
         recorder.MarkPreview();
+        captureContext.Open(recorder);
         using var scope = captureContext.Enter(recorder);
         var features = context.Features;
         var originalResponse = features.Get<IHttpResponseFeature>()!;
@@ -145,6 +146,7 @@ internal sealed class PreviewTransport
         }
         finally
         {
+            captureContext.Close(recorder);
             preview.Clock.EndHandler();
             features.Set<PreviewRequest>(null);
             features.Set(originalResponse);

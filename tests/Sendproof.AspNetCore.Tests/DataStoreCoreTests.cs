@@ -341,7 +341,118 @@ public sealed class DataStoreCoreTests
         Assert.Equal(0, host.Hook.Sent);
     }
 
+    // ---- Review findings every language checks ----
+
+    [Fact]
+    public async Task OneStoreFailingToFinishNeverSkipsTheOtherStoresOrTheSqlRollback()
+    {
+        var order = new List<string>();
+        await using var host = await StoreHost.StartAsync(configure: services =>
+        {
+            services.AddSingleton<IPreviewDataStore>(new RecordingStore("first", order, fail: true));
+            services.AddSingleton<IPreviewDataStore>(new RecordingStore("second", order, fail: false));
+            services.AddSingleton<IPreviewProvider>(new RecordingProvider(order));
+        });
+        using var response = await host.PreviewAsync("GET", "/counters/a");
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(response.Headers.Contains("Preference-Applied"));
+        // Every cleanup step ran, in order: each store, then the SQL rollback, then disposal.
+        Assert.Equal(["first.finish", "second.finish", "sql.rollback", "sql.dispose"], order);
+    }
+
+    [Fact]
+    public async Task AWriteWithNoRequestAttributionFailsEveryOpenPreviewUnlessDetached()
+    {
+        await using var host = await StoreHost.StartAsync();
+        var capture = host.Capture;
+
+        // A background worker (nothing flows its request context to it) writes while a Preview is open.
+        host.HoldPreview = new TaskCompletionSource();
+        host.PreviewOpen = new TaskCompletionSource();
+        var pending = host.PreviewAsync("POST", "/hold");
+        await host.PreviewOpen.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Detached(() => capture.Check("redis", "INCR", CommandKind.Write));
+        host.HoldPreview.SetResult();
+        using var failed = await pending;
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.False(failed.Headers.Contains("Preference-Applied"));
+
+        // Marked detached (a worker that never belongs to a request), the same write leaves the Preview alone.
+        host.HoldPreview = new TaskCompletionSource();
+        host.PreviewOpen = new TaskCompletionSource();
+        pending = host.PreviewAsync("POST", "/hold");
+        await host.PreviewOpen.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Detached(() =>
+        {
+            using var _ = DetachedWork.Begin();
+            capture.Check("redis", "INCR", CommandKind.Write);
+        });
+        host.HoldPreview.SetResult();
+        using var confirmed = await pending;
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+
+        // An ordinary request's own write is attributed to it, so it never fails someone else's Preview.
+        host.HoldPreview = new TaskCompletionSource();
+        host.PreviewOpen = new TaskCompletionSource();
+        pending = host.PreviewAsync("POST", "/hold");
+        await host.PreviewOpen.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        using var send = await host.Client.PostAsync("/counters/b", null);
+        Assert.Equal(HttpStatusCode.OK, send.StatusCode);
+        host.HoldPreview.SetResult();
+        using var untouched = await pending;
+        Assert.Equal(HttpStatusCode.OK, untouched.StatusCode);
+
+        // With no Preview open, an unattributed write is nobody's business.
+        await Detached(() => capture.Check("redis", "INCR", CommandKind.Write));
+    }
+
+    /// <summary>Runs work the way a background thread would: with the caller's execution context not flowed to it.</summary>
+    private static Task Detached(Action work)
+    {
+        using var _ = ExecutionContext.SuppressFlow();
+        return Task.Run(work);
+    }
+
     // ---- Test host ----
+
+    private sealed class RecordingStore(string name, List<string> order, bool fail) : IPreviewDataStore
+    {
+        public string System => "redis";
+
+        public ValueTask<DataStoreDescription> DescribeAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new DataStoreDescription("redis", name, "guard"));
+
+        public ValueTask FinishPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken)
+        {
+            lock (order) { order.Add(name + ".finish"); }
+            return fail ? throw new InvalidOperationException("Injected abort failure.") : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingProvider(List<string> order) : IPreviewProvider
+    {
+        public string? Database => "Recorded";
+
+        public ValueTask<IPreviewSession> BeginAsync(HttpContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IPreviewSession>(new Session(order));
+
+        private sealed class Session(List<string> order) : IPreviewSession
+        {
+            public IReadOnlyList<PreviewChange> Changes => [];
+
+            public ValueTask RollbackAsync(CancellationToken cancellationToken)
+            {
+                lock (order) { order.Add("sql.rollback"); }
+                return ValueTask.CompletedTask;
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                lock (order) { order.Add("sql.dispose"); }
+                return ValueTask.CompletedTask;
+            }
+        }
+    }
 
     private sealed class Hook
     {
@@ -366,8 +477,11 @@ public sealed class DataStoreCoreTests
         internal Hook Hook => hook;
         internal int DeleteRuns;
         internal TaskCompletionSource<Exception?>? LateWrite;
+        internal TaskCompletionSource? HoldPreview;
+        internal TaskCompletionSource? PreviewOpen;
+        internal CaptureContext Capture => app.Services.GetRequiredService<CaptureContext>();
 
-        internal static async Task<StoreHost> StartAsync(bool hookInstalled = true, bool finishFails = false)
+        internal static async Task<StoreHost> StartAsync(bool hookInstalled = true, bool finishFails = false, Action<IServiceCollection>? configure = null)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
@@ -380,7 +494,14 @@ public sealed class DataStoreCoreTests
             builder.Services.AddAuthentication("test").AddCookie("test");
             builder.Services.AddAuthorization();
             builder.Services.AddSendproof().WithApiName("Stores");
-            builder.Services.AddSingleton<IPreviewDataStore>(new FakeStore("cache", finishFails));
+            if (configure is null)
+            {
+                builder.Services.AddSingleton<IPreviewDataStore>(new FakeStore("cache", finishFails));
+            }
+            else
+            {
+                configure(builder.Services);
+            }
             var app = builder.Build();
             var hook = new Hook();
             StoreHost? host = null;
@@ -437,6 +558,12 @@ public sealed class DataStoreCoreTests
                 preview.RecordChange(new PreviewChange("insert", "documents", JsonNode.Parse("""{"_id":"d1"}"""), null,
                     JsonNode.Parse("""{"_id":"d1","password_hash":"hashed:secret","profile":{"city":"York","apiKey":"k-1"}}"""))
                 { Store = "mongodb", Namespace = "catalog", Via = "upsert" });
+                return Results.Ok();
+            }).AllowAnonymous().WithSendproofPreview();
+            app.MapPost("/hold", async () =>
+            {
+                host!.PreviewOpen!.TrySetResult();
+                await host.HoldPreview!.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 return Results.Ok();
             }).AllowAnonymous().WithSendproofPreview();
             app.MapPost("/late", () =>

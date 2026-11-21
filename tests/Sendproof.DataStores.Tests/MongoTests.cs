@@ -23,6 +23,12 @@ public sealed class MongoTests
     {
         internal TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void Reset()
+        {
+            Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -30,11 +36,11 @@ public sealed class MongoTests
         internal required TestApp App { get; init; }
         internal required IMongoClient Raw { get; init; }
         internal required string Database { get; init; }
-        internal required Gates Gates { get; init; }
+        internal required Gates Gates { get; set; }
         internal MongoEngine Engine => App.Services.GetServices<IPreviewDataStore>().OfType<MongoStore>().Single().Engine;
         internal IMongoCollection<BsonDocument> Documents => Raw.GetDatabase(Database).GetCollection<BsonDocument>("documents");
 
-        internal static async Task<Fixture> StartAsync(TimeSpan? timeout = null, Func<Task<BsonDocument>>? hello = null, Action<MongoStoreBuilder>? configure = null)
+        internal static async Task<Fixture> StartAsync(TimeSpan? timeout = null, Func<Task<BsonDocument>>? hello = null, Action<MongoStoreBuilder>? configure = null, bool monitored = true)
         {
             var database = Services.Fresh("tb");
             var raw = new MongoClient(Services.MongoUrl);
@@ -51,6 +57,10 @@ public sealed class MongoTests
                     }
 
                     configure?.Invoke(mongo);
+                    if (!monitored)
+                    {
+                        mongo.WithoutMonitoringForTests();
+                    }
                 });
             }, app => Map(app, database, raw, gates));
             var fixture = new Fixture { App = app, Raw = raw, Database = database, Gates = gates };
@@ -181,6 +191,19 @@ public sealed class MongoTests
             using var session = await client.StartSessionAsync();
             await Documents(client, database).InsertOneAsync(session, new BsonDocument("_id", "committed"));
             try { await session.CommitTransactionAsync(); } catch (PreviewTransactionControlException) when (swallow == "yes") { }
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/fork-commit", async (string how, IMongoClient client) =>
+        {
+            // Handler code must never get hold of the real session, however it asks for it.
+            using var session = await client.StartSessionAsync();
+            await Documents(client, database).InsertOneAsync(session, new BsonDocument("_id", "forked"));
+            try
+            {
+                if (how == "fork") session.Fork().CommitTransaction();
+                else session.WrappedCoreSession.CommitTransaction(CancellationToken.None);
+            }
+            catch (PreviewTransactionControlException) { }
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/with-transaction", async (IMongoClient client) =>
@@ -518,6 +541,80 @@ public sealed class MongoTests
         var response = await f.App.PreviewAsync("POST", "/unguarded");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(await f.FindAsync("unguarded"));
+    }
+
+    // ---- Review findings every language checks ----
+
+    [ServiceFact("mongodb")]
+    public async Task HandlerCodeNeverHoldsThePreviewSessionSoItCannotCommitIt()
+    {
+        await using var f = await Fixture.StartAsync();
+        foreach (var how in new[] { "fork", "core" })
+        {
+            Expect.Unconfirmed(await f.App.PreviewAsync("POST", $"/fork-commit?how={how}"), HttpStatusCode.InternalServerError);
+            Assert.Null(await f.FindAsync("forked"));
+        }
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task TheTripwireMustBeInstalledOnTheGuardedClientItselfOrThePreviewFallsBackToGuardMode()
+    {
+        // A guarded client whose command monitoring was never subscribed can't see an escaped write, so it must not claim a
+        // transaction: its own detection hello never reached the monitor, and the store runs in guard mode.
+        await using var f = await Fixture.StartAsync(monitored: false);
+        var capabilities = await f.App.CapabilitiesAsync();
+        var store = Assert.Single(capabilities.GetProperty("dataStores").EnumerateArray());
+        Assert.Equal("guard", store.GetProperty("mode").GetString());
+        Assert.Contains("monitoring", store.GetProperty("reason").GetString());
+        await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument), "mongodb", "insert");
+        Assert.Null(await f.FindAsync("preview-doc"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task AnAbortThatFailsFailsThePreviewWith500AndStillEndsItsSession()
+    {
+        await using var f = await Fixture.StartAsync();
+        var aborts = 0;
+        f.Engine.AbortOverride = _ => { aborts++; return Task.FromException(new TimeoutException("Injected abort failure.")); };
+        Expect.Unconfirmed(await f.App.PreviewAsync("POST", "/documents", NewDocument), HttpStatusCode.InternalServerError);
+        Assert.Equal(1, aborts);
+        Assert.Null(await f.FindAsync("preview-doc"));
+        f.Engine.AbortOverride = null;
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument with { Id = "after" }));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task AWriteWithNoRequestAttributionFailsTheOpenPreviewUnlessDetached()
+    {
+        await using var f = await Fixture.StartAsync();
+        var failed = await Unattributed(f, detach: false);
+        Expect.Unconfirmed(failed, HttpStatusCode.InternalServerError);
+        var confirmed = await Unattributed(f, detach: true);
+        await Expect.ConfirmedAsync(confirmed);
+        // Both writes went through: they were never the Preview's to roll back.
+        Assert.NotNull(await f.FindAsync("background-False"));
+        Assert.NotNull(await f.FindAsync("background-True"));
+
+        static async Task<HttpResponseMessage> Unattributed(Fixture f, bool detach)
+        {
+            f.Gates.Reset();
+            var pending = f.App.PreviewAsync("POST", "/snapshot");
+            await f.Gates.Started.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Task write;
+            using (ExecutionContext.SuppressFlow())
+            {
+                write = Task.Run(async () =>
+                {
+                    using var _ = detach ? DetachedWork.Begin() : null;
+                    await f.Engine.Client.GetDatabase(f.Database).GetCollection<BsonDocument>("documents")
+                        .InsertOneAsync(new BsonDocument("_id", "background-" + detach));
+                });
+            }
+
+            await write;
+            f.Gates.Release.SetResult();
+            return await pending;
+        }
     }
 
     // ---- Guard mode ----

@@ -14,6 +14,15 @@ public sealed class MongoStoreBuilder
 
     internal IReadOnlyList<string> Reads => _reads;
 
+    internal bool Monitoring { get; private set; } = true;
+
+    /// <summary>A test seam: builds the client without command monitoring, as one created some other way would be.</summary>
+    internal MongoStoreBuilder WithoutMonitoringForTests()
+    {
+        Monitoring = false;
+        return this;
+    }
+
     internal TimeSpan PreviewTimeout { get; private set; } = MongoEngine.DefaultPreviewTimeout;
 
     /// <summary>
@@ -73,7 +82,7 @@ public static class SendproofMongoExtensions
         var original = services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(IMongoClient) && !descriptor.IsKeyedService) ??
             throw new InvalidOperationException("Register an IMongoClient before AddMongoDB: it replaces that registration with a guarded decorator.");
         var reads = options.Reads.Count == 0 ? null : new HashSet<string>(options.Reads, StringComparer.Ordinal);
-        var engine = new MongoEngine(builder.Capture, reads, options.PreviewTimeout);
+        var engine = new MongoEngine(builder.Capture, reads, options.PreviewTimeout) { MonitoringEnabled = options.Monitoring };
         var store = new MongoStore(engine, options.Name);
 
         services.Remove(original);

@@ -122,6 +122,11 @@ internal static class DataStoreGuard
     /// <exception cref="PreviewWriteBlockedException">The command is a write and a Preview is running.</exception>
     internal static void Check(this CaptureContext capture, string store, string operation, CommandKind kind, string? detail = null)
     {
+        if (kind == CommandKind.Write)
+        {
+            capture.ReportWrite(store, operation);
+        }
+
         if (kind != CommandKind.Write || capture.Current is not { InPreview: true } preview)
         {
             return;

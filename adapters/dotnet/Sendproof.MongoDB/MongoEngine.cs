@@ -33,6 +33,9 @@ internal sealed class MongoEngine
     /// <summary>The reason a standalone server, or any reply the binding doesn't recognise, runs in guard mode.</summary>
     internal const string StandaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions";
 
+    /// <summary>The reason a client whose command monitoring isn't installed runs in guard mode.</summary>
+    internal const string UnmonitoredReason = "Preview unavailable: Sendproof's command monitoring isn't installed on this MongoDB client";
+
     /// <summary>The default Preview time limit: below the server's 60-second <c>transactionLifetimeLimitSeconds</c>.</summary>
     internal static readonly TimeSpan DefaultPreviewTimeout = TimeSpan.FromSeconds(50);
 
@@ -75,6 +78,18 @@ internal sealed class MongoEngine
 
     /// <summary>The last failure of topology detection, for diagnostics. The mode is <c>guard</c> while detection fails.</summary>
     internal Exception? LastDetectionError { get; private set; }
+
+    /// <summary>A test seam: replaces the abort of the Preview transaction, to simulate an abort that fails.</summary>
+    internal Func<IClientSessionHandle, Task>? AbortOverride { get; set; }
+
+    /// <summary>A test seam: leaves command monitoring unsubscribed, as a client built some other way would be.</summary>
+    internal bool MonitoringEnabled { get; set; } = true;
+
+    // The detection hello carries a one-off token in its comment. Seeing it in this engine's own command events proves the
+    // monitor is installed on this client, which the tripwire depends on; commands seen from any other client prove nothing.
+    private const string ProbePrefix = "sendproof-probe-";
+    private readonly ConcurrentDictionary<string, byte> _probesSeen = new();
+    private readonly object _detectGate = new();
 
     /// <summary>A test seam: answers <c>hello</c> in place of the server, to simulate a standalone server or a failed detection.</summary>
     internal Func<Task<BsonDocument>>? HelloOverride { get; set; }
@@ -139,10 +154,18 @@ internal sealed class MongoEngine
     // ---- Wiring ----
 
     /// <summary>Subscribes the engine's command monitoring to a cluster being built.</summary>
-    internal void Subscribe(ClusterBuilder builder) => builder
-        .Subscribe<CommandStartedEvent>(OnStarted)
-        .Subscribe<CommandSucceededEvent>(OnSucceeded)
-        .Subscribe<CommandFailedEvent>(OnFailed);
+    internal void Subscribe(ClusterBuilder builder)
+    {
+        if (!MonitoringEnabled)
+        {
+            return;
+        }
+
+        builder
+            .Subscribe<CommandStartedEvent>(OnStarted)
+            .Subscribe<CommandSucceededEvent>(OnSucceeded)
+            .Subscribe<CommandFailedEvent>(OnFailed);
+    }
 
     /// <summary>Runs engine-internal commands (topology, change capture, abort) without logging or tripping.</summary>
     internal async Task<T> InternalAsync<T>(Func<Task<T>> work)
@@ -162,7 +185,12 @@ internal sealed class MongoEngine
     /// <summary>Detects the topology once: <c>preview</c> on a replica set or mongos with logical sessions.</summary>
     internal async Task<(string Mode, string? Reason)> DetectAsync()
     {
-        var detection = _detected ??= DetectCoreAsync();
+        Task<(string Mode, string? Reason, bool Succeeded)> detection;
+        lock (_detectGate)
+        {
+            detection = _detected ??= DetectCoreAsync();
+        }
+
         var (mode, reason, succeeded) = await detection;
         if (!succeeded)
         {
@@ -177,11 +205,29 @@ internal sealed class MongoEngine
     {
         try
         {
-            var hello = HelloOverride is { } simulated
-                ? await simulated()
-                : await InternalAsync(() => Client.GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("hello", 1)));
+            BsonDocument hello;
+            bool monitored;
+            if (HelloOverride is { } simulated)
+            {
+                hello = await simulated();
+                monitored = true;
+            }
+            else
+            {
+                var token = ProbePrefix + Guid.NewGuid().ToString("N");
+                hello = await InternalAsync(() => Client.GetDatabase("admin")
+                    .RunCommandAsync<BsonDocument>(new BsonDocument { { "hello", 1 }, { "comment", token } }));
+                monitored = _probesSeen.TryRemove(token, out _);
+            }
+
             var transactions = (hello.Contains("setName") || hello.GetValue("msg", BsonNull.Value) == "isdbgrid") &&
                 hello.GetValue("logicalSessionTimeoutMinutes", BsonNull.Value) is { IsBsonNull: false };
+            if (transactions && !monitored)
+            {
+                // Without the monitor an escaped write is invisible, so a rollback could be claimed falsely: stay in guard mode.
+                return ("guard", UnmonitoredReason, true);
+            }
+
             return transactions ? ("preview", null, true) : ("guard", StandaloneReason, true);
         }
         catch (Exception error) when (error is not OutOfMemoryException)
@@ -299,17 +345,29 @@ internal sealed class MongoEngine
 
     private void OnStarted(CommandStartedEvent started)
     {
+        var command = started.Command;
+        if (command.TryGetValue("comment", out var comment) && comment is BsonString commentText &&
+            commentText.Value.StartsWith(ProbePrefix, StringComparison.Ordinal))
+        {
+            _probesSeen[commentText.Value] = 0;
+        }
+
         if (_internal.Value)
         {
             return;
         }
 
-        var command = started.Command;
         var name = started.CommandName;
         var lower = name.ToLowerInvariant();
         var kind = MongoClassifier.Classify(command, _reads).Kind;
         var preview = CurrentPreview;
         var database = started.DatabaseNamespace.DatabaseName;
+        if (kind == CommandKind.Write)
+        {
+            // A write nobody can attribute to a request fails every open Preview (unless the worker is marked detached).
+            _capture.ReportWrite("mongodb", name);
+        }
+
         if (preview is not null && EndsTransaction(lower))
         {
             // Sent around the hook: it may have committed the Preview transaction, so the Preview can never be confirmed.
@@ -518,6 +576,7 @@ internal sealed class MongoEngine
         }
 
         Exception? failure = null;
+        Exception? ending = null;
         try
         {
             if (state.Used)
@@ -539,12 +598,13 @@ internal sealed class MongoEngine
         }
         finally
         {
-            await EndAsync(state).ConfigureAwait(false);
+            // Every cleanup step runs: a failed capture never skips the abort, and a failed abort is reported below.
+            ending = await EndAsync(state).ConfigureAwait(false);
         }
 
-        if (failure is not null)
+        if ((failure ?? ending) is { } cleanupFailure)
         {
-            throw failure;
+            throw cleanupFailure;
         }
     }
 
@@ -553,35 +613,49 @@ internal sealed class MongoEngine
     /// specification requires; an unacknowledged abort still commits nothing, because no <c>commitTransaction</c> is ever
     /// sent for the Preview session.
     /// </summary>
-    private async Task EndAsync(PreviewState state)
+    private async Task<Exception?> EndAsync(PreviewState state)
     {
         lock (state)
         {
             if (state.Finished)
             {
-                return;
+                return null;
             }
 
             state.Finished = true;
         }
 
         state.Timer?.Dispose();
-        await InternalAsync(async () =>
+        return await InternalAsync(async () =>
         {
+            Exception? failure = null;
             try
             {
-                if (state.Session.IsInTransaction)
+                if (AbortOverride is { } simulated)
+                {
+                    await simulated(state.Session).ConfigureAwait(false);
+                }
+                else if (state.Session.IsInTransaction)
                 {
                     await state.Session.AbortTransactionAsync().ConfigureAwait(false);
                 }
             }
             catch (Exception error) when (error is not OutOfMemoryException)
             {
-                // An abort the server did not acknowledge still commits nothing.
+                // Nothing was committed, but the abort didn't complete: the Preview can't claim a clean rollback.
+                failure = error;
             }
 
-            state.Session.Dispose();
-            return true;
+            try
+            {
+                state.Session.Dispose();
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                failure ??= error;
+            }
+
+            return failure;
         }).ConfigureAwait(false);
     }
 
