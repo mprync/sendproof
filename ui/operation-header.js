@@ -2,26 +2,39 @@
 // summary from the spec, requirement pills, a notice for deprecation or a missing sign-in, and the
 // URL bar with its copy button. The breadcrumbs and the Try it ⇄ Docs switch live in the head row
 // above it (context-bar.js).
-import { copyButton, esc, icon, method } from './components.js';
+import { copyButton, esc, icon, method, statusTone } from './components.js';
 import { t, th } from './i18n.js';
 import { isPublic, primarySchemes, scopeText } from './security.js';
 import { shortcutAttrs } from './shortcuts.js';
 import { deprecationNotice } from './deprecation.js';
 import { inline, linkOperationIds } from './markdown.js';
 
-/** Requirement pills: the permission or public access, idempotency and documented codes. */
+/**
+ * Requirement pills: the permission or public access, idempotency and documented codes.
+ * Colour carries meaning only: the access pill is green when the signed-in user may call the
+ * operation, amber when it needs a sign-in, and accent for a public operation; each status code
+ * takes its class's hue (statusTone), with its documented description as the tooltip.
+ */
 export function metaPills(op, document, signedIn) {
   const pills = [];
-  if (isPublic(op, document)) pills.push(`<span class="pill">${icon('globe', true)}${esc(t('op.public'))}</span>`);
+  if (isPublic(op, document)) pills.push(`<span class="pill access is-public">${icon('globe', true)}${esc(t('op.public'))}</span>`);
   else {
     const scopes = scopeText(op, document);
     const names = scopes ? [scopes] : primarySchemes(op, document).map(item => item.name);
-    for (const name of names) pills.push(`<span class="pill">${icon(signedIn ? 'shield' : 'lock', true)}<span>${esc(name)}</span></span>`);
+    const state = signedIn ? 'is-met' : 'is-locked';
+    for (const name of names) pills.push(`<span class="pill access ${state}">${icon(signedIn ? 'shield' : 'lock', true)}<span>${esc(name)}</span></span>`);
   }
   if (op.parameters?.some(p => p.in === 'header' && p.name.toLowerCase() === 'idempotency-key'))
     pills.push(`<span class="pill">${esc(t('op.idempotent'))}</span>`);
-  const codes = Object.keys(op.operation.responses || {}).filter(code => /^\d/.test(code)).sort();
-  if (codes.length > 1) pills.push(`<span class="pill"><bdi class="ltr">${codes.map(esc).join(' · ')}</bdi></span>`);
+  const responses = op.operation.responses || {};
+  const codes = Object.keys(responses).filter(code => /^\d/.test(code)).sort();
+  if (codes.length) {
+    const items = codes.map(code => {
+      const description = firstSentence(responses[code]?.description || '');
+      return `<span class="sc sc-${statusTone(code)}"${description ? ` title="${esc(`${code} · ${description}`)}"` : ''}><i aria-hidden="true"></i>${esc(code)}</span>`;
+    }).join('');
+    pills.push(`<span class="pill codes" role="group" aria-label="${esc(t('docs.responses'))}"><bdi class="ltr">${items}</bdi></span>`);
+  }
   return pills.length ? `<div class="op-meta">${pills.join('')}</div>` : '';
 }
 

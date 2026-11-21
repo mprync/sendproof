@@ -820,3 +820,22 @@ button.env:hover { border-color: var(--line-strong); background: var(--hover); }
 /* An API name in a right-to-left layout keeps its own direction, so a long one is shortened at its
    end ("Acme Trea…"), not its start ("…easury API"). */
 .api-switch > .name { display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Operation header pills (operation-header.js metaPills). Colour carries meaning only.
+   Access: the icon and a faint tint say whether the current user can call the operation. */
+.op-meta .access.is-met { border-color: color-mix(in oklch, var(--ok) 30%, var(--line)); background: color-mix(in oklch, var(--ok-soft) 60%, var(--raised)); color: var(--text); }
+.op-meta .access.is-met .i { color: var(--ok); }
+.op-meta .access.is-locked { border-color: color-mix(in oklch, var(--warn) 34%, var(--line)); background: color-mix(in oklch, var(--warn-soft) 60%, var(--raised)); color: var(--text); }
+.op-meta .access.is-locked .i { color: var(--warn); }
+.op-meta .access.is-public { border-color: color-mix(in oklch, var(--accent) 28%, var(--line)); background: color-mix(in oklch, var(--accent-soft) 60%, var(--raised)); color: var(--text); }
+.op-meta .access.is-public .i { color: var(--accent-text); }
+/* Documented status codes: one segment per code, a dot and the number in its class's hue. */
+.op-meta .codes { padding-inline: 0.25rem; gap: 0; }
+.op-meta .codes bdi { display: inline-flex; align-items: center; }
+.op-meta .sc { display: inline-flex; align-items: center; gap: 0.3125rem; padding-inline: 0.4375rem; font: 600 var(--fs-xs)/1 var(--mono); font-variant-numeric: tabular-nums; cursor: default; }
+.op-meta .sc + .sc { border-inline-start: 1px solid var(--line); }
+.op-meta .sc i { inline-size: 0.4375rem; block-size: 0.4375rem; border-radius: 50%; background: currentColor; flex: none; }
+.op-meta .sc-ok { color: var(--ok); }
+.op-meta .sc-info { color: var(--info); }
+.op-meta .sc-warn { color: var(--warn); }
+.op-meta .sc-danger { color: var(--danger); }
+.op-meta .sc-muted { color: var(--text-3); }
