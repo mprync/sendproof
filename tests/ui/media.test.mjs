@@ -32,7 +32,7 @@ test('operation-specific parameters supersede path-level references', () => {
 });
 
 test('a spec cannot direct the prepared request outside the mounted API', () => {
-  globalThis.location = new URL('https://example.test/team/bench/');
+  globalThis.location = new URL('https://example.test/team/sendproof/');
   for (const path of ['//other.test/path', '/../private']) {
     assert.throws(() => makeRequest({ method: 'GET', path }, [], undefined, {}, '/team/'));
   }

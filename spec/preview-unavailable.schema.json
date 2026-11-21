@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Test Bench blocked Preview v1",
+  "title": "Sendproof blocked Preview v1",
   "description": "RFC 9457 problem body for HTTP 409 when the write guard stopped a Preview. See data-stores.md.",
   "type": "object",
   "required": [

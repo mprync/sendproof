@@ -7,7 +7,7 @@ export default {
   dateLetters: { day: 'TT', month: 'MM', year: 'JJJJ' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'dann',
     'unit.bytes': '{n} B',
 
@@ -50,7 +50,7 @@ export default {
     'side.noMatchModelsBody': 'Die Suche umfasst Modellnamen und ihre Beschreibungen.',
     'side.try': '„{query}“ ausprobieren',
     'side.emptyTitle': 'Diese API hat noch keine Operationen',
-    'side.emptyBody': 'Test Bench listet jeden Pfad in {url} auf. Weisen Sie einen Endpunkt zu und laden Sie neu.',
+    'side.emptyBody': 'Sendproof listet jeden Pfad in {url} auf. Weisen Sie einen Endpunkt zu und laden Sie neu.',
     'side.reload': 'Spezifikation neu laden',
     'side.noModelsTitle': 'Keine Modelle in dieser Spezifikation',
     'side.noModelsBody': 'Modelle stammen aus {source}. Request- und Response-Bodys mit Inline-Schemas erscheinen weiterhin in der Dokumentation der jeweiligen Operation.',
@@ -80,7 +80,7 @@ export default {
     'display.digits': 'Ziffern',
     'display.latin': 'Lateinisch',
     'display.arabicIndic': 'Arabisch-indisch',
-    'display.digitsHelp': 'Nur die eigenen Zahlen und Datumsangaben von Test Bench. Erfasste Daten werden genau so angezeigt, wie sie gespeichert sind.',
+    'display.digitsHelp': 'Nur die eigenen Zahlen und Datumsangaben von Sendproof. Erfasste Daten werden genau so angezeigt, wie sie gespeichert sind.',
     'display.close': 'Schließen',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -271,7 +271,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Sicherheitsanforderungen', 'auth.scheme.cookie': 'Cookie-Anmeldung', 'auth.scheme.apiKey': 'API-Schlüssel', 'auth.scheme.http': 'HTTP-Authentifizierung',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Anmeldung',
-    'auth.sessionBody': 'Melden Sie sich als Benutzer dieser API an. Test Bench sendet die Sitzung für Sie.', 'auth.schemeBody': 'Bei {name} anmelden; Test Bench sendet die Sitzung.',
+    'auth.sessionBody': 'Melden Sie sich als Benutzer dieser API an. Sendproof sendet die Sitzung für Sie.', 'auth.schemeBody': 'Bei {name} anmelden; Sendproof sendet die Sitzung.',
     'auth.signInNeeded': 'Anmeldung', 'auth.notSignedIn': 'Nicht angemeldet', 'auth.permission': 'Berechtigung',
     'auth.permissionBody': 'Wird von der API nach der Anmeldung geprüft. Ohne sie gibt der Aufruf 403 zurück.', 'auth.checkedOnSend': 'Wird beim Senden geprüft',
     'auth.unknown': 'Unbekannt bis zur Anmeldung', 'auth.seeded': 'Vorhandenes Konto verwenden …', 'auth.publicBody': 'Diese Operation erfordert keine Anmeldung.',
@@ -307,7 +307,7 @@ export default {
     'res.before.Headers.title': 'Antwort-Header erscheinen hier',
     'res.before.headers.body': 'Jeder Header, den die API zurückgibt, plus die Anfrage-Header genau so, wie sie nach dem Auflösen der Variablen gesendet wurden.',
     'res.notCaptured.database': 'Senden erfasst keine Datenbankänderungen',
-    'res.notCaptured.databaseBody': 'Senden speichert wirklich, und Test Bench bleibt außerhalb der Transaktion. Sehen Sie sich die Zeilen zuerst in der Vorschau an, oder schalten Sie protokolliertes Senden ein, um sie beim Speichern aufzuzeichnen.',
+    'res.notCaptured.databaseBody': 'Senden speichert wirklich, und Sendproof bleibt außerhalb der Transaktion. Sehen Sie sich die Zeilen zuerst in der Vorschau an, oder schalten Sie protokolliertes Senden ein, um sie beim Speichern aufzuzeichnen.',
     'res.notCaptured.databaseNoTrace': 'Senden speichert wirklich, und diese API protokolliert es nicht. Sehen Sie sich die Zeilen zuerst in der Vorschau an.',
     'res.notCaptured.effects': 'Senden erfasst keine Nebeneffekte',
     'res.notCaptured.effectsBody': 'Sie wurden wirklich ausgeführt. Die Vorschau zeigt sie ohne Senden, oder schalten Sie protokolliertes Senden ein, um sie beim Auftreten aufzuzeichnen.',
@@ -332,13 +332,13 @@ export default {
     'res.network.title': 'API nicht erreichbar',
     'res.network.body': 'Von {origin} kam nichts zurück. Die Anfrage hat den Server möglicherweise nicht erreicht, daher wurde nichts gespeichert.',
     'res.network.why': 'Läuft die API? Starten Sie sie neu und versuchen Sie es erneut. Ihre Anfrage bleibt unverändert erhalten.',
-    'res.error.title': 'Die Anfrage konnte nicht abgeschlossen werden', 'res.error.why': 'Test Bench hat nichts geändert. Prüfen Sie die Anfrage und die API-Konsole.',
+    'res.error.title': 'Die Anfrage konnte nicht abgeschlossen werden', 'res.error.why': 'Sendproof hat nichts geändert. Prüfen Sie die Anfrage und die API-Konsole.',
 
     // Boot
-    'boot.title': 'OpenAPI-Dokument konnte nicht geladen werden', 'boot.capabilitiesStatus': 'Die Test-Bench-Erkennung gab {status} zurück.', 'boot.documentStatus': 'Das OpenAPI-Dokument gab {status} zurück.',
-    'boot.unsupported': 'Die Test-Bench-Version dieser API wird von diesem Workbench nicht unterstützt.',
-    'boot.body': '{request} ist fehlgeschlagen: {message} Test Bench baut jeden Bildschirm daraus auf, daher gibt es noch nichts anzuzeigen.',
-    'boot.bodyStatus': '{request} gab {status} zurück. Test Bench baut jeden Bildschirm daraus auf, daher gibt es noch nichts anzuzeigen.',
+    'boot.title': 'OpenAPI-Dokument konnte nicht geladen werden', 'boot.capabilitiesStatus': 'Die Sendproof-Erkennung gab {status} zurück.', 'boot.documentStatus': 'Das OpenAPI-Dokument gab {status} zurück.',
+    'boot.unsupported': 'Die Sendproof-Version dieser API wird von diesem Workbench nicht unterstützt.',
+    'boot.body': '{request} ist fehlgeschlagen: {message} Sendproof baut jeden Bildschirm daraus auf, daher gibt es noch nichts anzuzeigen.',
+    'boot.bodyStatus': '{request} gab {status} zurück. Sendproof baut jeden Bildschirm daraus auf, daher gibt es noch nichts anzuzeigen.',
     'boot.why': 'Meist ein Startfehler in der API, oder AddOpenApi() fehlt. Die API-Konsole enthält die Details.',
     'boot.whyAuth': 'Das Dokument erfordert einen angemeldeten Benutzer. Melden Sie sich an und versuchen Sie es erneut.',
     'boot.open': '{url} öffnen', 'boot.copy': 'Fehler kopieren', 'boot.noOperations': 'Keine Operationen', 'boot.noOperationsBody': 'Sie erscheinen, sobald die Spezifikation geladen ist.',
@@ -369,7 +369,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Übersicht', 'overview.operations': { one: '{n} Operation', other: '{n} Operationen' }, 'overview.models': { one: '{n} Modell', other: '{n} Modelle' },
-    'overview.how': 'So funktioniert Test Bench', 'overview.preview': 'Vorschau', 'overview.send': 'Senden', 'overview.autofill': 'Ausfüllen',
+    'overview.how': 'So funktioniert Sendproof', 'overview.preview': 'Vorschau', 'overview.send': 'Senden', 'overview.autofill': 'Ausfüllen',
     'overview.previewBody': 'Führt die Anfrage wirklich in einer Transaktion aus, zeigt jede Zeile, E-Mail und jeden Log-Eintrag, den sie verursacht hat, und rollt dann zurück.',
     'overview.sendBody': 'Führt sie wirklich aus und speichert, genau wie jeder andere Client.',
     'overview.autofillBody': 'Füllt Felder aus dem Schema, mit echten IDs aus den eigenen Listen-Endpunkten der API.',
@@ -503,7 +503,7 @@ export default {
     'match.schema': 'Schema', 'match.checked': 'Geprüft', 'match.checks': 'Typen, Formate, Muster, Längen, Enums und Pflichteigenschaften',
     'match.failTitle': { one: '{n} Abweichung vom Schema in diesem Body', other: '{n} Abweichungen vom Schema in diesem Body' },
     'match.failBody': 'Die API antwortete mit {status}, aber der Body entspricht nicht {model}, dem dokumentierten Schema:',
-    'match.note': 'Test Bench meldet dies nur. Die Antwort wird genau so angezeigt, wie sie empfangen wurde.', 'match.showSchema': 'In der Schema-Ansicht anzeigen', 'match.copy': 'Probleme kopieren',
+    'match.note': 'Sendproof meldet dies nur. Die Antwort wird genau so angezeigt, wie sie empfangen wurde.', 'match.showSchema': 'In der Schema-Ansicht anzeigen', 'match.copy': 'Probleme kopieren',
     'match.more': { one: '{n} weitere', other: '{n} weitere' }, 'match.extra': 'Nicht im Schema {model}', 'match.what': 'Schemaprobleme',
     'match.missing': 'Erforderlich, fehlt aber im Body',
 

@@ -49,7 +49,7 @@ export function withFixture(binding, scenario, base, run) {
 async function runFixture(binding, scenario, base, run, database) {
   const [command, ...args] = binding.start;
   const origin = `http://127.0.0.1:${binding.port}`;
-  const workspace = await mkdtemp(join(tmpdir(), 'test-bench-conformance-'));
+  const workspace = await mkdtemp(join(tmpdir(), 'sendproof-conformance-'));
   const values = { PORT: String(binding.port), BENCH_TMP_DIR: workspace };
   const host = spawn(platformCommand(command), args.map(argument => expand(argument, values)), {
     cwd: root,

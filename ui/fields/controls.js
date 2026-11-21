@@ -8,7 +8,7 @@ import { current, datePattern, nativeDigits, formatDate, formatDayMonthYear, for
 /** Decimals shown for a number field: from multipleOf, two for decimal formats, else as typed. */
 export function shownDecimals(schema) {
   if (typeof schema.multipleOf === 'number' && schema.multipleOf < 1) return (String(schema.multipleOf).split('.')[1] || '').length;
-  return schema.format === 'decimal' || /decimal/.test(schema['x-testbench-type-label'] || '') ? 2 : undefined;
+  return schema.format === 'decimal' || /decimal/.test(schema['x-sendproof-type-label'] || '') ? 2 : undefined;
 }
 
 /** A number as this locale writes it in an input: 50,000.00 or 50.000,00. */

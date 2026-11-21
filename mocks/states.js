@@ -11,7 +11,7 @@
     app.outerHTML = `
     <div class="sign-page">
       <header class="bar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span>Test Bench</div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span>Sendproof</div>
         <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="desktop-only" lang="en">Acme Treasury API</span>
         <span class="spacer"></span>
         <span class="pill pill-ok desktop-only"><span class="dot" aria-hidden="true"></span>Development · <span class="ltr">treasury-demo.db</span></span>
@@ -92,7 +92,7 @@
       document.querySelector('.workspace').innerHTML = `${document.querySelector('.sidebar').outerHTML}
         <main class="pane request" style="grid-column: 2 / -1" id="request"><div class="pane-scroll">${state({
           icon: 'alert', tone: 'danger', center: true, heading: 'h1', title: 'Couldn’t load the OpenAPI document',
-          body: '<code>GET /openapi/v1.json</code> returned <strong>500</strong>. Test Bench builds every screen from it, so there’s nothing to show yet.',
+          body: '<code>GET /openapi/v1.json</code> returned <strong>500</strong>. Sendproof builds every screen from it, so there’s nothing to show yet.',
           why: 'Usually a startup error in the API, or <code>AddOpenApi()</code> is missing. The API console has the details.',
           actions: [`<button class="btn btn-primary">${ico('refresh', 'i i-sm')}Try again ${kbd('mod', 'R')}</button>`, `<button class="btn">Open /openapi/v1.json</button>`, window.TB.copyTextBtn('Copy error', { cls: '' })],
         })}</div></main>`;

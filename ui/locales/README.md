@@ -1,6 +1,6 @@
 # UI catalogues
 
-Test Bench translates only its own interface. Text from the OpenAPI document and captured data
+Sendproof translates only its own interface. Text from the OpenAPI document and captured data
 is shown as written. `ui/i18n.js` lists the 34 UI languages (`LANGUAGES`) and loads one
 catalogue at a time; English is bundled and every missing key falls back to it.
 
@@ -25,7 +25,7 @@ result panes, the headers editor, issues and validation). English variants (`en-
 - Every English key is present, with the same `{placeholders}` and the same keyboard glyphs.
   `tests/ui/locales.test.mjs` checks it, along with each language's plural categories
   (`Intl.PluralRules`), `dir`, `widths` and `dateLetters`.
-- Product names and identifiers stay as they are: Test Bench, OpenAPI, JSON, cURL, HTTP
+- Product names and identifiers stay as they are: Sendproof, OpenAPI, JSON, cURL, HTTP
   methods, header names, operationIds, `$ref`, `components.schemas`.
 - `widths` are measured: each language's Send and Preview label with its keycaps, at the widest
   density, rounded up to 0.25em with 0.25em of air, so the buttons never move. Never copy them from

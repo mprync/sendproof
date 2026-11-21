@@ -22,7 +22,7 @@ export function svg(icon) {
 }
 
 export function typeDescription(schema, type) {
-  if (typeof schema['x-testbench-type-label'] === 'string') return schema['x-testbench-type-label'];
+  if (typeof schema['x-sendproof-type-label'] === 'string') return schema['x-sendproof-type-label'];
   const parts = [type === 'array' && schema.items?.type ? schema.items.type + '[]' : schema.format || (schema.enum ? 'enum' : type)];
   if (schema.minimum != null) parts.push(`${schema.exclusiveMinimum === true ? '>' : '≥'} ${schema.minimum}`);
   if (schema.maximum != null && Math.abs(schema.maximum) < 1e15) parts.push(`${schema.exclusiveMaximum === true ? '<' : '≤'} ${schema.maximum}`);

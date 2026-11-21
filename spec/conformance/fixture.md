@@ -1,4 +1,4 @@
-# Test Bench conformance fixture
+# Sendproof conformance fixture
 
 Implement a disposable HTTP app backed by one real relational table, `items`, with a string primary key `id` and a string `name`. Every new process starts with an empty table. The runner starts each fixture on loopback and sets these variables.
 
@@ -11,7 +11,7 @@ Implement a disposable HTTP app backed by one real relational table, `items`, wi
 | `BENCH_DATABASE` | Database selected by the manifest entry. Values are `sqlite`, `h2`, `postgresql`, `mysql` and `sqlserver`. |
 | `BENCH_DATABASE_URL` | Connection URL for a fresh database on a local service. Set for PostgreSQL, MySQL and SQL Server. |
 
-`GET /ready` returns HTTP 200 after startup in all scenarios. Paths in this document are relative to the mount. Mount the real workbench at `/bench`. Publish the fixture's OpenAPI document at the framework's normal path, with `info.title` set to `Test Bench Conformance` and paths for the operations below. Its schemas must describe the request and response shapes used by this fixture. The runner discovers the actual document URL from capabilities.
+`GET /ready` returns HTTP 200 after startup in all scenarios. Paths in this document are relative to the mount. Mount the real workbench at `/sendproof`. Publish the fixture's OpenAPI document at the framework's normal path, with `info.title` set to `Sendproof Conformance` and paths for the operations below. Its schemas must describe the request and response shapes used by this fixture. The runner discovers the actual document URL from capabilities.
 
 Server-database fixtures create the `items` table in the supplied empty database. The runner owns the database lifetime and drops it after stopping the fixture. It checks the standard scenario through a second database connection to confirm that the HTTP fixture used the selected engine and persisted only committed writes.
 

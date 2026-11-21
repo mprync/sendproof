@@ -1,6 +1,6 @@
 // Externalised UI strings and locale-aware formatting for the v3 mocks.
 //
-// Only Test Bench's own chrome is translated. Text that comes from the OpenAPI document
+// Only Sendproof's own chrome is translated. Text that comes from the OpenAPI document
 // (operation summaries, field titles, descriptions) is shown as the API author wrote it and
 // is marked with lang="en", so screen readers switch voice (WCAG 3.1.2 Language of Parts).
 //
@@ -62,7 +62,7 @@
       'model.exampleReal': 'A real record from the demo database', 'model.exampleNote': 'Built from the schema’s examples, enums and formats',
       'bar.noRuns': 'No runs yet for this operation', 'bar.runningShort': 'Running…', 'bar.noResponse': 'No response · nothing was saved',
       'bar.lastRun': '{what} at {time} as Ada Admin', 'bar.previewRun': 'Previewed', 'bar.sendRun': 'Sent', 'bar.sendTraced': 'Sent and traced',
-      'ov.title': 'Overview', 'ov.how': 'How Test Bench works', 'ov.byTag': 'Operations by tag', 'ov.start': 'Start here', 'ov.signedIn': 'Signed in as Ada Admin',
+      'ov.title': 'Overview', 'ov.how': 'How Sendproof works', 'ov.byTag': 'Operations by tag', 'ov.start': 'Start here', 'ov.signedIn': 'Signed in as Ada Admin',
       'ov.signedInBody': 'Requests run as Ada Admin with the admin role.', 'ov.readOnly': 'read-only', 'ov.tryPreview': 'try Preview', 'ov.shortcuts': 'All shortcuts',
       'ov.bar': 'Pick an operation in the sidebar, or search for one', 'ov.find': 'Find an operation',
       'ov.preview': 'Runs the request for real inside a transaction, shows every row, email and log it caused, then rolls back.',
@@ -205,7 +205,7 @@
     'v5.match.okTitle': 'Matches the documented schema', 'v5.match.okBody': 'This body is a valid {model}: {n} properties checked.',
     'v5.match.schema': 'Schema', 'v5.match.checked': 'Checked', 'v5.match.checks': 'Types, formats, patterns, lengths, enums and required properties',
     'v5.match.failTitle': { one: "{n} way this body doesn’t match", other: "{n} ways this body doesn’t match" }, 'v5.match.failBody': 'The API answered 200, but the body doesn’t match {model}, the documented schema:',
-    'v5.match.note': 'Test Bench only reports this. The response is shown exactly as received.', 'v5.match.showSchema': 'Show in Schema view', 'v5.match.copy': 'Copy issues',
+    'v5.match.note': 'Sendproof only reports this. The response is shown exactly as received.', 'v5.match.showSchema': 'Show in Schema view', 'v5.match.copy': 'Copy issues',
     'v5.issue.length': 'Expected {n} characters, got {got} ({len})', 'v5.issue.missing': 'Required, but not in the body', 'v5.issue.extra': 'Not in the {model} schema',
     'v5.issue.lenShort': 'expected {n} characters', 'v5.issue.extraShort': 'not in the schema', 'v5.issue.missingShort': 'missing required {name}',
     // Language picker

@@ -5,7 +5,7 @@ import { formatRequest, pickerFormats, snippetFormats } from './snippets.js';
 import { fixtures } from '../tools/snippet-check.mjs';
 
 const request = {
-  method: 'post', url: 'https://api.test/bench/payments?x=1',
+  method: 'post', url: 'https://api.test/sendproof/payments?x=1',
   headers: { Authorization: 'Bearer private', 'Content-Type': 'application/json' },
   body: JSON.stringify({ note: 'a <b> & "c" \'d\'', amount: 4.5, ok: true, none: null, tags: ['x'] }),
 };
@@ -37,7 +37,7 @@ test('cURL colours the command, flags, URLs, strings and the JSON body', () => {
   const out = html('curl');
   assert.ok(has(out, 'f', 'curl'));
   for (const flag of ['--request', '--url', '--header', '--data-raw']) assert.ok(has(out, 'fl', flag), flag);
-  assert.ok(has(out, 'u', 'https://api.test/bench/payments?x=1'));
+  assert.ok(has(out, 'u', 'https://api.test/sendproof/payments?x=1'));
   assert.ok(has(out, 'k', '&quot;amount&quot;'));
   assert.ok(has(out, 'n', '4.5'));
   assert.ok(has(out, 'b', 'true') && has(out, 'b', 'null'));
@@ -55,7 +55,7 @@ test('JavaScript colours keywords, calls, object keys, strings, URLs and numbers
   for (const word of ['const', 'await']) assert.ok(has(out, 'kw', word), word);
   assert.ok(has(out, 'f', 'fetch') && has(out, 'f', 'stringify'));
   assert.ok(has(out, 'k', '&quot;Content-Type&quot;'));
-  assert.ok(has(out, 'u', 'https://api.test/bench/payments?x=1'));
+  assert.ok(has(out, 'u', 'https://api.test/sendproof/payments?x=1'));
   assert.ok(has(out, 'n', '4.5') && has(out, 'b', 'true'));
 });
 
@@ -146,7 +146,7 @@ test('PowerShell colours variables, cmdlets, here-strings with JSON and hashtabl
 
 test('.http colours the method, URL, header names and JSON body', () => {
   const out = highlightSnippet(formatRequest('http', request, []), 'http');
-  assert.ok(has(out, 'kw', 'POST') && has(out, 'u', 'https://api.test/bench/payments?x=1'));
+  assert.ok(has(out, 'kw', 'POST') && has(out, 'u', 'https://api.test/sendproof/payments?x=1'));
   assert.ok(has(out, 'k', 'content-type') && has(out, 'p', ':'));
   assert.ok(has(out, 'n', '4.5'));
 });

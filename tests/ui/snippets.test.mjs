@@ -4,7 +4,7 @@ import { formatRequest, snippetFormats } from '../../ui/snippets.js';
 
 const request = {
   method: 'post',
-  url: 'https://api.test/bench/_preview/payments?custom-auth=private-value&filter=pending',
+  url: 'https://api.test/sendproof/_preview/payments?custom-auth=private-value&filter=pending',
   headers: { Authorization: 'Bearer private-value', Prefer: 'tx=rollback', 'Content-Type': 'application/json' },
   body: JSON.stringify({ note: "Alice's invoice", settings: { password: 'private-value' } }),
 };

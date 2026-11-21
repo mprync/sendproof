@@ -92,8 +92,8 @@ export default {
   'fx.htmlSource': 'HTML kaynağı',
   'fx.htmlFrame': 'E-posta HTML önizlemesi',
   'fx.heldBanner': {
-    one: '**Yakalanan etkiler tutuldu.** Test Bench bu önizleme için {n} yan etkiyi tuttu. Gönder, bunları gerçekten çalıştırır.',
-    other: '**Yakalanan etkiler tutuldu.** Test Bench bu önizleme için {n} yan etkiyi tuttu. Gönder, bunları gerçekten çalıştırır.',
+    one: '**Yakalanan etkiler tutuldu.** Sendproof bu önizleme için {n} yan etkiyi tuttu. Gönder, bunları gerçekten çalıştırır.',
+    other: '**Yakalanan etkiler tutuldu.** Sendproof bu önizleme için {n} yan etkiyi tuttu. Gönder, bunları gerçekten çalıştırır.',
   },
   'fx.ran': { one: '{n} yan etki çalıştı.', other: '{n} yan etki çalıştı.' },
   'fx.capturedCount': { one: '{n} yan etki yakalandı.', other: '{n} yan etki yakalandı.' },
@@ -176,7 +176,7 @@ export default {
   'kv.sessionCookie': 'Oturum çerezi',
   'kv.requiredValue': 'Bu zorunlu başlık için bir değer girin.',
   'kv.group.required': 'Bu işlem için zorunlu',
-  'kv.group.managed': 'Test Bench tarafından ayarlanır',
+  'kv.group.managed': 'Sendproof tarafından ayarlanır',
   'kv.group.managedDetail': 'oturumunuzdan ve gövdeden',
   'kv.group.custom': 'Özel',
   'kv.grid': 'İstek başlıkları',
@@ -184,7 +184,7 @@ export default {
   'kv.col.name': 'Ad',
   'kv.col.value': 'Değer',
   'kv.col.actions': 'Eylemler',
-  'kv.managed': 'Test Bench tarafından yönetilir',
+  'kv.managed': 'Sendproof tarafından yönetilir',
   'kv.sendName': '{name} başlığını gönder',
   'kv.sendNew': 'Yeni başlığı gönder',
   'kv.namePlaceholder': 'Başlık adı',
@@ -341,7 +341,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Şema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Özel başlık yok', 'kv.emptyBody': { one: 'Test Bench yukarıdaki başlığı zaten gönderiyor. İzleme, yerel ayar veya kiracı için kendi başlıklarınızı ekleyin.', other: 'Test Bench yukarıdaki {n} zaten gönderiyor. İzleme, yerel ayar veya kiracı için kendi başlıklarınızı ekleyin.' },
+  'kv.emptyTitle': 'Özel başlık yok', 'kv.emptyBody': { one: 'Sendproof yukarıdaki başlığı zaten gönderiyor. İzleme, yerel ayar veya kiracı için kendi başlıklarınızı ekleyin.', other: 'Sendproof yukarıdaki {n} zaten gönderiyor. İzleme, yerel ayar veya kiracı için kendi başlıklarınızı ekleyin.' },
   'kv.applyPreset': 'Hazır ayar uygula',
   'logs.noMatchTitle': 'Eşleşen günlük girdisi yok', 'logs.noMatchBody': { one: '{n} girdi filtreleriniz nedeniyle gizli: {filters}.', other: '{n} girdinin tümü filtreleriniz nedeniyle gizli: {filters}.' },
   'logs.hiddenLevel': 'düzey {level}', 'logs.hiddenText': 'metin “{text}”', 'logs.hiddenSql': 'SQL gizli', 'logs.clearFilters': 'Filtreleri temizle', 'logs.allLevels': 'Tüm düzeyleri göster',

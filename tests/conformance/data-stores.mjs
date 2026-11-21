@@ -160,7 +160,7 @@ async function checks(t, request, schemas, stores, env, readers) {
 
   /** Every capture the checks see, searched for secrets at the end. */
   const captured = [];
-  const go = (method, path, body) => request(base + '/bench/_preview' + path, { method, cookie, headers: rollback, body });
+  const go = (method, path, body) => request(base + '/sendproof/_preview' + path, { method, cookie, headers: rollback, body });
   const preview = async (method, path, body) => {
     const envelope = await confirmed(await go(method, path, body), schemas);
     captured.push(envelope);
@@ -169,9 +169,9 @@ async function checks(t, request, schemas, stores, env, readers) {
   const send = async (method, path, body, expected) => {
     const response = await status(await request(base + path, { method, cookie, body, headers: { Prefer: 'trace' } }), expected);
     const result = await response.json();
-    const id = response.headers.get('x-testbench-trace');
+    const id = response.headers.get('x-sendproof-trace');
     assert(id, `Expected a trace for observed Send of ${method} ${path}`);
-    const trace = await (await status(await request(base + '/bench/_api/traces/' + encodeURIComponent(id), { cookie }), 200)).json();
+    const trace = await (await status(await request(base + '/sendproof/_api/traces/' + encodeURIComponent(id), { cookie }), 200)).json();
     schemas.assert('trace', trace);
     captured.push(trace);
     return { result, trace };
@@ -189,7 +189,7 @@ async function checks(t, request, schemas, stores, env, readers) {
   }
 
   await t.test('Data stores: discovery lists each store and its mode', async () => {
-    const response = await status(await request(base + '/bench/_api/capabilities', { cookie }), 200);
+    const response = await status(await request(base + '/sendproof/_api/capabilities', { cookie }), 200);
     const capabilities = await response.json();
     schemas.assert('capabilities', capabilities);
     captured.push(capabilities);
@@ -201,7 +201,7 @@ async function checks(t, request, schemas, stores, env, readers) {
   });
 
   await t.test('Data stores: preview:false operations are not advertised and do not run', async () => {
-    const capabilities = await (await request(base + '/bench/_api/capabilities', { cookie })).json();
+    const capabilities = await (await request(base + '/sendproof/_api/capabilities', { cookie })).json();
     const routes = { mongodb: '/documents/{id}', redis: '/counters/{key}', dynamodb: '/orders/{id}' };
     for (const store of stores) {
       const path = routes[store];

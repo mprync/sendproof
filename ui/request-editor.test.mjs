@@ -58,7 +58,7 @@ test("sample resolves media and parameter examples, including on the JSON tab", 
   assert.deepEqual(state.body, { amount: 42 });
   assert.equal(state.paramValues["header:X-Example"], "sample-header");
   assert.equal(requestExample({ example: false }, document), false);
-  globalThis.location = new URL("https://example.test/bench/");
+  globalThis.location = new URL("https://example.test/sendproof/");
   const request = editor.readRequest();
   const idempotencyKey = request.headers.get("Idempotency-Key");
   assert.match(idempotencyKey, /^[0-9a-f-]{36}$/i);

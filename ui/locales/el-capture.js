@@ -91,8 +91,8 @@ export default {
   'fx.htmlSource': 'Πηγαίος κώδικας HTML',
   'fx.htmlFrame': 'Προεπισκόπηση HTML του email',
   'fx.heldBanner': {
-    one: '**Οι καταγεγραμμένες παρενέργειες κρατήθηκαν.** Το Test Bench κράτησε {n} παρενέργεια για αυτή την προεπισκόπηση. Η Αποστολή την εκτελεί κανονικά.',
-    other: '**Οι καταγεγραμμένες παρενέργειες κρατήθηκαν.** Το Test Bench κράτησε {n} παρενέργειες για αυτή την προεπισκόπηση. Η Αποστολή τις εκτελεί κανονικά.',
+    one: '**Οι καταγεγραμμένες παρενέργειες κρατήθηκαν.** Το Sendproof κράτησε {n} παρενέργεια για αυτή την προεπισκόπηση. Η Αποστολή την εκτελεί κανονικά.',
+    other: '**Οι καταγεγραμμένες παρενέργειες κρατήθηκαν.** Το Sendproof κράτησε {n} παρενέργειες για αυτή την προεπισκόπηση. Η Αποστολή τις εκτελεί κανονικά.',
   },
   'fx.ran': { one: '{n} παρενέργεια εκτελέστηκε.', other: '{n} παρενέργειες εκτελέστηκαν.' },
   'fx.capturedCount': { one: '{n} παρενέργεια καταγράφηκε.', other: '{n} παρενέργειες καταγράφηκαν.' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'Cookie συνεδρίας',
   'kv.requiredValue': 'Εισαγάγετε μια τιμή για αυτή την υποχρεωτική κεφαλίδα.',
   'kv.group.required': 'Απαιτούνται από αυτή τη λειτουργία',
-  'kv.group.managed': 'Ορίζονται από το Test Bench',
+  'kv.group.managed': 'Ορίζονται από το Sendproof',
   'kv.group.managedDetail': 'από τη συνεδρία και το σώμα σας',
   'kv.group.custom': 'Προσαρμοσμένες',
   'kv.grid': 'Κεφαλίδες αιτήματος',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'Όνομα',
   'kv.col.value': 'Τιμή',
   'kv.col.actions': 'Ενέργειες',
-  'kv.managed': 'Διαχειρίζεται το Test Bench',
+  'kv.managed': 'Διαχειρίζεται το Sendproof',
   'kv.sendName': 'Αποστολή του {name}',
   'kv.sendNew': 'Αποστολή νέας κεφαλίδας',
   'kv.namePlaceholder': 'Όνομα κεφαλίδας',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Σχήμα', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Καμία προσαρμοσμένη κεφαλίδα', 'kv.emptyBody': { one: 'Το Test Bench στέλνει ήδη την παραπάνω κεφαλίδα. Προσθέστε δικές σας για ανίχνευση, γλώσσα ή tenant.', other: 'Το Test Bench στέλνει ήδη τις {n} παραπάνω. Προσθέστε δικές σας για ανίχνευση, γλώσσα ή tenant.' },
+  'kv.emptyTitle': 'Καμία προσαρμοσμένη κεφαλίδα', 'kv.emptyBody': { one: 'Το Sendproof στέλνει ήδη την παραπάνω κεφαλίδα. Προσθέστε δικές σας για ανίχνευση, γλώσσα ή tenant.', other: 'Το Sendproof στέλνει ήδη τις {n} παραπάνω. Προσθέστε δικές σας για ανίχνευση, γλώσσα ή tenant.' },
   'kv.applyPreset': 'Εφαρμογή προεπιλογής',
   'logs.noMatchTitle': 'Καμία εγγραφή καταγραφής δεν ταιριάζει', 'logs.noMatchBody': { one: 'Η {n} εγγραφή είναι κρυμμένη από τα φίλτρα σας: {filters}.', other: 'Όλες οι {n} εγγραφές είναι κρυμμένες από τα φίλτρα σας: {filters}.' },
   'logs.hiddenLevel': 'επίπεδο {level}', 'logs.hiddenText': 'κείμενο «{text}»', 'logs.hiddenSql': 'η SQL είναι κρυμμένη', 'logs.clearFilters': 'Εκκαθάριση φίλτρων', 'logs.allLevels': 'Εμφάνιση όλων των επιπέδων',

@@ -18,9 +18,9 @@ test('the chosen language is remembered, and only a language the picker offers i
   assert.equal(withStorage(memory(), getCodeFormat), 'curl');
   const store = memory();
   withStorage(store, () => { setCodeFormat('python'); assert.equal(getCodeFormat(), 'python'); });
-  assert.equal(store.data['testbench-code-language'], 'python');
-  assert.equal(withStorage(memory({ 'testbench-code-language': 'http' }), getCodeFormat), 'curl', '.http is not a picker language');
-  assert.equal(withStorage(memory({ 'testbench-code-language': 'cobol' }), getCodeFormat), 'curl');
+  assert.equal(store.data['sendproof-code-language'], 'python');
+  assert.equal(withStorage(memory({ 'sendproof-code-language': 'http' }), getCodeFormat), 'curl', '.http is not a picker language');
+  assert.equal(withStorage(memory({ 'sendproof-code-language': 'cobol' }), getCodeFormat), 'curl');
 });
 
 test('blocked storage only forgets the choice', () => {

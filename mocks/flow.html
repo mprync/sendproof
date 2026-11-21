@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test Bench v4 navigation flows</title>
+<title>Sendproof v4 navigation flows</title>
 <link rel="stylesheet" href="styles.css">
 <style>
   /* Flow boards: rendered screens in sequence, with what the user did and where Back goes.
@@ -81,7 +81,7 @@
   root.innerHTML = `<header><h1>${s.title}</h1><p>${s.lede}</p></header>` + s.steps.map(([src, title, points, tone, url], i) => `
     <section class="step">
       <div class="shot"><img src="screens/${src}" alt="${title}"></div>
-      <div class="note"><span class="n">${i + 1}</span><h2>${title}</h2>${url ? `<div class="url">/bench/${url}</div>` : ''}
+      <div class="note"><span class="n">${i + 1}</span><h2>${title}</h2>${url ? `<div class="url">/sendproof/${url}</div>` : ''}
         <ul>${points.map(p => `<li>${p}</li>`).join('')}</ul>
         <p class="${tone}">${tone === 'bad' ? 'Problem' : 'Solved'}</p></div>
     </section>`).join('');

@@ -91,7 +91,7 @@ export default {
   'fx.htmlSource': 'HTML 原始碼',
   'fx.htmlFrame': '電子郵件 HTML 預覽',
   'fx.heldBanner': {
-    other: '**已暫緩擷取到的效果。** Test Bench 在此次預覽中暫緩了 {n} 個副作用。傳送會真正執行這些副作用。',
+    other: '**已暫緩擷取到的效果。** Sendproof 在此次預覽中暫緩了 {n} 個副作用。傳送會真正執行這些副作用。',
   },
   'fx.ran': { other: '已執行 {n} 個副作用。' },
   'fx.capturedCount': { other: '已擷取 {n} 個副作用。' },
@@ -174,7 +174,7 @@ export default {
   'kv.sessionCookie': '工作階段 Cookie',
   'kv.requiredValue': '請為此必要標頭輸入值。',
   'kv.group.required': '此操作必要',
-  'kv.group.managed': '由 Test Bench 設定',
+  'kv.group.managed': '由 Sendproof 設定',
   'kv.group.managedDetail': '來自您的工作階段與本文',
   'kv.group.custom': '自訂',
   'kv.grid': '請求標頭',
@@ -182,7 +182,7 @@ export default {
   'kv.col.name': '名稱',
   'kv.col.value': '值',
   'kv.col.actions': '動作',
-  'kv.managed': '由 Test Bench 管理',
+  'kv.managed': '由 Sendproof 管理',
   'kv.sendName': '傳送 {name}',
   'kv.sendNew': '傳送新標頭',
   'kv.namePlaceholder': '標頭名稱',
@@ -339,7 +339,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': '結構描述', 
   // Empty states added after the first pass
-  'kv.emptyTitle': '沒有自訂標頭', 'kv.emptyBody': { other: 'Test Bench 已傳送上方的 {n}。如需追蹤、地區設定或租用戶，可自行新增。' },
+  'kv.emptyTitle': '沒有自訂標頭', 'kv.emptyBody': { other: 'Sendproof 已傳送上方的 {n}。如需追蹤、地區設定或租用戶，可自行新增。' },
   'kv.applyPreset': '套用預設集',
   'logs.noMatchTitle': '沒有符合的記錄項目', 'logs.noMatchBody': { other: '全部 {n} 個項目都被您的篩選條件隱藏：{filters}。' },
   'logs.hiddenLevel': '等級 {level}', 'logs.hiddenText': '文字「{text}」', 'logs.hiddenSql': '已隱藏 SQL', 'logs.clearFilters': '清除篩選', 'logs.allLevels': '顯示所有等級',

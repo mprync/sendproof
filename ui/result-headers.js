@@ -4,7 +4,7 @@ import { shortcutAttrs, shortcutHint } from './shortcuts.js';
 
 const headerNames = new Map([
   ['etag', 'ETag'], ['x-request-id', 'X-Request-ID'], ['www-authenticate', 'WWW-Authenticate'],
-  ['traceparent', 'traceparent'], ['tracestate', 'tracestate'], ['x-testbench-trace', 'X-TestBench-Trace'],
+  ['traceparent', 'traceparent'], ['tracestate', 'tracestate'], ['x-sendproof-trace', 'X-Sendproof-Trace'],
 ]);
 
 function headerName(name) {

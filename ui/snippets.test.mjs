@@ -8,7 +8,7 @@ import { checkSnippets, fixtures } from '../tools/snippet-check.mjs';
 const awkward = { note: 'Alice\'s "quoted" invoice\nline 2 \\ back é 😀 $schema #{x} `tick`', amount: 4.5, nested: { password: 'private-value' } };
 const request = {
   method: 'post',
-  url: 'https://api.test/bench/_preview/payments?custom-auth=private-value&filter=pending',
+  url: 'https://api.test/sendproof/_preview/payments?custom-auth=private-value&filter=pending',
   headers: { Authorization: 'Bearer private-value', Prefer: 'tx=rollback', 'Content-Type': 'application/json', Cookie: 'session=private-value' },
   body: JSON.stringify(awkward),
 };
@@ -48,7 +48,7 @@ test('JavaScript output runs and sends exactly the request, quotes, newlines and
   let call;
   const run = new (Object.getPrototypeOf(async () => {}).constructor)('fetch', 'console', code);
   await run((url, init) => { call = { url, init }; return { status: 200, text: async () => 'ok' }; }, { log() {} });
-  assert.equal(call.url, 'https://api.test/bench/_preview/payments?custom-auth=REDACTED&filter=pending');
+  assert.equal(call.url, 'https://api.test/sendproof/_preview/payments?custom-auth=REDACTED&filter=pending');
   assert.equal(call.init.method, 'POST');
   assert.equal(call.init.headers['Content-Type'], 'application/json');
   assert.equal(call.init.headers.Authorization, 'REDACTED');

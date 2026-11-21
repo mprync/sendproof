@@ -52,7 +52,7 @@ export async function sharedRules(t, request, schemas, binding) {
   await t.test('Shared rule secret-columns: password_hash is [REDACTED] in change snapshots', skip('secret-columns'), async () => {
     await signIn();
     const password = 'fixture-password-value';
-    const previewed = await status(await request(base + '/bench/_preview/accounts', {
+    const previewed = await status(await request(base + '/sendproof/_preview/accounts', {
       method: 'POST', cookie, headers: rollback, body: { id: 'secret-account', email: 'secret@example.test', password },
     }), 200);
     assert.equal(previewed.headers.get('preference-applied'), 'tx=rollback');
@@ -66,9 +66,9 @@ export async function sharedRules(t, request, schemas, binding) {
       method: 'POST', cookie, headers: { Prefer: 'trace' }, body: { id: 'secret-account', email: 'secret@example.test', password },
     }), 201);
     await sent.body?.cancel();
-    const id = sent.headers.get('x-testbench-trace');
+    const id = sent.headers.get('x-sendproof-trace');
     assert(id, 'Expected a trace ID on observed Send');
-    const trace = await (await status(await request(base + '/bench/_api/traces/' + encodeURIComponent(id), { cookie }), 200)).json();
+    const trace = await (await status(await request(base + '/sendproof/_api/traces/' + encodeURIComponent(id), { cookie }), 200)).json();
     schemas.assert('trace', trace);
     assertRedactedAccount(trace, password, 'trace');
     await status(await request(base + '/accounts/secret-account', { cookie }), 200);
@@ -76,7 +76,7 @@ export async function sharedRules(t, request, schemas, binding) {
 
   await t.test('Shared rule raw-commit: a handler COMMIT fails the Preview with nothing persisted', skip('raw-commit'), async () => {
     await signIn();
-    const preview = await request(base + '/bench/_preview/items/raw-commit/commit', {
+    const preview = await request(base + '/sendproof/_preview/items/raw-commit/commit', {
       method: 'POST', cookie, headers: rollback, body: { name: 'Committed by the handler' },
     });
     await status(await request(base + '/items/raw-commit', { cookie }), 404);

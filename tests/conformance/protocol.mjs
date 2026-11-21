@@ -3,12 +3,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { withFixture } from './host.mjs';
 
 const base = '/tenant';
-const bench = base + '/bench';
+const bench = base + '/sendproof';
 const discovery = bench + '/_api/capabilities';
 const rollback = { Prefer: 'tx=rollback' };
 const credentials = { email: 'admin@example.test', password: 'bench-fixture' };
 const viewerEmail = 'viewer@example.test';
-const fixtureTitle = 'Test Bench Conformance';
+const fixtureTitle = 'Sendproof Conformance';
 const readItem = (request, id, cookie) => request(base + '/items/' + id, { cookie });
 
 async function status(response, expected) {
@@ -137,7 +137,7 @@ export async function standard(t, request, schemas, binding, database) {
     const index = await status(await request(bench + '/'), 200);
     assert.match(index.headers.get('cache-control') ?? '', /\bno-cache\b|\bno-store\b/);
     const html = await index.text();
-    assert.match(html, /<title>.*Test Bench/i);
+    assert.match(html, /<title>.*Sendproof/i);
     const assets = Array.from(html.matchAll(/(?:href|src)="([^"]+\.(?:css|m?js))"/g), match => match[1]);
     assert(assets.length > 1, 'Expected JavaScript and stylesheet references in the UI');
     for (const asset of assets) {
@@ -150,7 +150,7 @@ export async function standard(t, request, schemas, binding, database) {
     }
     await status(await request(bench + '/does-not-exist.js'), 404);
     await status(await request(bench + '/api.test.mjs'), 404);
-    await status(await request('/bench/_api/capabilities'), [404, 405]);
+    await status(await request('/sendproof/_api/capabilities'), [404, 405]);
   });
 
   await t.test('Password sign-in, personas and operation authorization', async () => {
@@ -195,7 +195,7 @@ export async function standard(t, request, schemas, binding, database) {
 
     const existing = { id: 'existing', name: 'Initial' };
     const sent = await status(await request(base + '/items', { method: 'POST', cookie: admin, body: existing }), 201);
-    assert.equal(sent.headers.get('x-testbench-trace'), null);
+    assert.equal(sent.headers.get('x-sendproof-trace'), null);
     const updated = await confirmed(await go(request, '/items/existing?tag=two%20words',
       { method: 'PATCH', cookie: admin, body: { name: 'Temporary' } }), schemas);
     assert.equal(updated.status, 200);
@@ -251,7 +251,7 @@ export async function standard(t, request, schemas, binding, database) {
     const traces = new Set();
     for (const response of sends) {
       await status(response, 201);
-      traces.add(response.headers.get('x-testbench-trace'));
+      traces.add(response.headers.get('x-sendproof-trace'));
       await response.body?.cancel();
     }
     assert(!traces.has(null) && traces.size === concurrency, 'Each observed Send needs its own trace ID');
@@ -264,8 +264,8 @@ export async function standard(t, request, schemas, binding, database) {
     const body = { id, name: 'Guarded' };
     const method = 'POST';
     await noConfirmation(await request(base + '/items', { method, cookie: admin, headers: rollback, body }), 400);
-    // Only <mount>/bench/_preview is reserved; the same segments deeper in a path are an ordinary URL.
-    await noConfirmation(await request(base + '/x/bench/_preview/items', { method, cookie: admin, headers: rollback, body }), [400, 404, 409]);
+    // Only <mount>/sendproof/_preview is reserved; the same segments deeper in a path are an ordinary URL.
+    await noConfirmation(await request(base + '/x/sendproof/_preview/items', { method, cookie: admin, headers: rollback, body }), [400, 404, 409]);
     for (const prefer of [undefined, 'tx="rollback"', 'trace, tx=rollback']) {
       const headers = prefer ? { Prefer: prefer } : {};
       await noConfirmation(await request(bench + '/_preview/items', { method, cookie: admin, body, headers }), 400);
@@ -278,21 +278,21 @@ export async function standard(t, request, schemas, binding, database) {
     await noConfirmation(await go(request, '/items', { cookie: admin, body, headers: { Origin: 'null' } }), [400, 403]);
     await noConfirmation(await go(request, '/items', { method: 'HEAD', cookie: admin }), 405);
     await noConfirmation(await go(request, '//items', { cookie: admin, body }), [400, 404]);
-    await noConfirmation(await go(request, '/bench/_api/capabilities', { cookie: admin }), [400, 404]);
+    await noConfirmation(await go(request, '/sendproof/_api/capabilities', { cookie: admin }), [400, 404]);
     await noConfirmation(await go(request, '/missing-target', { cookie: admin }), [404, 405, 409]);
     await noConfirmation(await go(request, '/items/' + id + '/ordinary', { cookie: admin }), [404, 405, 409]);
     // Encoded separators, dot segments and letters must not escape the mount, reach the workbench's own
     // routes or nest a second preview. The WHATWG URL parser would normalise a literal %2e%2e segment
     // before sending, so the traversal uses an encoded slash instead.
-    for (const target of ['/%2Fitems', '/x/..%2F..%2Fitems', '/items%2F..%2F..%2Fitems', '/%62ench/_api/capabilities',
-      '/bench/_preview/items']) {
+    for (const target of ['/%2Fitems', '/x/..%2F..%2Fitems', '/items%2F..%2F..%2Fitems', '/%73endproof/_api/capabilities',
+      '/sendproof/_preview/items']) {
       await noConfirmation(await go(request, target, { cookie: admin, body }), [400, 404, 405, 409]);
     }
     await assertMissing(request, id, admin);
     const ordinary = await request(base + '/items/' + id + '/ordinary',
       { method, cookie: admin, headers: { Prefer: 'trace' } });
     assert(ordinary.ok, 'The unmarked operation is still available via Send');
-    assert.equal(ordinary.headers.get('x-testbench-trace'), null);
+    assert.equal(ordinary.headers.get('x-sendproof-trace'), null);
   });
 
   await t.test('Handled failure, oversize and redirect never persist or leak transport headers', async () => {
@@ -344,14 +344,14 @@ export async function standard(t, request, schemas, binding, database) {
         method: 'POST', cookie, body: { id, name: 'Trace check' }, headers: { Prefer: 'trace', ...extra },
       });
       await status(ignored, cookie ? 201 : 401);
-      assert.equal(ignored.headers.get('x-testbench-trace'), null);
+      assert.equal(ignored.headers.get('x-sendproof-trace'), null);
     }
     const item = { id: 'traced', name: 'Committed' };
     const sent = await status(await request(base + '/items', {
       method: 'POST', cookie: admin, body: item, headers: { Prefer: 'trace' },
     }), 201);
     assert.deepEqual(await sent.json(), item);
-    const traceId = sent.headers.get('x-testbench-trace');
+    const traceId = sent.headers.get('x-sendproof-trace');
     assert(traceId, 'Expected a trace ID on observed Send');
     // Ownership is the access control, but an ID must still be long enough not to be guessed or enumerated.
     assert.match(traceId, /^[\x21-\x7e]{22,128}$/, 'A trace ID must be an opaque token of at least 22 characters');
@@ -389,22 +389,22 @@ export async function alternates(t, binding, schemas) {
     await t.test(scenario, () => withFixture(binding, scenario, '', async request => {
       const signedIn = await status(await request('/auth/sign-in', { method: 'POST', body: credentials }), [200, 204]);
       const cookie = cookieOf(signedIn);
-      const capabilities = await request('/bench/_api/capabilities');
+      const capabilities = await request('/sendproof/_api/capabilities');
       if (scenario === 'disabled') {
         await status(capabilities, 404);
-        await status(await request('/bench/'), 404);
+        await status(await request('/sendproof/'), 404);
       } else {
         const result = await (await status(capabilities, 200)).json();
         schemas.assert('capabilities', result);
         if (scenario === 'no-provider') assert.deepEqual(result.previewOperations, []);
       }
       const body = { id: scenario, name: 'Not persisted' };
-      const preview = await request('/bench/_preview/items', { method: 'POST', cookie, headers: rollback, body });
+      const preview = await request('/sendproof/_preview/items', { method: 'POST', cookie, headers: rollback, body });
       await noConfirmation(preview, { disabled: 404, 'no-provider': [409, 503], 'rollback-failure': 500 }[scenario]);
       await status(await request('/items/' + body.id, { cookie }), 404);
       const sent = await status(await request('/items', { method: 'POST', cookie, body, headers: { Prefer: 'trace' } }), 201);
       if (scenario !== 'rollback-failure') {
-        assert.equal(sent.headers.get('x-testbench-trace'), null, `No trace is recorded in the ${scenario} scenario`);
+        assert.equal(sent.headers.get('x-sendproof-trace'), null, `No trace is recorded in the ${scenario} scenario`);
       }
       const read = await status(await request('/items/' + body.id, { cookie }), 200);
       assert.deepEqual(await read.json(), body);

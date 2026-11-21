@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Test Bench confirmed preview v1",
+  "title": "Sendproof confirmed preview v1",
   "type": "object",
   "required": ["status", "headers", "body", "changes", "effects", "logs", "rolledBack"],
   "properties": {

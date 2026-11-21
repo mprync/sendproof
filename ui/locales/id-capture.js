@@ -92,7 +92,7 @@ export default {
   'fx.htmlSource': 'Sumber HTML',
   'fx.htmlFrame': 'Pratinjau HTML email',
   'fx.heldBanner': {
-    other: '**Efek yang ditangkap ditahan.** Test Bench menahan {n} efek samping untuk pratinjau ini. Kirim akan menjalankannya sungguhan.',
+    other: '**Efek yang ditangkap ditahan.** Sendproof menahan {n} efek samping untuk pratinjau ini. Kirim akan menjalankannya sungguhan.',
   },
   'fx.ran': { other: '{n} efek samping dijalankan.' },
   'fx.capturedCount': { other: '{n} efek samping ditangkap.' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'Cookie sesi',
   'kv.requiredValue': 'Masukkan nilai untuk header wajib ini.',
   'kv.group.required': 'Diwajibkan oleh operasi ini',
-  'kv.group.managed': 'Diatur oleh Test Bench',
+  'kv.group.managed': 'Diatur oleh Sendproof',
   'kv.group.managedDetail': 'dari sesi dan isi Anda',
   'kv.group.custom': 'Kustom',
   'kv.grid': 'Header permintaan',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'Nama',
   'kv.col.value': 'Nilai',
   'kv.col.actions': 'Tindakan',
-  'kv.managed': 'Dikelola oleh Test Bench',
+  'kv.managed': 'Dikelola oleh Sendproof',
   'kv.sendName': 'Kirim {name}',
   'kv.sendNew': 'Kirim header baru',
   'kv.namePlaceholder': 'Nama header',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Skema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Tidak ada header kustom', 'kv.emptyBody': { other: 'Test Bench sudah mengirim {n} di atas. Tambahkan header Anda sendiri untuk pelacakan, lokal, atau tenant.' },
+  'kv.emptyTitle': 'Tidak ada header kustom', 'kv.emptyBody': { other: 'Sendproof sudah mengirim {n} di atas. Tambahkan header Anda sendiri untuk pelacakan, lokal, atau tenant.' },
   'kv.applyPreset': 'Terapkan preset',
   'logs.noMatchTitle': 'Tidak ada entri log yang cocok', 'logs.noMatchBody': { other: 'Semua {n} entri disembunyikan oleh filter Anda: {filters}.' },
   'logs.hiddenLevel': 'level {level}', 'logs.hiddenText': 'teks “{text}”', 'logs.hiddenSql': 'SQL disembunyikan', 'logs.clearFilters': 'Hapus filter', 'logs.allLevels': 'Tampilkan semua level',

@@ -157,7 +157,7 @@ export function validateSchemaValue({ schema, value, document = {}, required = f
 }
 
 /** Mount a typed form. onChange receives JSON-compatible values and binary File values.
- * basePath is the application's URL path base (for example, /tenant), not /bench.
+ * basePath is the application's URL path base (for example, /tenant), not /sendproof.
  * flattenRoot removes the decorative label for a structured object at the root.
  */
 export function createSchemaForm({ container, schema, document: spec = {}, value, onChange = () => {},

@@ -13,7 +13,7 @@ export default {
   dateLetters: { day: 'יום', month: 'חודש', year: 'שנה' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'ואז',
     'unit.bytes': '{n} B',
 
@@ -56,7 +56,7 @@ export default {
     'side.noMatchModelsBody': 'החיפוש כולל שמות מודלים והתיאורים שלהם.',
     'side.try': 'נסו “{query}”',
     'side.emptyTitle': 'ל-API הזה אין עדיין פעולות',
-    'side.emptyBody': 'Test Bench מציג כל נתיב ב-{url}. מפו נקודת קצה וטענו מחדש.',
+    'side.emptyBody': 'Sendproof מציג כל נתיב ב-{url}. מפו נקודת קצה וטענו מחדש.',
     'side.reload': 'טעינה מחדש של המפרט',
     'side.noModelsTitle': 'אין מודלים במפרט הזה',
     'side.noModelsBody': 'המודלים מגיעים מ-{source}. גופי בקשה ותגובה שמשתמשים בסכמות מוטבעות עדיין מוצגים בתיעוד של כל פעולה.',
@@ -86,7 +86,7 @@ export default {
     'display.digits': 'ספרות',
     'display.latin': 'לטיניות',
     'display.arabicIndic': 'ערביות-הודיות',
-    'display.digitsHelp': 'רק המספרים והתאריכים של Test Bench עצמו. נתונים שנלכדו מוצגים בדיוק כפי שנשמרו.',
+    'display.digitsHelp': 'רק המספרים והתאריכים של Sendproof עצמו. נתונים שנלכדו מוצגים בדיוק כפי שנשמרו.',
     'display.close': 'סגירה',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -281,7 +281,7 @@ export default {
     // Auth tab
     'auth.requirements': 'דרישות אבטחה', 'auth.scheme.cookie': 'התחברות באמצעות עוגיה', 'auth.scheme.apiKey': 'מפתח API', 'auth.scheme.http': 'אימות HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'התחברות',
-    'auth.sessionBody': 'התחברו כמשתמש של ה-API הזה. Test Bench שולח את ההפעלה עבורכם.', 'auth.schemeBody': 'התחברו ל-{name}; Test Bench שולח את ההפעלה.',
+    'auth.sessionBody': 'התחברו כמשתמש של ה-API הזה. Sendproof שולח את ההפעלה עבורכם.', 'auth.schemeBody': 'התחברו ל-{name}; Sendproof שולח את ההפעלה.',
     'auth.signInNeeded': 'התחברות', 'auth.notSignedIn': 'לא מחובר', 'auth.permission': 'הרשאה',
     'auth.permissionBody': 'נבדקת על ידי ה-API אחרי ההתחברות. בלעדיה הקריאה מחזירה 403.', 'auth.checkedOnSend': 'נבדקת בעת השליחה',
     'auth.unknown': 'לא ידוע עד להתחברות', 'auth.seeded': 'שימוש בחשבון מוכן מראש…', 'auth.publicBody': 'הפעולה הזו לא דורשת התחברות.',
@@ -317,7 +317,7 @@ export default {
     'res.before.Headers.title': 'כותרות התגובה יופיעו כאן',
     'res.before.headers.body': 'כל כותרת שה-API מחזיר, וכן כותרות הבקשה בדיוק כפי שנשלחו, אחרי פתרון המשתנים.',
     'res.notCaptured.database': 'שליחה לא לוכדת שינויים במסד הנתונים',
-    'res.notCaptured.databaseBody': 'שליחה שומרת בפועל, ו-Test Bench נשאר מחוץ לעסקה. השתמשו בתצוגה מקדימה כדי לראות את השורות קודם, או הפעילו שליחה עם מעקב כדי לתעד אותן בזמן השמירה.',
+    'res.notCaptured.databaseBody': 'שליחה שומרת בפועל, ו-Sendproof נשאר מחוץ לעסקה. השתמשו בתצוגה מקדימה כדי לראות את השורות קודם, או הפעילו שליחה עם מעקב כדי לתעד אותן בזמן השמירה.',
     'res.notCaptured.databaseNoTrace': 'שליחה שומרת בפועל, וה-API הזה לא עוקב אחריה. השתמשו בתצוגה מקדימה כדי לראות את השורות קודם.',
     'res.notCaptured.effects': 'שליחה לא לוכדת תופעות לוואי',
     'res.notCaptured.effectsBody': 'הן רצו בפועל. תצוגה מקדימה מציגה אותן בלי לשלוח, או הפעילו שליחה עם מעקב כדי לתעד אותן בזמן שהן קורות.',
@@ -342,13 +342,13 @@ export default {
     'res.network.title': 'לא ניתן להגיע ל-API',
     'res.network.body': 'לא חזר דבר מ-{origin}. ייתכן שהבקשה לא הגיעה לשרת, ולכן דבר לא נשמר.',
     'res.network.why': 'האם ה-API רץ? הפעילו אותו שוב ונסו שוב. הבקשה נשמרת כפי שהייתה.',
-    'res.error.title': 'לא ניתן היה להשלים את הבקשה', 'res.error.why': 'Test Bench לא שינה דבר. בדקו את הבקשה ואת מסוף ה-API.',
+    'res.error.title': 'לא ניתן היה להשלים את הבקשה', 'res.error.why': 'Sendproof לא שינה דבר. בדקו את הבקשה ואת מסוף ה-API.',
 
     // Boot
-    'boot.title': 'לא ניתן לטעון את מסמך ה-OpenAPI', 'boot.capabilitiesStatus': 'גילוי Test Bench החזיר {status}.', 'boot.documentStatus': 'מסמך ה-OpenAPI החזיר {status}.',
-    'boot.unsupported': 'גרסת Test Bench של ה-API הזה אינה נתמכת בסביבת העבודה הזו.',
-    'boot.body': '{request} נכשל: {message} Test Bench בונה ממנו כל מסך, ולכן אין עדיין מה להציג.',
-    'boot.bodyStatus': '{request} החזיר {status}. Test Bench בונה ממנו כל מסך, ולכן אין עדיין מה להציג.',
+    'boot.title': 'לא ניתן לטעון את מסמך ה-OpenAPI', 'boot.capabilitiesStatus': 'גילוי Sendproof החזיר {status}.', 'boot.documentStatus': 'מסמך ה-OpenAPI החזיר {status}.',
+    'boot.unsupported': 'גרסת Sendproof של ה-API הזה אינה נתמכת בסביבת העבודה הזו.',
+    'boot.body': '{request} נכשל: {message} Sendproof בונה ממנו כל מסך, ולכן אין עדיין מה להציג.',
+    'boot.bodyStatus': '{request} החזיר {status}. Sendproof בונה ממנו כל מסך, ולכן אין עדיין מה להציג.',
     'boot.why': 'בדרך כלל זו שגיאת הפעלה ב-API, או ש-AddOpenApi() חסר. הפרטים נמצאים במסוף ה-API.',
     'boot.whyAuth': 'המסמך דורש משתמש מחובר. התחברו ונסו שוב.',
     'boot.open': 'פתיחת {url}', 'boot.copy': 'העתקת השגיאה', 'boot.noOperations': 'אין פעולות', 'boot.noOperationsBody': 'הן יופיעו אחרי שהמפרט ייטען.',
@@ -379,7 +379,7 @@ export default {
 
     // Overview
     'overview.crumb': 'סקירה', 'overview.operations': p('פעולה אחת', 'שתי פעולות', '{n} פעולות'), 'overview.models': p('מודל אחד', 'שני מודלים', '{n} מודלים'),
-    'overview.how': 'איך Test Bench עובד', 'overview.preview': 'תצוגה מקדימה', 'overview.send': 'שליחה', 'overview.autofill': 'מילוי אוטומטי',
+    'overview.how': 'איך Sendproof עובד', 'overview.preview': 'תצוגה מקדימה', 'overview.send': 'שליחה', 'overview.autofill': 'מילוי אוטומטי',
     'overview.previewBody': 'מריץ את הבקשה בפועל בתוך עסקה, מציג כל שורה, אימייל ויומן שהיא גרמה להם, ואז מחזיר לאחור.',
     'overview.sendBody': 'מריץ אותה בפועל ושומר, בדיוק כמו כל לקוח אחר.',
     'overview.autofillBody': 'ממלא שדות לפי הסכמה, עם מזהים אמיתיים מנקודות הקצה של הרשימות ב-API עצמו.',
@@ -513,7 +513,7 @@ export default {
     'match.schema': 'סכמה', 'match.checked': 'נבדק', 'match.checks': 'סוגים, פורמטים, תבניות, אורכים, enum ומאפייני חובה',
     'match.failTitle': p('דרך אחת שבה הגוף הזה לא תואם', 'שתי דרכים שבהן הגוף הזה לא תואם', '{n} דרכים שבהן הגוף הזה לא תואם'),
     'match.failBody': 'ה-API ענה {status}, אבל הגוף לא תואם ל-{model}, הסכמה המתועדת:',
-    'match.note': 'Test Bench רק מדווח על כך. התגובה מוצגת בדיוק כפי שהתקבלה.', 'match.showSchema': 'הצגה בתצוגת הסכמה', 'match.copy': 'העתקת הבעיות',
+    'match.note': 'Sendproof רק מדווח על כך. התגובה מוצגת בדיוק כפי שהתקבלה.', 'match.showSchema': 'הצגה בתצוגת הסכמה', 'match.copy': 'העתקת הבעיות',
     'match.more': p('{n} נוספת', '{n} נוספות', '{n} נוספות'), 'match.extra': 'לא בסכמה {model}', 'match.what': 'בעיות סכמה',
     'match.missing': 'חובה, אבל חסר בגוף',
 

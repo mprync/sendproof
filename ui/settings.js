@@ -2,7 +2,7 @@
 // Send. applySettings() writes them to <html> so the stylesheet and i18n follow.
 import { configure, current, detectPlatform, LANGUAGES, matchLanguage, runButtonWidths } from './i18n.js';
 
-const STORAGE_KEY = 'testbench-settings';
+const STORAGE_KEY = 'sendproof-settings';
 const DENSITIES = ['compact', 'default', 'comfortable'];
 const THEMES = ['system', 'light', 'dark'];
 
@@ -11,7 +11,7 @@ export function loadSettings(storage = globalThis.localStorage, preferences = gl
   let saved = {};
   try { saved = JSON.parse(storage?.getItem(STORAGE_KEY) || '{}') || {}; } catch { /* Ignore an unreadable value. */ }
   // Earlier versions stored only the theme.
-  const legacyTheme = (() => { try { return storage?.getItem('testbench-theme'); } catch { return null; } })();
+  const legacyTheme = (() => { try { return storage?.getItem('sendproof-theme'); } catch { return null; } })();
   return {
     density: DENSITIES.includes(saved.density) ? saved.density : 'default',
     theme: THEMES.includes(saved.theme) ? saved.theme : ['light', 'dark'].includes(legacyTheme) ? legacyTheme : 'system',

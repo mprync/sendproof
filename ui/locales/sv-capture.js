@@ -93,8 +93,8 @@ export default {
   'fx.htmlSource': 'HTML-källa',
   'fx.htmlFrame': 'HTML-förhandsgranskning av e-post',
   'fx.heldBanner': {
-    one: '**Fångade effekter hölls tillbaka.** Test Bench höll tillbaka {n} biverkning för den här förhandsgranskningen. Skicka kör den på riktigt.',
-    other: '**Fångade effekter hölls tillbaka.** Test Bench höll tillbaka {n} biverkningar för den här förhandsgranskningen. Skicka kör dem på riktigt.',
+    one: '**Fångade effekter hölls tillbaka.** Sendproof höll tillbaka {n} biverkning för den här förhandsgranskningen. Skicka kör den på riktigt.',
+    other: '**Fångade effekter hölls tillbaka.** Sendproof höll tillbaka {n} biverkningar för den här förhandsgranskningen. Skicka kör dem på riktigt.',
   },
   'fx.ran': { one: '{n} biverkning kördes.', other: '{n} biverkningar kördes.' },
   'fx.capturedCount': { one: '{n} biverkning fångades.', other: '{n} biverkningar fångades.' },
@@ -177,7 +177,7 @@ export default {
   'kv.sessionCookie': 'Sessionscookie',
   'kv.requiredValue': 'Ange ett värde för den här obligatoriska rubriken.',
   'kv.group.required': 'Krävs av den här operationen',
-  'kv.group.managed': 'Anges av Test Bench',
+  'kv.group.managed': 'Anges av Sendproof',
   'kv.group.managedDetail': 'från din session och ditt innehåll',
   'kv.group.custom': 'Egna',
   'kv.grid': 'Förfrågansrubriker',
@@ -185,7 +185,7 @@ export default {
   'kv.col.name': 'Namn',
   'kv.col.value': 'Värde',
   'kv.col.actions': 'Åtgärder',
-  'kv.managed': 'Hanteras av Test Bench',
+  'kv.managed': 'Hanteras av Sendproof',
   'kv.sendName': 'Skicka {name}',
   'kv.sendNew': 'Skicka ny rubrik',
   'kv.namePlaceholder': 'Rubrikens namn',
@@ -342,7 +342,7 @@ export default {
   // Schemavy för svar
   'resp.mode.schema': 'Schema', 
   // Tomma tillstånd som lades till efter första omgången
-  'kv.emptyTitle': 'Inga egna rubriker', 'kv.emptyBody': { one: 'Test Bench skickar redan rubriken ovan. Lägg till egna för spårning, språk eller tenant.', other: 'Test Bench skickar redan de {n} ovan. Lägg till egna för spårning, språk eller tenant.' },
+  'kv.emptyTitle': 'Inga egna rubriker', 'kv.emptyBody': { one: 'Sendproof skickar redan rubriken ovan. Lägg till egna för spårning, språk eller tenant.', other: 'Sendproof skickar redan de {n} ovan. Lägg till egna för spårning, språk eller tenant.' },
   'kv.applyPreset': 'Använd en förinställning',
   'logs.noMatchTitle': 'Inga loggposter matchar', 'logs.noMatchBody': { one: 'Posten är dold av dina filter: {filters}.', other: 'Alla {n} poster är dolda av dina filter: {filters}.' },
   'logs.hiddenLevel': 'nivå {level}', 'logs.hiddenText': 'text ”{text}”', 'logs.hiddenSql': 'SQL är dold', 'logs.clearFilters': 'Rensa filter', 'logs.allLevels': 'Visa alla nivåer',

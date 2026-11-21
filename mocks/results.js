@@ -9,7 +9,7 @@
   const { ico, kbd, aks, tab, copyBtn, copyTextBtn, state, t } = window.TB;
   const { num, unit } = window.i18n;
   // Captured data (rows, JSON, headers) stays invariant, exactly as stored or sent.
-  // Only Test Bench's own prose, counts and metrics follow the locale.
+  // Only Sendproof's own prose, counts and metrics follow the locale.
   const metrics = (ms, kb) => `<span class="metric"><bdi>${unit(ms, 'millisecond')}</bdi> · <bdi>${unit(kb, 'kilobyte', 1)}</bdi></span>`;
   /** Builds the pane for a set of URL-style parameters; the boards call it directly. */
   function build(q) {
@@ -109,7 +109,7 @@
     });
     if (run === 'send' && !traced) return state({
       icon: 'db', title: 'Send doesn’t capture database changes',
-      body: 'Send commits for real, and Test Bench stays out of the transaction. Use Preview to see the rows first, or turn on traced Send to record them as they’re committed.',
+      body: 'Send commits for real, and Sendproof stays out of the transaction. Use Preview to see the rows first, or turn on traced Send to record them as they’re committed.',
       actions: [btnPreview, `<button class="btn btn-sm">Turn on traced Send</button>`],
       why: 'Traced Send adds about 5 ms per query. It’s on by default in Development; turn it off when Send must behave exactly like a real client.',
     });
@@ -167,7 +167,7 @@
     ];
     return `${traced
       ? `<div class="banner banner-ok">${ico('send')}<div><strong>These ran for real.</strong> Traced Send recorded the 4 effects this request triggered as they happened.</div></div>`
-      : `<div class="banner">${ico('undo')}<div><strong>Nothing left the API.</strong> Test Bench captured these 4 effects and held them back. Send runs them for real.</div></div>`}
+      : `<div class="banner">${ico('undo')}<div><strong>Nothing left the API.</strong> Sendproof captured these 4 effects and held them back. Send runs them for real.</div></div>`}
       <div class="fx-list">${rows.map(([i, kind, title, sub, status]) => `
         <article class="fx"><button class="fx-head" aria-expanded="false"><span class="fx-ico">${ico(i, 'i i-sm')}</span>
           <span class="stack"><span class="kind">${kind}</span><span class="title ltr">${title}</span><span class="sub">${sub}</span></span>

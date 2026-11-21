@@ -177,7 +177,7 @@
     const row = ({ check = 'on', name, val, cls = '', acts = '' }) => `
       <div class="kv-row ${cls}" role="row">
         <div class="c check" role="gridcell">${check === 'locked'
-          ? `<span class="checkbox locked" role="img" aria-label="Managed by Test Bench">${ico('lock', 'i')}</span>`
+          ? `<span class="checkbox locked" role="img" aria-label="Managed by Sendproof">${ico('lock', 'i')}</span>`
           : `<span class="checkbox ${check === 'on' ? 'on' : ''}" role="checkbox" aria-checked="${check === 'on'}" tabindex="0">${check === 'on' ? ico('check', 'i') : ''}</span>`}</div>
         <div class="c name-c" role="gridcell">${name}</div>
         <div class="c val-c" role="gridcell">${val}</div>
@@ -185,18 +185,18 @@
       </div>`;
     const empty = q.hstate === 'empty';
     return `<div class="form"><div>
-      <div class="kv-toolbar"><span class="faint" style="font-size:var(--fs-md)">${empty ? '3 headers will be sent, all managed by Test Bench' : q.hstate === 'invalid' ? '5 headers will be sent · 1 needs a fix' : '5 headers will be sent'}</span><span class="spacer"></span>
+      <div class="kv-toolbar"><span class="faint" style="font-size:var(--fs-md)">${empty ? '3 headers will be sent, all managed by Sendproof' : q.hstate === 'invalid' ? '5 headers will be sent · 1 needs a fix' : '5 headers will be sent'}</span><span class="spacer"></span>
         <div class="segmented" role="group" aria-label="Headers editor"><button aria-pressed="true">Table</button><button aria-pressed="false">Bulk edit</button></div></div>
       <div class="kv-table" role="grid" aria-label="Request headers">
         <div class="kv-row head" role="row"><div class="c" role="columnheader"><span class="sr-only">Send</span></div><div class="c" role="columnheader">Name</div><div class="c" role="columnheader">Value</div><div class="c" role="columnheader"><span class="sr-only">Actions</span></div></div>
-        <div class="kv-row group" role="row"><span role="gridcell">Managed by Test Bench</span></div>
+        <div class="kv-row group" role="row"><span role="gridcell">Managed by Sendproof</span></div>
         ${row({ check: 'locked', cls: 'is-managed', name: '<span class="name">Content-Type</span>', val: '<span class="val">application/json</span>' })}
         ${row({ check: 'locked', cls: 'is-managed', name: '<span class="name">Cookie</span>', val: `<span class="val">${signedOut ? '<span class="placeholder">Not signed in</span>' : '.AspNetCore.Cookies=CfDJ8…'}</span>` })}
         ${row({ check: 'locked', cls: 'is-managed', name: '<span class="name">Idempotency-Key</span>', val: '<span class="val">0c5d9a2e-1f4b-4c39-8e0a-b7d2c61f5a08</span>', acts: `<button class="btn btn-ghost btn-icon btn-xs" aria-label="New key" aria-keyshortcuts="${aks('mod', 'I')}">${ico('refresh', 'i i-sm')}</button>` })}
         <div class="kv-row group" role="row"><span role="gridcell">Custom</span></div>
         ${empty ? `<div class="kv-row" role="row" style="display:block"><div role="gridcell">${stateBlock({
           icon: null, compact: true, title: 'No custom headers',
-          body: 'Test Bench already sends the three above. Add your own for tracing, locale or tenant.',
+          body: 'Sendproof already sends the three above. Add your own for tracing, locale or tenant.',
           actions: [`<button class="btn btn-sm">${ico('plus', 'i i-sm')}Add header ${kbd('mod', 'enter')}</button>`, `<button class="btn btn-ghost btn-sm">${ico('list', 'i i-sm')}Apply a preset</button>`],
         })}</div></div>` : `
         ${row({ name: '<span class="name">Accept-Language</span>', val: '<span class="val">en-IE</span>' })}
@@ -222,7 +222,7 @@
       <section class="auth-req">
         <h3 class="section-label">Security requirements<span class="rule" aria-hidden="true"></span></h3>
         <div class="req-list">
-          <div class="req"><span class="req-ico">${ico('lock', 'i i-sm')}</span><div class="grow"><div class="t">Cookie sign-in <span class="tag tag-mono">cookieAuth</span></div><div class="s">Sign in as any user in treasury-demo.db. Test Bench sends the cookie for you.</div></div>
+          <div class="req"><span class="req-ico">${ico('lock', 'i i-sm')}</span><div class="grow"><div class="t">Cookie sign-in <span class="tag tag-mono">cookieAuth</span></div><div class="s">Sign in as any user in treasury-demo.db. Sendproof sends the cookie for you.</div></div>
             ${signedOut ? `<span class="tag tag-warn">Not signed in</span>` : `<span class="tag tag-ok">${ico('check', 'i')}Ada Admin</span>`}</div>
           <div class="req"><span class="req-ico">${ico('shield', 'i i-sm')}</span><div class="grow"><div class="t">Permission <span class="tag tag-mono">payments.write</span></div><div class="s">Checked by the API after sign-in. Without it the call returns 403.</div></div>
             ${signedOut ? `<span class="tag">Unknown until signed in</span>` : `<span class="tag tag-ok">${ico('check', 'i')}Granted</span>`}</div>

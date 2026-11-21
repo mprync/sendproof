@@ -1,4 +1,4 @@
-# Test Bench workbench design reference
+# Sendproof workbench design reference
 
 These are the approved v3 mocks, the source of truth for the workbench UI in `ui/`. v3 evolved the v2 design and kept its look: Geist, OKLCH neutrals tinted to hue 268, the same colours, radii and components. It fixes the owner's feedback on the live UI and the issues in [`docs/plans/workbench-v3-review.md`](../docs/plans/workbench-v3-review.md).
 
@@ -262,7 +262,7 @@ Feedback numbers are the owner's v5 list: V1 enum control, V2 selects, V3 langua
 The v5 screens rely on extensions that `v5-spec.js` adds to the snapshot. At implementation, `examples/TreasuryApi` must emit them, and `node tools/mock-spec.mjs` then makes `v5-spec.js` unnecessary:
 
 - `x-replaced-by` on `BalancesController.LegacyBalance`: `[{ operationId: BalancesController.Get, parameters: { accountId: $request.path.id }, description: … }, { operationId: BalancesController.List, description: … }]`. A plain operationId string still works (it's what `ui/docs-view.js` reads today).
-- `x-sunset: 2027-06-30` on the same operation (optional). The operation should also send a `Sunset` response header (RFC 8594); Test Bench reads it when the spec has no `x-sunset`.
+- `x-sunset: 2027-06-30` on the same operation (optional). The operation should also send a `Sunset` response header (RFC 8594); Sendproof reads it when the spec has no `x-sunset`.
 - `x-enum-descriptions` on `AccountStatus`, `AccountType`, `Currency`, `Priority`, `PaymentStatus`, the inline `currency` and `priority` of `CreatePaymentRequest` and the `sort` parameter of `AccountsController.List`.
 
 ### Extra fixes found while redesigning

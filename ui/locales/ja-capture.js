@@ -91,7 +91,7 @@ export default {
   'fx.htmlSource': 'HTML ソース',
   'fx.htmlFrame': 'メール HTML のプレビュー',
   'fx.heldBanner': {
-    other: '**キャプチャしたエフェクトを保留しました。** Test Bench はこのプレビューで {n} 件の副作用を保留しました。送信すると実際に実行されます。',
+    other: '**キャプチャしたエフェクトを保留しました。** Sendproof はこのプレビューで {n} 件の副作用を保留しました。送信すると実際に実行されます。',
   },
   'fx.ran': { other: '{n} 件の副作用を実行しました。' },
   'fx.capturedCount': { other: '{n} 件の副作用をキャプチャしました。' },
@@ -174,7 +174,7 @@ export default {
   'kv.sessionCookie': 'セッション Cookie',
   'kv.requiredValue': 'この必須ヘッダーの値を入力してください。',
   'kv.group.required': 'このオペレーションで必須',
-  'kv.group.managed': 'Test Bench が設定',
+  'kv.group.managed': 'Sendproof が設定',
   'kv.group.managedDetail': 'セッションとボディから',
   'kv.group.custom': 'カスタム',
   'kv.grid': 'リクエストヘッダー',
@@ -182,7 +182,7 @@ export default {
   'kv.col.name': '名前',
   'kv.col.value': '値',
   'kv.col.actions': '操作',
-  'kv.managed': 'Test Bench が管理',
+  'kv.managed': 'Sendproof が管理',
   'kv.sendName': '{name} を送信',
   'kv.sendNew': '新しいヘッダーを送信',
   'kv.namePlaceholder': 'ヘッダー名',
@@ -339,7 +339,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'スキーマ', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'カスタムヘッダーはありません', 'kv.emptyBody': { other: 'Test Bench はすでに上記の {n} 件のヘッダーを送信しています。トレース、ロケール、テナント用に独自のヘッダーを追加できます。' },
+  'kv.emptyTitle': 'カスタムヘッダーはありません', 'kv.emptyBody': { other: 'Sendproof はすでに上記の {n} 件のヘッダーを送信しています。トレース、ロケール、テナント用に独自のヘッダーを追加できます。' },
   'kv.applyPreset': 'プリセットを適用',
   'logs.noMatchTitle': '一致するログエントリはありません', 'logs.noMatchBody': { other: '{n} 件のエントリがフィルターにより非表示です: {filters}。' },
   'logs.hiddenLevel': 'レベル {level}', 'logs.hiddenText': 'テキスト「{text}」', 'logs.hiddenSql': 'SQL は非表示です', 'logs.clearFilters': 'フィルターをクリア', 'logs.allLevels': 'すべてのレベルを表示',

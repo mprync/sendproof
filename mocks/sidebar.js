@@ -80,7 +80,7 @@
       })}</div>`;
       if (q.filter === 'empty') return `<div class="nav">${state({
         icon: 'list', compact: true, title: 'This API has no operations yet',
-        body: 'Test Bench lists every path in <code>/openapi/v1.json</code>. Map an endpoint and reload.',
+        body: 'Sendproof lists every path in <code>/openapi/v1.json</code>. Map an endpoint and reload.',
         actions: [`<button class="btn btn-sm">${ico('refresh', 'i i-sm')}Reload spec ${kbd('mod', 'R')}</button>`],
       })}</div>`;
       return `<div class="nav">${all.map(([name, items], gi) => {

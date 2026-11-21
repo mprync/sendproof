@@ -19,7 +19,7 @@ import { langIcon } from './lang-icons.js';
 import { closePopover, openPopoverAt, place } from './popover.js';
 import { pickerFormats } from './snippets.js';
 
-const STORAGE_KEY = 'testbench-code-language';
+const STORAGE_KEY = 'sendproof-code-language';
 const DEFAULT_FORMAT = 'curl';
 /** How long typed letters count as one search string. */
 const TYPE_AHEAD_MS = 700;

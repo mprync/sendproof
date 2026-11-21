@@ -80,9 +80,9 @@ test('short enums are radio groups, the currency is a joined select, and both ke
 test('display hints group fields and expose optional inputs without making them required', () => {
   const container = new Node('div');
   const schema = { type: 'object', required: ['amount', 'date'], properties: {
-    amount: { type: 'number', minimum: 0.01, 'x-testbench-row': 'details' },
-    date: { type: 'string', format: 'date', 'x-testbench-row': 'details' },
-    note: { type: 'string', 'x-testbench-visible': true },
+    amount: { type: 'number', minimum: 0.01, 'x-sendproof-row': 'details' },
+    date: { type: 'string', format: 'date', 'x-sendproof-row': 'details' },
+    note: { type: 'string', 'x-sendproof-visible': true },
     extra: { type: 'string' }
   } };
   const form = createSchemaForm({ container, schema, flattenRoot: true, value: { amount: 1, date: '2027-01-01' } });
@@ -125,7 +125,7 @@ test('inferred lookup is rendered and ambiguous lookup stays a native input', as
   const priorLocation = globalThis.location;
   const priorFetch = globalThis.fetch;
   const requests = [];
-  globalThis.location = new URL('https://example.test/bench/');
+  globalThis.location = new URL('https://example.test/sendproof/');
   globalThis.fetch = async url => {
     requests.push(url);
     return { ok: true, json: async () => [{ id: 'a', name: 'Example' }] };

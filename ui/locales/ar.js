@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: 'يوم', month: 'شهر', year: 'سنة' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'ثم',
     'unit.bytes': '{n} B',
 
@@ -55,7 +55,7 @@ export default {
     'side.noMatchModelsBody': 'يشمل البحث أسماء النماذج وأوصافها.',
     'side.try': 'جرّب “{query}”',
     'side.emptyTitle': 'لا تحتوي هذه الواجهة على عمليات بعد',
-    'side.emptyBody': 'يعرض Test Bench كل مسار في {url}. اربط نقطة نهاية ثم أعد التحميل.',
+    'side.emptyBody': 'يعرض Sendproof كل مسار في {url}. اربط نقطة نهاية ثم أعد التحميل.',
     'side.reload': 'إعادة تحميل المواصفة',
     'side.noModelsTitle': 'لا توجد نماذج في هذه المواصفة',
     'side.noModelsBody': 'تأتي النماذج من {source}. أجسام الطلبات والاستجابات التي تستخدم مخططات مضمّنة تظهر في توثيق كل عملية.',
@@ -85,7 +85,7 @@ export default {
     'display.digits': 'الأرقام',
     'display.latin': 'لاتينية',
     'display.arabicIndic': 'عربية هندية',
-    'display.digitsHelp': 'أرقام Test Bench وتواريخه فقط. تُعرض البيانات الملتقطة كما خُزّنت تمامًا.',
+    'display.digitsHelp': 'أرقام Sendproof وتواريخه فقط. تُعرض البيانات الملتقطة كما خُزّنت تمامًا.',
     'display.close': 'إغلاق',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -287,7 +287,7 @@ export default {
     // Auth tab
     'auth.requirements': 'متطلبات الأمان', 'auth.scheme.cookie': 'تسجيل الدخول عبر Cookie', 'auth.scheme.apiKey': 'مفتاح API', 'auth.scheme.http': 'مصادقة HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'تسجيل الدخول',
-    'auth.sessionBody': 'سجّل الدخول كمستخدم لهذه الواجهة. يرسل Test Bench الجلسة نيابةً عنك.', 'auth.schemeBody': 'سجّل الدخول إلى {name}؛ يرسل Test Bench الجلسة.',
+    'auth.sessionBody': 'سجّل الدخول كمستخدم لهذه الواجهة. يرسل Sendproof الجلسة نيابةً عنك.', 'auth.schemeBody': 'سجّل الدخول إلى {name}؛ يرسل Sendproof الجلسة.',
     'auth.signInNeeded': 'تسجيل الدخول', 'auth.notSignedIn': 'لم يتم تسجيل الدخول', 'auth.permission': 'الصلاحية',
     'auth.permissionBody': 'تتحقق منها الواجهة بعد تسجيل الدخول. بدونها يعيد الاستدعاء 403.', 'auth.checkedOnSend': 'يتم التحقق عند الإرسال',
     'auth.unknown': 'غير معروفة حتى تسجيل الدخول', 'auth.seeded': 'استخدم حسابًا جاهزًا…', 'auth.publicBody': 'لا تتطلب هذه العملية تسجيل الدخول.',
@@ -323,7 +323,7 @@ export default {
     'res.before.Headers.title': 'ستظهر ترويسات الاستجابة هنا',
     'res.before.headers.body': 'كل ترويسة تعيدها الواجهة، إضافةً إلى ترويسات الطلب كما أُرسلت تمامًا بعد حلّ المتغيرات.',
     'res.notCaptured.database': 'الإرسال لا يلتقط تغييرات قاعدة البيانات',
-    'res.notCaptured.databaseBody': 'الإرسال يحفظ فعليًا، ويبقى Test Bench خارج المعاملة. استخدم المعاينة لرؤية الصفوف أولًا، أو شغّل الإرسال مع التتبع لتسجيلها عند حفظها.',
+    'res.notCaptured.databaseBody': 'الإرسال يحفظ فعليًا، ويبقى Sendproof خارج المعاملة. استخدم المعاينة لرؤية الصفوف أولًا، أو شغّل الإرسال مع التتبع لتسجيلها عند حفظها.',
     'res.notCaptured.databaseNoTrace': 'الإرسال يحفظ فعليًا، ولا تتتبّعه هذه الواجهة. استخدم المعاينة لرؤية الصفوف أولًا.',
     'res.notCaptured.effects': 'الإرسال لا يلتقط الآثار الجانبية',
     'res.notCaptured.effectsBody': 'لقد نُفّذت فعليًا. تعرضها المعاينة دون إرسال، أو شغّل الإرسال مع التتبع لتسجيلها أثناء حدوثها.',
@@ -348,13 +348,13 @@ export default {
     'res.network.title': 'تعذّر الوصول إلى الواجهة',
     'res.network.body': 'لم يصل أي رد من {origin}. ربما لم يصل الطلب إلى الخادم، لذا لم يُحفظ شيء.',
     'res.network.why': 'هل الواجهة قيد التشغيل؟ شغّلها مجددًا ثم حاول مرة أخرى. يبقى طلبك كما هو.',
-    'res.error.title': 'تعذّر إكمال الطلب', 'res.error.why': 'لم يغيّر Test Bench شيئًا. راجع الطلب ووحدة تحكم API.',
+    'res.error.title': 'تعذّر إكمال الطلب', 'res.error.why': 'لم يغيّر Sendproof شيئًا. راجع الطلب ووحدة تحكم API.',
 
     // Boot
-    'boot.title': 'تعذّر تحميل مستند OpenAPI', 'boot.capabilitiesStatus': 'أعاد اكتشاف Test Bench الحالة {status}.', 'boot.documentStatus': 'أعاد مستند OpenAPI الحالة {status}.',
-    'boot.unsupported': 'إصدار Test Bench في هذه الواجهة غير مدعوم من مساحة العمل هذه.',
-    'boot.body': 'فشل {request}: {message} يبني Test Bench كل شاشة منه، لذا لا يوجد ما يُعرض بعد.',
-    'boot.bodyStatus': 'أعاد {request} الحالة {status}. يبني Test Bench كل شاشة منه، لذا لا يوجد ما يُعرض بعد.',
+    'boot.title': 'تعذّر تحميل مستند OpenAPI', 'boot.capabilitiesStatus': 'أعاد اكتشاف Sendproof الحالة {status}.', 'boot.documentStatus': 'أعاد مستند OpenAPI الحالة {status}.',
+    'boot.unsupported': 'إصدار Sendproof في هذه الواجهة غير مدعوم من مساحة العمل هذه.',
+    'boot.body': 'فشل {request}: {message} يبني Sendproof كل شاشة منه، لذا لا يوجد ما يُعرض بعد.',
+    'boot.bodyStatus': 'أعاد {request} الحالة {status}. يبني Sendproof كل شاشة منه، لذا لا يوجد ما يُعرض بعد.',
     'boot.why': 'غالبًا خطأ في بدء تشغيل الواجهة، أو أن AddOpenApi() مفقودة. تحتوي وحدة تحكم API على التفاصيل.',
     'boot.whyAuth': 'يتطلب المستند مستخدمًا مسجَّل الدخول. سجّل الدخول ثم حاول مرة أخرى.',
     'boot.open': 'فتح {url}', 'boot.copy': 'نسخ الخطأ', 'boot.noOperations': 'لا توجد عمليات', 'boot.noOperationsBody': 'تظهر بعد تحميل المواصفة.',
@@ -394,7 +394,7 @@ export default {
     'overview.crumb': 'نظرة عامة',
     'overview.operations': p('لا عمليات', 'عملية واحدة', 'عمليتان', '{n} عمليات', '{n} عملية', '{n} عملية'),
     'overview.models': p('لا نماذج', 'نموذج واحد', 'نموذجان', '{n} نماذج', '{n} نموذجًا', '{n} نموذج'),
-    'overview.how': 'كيف يعمل Test Bench', 'overview.preview': 'معاينة', 'overview.send': 'إرسال', 'overview.autofill': 'تعبئة تلقائية',
+    'overview.how': 'كيف يعمل Sendproof', 'overview.preview': 'معاينة', 'overview.send': 'إرسال', 'overview.autofill': 'تعبئة تلقائية',
     'overview.previewBody': 'يشغّل الطلب فعليًا داخل معاملة، ويعرض كل صف ورسالة بريد وسجل تسبب بها، ثم يتراجع.',
     'overview.sendBody': 'يشغّله فعليًا ويحفظ التغييرات، تمامًا مثل أي عميل آخر.',
     'overview.autofillBody': 'يملأ الحقول من المخطط، بمعرّفات حقيقية من نقاط نهاية القوائم في API نفسه.',
@@ -544,7 +544,7 @@ export default {
     'match.schema': 'المخطط', 'match.checked': 'ما تم فحصه', 'match.checks': 'الأنواع والصيغ والأنماط والأطوال والقوائم المعدّدة والخصائص المطلوبة',
     'match.failTitle': p('لا اختلافات بين هذا المحتوى والمخطط', 'اختلاف واحد بين هذا المحتوى والمخطط', 'اختلافان بين هذا المحتوى والمخطط', '{n} اختلافات بين هذا المحتوى والمخطط', '{n} اختلافًا بين هذا المحتوى والمخطط', '{n} اختلاف بين هذا المحتوى والمخطط'),
     'match.failBody': 'أجابت الواجهة بالحالة {status}، لكن المحتوى لا يطابق {model}، وهو المخطط الموثّق:',
-    'match.note': 'يكتفي Test Bench بالإبلاغ عن ذلك. تُعرض الاستجابة كما وردت تمامًا.', 'match.showSchema': 'عرض في عرض المخطط', 'match.copy': 'نسخ المشكلات',
+    'match.note': 'يكتفي Sendproof بالإبلاغ عن ذلك. تُعرض الاستجابة كما وردت تمامًا.', 'match.showSchema': 'عرض في عرض المخطط', 'match.copy': 'نسخ المشكلات',
     'match.more': p('لا شيء آخر', 'واحدة أخرى', 'اثنتان أخريان', '{n} أخرى', '{n} أخرى', '{n} أخرى'), 'match.extra': 'غير موجودة في مخطط {model}', 'match.what': 'مشكلات المخطط',
     'match.missing': 'مطلوب، لكنه غير موجود في النص',
 

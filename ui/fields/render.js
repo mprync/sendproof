@@ -67,7 +67,7 @@ function objectFields(context, schema, path, refs, depth) {
     const currencyName = child['x-currency-field'];
     const currency = currencyName && schema.properties[currencyName];
     const needed = schema.required?.includes(name);
-    const pinned = needed || schema.required?.includes(currencyName) || resolved['x-testbench-visible'] === true;
+    const pinned = needed || schema.required?.includes(currencyName) || resolved['x-sendproof-visible'] === true;
     const fieldPath = [...path, name];
     const key = JSON.stringify(fieldPath);
     const fieldLabel = resolved.title || title(name);
@@ -87,10 +87,10 @@ function objectFields(context, schema, path, refs, depth) {
     }
     const options = currency ? { name: currencyName, schema: currency, required: schema.required?.includes(currencyName) } : undefined;
     const field = renderField(context, child, fieldPath, name, needed, refs, depth + 1, options);
-    const group = resolved['x-testbench-row'];
+    const group = resolved['x-sendproof-row'];
     rowCount = group && group === rowName ? rowCount + 1 : 0;
     rowName = group;
-    if (group && eligible.some(([other, candidate]) => other !== name && context.resolve(candidate)['x-testbench-row'] === group)) {
+    if (group && eligible.some(([other, candidate]) => other !== name && context.resolve(candidate)['x-sendproof-row'] === group)) {
       field.classList.add('half');
       if (rowCount === 0) field.classList.add('row-start');
     }
@@ -190,7 +190,7 @@ function renderVariant(context, schema, path, refs, depth, selection) {
 
 /** The type at the end of the label row: the enum's model name, the format, or the type. */
 function typeName(raw, schema, type) {
-  if (typeof schema['x-testbench-type-label'] === 'string') return schema['x-testbench-type-label'];
+  if (typeof schema['x-sendproof-type-label'] === 'string') return schema['x-sendproof-type-label'];
   const ref = raw?.$ref?.startsWith('#/components/schemas/') ? decodeURIComponent(raw.$ref.split('/').at(-1)) : '';
   if (schema.enum) return ref || 'enum';
   if (type === 'array') return `${schema.items?.$ref ? decodeURIComponent(schema.items.$ref.split('/').at(-1)) : schema.items?.format || schema.items?.type || 'value'}[]`;

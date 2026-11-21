@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
  */
 export async function runTreasury(t, request, schemas) {
   const paymentsPath = '/api/v2/payments';
-  const previewPath = '/bench/_preview' + paymentsPath;
+  const previewPath = '/sendproof/_preview' + paymentsPath;
   const rollback = { Prefer: 'tx=rollback' };
   const operatingEurId = '3f9c0000-0000-4000-8000-00000000a21e';
   const northwindId = '5b7c0000-0000-4000-8000-00000000b123';
@@ -73,7 +73,7 @@ export async function runTreasury(t, request, schemas) {
   };
 
   await t.test('Discovery, OpenAPI extensions and embedded UI are public', async () => {
-    const response = await status(await request('/bench/_api/capabilities'), 200);
+    const response = await status(await request('/sendproof/_api/capabilities'), 200);
     assert.match(response.headers.get('cache-control') ?? '', /\bno-store\b/);
     const capabilities = await response.json();
     schemas.assert('capabilities', capabilities);
@@ -89,15 +89,15 @@ export async function runTreasury(t, request, schemas) {
     assert(schema.required.includes('amount') && schema.required.includes('valueDate'));
     assert(!schema.required.includes('priority'));
     assert.equal(schema.properties.debitAccountId.title, 'Debit account');
-    assert.equal(schema.properties.amount['x-testbench-row'], 'payment-details');
-    assert.equal(schema.properties.priority['x-testbench-visible'], true);
+    assert.equal(schema.properties.amount['x-sendproof-row'], 'payment-details');
+    assert.equal(schema.properties.priority['x-sendproof-visible'], true);
     assert(schema.examples?.length > 0, 'Operation example');
     assert(JSON.stringify(spec).includes('x-lookup') && JSON.stringify(spec).includes('x-currency-field'));
 
-    const index = await status(await request('/bench/'), 200);
+    const index = await status(await request('/sendproof/'), 200);
     assert.match(await index.text(), /app\.js/);
-    await status(await request('/bench/styles.css'), 200);
-    await status(await request('/bench/package.json'), 404);
+    await status(await request('/sendproof/styles.css'), 200);
+    await status(await request('/sendproof/package.json'), 404);
   });
 
   await t.test('Preview and Send require a signed-in, authorized user', async () => {
@@ -105,7 +105,7 @@ export async function runTreasury(t, request, schemas) {
     await status(await request('/auth/login', { method: 'POST', body: { email: 'ada.admin@acme.dev', password: 'wrong' } }), 401);
     const login = await status(await request('/auth/login', { method: 'POST', body: { email: 'ada.admin@acme.dev', password: 'Demo123!' } }), 200);
     admin = cookieOf(login);
-    const capabilities = await (await status(await request('/bench/_api/capabilities', { cookie: admin }), 200)).json();
+    const capabilities = await (await status(await request('/sendproof/_api/capabilities', { cookie: admin }), 200)).json();
     assert.equal(capabilities.identity.name, 'Ada Admin');
     assert.equal(capabilities.identity.role, 'admin');
     baseline = (await database(admin)).payments;
@@ -160,9 +160,9 @@ export async function runTreasury(t, request, schemas) {
     const sent = await status(await send({ 'Idempotency-Key': 'conformance-payment-1', Prefer: 'trace' }), 201);
     assert.match(sent.headers.get('server-timing') ?? '', /db;dur=/);
     assert(sent.headers.get('location'), 'The application Location is preserved on Send');
-    traceId = sent.headers.get('x-testbench-trace');
+    traceId = sent.headers.get('x-sendproof-trace');
     assert(traceId, 'Observed Send returns a trace ID');
-    const trace = await (await status(await request('/bench/_api/traces/' + encodeURIComponent(traceId), { cookie: admin }), 200)).json();
+    const trace = await (await status(await request('/sendproof/_api/traces/' + encodeURIComponent(traceId), { cookie: admin }), 200)).json();
     schemas.assert('trace', trace);
     assert(trace.changes.some(change => change.operation === 'insert' && change.table === 'Payments'));
     assert.equal(trace.effects.length, 1);
@@ -184,9 +184,9 @@ export async function runTreasury(t, request, schemas) {
   await t.test('A read-only persona cannot preview, send or read another user\'s trace', async () => {
     assert(admin && traceId);
     const viewer = cookieOf(await status(await request('/auth/personas/cara.viewer%40acme.dev', { method: 'POST', cookie: admin }), 200));
-    const capabilities = await (await status(await request('/bench/_api/capabilities', { cookie: viewer }), 200)).json();
+    const capabilities = await (await status(await request('/sendproof/_api/capabilities', { cookie: viewer }), 200)).json();
     assert.equal(capabilities.identity.name, 'Cara Viewer');
-    await status(await request('/bench/_api/traces/' + encodeURIComponent(traceId), { cookie: viewer }), 404);
+    await status(await request('/sendproof/_api/traces/' + encodeURIComponent(traceId), { cookie: viewer }), 404);
     await status(await preview(payment(), viewer), 403);
     await status(await request(paymentsPath, { method: 'POST', cookie: viewer, body: payment() }), 403);
     await assertDatabase(viewer, 1, startingBalance - 50000);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFieldModules } from '../../ui/field-modules.js';
 
-globalThis.location = new URL('https://example.test/team/bench/');
+globalThis.location = new URL('https://example.test/team/sendproof/');
 
 test('trusted host modules register once across repeated sign-in and discovery', async () => {
   const loaded = [];

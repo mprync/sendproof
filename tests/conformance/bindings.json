@@ -42,7 +42,7 @@
       "profile": "treasury",
       "toolchain": "dotnet",
       "port": 5372,
-      "readiness": "/bench/_api/capabilities",
+      "readiness": "/sendproof/_api/capabilities",
       "prepare": "dotnet build examples/TreasuryApi/TreasuryApi.csproj -c Release",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development"

@@ -91,8 +91,8 @@ export default {
   'fx.htmlSource': 'HTML-lähde',
   'fx.htmlFrame': 'Sähköpostin HTML-esikatselu',
   'fx.heldBanner': {
-    one: '**Tallennetut sivuvaikutukset pidätettiin.** Test Bench pidätti tässä esikatselussa {n} sivuvaikutuksen. Lähetys suorittaa sen oikeasti.',
-    other: '**Tallennetut sivuvaikutukset pidätettiin.** Test Bench pidätti tässä esikatselussa {n} sivuvaikutusta. Lähetys suorittaa ne oikeasti.',
+    one: '**Tallennetut sivuvaikutukset pidätettiin.** Sendproof pidätti tässä esikatselussa {n} sivuvaikutuksen. Lähetys suorittaa sen oikeasti.',
+    other: '**Tallennetut sivuvaikutukset pidätettiin.** Sendproof pidätti tässä esikatselussa {n} sivuvaikutusta. Lähetys suorittaa ne oikeasti.',
   },
   'fx.ran': { one: '{n} sivuvaikutus suoritettiin.', other: '{n} sivuvaikutusta suoritettiin.' },
   'fx.capturedCount': { one: '{n} sivuvaikutus tallennettu.', other: '{n} sivuvaikutusta tallennettu.' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'Istuntoeväste',
   'kv.requiredValue': 'Anna arvo tälle pakolliselle otsakkeelle.',
   'kv.group.required': 'Tämän operaation vaatimat',
-  'kv.group.managed': 'Test Benchin asettamat',
+  'kv.group.managed': 'Sendproofin asettamat',
   'kv.group.managedDetail': 'istunnosta ja rungosta',
   'kv.group.custom': 'Omat',
   'kv.grid': 'Pyynnön otsakkeet',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'Nimi',
   'kv.col.value': 'Arvo',
   'kv.col.actions': 'Toiminnot',
-  'kv.managed': 'Test Benchin hallinnoima',
+  'kv.managed': 'Sendproofin hallinnoima',
   'kv.sendName': 'Lähetä {name}',
   'kv.sendNew': 'Lähetä uusi otsake',
   'kv.namePlaceholder': 'Otsakkeen nimi',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Skeema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Ei omia otsakkeita', 'kv.emptyBody': { one: 'Test Bench lähettää jo yllä olevan otsakkeen. Lisää omia jäljitystä, kieltä tai vuokraajaa varten.', other: 'Test Bench lähettää jo yllä olevat {n} otsaketta. Lisää omia jäljitystä, kieltä tai vuokraajaa varten.' },
+  'kv.emptyTitle': 'Ei omia otsakkeita', 'kv.emptyBody': { one: 'Sendproof lähettää jo yllä olevan otsakkeen. Lisää omia jäljitystä, kieltä tai vuokraajaa varten.', other: 'Sendproof lähettää jo yllä olevat {n} otsaketta. Lisää omia jäljitystä, kieltä tai vuokraajaa varten.' },
   'kv.applyPreset': 'Käytä esiasetusta',
   'logs.noMatchTitle': 'Mikään lokimerkintä ei vastaa', 'logs.noMatchBody': { one: 'Suodattimesi piilottavat {n} merkinnän: {filters}.', other: 'Suodattimesi piilottavat kaikki {n} merkintää: {filters}.' },
   'logs.hiddenLevel': 'taso {level}', 'logs.hiddenText': 'teksti “{text}”', 'logs.hiddenSql': 'SQL on piilotettu', 'logs.clearFilters': 'Tyhjennä suodattimet', 'logs.allLevels': 'Näytä kaikki tasot',

@@ -10,7 +10,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'then',
     'unit.bytes': '{n} B',
 
@@ -53,7 +53,7 @@ export default {
     'side.noMatchModelsBody': 'Search covers model names and their descriptions.',
     'side.try': 'Try “{query}”',
     'side.emptyTitle': 'This API has no operations yet',
-    'side.emptyBody': 'Test Bench lists every path in {url}. Map an endpoint and reload.',
+    'side.emptyBody': 'Sendproof lists every path in {url}. Map an endpoint and reload.',
     'side.reload': 'Reload spec',
     'side.noModelsTitle': 'No models in this spec',
     'side.noModelsBody': 'Models come from {source}. Request and response bodies that use inline schemas still show in each operation’s Docs.',
@@ -83,7 +83,7 @@ export default {
     'display.digits': 'Digits',
     'display.latin': 'Latin',
     'display.arabicIndic': 'Arabic-Indic',
-    'display.digitsHelp': 'Only Test Bench’s own numbers and dates. Captured data is shown exactly as stored.',
+    'display.digitsHelp': 'Only Sendproof’s own numbers and dates. Captured data is shown exactly as stored.',
     'display.close': 'Close',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -274,7 +274,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Security requirements', 'auth.scheme.cookie': 'Cookie sign-in', 'auth.scheme.apiKey': 'API key', 'auth.scheme.http': 'HTTP authentication',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Sign-in',
-    'auth.sessionBody': 'Sign in as a user of this API. Test Bench sends the session for you.', 'auth.schemeBody': 'Sign in to {name}; Test Bench sends the session.',
+    'auth.sessionBody': 'Sign in as a user of this API. Sendproof sends the session for you.', 'auth.schemeBody': 'Sign in to {name}; Sendproof sends the session.',
     'auth.signInNeeded': 'Sign-in', 'auth.notSignedIn': 'Not signed in', 'auth.permission': 'Permission',
     'auth.permissionBody': 'Checked by the API after sign-in. Without it the call returns 403.', 'auth.checkedOnSend': 'Checked when you send',
     'auth.unknown': 'Unknown until signed in', 'auth.seeded': 'Use a seeded account…', 'auth.publicBody': 'This operation doesn’t need sign-in.',
@@ -310,7 +310,7 @@ export default {
     'res.before.Headers.title': 'Response headers will appear here',
     'res.before.headers.body': 'Every header the API returns, plus the request headers exactly as they were sent, after variables were resolved.',
     'res.notCaptured.database': 'Send doesn’t capture database changes',
-    'res.notCaptured.databaseBody': 'Send commits for real, and Test Bench stays out of the transaction. Use Preview to see the rows first, or turn on traced Send to record them as they’re committed.',
+    'res.notCaptured.databaseBody': 'Send commits for real, and Sendproof stays out of the transaction. Use Preview to see the rows first, or turn on traced Send to record them as they’re committed.',
     'res.notCaptured.databaseNoTrace': 'Send commits for real, and this API doesn’t trace it. Use Preview to see the rows first.',
     'res.notCaptured.effects': 'Send doesn’t capture side effects',
     'res.notCaptured.effectsBody': 'They ran for real. Preview shows them without sending, or turn on traced Send to record them as they happen.',
@@ -335,13 +335,13 @@ export default {
     'res.network.title': 'Couldn’t reach the API',
     'res.network.body': 'Nothing came back from {origin}. The request may not have reached the server, so nothing was saved.',
     'res.network.why': 'Is the API running? Start it again, then try again. Your request is kept as it was.',
-    'res.error.title': 'The request couldn’t be completed', 'res.error.why': 'Nothing was changed by Test Bench. Check the request and the API console.',
+    'res.error.title': 'The request couldn’t be completed', 'res.error.why': 'Nothing was changed by Sendproof. Check the request and the API console.',
 
     // Boot
-    'boot.title': 'Couldn’t load the OpenAPI document', 'boot.capabilitiesStatus': 'Test Bench discovery returned {status}.', 'boot.documentStatus': 'The OpenAPI document returned {status}.',
-    'boot.unsupported': 'This API’s Test Bench version isn’t supported by this workbench.',
-    'boot.body': '{request} failed: {message} Test Bench builds every screen from it, so there’s nothing to show yet.',
-    'boot.bodyStatus': '{request} returned {status}. Test Bench builds every screen from it, so there’s nothing to show yet.',
+    'boot.title': 'Couldn’t load the OpenAPI document', 'boot.capabilitiesStatus': 'Sendproof discovery returned {status}.', 'boot.documentStatus': 'The OpenAPI document returned {status}.',
+    'boot.unsupported': 'This API’s Sendproof version isn’t supported by this workbench.',
+    'boot.body': '{request} failed: {message} Sendproof builds every screen from it, so there’s nothing to show yet.',
+    'boot.bodyStatus': '{request} returned {status}. Sendproof builds every screen from it, so there’s nothing to show yet.',
     'boot.why': 'Usually a startup error in the API, or AddOpenApi() is missing. The API console has the details.',
     'boot.whyAuth': 'The document needs a signed-in user. Sign in, then try again.',
     'boot.open': 'Open {url}', 'boot.copy': 'Copy error', 'boot.noOperations': 'No operations', 'boot.noOperationsBody': 'They appear once the spec loads.',
@@ -372,7 +372,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Overview', 'overview.operations': { one: '{n} operation', other: '{n} operations' }, 'overview.models': { one: '{n} model', other: '{n} models' },
-    'overview.how': 'How Test Bench works', 'overview.preview': 'Preview', 'overview.send': 'Send', 'overview.autofill': 'Autofill',
+    'overview.how': 'How Sendproof works', 'overview.preview': 'Preview', 'overview.send': 'Send', 'overview.autofill': 'Autofill',
     'overview.previewBody': 'Runs the request for real inside a transaction, shows every row, email and log it caused, then rolls back.',
     'overview.sendBody': 'Runs it for real and commits, exactly like any other client.',
     'overview.autofillBody': 'Fills fields from the schema, with real IDs from the API’s own list endpoints.',
@@ -506,7 +506,7 @@ export default {
     'match.schema': 'Schema', 'match.checked': 'Checked', 'match.checks': 'Types, formats, patterns, lengths, enums and required properties',
     'match.failTitle': { one: '{n} way this body doesn’t match', other: '{n} ways this body doesn’t match' },
     'match.failBody': 'The API answered {status}, but the body doesn’t match {model}, the documented schema:',
-    'match.note': 'Test Bench only reports this. The response is shown exactly as received.', 'match.showSchema': 'Show in Schema view', 'match.copy': 'Copy issues',
+    'match.note': 'Sendproof only reports this. The response is shown exactly as received.', 'match.showSchema': 'Show in Schema view', 'match.copy': 'Copy issues',
     'match.more': { one: '{n} more', other: '{n} more' }, 'match.extra': 'Not in the {model} schema', 'match.what': 'schema issues',
     'match.missing': 'Required, but not in the body',
 

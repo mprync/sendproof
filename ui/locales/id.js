@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'hh', month: 'bb', year: 'tttt' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'lalu',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'Pencarian mencakup nama model beserta deskripsinya.',
     'side.try': 'Coba “{query}”',
     'side.emptyTitle': 'API ini belum memiliki operasi',
-    'side.emptyBody': 'Test Bench menampilkan setiap path di {url}. Petakan sebuah endpoint, lalu muat ulang.',
+    'side.emptyBody': 'Sendproof menampilkan setiap path di {url}. Petakan sebuah endpoint, lalu muat ulang.',
     'side.reload': 'Muat ulang spesifikasi',
     'side.noModelsTitle': 'Tidak ada model dalam spesifikasi ini',
     'side.noModelsBody': 'Model berasal dari {source}. Isi permintaan dan respons yang memakai skema inline tetap muncul di Docs setiap operasi.',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'Digit',
     'display.latin': 'Latin',
     'display.arabicIndic': 'Arab-India',
-    'display.digitsHelp': 'Hanya untuk angka dan tanggal milik Test Bench. Data yang ditangkap ditampilkan persis seperti yang tersimpan.',
+    'display.digitsHelp': 'Hanya untuk angka dan tanggal milik Sendproof. Data yang ditangkap ditampilkan persis seperti yang tersimpan.',
     'display.close': 'Tutup',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -273,7 +273,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Persyaratan keamanan', 'auth.scheme.cookie': 'Masuk dengan cookie', 'auth.scheme.apiKey': 'Kunci API', 'auth.scheme.http': 'Autentikasi HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Masuk',
-    'auth.sessionBody': 'Masuk sebagai pengguna API ini. Test Bench mengirim sesinya untuk Anda.', 'auth.schemeBody': 'Masuk ke {name}; Test Bench mengirim sesinya.',
+    'auth.sessionBody': 'Masuk sebagai pengguna API ini. Sendproof mengirim sesinya untuk Anda.', 'auth.schemeBody': 'Masuk ke {name}; Sendproof mengirim sesinya.',
     'auth.signInNeeded': 'Masuk', 'auth.notSignedIn': 'Belum masuk', 'auth.permission': 'Izin',
     'auth.permissionBody': 'Diperiksa oleh API setelah masuk. Tanpa izin ini, panggilan mengembalikan 403.', 'auth.checkedOnSend': 'Diperiksa saat Anda mengirim',
     'auth.unknown': 'Tidak diketahui sampai Anda masuk', 'auth.seeded': 'Gunakan akun bawaan…', 'auth.publicBody': 'Operasi ini tidak memerlukan login.',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'Header respons akan muncul di sini',
     'res.before.headers.body': 'Setiap header yang dikembalikan API, ditambah header permintaan persis seperti yang dikirim, setelah variabel diselesaikan.',
     'res.notCaptured.database': 'Kirim tidak menangkap perubahan basis data',
-    'res.notCaptured.databaseBody': 'Kirim melakukan commit sungguhan, dan Test Bench tidak ikut dalam transaksi. Gunakan Pratinjau untuk melihat barisnya terlebih dahulu, atau aktifkan Kirim dengan pelacakan untuk merekamnya saat di-commit.',
+    'res.notCaptured.databaseBody': 'Kirim melakukan commit sungguhan, dan Sendproof tidak ikut dalam transaksi. Gunakan Pratinjau untuk melihat barisnya terlebih dahulu, atau aktifkan Kirim dengan pelacakan untuk merekamnya saat di-commit.',
     'res.notCaptured.databaseNoTrace': 'Kirim melakukan commit sungguhan, dan API ini tidak melacaknya. Gunakan Pratinjau untuk melihat barisnya terlebih dahulu.',
     'res.notCaptured.effects': 'Kirim tidak menangkap efek samping',
     'res.notCaptured.effectsBody': 'Efek samping berjalan sungguhan. Pratinjau menampilkannya tanpa mengirim, atau aktifkan Kirim dengan pelacakan untuk merekamnya saat terjadi.',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'Tidak dapat menjangkau API',
     'res.network.body': 'Tidak ada balasan dari {origin}. Permintaan mungkin tidak sampai ke server, jadi tidak ada yang disimpan.',
     'res.network.why': 'Apakah API sedang berjalan? Jalankan lagi, lalu coba kembali. Permintaan Anda tetap seperti semula.',
-    'res.error.title': 'Permintaan tidak dapat diselesaikan', 'res.error.why': 'Test Bench tidak mengubah apa pun. Periksa permintaan dan konsol API.',
+    'res.error.title': 'Permintaan tidak dapat diselesaikan', 'res.error.why': 'Sendproof tidak mengubah apa pun. Periksa permintaan dan konsol API.',
 
     // Boot
-    'boot.title': 'Tidak dapat memuat dokumen OpenAPI', 'boot.capabilitiesStatus': 'Penemuan Test Bench mengembalikan {status}.', 'boot.documentStatus': 'Dokumen OpenAPI mengembalikan {status}.',
-    'boot.unsupported': 'Versi Test Bench pada API ini tidak didukung oleh workbench ini.',
-    'boot.body': '{request} gagal: {message} Test Bench membangun setiap layar dari dokumen ini, jadi belum ada yang dapat ditampilkan.',
-    'boot.bodyStatus': '{request} mengembalikan {status}. Test Bench membangun setiap layar dari dokumen ini, jadi belum ada yang dapat ditampilkan.',
+    'boot.title': 'Tidak dapat memuat dokumen OpenAPI', 'boot.capabilitiesStatus': 'Penemuan Sendproof mengembalikan {status}.', 'boot.documentStatus': 'Dokumen OpenAPI mengembalikan {status}.',
+    'boot.unsupported': 'Versi Sendproof pada API ini tidak didukung oleh workbench ini.',
+    'boot.body': '{request} gagal: {message} Sendproof membangun setiap layar dari dokumen ini, jadi belum ada yang dapat ditampilkan.',
+    'boot.bodyStatus': '{request} mengembalikan {status}. Sendproof membangun setiap layar dari dokumen ini, jadi belum ada yang dapat ditampilkan.',
     'boot.why': 'Biasanya karena error saat startup API, atau AddOpenApi() tidak ada. Detailnya ada di konsol API.',
     'boot.whyAuth': 'Dokumen ini memerlukan pengguna yang sudah masuk. Masuk, lalu coba lagi.',
     'boot.open': 'Buka {url}', 'boot.copy': 'Salin error', 'boot.noOperations': 'Tidak ada operasi', 'boot.noOperationsBody': 'Operasi muncul setelah spesifikasi dimuat.',
@@ -371,7 +371,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Ikhtisar', 'overview.operations': { other: '{n} operasi' }, 'overview.models': { other: '{n} model' },
-    'overview.how': 'Cara kerja Test Bench', 'overview.preview': 'Pratinjau', 'overview.send': 'Kirim', 'overview.autofill': 'Isi otomatis',
+    'overview.how': 'Cara kerja Sendproof', 'overview.preview': 'Pratinjau', 'overview.send': 'Kirim', 'overview.autofill': 'Isi otomatis',
     'overview.previewBody': 'Menjalankan permintaan sungguhan di dalam transaksi, menampilkan setiap baris, email, dan log yang ditimbulkannya, lalu me-rollback.',
     'overview.sendBody': 'Menjalankannya sungguhan dan melakukan commit, persis seperti klien lainnya.',
     'overview.autofillBody': 'Mengisi kolom dari skema, dengan ID nyata dari endpoint daftar milik API.',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'Skema', 'match.checked': 'Diperiksa', 'match.checks': 'Tipe, format, pola, panjang, enum, dan properti wajib',
     'match.failTitle': { other: '{n} hal yang tidak sesuai pada isi ini' },
     'match.failBody': 'API menjawab {status}, tetapi isinya tidak sesuai dengan {model}, skema yang terdokumentasi:',
-    'match.note': 'Test Bench hanya melaporkan hal ini. Respons ditampilkan persis seperti diterima.', 'match.showSchema': 'Tampilkan di tampilan Skema', 'match.copy': 'Salin masalah',
+    'match.note': 'Sendproof hanya melaporkan hal ini. Respons ditampilkan persis seperti diterima.', 'match.showSchema': 'Tampilkan di tampilan Skema', 'match.copy': 'Salin masalah',
     'match.more': { other: '{n} lagi' }, 'match.extra': 'Tidak ada di skema {model}', 'match.what': 'masalah skema',
     'match.missing': 'Wajib, tetapi tidak ada di isi',
 

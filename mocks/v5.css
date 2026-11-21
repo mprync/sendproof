@@ -1,5 +1,5 @@
 /* =====================================================================
-   Test Bench — v5 layer, on top of styles.css and views.css. styles.css stays byte-identical
+   Sendproof — v5 layer, on top of styles.css and views.css. styles.css stays byte-identical
    to ui/styles.css (tests/ui/mock-styles.test.mjs). Everything here is scoped to
    :root[data-v5], set by v5-spec.js when ?v5=1, so the v3 and v4 screens render as before.
 

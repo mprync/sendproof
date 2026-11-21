@@ -20,7 +20,7 @@ const statusNames = new Map([
 export const statusText = status => [status, statusNames.get(status)].filter(Boolean).join(' ');
 
 const header = (result, name) => Object.entries(result?.headers || {}).find(([key]) => key.toLowerCase() === name)?.[1];
-/** A rejection before any handler ran: Test Bench can say nothing was read or changed. */
+/** A rejection before any handler ran: Sendproof can say nothing was read or changed. */
 export const rejectedEarly = result => result?.status === 401 || result?.status === 403;
 /** Whether this result carries captured changes, effects and logs. */
 export const captured = result => !!result && (result.preview || !!result.traceId);

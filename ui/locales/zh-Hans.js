@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': '然后',
     'unit.bytes': '{n} B',
 
@@ -54,7 +54,7 @@ export default {
     'side.noMatchModelsBody': '搜索范围包括模型名称及其描述。',
     'side.try': '试试“{query}”',
     'side.emptyTitle': '此 API 还没有任何操作',
-    'side.emptyBody': 'Test Bench 会列出 {url} 中的每个路径。请映射一个端点并重新加载。',
+    'side.emptyBody': 'Sendproof 会列出 {url} 中的每个路径。请映射一个端点并重新加载。',
     'side.reload': '重新加载规范',
     'side.noModelsTitle': '此规范中没有模型',
     'side.noModelsBody': '模型来自 {source}。使用内联架构的请求和响应正文仍会显示在各操作的文档中。',
@@ -84,7 +84,7 @@ export default {
     'display.digits': '数字',
     'display.latin': '拉丁数字',
     'display.arabicIndic': '阿拉伯-印度数字',
-    'display.digitsHelp': '仅作用于 Test Bench 自身的数字和日期。捕获的数据会按存储原样显示。',
+    'display.digitsHelp': '仅作用于 Sendproof 自身的数字和日期。捕获的数据会按存储原样显示。',
     'display.close': '关闭',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -275,7 +275,7 @@ export default {
     // Auth tab
     'auth.requirements': '安全要求', 'auth.scheme.cookie': 'Cookie 登录', 'auth.scheme.apiKey': 'API 密钥', 'auth.scheme.http': 'HTTP 认证',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': '登录',
-    'auth.sessionBody': '以此 API 的用户身份登录。Test Bench 会为你发送会话。', 'auth.schemeBody': '登录 {name}；Test Bench 会发送会话。',
+    'auth.sessionBody': '以此 API 的用户身份登录。Sendproof 会为你发送会话。', 'auth.schemeBody': '登录 {name}；Sendproof 会发送会话。',
     'auth.signInNeeded': '登录', 'auth.notSignedIn': '未登录', 'auth.permission': '权限',
     'auth.permissionBody': '登录后由 API 检查。没有该权限时，调用将返回 403。', 'auth.checkedOnSend': '发送时检查',
     'auth.unknown': '登录后才能确定', 'auth.seeded': '使用预置账户…', 'auth.publicBody': '此操作无需登录。',
@@ -311,7 +311,7 @@ export default {
     'res.before.Headers.title': '响应标头将显示在这里',
     'res.before.headers.body': 'API 返回的每个标头，以及变量解析后实际发送的请求标头。',
     'res.notCaptured.database': '发送不会捕获数据库变更',
-    'res.notCaptured.databaseBody': '发送会真实提交，Test Bench 不会介入该事务。可先用预览查看数据行，或开启跟踪发送，以在提交时记录它们。',
+    'res.notCaptured.databaseBody': '发送会真实提交，Sendproof 不会介入该事务。可先用预览查看数据行，或开启跟踪发送，以在提交时记录它们。',
     'res.notCaptured.databaseNoTrace': '发送会真实提交，且此 API 不会跟踪它。请先用预览查看数据行。',
     'res.notCaptured.effects': '发送不会捕获副作用',
     'res.notCaptured.effectsBody': '它们已真实执行。预览可在不发送的情况下显示它们，也可开启跟踪发送，在它们发生时记录。',
@@ -336,13 +336,13 @@ export default {
     'res.network.title': '无法连接到 API',
     'res.network.body': '{origin} 没有返回任何内容。请求可能没有到达服务器，因此没有保存任何内容。',
     'res.network.why': 'API 是否正在运行？请重新启动后再试。你的请求会保持原样。',
-    'res.error.title': '请求未能完成', 'res.error.why': 'Test Bench 没有更改任何内容。请检查请求和 API 控制台。',
+    'res.error.title': '请求未能完成', 'res.error.why': 'Sendproof 没有更改任何内容。请检查请求和 API 控制台。',
 
     // Boot
-    'boot.title': '无法加载 OpenAPI 文档', 'boot.capabilitiesStatus': 'Test Bench 发现接口返回了 {status}。', 'boot.documentStatus': 'OpenAPI 文档返回了 {status}。',
-    'boot.unsupported': '此工作台不支持该 API 的 Test Bench 版本。',
-    'boot.body': '{request} 失败：{message} Test Bench 的每个界面都依赖它构建，因此暂时没有内容可显示。',
-    'boot.bodyStatus': '{request} 返回了 {status}。Test Bench 的每个界面都依赖它构建，因此暂时没有内容可显示。',
+    'boot.title': '无法加载 OpenAPI 文档', 'boot.capabilitiesStatus': 'Sendproof 发现接口返回了 {status}。', 'boot.documentStatus': 'OpenAPI 文档返回了 {status}。',
+    'boot.unsupported': '此工作台不支持该 API 的 Sendproof 版本。',
+    'boot.body': '{request} 失败：{message} Sendproof 的每个界面都依赖它构建，因此暂时没有内容可显示。',
+    'boot.bodyStatus': '{request} 返回了 {status}。Sendproof 的每个界面都依赖它构建，因此暂时没有内容可显示。',
     'boot.why': '通常是 API 启动出错，或缺少 AddOpenApi()。详情请查看 API 控制台。',
     'boot.whyAuth': '该文档需要已登录的用户。请登录后重试。',
     'boot.open': '打开 {url}', 'boot.copy': '复制错误', 'boot.noOperations': '没有操作', 'boot.noOperationsBody': '规范加载后会显示在这里。',
@@ -373,7 +373,7 @@ export default {
 
     // Overview
     'overview.crumb': '概览', 'overview.operations': { other: '{n} 个操作' }, 'overview.models': { other: '{n} 个模型' },
-    'overview.how': 'Test Bench 的工作方式', 'overview.preview': '预览', 'overview.send': '发送', 'overview.autofill': '自动填充',
+    'overview.how': 'Sendproof 的工作方式', 'overview.preview': '预览', 'overview.send': '发送', 'overview.autofill': '自动填充',
     'overview.previewBody': '在事务中真实运行请求，显示它引起的每一行数据、每封邮件和每条日志，然后回滚。',
     'overview.sendBody': '真实运行并提交，与其他客户端完全一样。',
     'overview.autofillBody': '根据架构填充字段，ID 使用 API 自带列表端点中的真实值。',
@@ -507,7 +507,7 @@ export default {
     'match.schema': '架构', 'match.checked': '已检查', 'match.checks': '类型、格式、模式、长度、枚举和必填属性',
     'match.failTitle': { other: '此正文有 {n} 处不符' },
     'match.failBody': 'API 返回了 {status}，但正文与文档中的架构 {model} 不符：',
-    'match.note': 'Test Bench 仅作报告。响应按接收到的原样显示。', 'match.showSchema': '在架构视图中显示', 'match.copy': '复制问题',
+    'match.note': 'Sendproof 仅作报告。响应按接收到的原样显示。', 'match.showSchema': '在架构视图中显示', 'match.copy': '复制问题',
     'match.more': { other: '另有 {n} 项' }, 'match.extra': '不在 {model} 架构中', 'match.what': '架构问题',
     'match.missing': '必填，但正文中缺少',
 

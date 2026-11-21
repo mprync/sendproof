@@ -3,7 +3,7 @@ window.TB_SPEC = {
  "openapi": "3.1.1",
  "info": {
   "title": "Acme Treasury API",
-  "description": "The **Acme Treasury API** is how the group treasury team looks after cash, pays suppliers and manages foreign exchange from one place. It covers the bank accounts of every Acme legal entity, their balances and statements, the people and companies Acme pays, payments with a four-eyes approval flow, and spot and forward FX deals.\n\n## Payments in one minute\n\nA payment is created as a `Draft`, which immediately **reserves** its amount on the debit account. It is then **submitted** for approval (`PendingApproval`) and must be **approved by a different person** (`Approved`). The bank run schedules and sends it (`Scheduled`, `Sent`) and it ends as `Settled` or `Failed`. A reviewer can `Reject` a payment, which releases the reservation and lets the creator revise and resubmit it, and unsent payments can be `Cancelled`.\n\n## Conventions\n\n- **Lists** are paged: pass `page` (from 1) and `pageSize` (1 to 100, default 25). Every list returns `{ items, page, pageSize, totalItems, totalPages }`. Lists can be filtered, searched with `q` and sorted with `sort`; a leading `-` reverses the order, as in `-amount`.\n- **Errors** follow [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details. Invalid input is a `400` with an `errors` object keyed by field; business rules are `409` (the state does not allow it) or `422` (the request is understood but not allowed).\n- **Money** is a decimal with at most two fraction digits (none for JPY). **Dates** are ISO 8601; times are UTC.\n- **Idempotency:** send an `Idempotency-Key` header when creating a payment, so a retry cannot pay twice.\n\n## Signing in\n\nEverything except sign-in needs a session cookie. Sign in with `AuthController.Login` using any seeded user and the password `Demo123!`, or in development pick a persona with `AuthController.SwitchPersona`. Roles decide what you may do:\n\n| Role | Can |\n| --- | --- |\n| `admin` | Everything, including accounts and user roles |\n| `payments.approve` | Create and submit payments, approve other people's, book FX deals |\n| `read-only` | Read everything, change nothing |\n\n## About this example\n\nThis is a disposable example for Test Bench, with seeded data that resets when you delete its database. **Preview** runs an operation for real and rolls the database back, showing the changes, notifications and SQL it would cause; **Send** commits them. No email, payment or bank is ever contacted.",
+  "description": "The **Acme Treasury API** is how the group treasury team looks after cash, pays suppliers and manages foreign exchange from one place. It covers the bank accounts of every Acme legal entity, their balances and statements, the people and companies Acme pays, payments with a four-eyes approval flow, and spot and forward FX deals.\n\n## Payments in one minute\n\nA payment is created as a `Draft`, which immediately **reserves** its amount on the debit account. It is then **submitted** for approval (`PendingApproval`) and must be **approved by a different person** (`Approved`). The bank run schedules and sends it (`Scheduled`, `Sent`) and it ends as `Settled` or `Failed`. A reviewer can `Reject` a payment, which releases the reservation and lets the creator revise and resubmit it, and unsent payments can be `Cancelled`.\n\n## Conventions\n\n- **Lists** are paged: pass `page` (from 1) and `pageSize` (1 to 100, default 25). Every list returns `{ items, page, pageSize, totalItems, totalPages }`. Lists can be filtered, searched with `q` and sorted with `sort`; a leading `-` reverses the order, as in `-amount`.\n- **Errors** follow [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details. Invalid input is a `400` with an `errors` object keyed by field; business rules are `409` (the state does not allow it) or `422` (the request is understood but not allowed).\n- **Money** is a decimal with at most two fraction digits (none for JPY). **Dates** are ISO 8601; times are UTC.\n- **Idempotency:** send an `Idempotency-Key` header when creating a payment, so a retry cannot pay twice.\n\n## Signing in\n\nEverything except sign-in needs a session cookie. Sign in with `AuthController.Login` using any seeded user and the password `Demo123!`, or in development pick a persona with `AuthController.SwitchPersona`. Roles decide what you may do:\n\n| Role | Can |\n| --- | --- |\n| `admin` | Everything, including accounts and user roles |\n| `payments.approve` | Create and submit payments, approve other people's, book FX deals |\n| `read-only` | Read everything, change nothing |\n\n## About this example\n\nThis is a disposable example for Sendproof, with seeded data that resets when you delete its database. **Preview** runs an operation for real and rolls the database back, showing the changes, notifications and SQL it would cause; **Send** commits them. No email, payment or bank is ever contacted.",
   "contact": {
    "name": "Acme Group Treasury",
    "url": "https://example.com/treasury",
@@ -5642,8 +5642,8 @@ window.TB_SPEC = {
       "description": "The amount to pay, in the debit account's currency, to at most two decimal places.",
       "format": "decimal",
       "x-currency-field": "currency",
-      "x-testbench-row": "payment-details",
-      "x-testbench-type-label": "decimal · ≥ 0.01"
+      "x-sendproof-row": "payment-details",
+      "x-sendproof-type-label": "decimal · ≥ 0.01"
      },
      "currency": {
       "enum": [
@@ -5680,7 +5680,7 @@ window.TB_SPEC = {
       "type": "string",
       "description": "The date the beneficiary should be credited. It cannot be in the past.",
       "format": "date",
-      "x-testbench-row": "payment-details"
+      "x-sendproof-row": "payment-details"
      },
      "priority": {
       "enum": [
@@ -5695,7 +5695,7 @@ window.TB_SPEC = {
        "Urgent": "Executed ahead of the standard batch.",
        "Same day": "Settles today if sent before the bank’s cut-off."
       },
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "reference": {
       "maxLength": 35,
@@ -5704,7 +5704,7 @@ window.TB_SPEC = {
        "string"
       ],
       "description": "The reference shown on the beneficiary's statement, up to 35 characters.",
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "remittanceLines": {
       "maxItems": 4,
@@ -5718,7 +5718,7 @@ window.TB_SPEC = {
        "description": "One line of free text for the beneficiary."
       },
       "description": "Up to four free-text lines of at most 140 characters for the beneficiary.",
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "chargeBearer": {
       "enum": [
@@ -7402,15 +7402,15 @@ window.TB_SPEC = {
       "description": "The amount to pay, in the debit account's currency, to at most two decimal places.",
       "format": "decimal",
       "x-currency-field": "currency",
-      "x-testbench-row": "payment-details",
-      "x-testbench-type-label": "decimal · ≥ 0.01"
+      "x-sendproof-row": "payment-details",
+      "x-sendproof-type-label": "decimal · ≥ 0.01"
      },
      "valueDate": {
       "title": "Value date",
       "type": "string",
       "description": "The date the beneficiary should be credited. It cannot be in the past.",
       "format": "date",
-      "x-testbench-row": "payment-details"
+      "x-sendproof-row": "payment-details"
      },
      "priority": {
       "enum": [
@@ -7425,7 +7425,7 @@ window.TB_SPEC = {
        "Urgent": "Executed ahead of the standard batch.",
        "Same day": "Settles today if sent before the bank’s cut-off."
       },
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "reference": {
       "maxLength": 35,
@@ -7434,7 +7434,7 @@ window.TB_SPEC = {
        "string"
       ],
       "description": "The reference shown on the beneficiary's statement, up to 35 characters.",
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "remittanceLines": {
       "maxItems": 4,
@@ -7448,7 +7448,7 @@ window.TB_SPEC = {
        "description": "One line of free text for the beneficiary."
       },
       "description": "Up to four free-text lines of at most 140 characters for the beneficiary.",
-      "x-testbench-visible": true
+      "x-sendproof-visible": true
      },
      "chargeBearer": {
       "enum": [
@@ -7582,8 +7582,8 @@ window.TB_SPEC = {
   }
  ],
  "externalDocs": {
-  "description": "Test Bench, the workbench that serves this API",
-  "url": "https://example.com/test-bench"
+  "description": "Sendproof, the workbench that serves this API",
+  "url": "https://example.com/sendproof"
  }
 };
 window.TB_SAMPLES = {

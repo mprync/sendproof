@@ -23,7 +23,7 @@ import {
 const OPEN_DEPTH = 3;
 const MAX_DEPTH = 8;
 const ENUM_SHOWN = 6;
-const STORAGE_KEY = 'testbench-attrs';
+const STORAGE_KEY = 'sendproof-attrs';
 const trees = new Map();
 const bound = new WeakSet();
 let treeCounter = 0;

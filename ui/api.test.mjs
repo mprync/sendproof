@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { operations, makeRequest, execute } from './api.js';
 
-globalThis.location = new URL('https://example.test/tenant/bench/');
+globalThis.location = new URL('https://example.test/tenant/sendproof/');
 globalThis.document = { baseURI: location.href };
 
 test('discovers unrelated operations and builds a request with path and query parameters', () => {
@@ -17,7 +17,7 @@ test('preview uses reserved route and refuses a missing rollback acknowledgement
   globalThis.fetch = async (url,options) => { call = {url,options}; return new Response('{}',{status:200}); };
   const request={method:'POST',url:'https://example.test/tenant/widgets?mode=one',headers:new Headers(),body:'{}'};
   await assert.rejects(execute(request,true,'/tenant/'),/not acknowledged/);
-  assert.equal(call.url,'https://example.test/tenant/bench/_preview/widgets?mode=one');
+  assert.equal(call.url,'https://example.test/tenant/sendproof/_preview/widgets?mode=one');
   assert.equal(call.options.redirect,'error');
   assert.equal(call.options.credentials,'include');
   assert.equal(call.options.headers.get('Prefer'),'tx=rollback');
@@ -40,7 +40,7 @@ test('observed Send keeps the original URL and collects optional trace evidence'
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options });
     if (calls.length === 1) return new Response('{"id":42}', {
-      status: 201, headers: { 'X-TestBench-Trace': id, 'Server-Timing': 'handler;dur=21', Location: '/tenant/widgets/42' },
+      status: 201, headers: { 'X-Sendproof-Trace': id, 'Server-Timing': 'handler;dur=21', Location: '/tenant/widgets/42' },
     });
     return Response.json({ status: 999, logs: [{ level: 'Sql', message: 'inserted' }], timing: { handler: 21 } });
   };
@@ -53,7 +53,7 @@ test('observed Send keeps the original URL and collects optional trace evidence'
   assert.equal(result.logs[0].level, 'Sql');
   assert.equal(calls[0].url, request.url);
   assert.equal(calls[0].options.headers.get('Prefer'), 'return=representation, trace');
-  assert.equal(calls[1].url, 'https://example.test/tenant/bench/_api/traces/' + id);
+  assert.equal(calls[1].url, 'https://example.test/tenant/sendproof/_api/traces/' + id);
   assert.equal(calls[1].options.credentials, 'include');
 });
 
@@ -61,7 +61,7 @@ test('a missing trace does not turn a completed Send into a retryable failure', 
   const request = { method: 'POST', url: 'https://example.test/tenant/widgets', headers: {}, body: '{}' };
   let count = 0;
   globalThis.fetch = async () => ++count === 1 ? new Response('saved', {
-    status: 201, headers: { 'X-TestBench-Trace': 'f8bb1c7235aa42378c7d127de3a0630c' },
+    status: 201, headers: { 'X-Sendproof-Trace': 'f8bb1c7235aa42378c7d127de3a0630c' },
   }) : new Response('', { status: 404 });
   const result = await execute(request, false, '/tenant/', undefined, { observedSend: true });
   assert.equal(result.body, 'saved');

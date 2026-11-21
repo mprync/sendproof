@@ -1,4 +1,4 @@
-// Locale-aware text and formatting for Test Bench's own interface.
+// Locale-aware text and formatting for Sendproof's own interface.
 //
 // Only the workbench's chrome is translated. Text from the OpenAPI document (summaries, titles,
 // descriptions) and captured data (rows, JSON, SQL, headers) is shown exactly as written or

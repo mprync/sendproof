@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Test Bench capabilities v1",
+  "title": "Sendproof capabilities v1",
   "type": "object",
   "required": ["protocolVersion", "apiName", "environment", "openApiUrl", "database", "identity", "authProviders", "previewOperations"],
   "properties": {

@@ -1,4 +1,4 @@
-name: test-bench-conformance
+name: sendproof-conformance
 services:
   postgres:
     image: postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
@@ -58,7 +58,7 @@ services:
       interval: 3s
       timeout: 10s
       retries: 30
-  # Redis has no rollback, so Test Bench only guards it. A password proves that AUTH never reaches captures.
+  # Redis has no rollback, so Sendproof only guards it. A password proves that AUTH never reaches captures.
   redis:
     image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     command: ['redis-server', '--requirepass', 'bench_redis_local', '--save', '', '--appendonly', 'no']

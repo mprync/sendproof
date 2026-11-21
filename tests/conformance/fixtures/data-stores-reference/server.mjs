@@ -213,10 +213,10 @@ const traceTtlMs = 5000;
 function capabilities(user) {
   return {
     protocolVersion: 1,
-    apiName: 'Test Bench Conformance',
+    apiName: 'Sendproof Conformance',
     environment: 'Development',
     openApiUrl: base + '/openapi.json',
-    documents: [{ name: 'Test Bench Conformance', url: base + '/openapi.json' }],
+    documents: [{ name: 'Sendproof Conformance', url: base + '/openapi.json' }],
     database: 'reference',
     identity: user ? { name: user.name, role: user.role } : null,
     authProviders: [{ label: 'Fixture sign-in', kind: 'cookie', url: base + '/auth/sign-in' }],
@@ -292,7 +292,7 @@ async function observed(route, context, user) {
         timing: { auth: 0, handler: elapsed, db: 0, queryCount: scope.logs.length, serialize: 0 },
       },
     });
-    return { ...result, headers: { ...result.headers, 'X-TestBench-Trace': id } };
+    return { ...result, headers: { ...result.headers, 'X-Sendproof-Trace': id } };
   });
 }
 
@@ -301,23 +301,23 @@ async function handle(request, url, body) {
   const path = url.pathname.slice(base.length);
   const user = identity(request);
   if (path === '/ready') return json(200, { ready: true });
-  if (path === '/openapi.json') return json(200, { openapi: '3.1.0', info: { title: 'Test Bench Conformance', version: '1' }, paths: {} });
-  if (path === '/bench/_api/capabilities') return { ...json(200, capabilities(user)), headers: { 'Cache-Control': 'no-store' } };
+  if (path === '/openapi.json') return json(200, { openapi: '3.1.0', info: { title: 'Sendproof Conformance', version: '1' }, paths: {} });
+  if (path === '/sendproof/_api/capabilities') return { ...json(200, capabilities(user)), headers: { 'Cache-Control': 'no-store' } };
   if (path === '/auth/sign-in' && request.method === 'POST') {
     if (body?.email !== 'admin@example.test' || body?.password !== 'bench-fixture') return json(401, { error: 'Invalid credentials' });
     const session = token();
     sessions.set(session, admin);
     return { status: 204, headers: { 'Set-Cookie': `tb_reference=${session}; Path=/; HttpOnly; SameSite=Lax` } };
   }
-  const trace = path.match(/^\/bench\/_api\/traces\/([^/]+)$/);
+  const trace = path.match(/^\/sendproof\/_api\/traces\/([^/]+)$/);
   if (trace) {
     const entry = traces.get(decodeURIComponent(trace[1]));
     if (!user || !entry || entry.owner !== user.sub || entry.expires < Date.now()) return json(404, { error: 'Not found' });
     return { ...json(200, entry.trace), headers: { 'Cache-Control': 'no-store' } };
   }
 
-  const isPreview = path.startsWith('/bench/_preview/');
-  const target = isPreview ? path.slice('/bench/_preview'.length) : path;
+  const isPreview = path.startsWith('/sendproof/_preview/');
+  const target = isPreview ? path.slice('/sendproof/_preview'.length) : path;
   const found = match(request.method, target);
   if (isPreview && !/(^|[,;]\s*)tx=rollback\s*($|,)/.test(request.headers.prefer ?? '')) return json(400, { error: 'Prefer: tx=rollback is required' });
   if (!found || (isPreview && found.route.preview !== true)) return json(404, { error: 'Not found' });

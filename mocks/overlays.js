@@ -55,7 +55,7 @@
       ${window.i18n.lang === 'ar' ? `<div class="row">
         <div class="row-h">Digits</div>
         <div class="segmented" role="radiogroup" aria-label="Digits"><button role="radio" aria-checked="${window.i18n.digits === 'latn'}">Latin <bdi>123</bdi></button><button role="radio" aria-checked="${window.i18n.digits === 'arab'}">Arabic-Indic <bdi>١٢٣</bdi></button></div>
-        <p class="note">Only Test Bench's own numbers and dates. Captured data is shown exactly as stored.</p>
+        <p class="note">Only Sendproof's own numbers and dates. Captured data is shown exactly as stored.</p>
       </div>` : ''}
     </div>`, { align: 'end' });
 

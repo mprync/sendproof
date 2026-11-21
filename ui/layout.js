@@ -30,7 +30,7 @@ export function createLayout(workspace, preferenceKey) {
   const mainPane = () => workspace.querySelector(":scope > .pane:not([hidden])");
   let resizing = null;
   let resizeObserver;
-  const storageKey = preferenceKey && `testbench-layout:${preferenceKey}`;
+  const storageKey = preferenceKey && `sendproof-layout:${preferenceKey}`;
   let saved;
   if (storageKey) {
     try {

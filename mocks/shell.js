@@ -123,7 +123,7 @@
   if (top) top.outerHTML = `
   <header class="topbar">
     <button class="btn btn-ghost btn-icon mobile-only" aria-label="Open operations">${ico('menu')}</button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span><span class="desktop-only">Test Bench</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span><span class="desktop-only">Sendproof</span></div>
     <span class="crumb-sep desktop-only" aria-hidden="true">/</span>
     <button class="api-switch" aria-haspopup="listbox"><span lang="en">Acme Treasury API</span> <span class="ver">v1.0.0</span>${ico('chevrons-ud', 'i i-sm')}</button>
     <button class="env desktop-only" aria-haspopup="listbox"><span class="dot" aria-hidden="true"></span><strong>${t('env')}</strong><span class="ltr">treasury-demo.db</span>${ico('chevron-down', 'i i-sm')}</button>

@@ -1,10 +1,10 @@
 # Bench protocol v1
 
-The client reads one OpenAPI document and one capabilities response. A framework adapter serves the embedded UI under the application's `/bench/` path. All application URLs below include the mount prefix when the host uses a path base such as `/tenant`.
+The client reads one OpenAPI document and one capabilities response. A framework adapter serves the embedded UI under the application's `/sendproof/` path. All application URLs below include the mount prefix when the host uses a path base such as `/tenant`.
 
 ## Discovery
 
-`GET /bench/_api/capabilities` returns the [capabilities object](capabilities.schema.json) with `Cache-Control: no-store`. Resolve the identity on the current request. Treat the environment and database fields as display labels. Connection strings, credentials and database host secrets do not belong in this object.
+`GET /sendproof/_api/capabilities` returns the [capabilities object](capabilities.schema.json) with `Cache-Control: no-store`. Resolve the identity on the current request. Treat the environment and database fields as display labels. Connection strings, credentials and database host secrets do not belong in this object.
 
 ```json
 {
@@ -35,9 +35,9 @@ Non-interactive handlers may have no entry URL. Each host is responsible for its
 | --- | --- | --- |
 | Send | Original operation URL with its real method, query, headers and body | Ordinary endpoint response and normal commit behavior |
 | Observed Send | Original operation URL with its real method, query, headers and body, plus `Prefer: trace` | Ordinary endpoint response and commit, with an optional trace ID |
-| Preview | Original path prefixed with `/bench/_preview`, preserving method, query and body, plus `Prefer: tx=rollback` | Confirmed [preview envelope](preview.schema.json) after cleanup |
+| Preview | Original path prefixed with `/sendproof/_preview`, preserving method, query and body, plus `Prefer: tx=rollback` | Confirmed [preview envelope](preview.schema.json) after cleanup |
 
-For example, `PATCH /tenant/items/12?audit=true` becomes `PATCH /tenant/bench/_preview/items/12?audit=true`. Preview must stay inside the host application: dispatch it in-process through the normal router, never as an outbound HTTP request built from the `Host` header or an absolute URL. The target after the prefix must not be empty, start with `//`, or decode to a backslash, a control character, a `.` or `..` segment, a `/bench` path or a second preview. Reject a preview with HTTP 400 or 403 when `Sec-Fetch-Site` is `cross-site` or when an `Origin` header is present and is not exactly the request's own scheme, host and port; the opaque origin `null` never matches. Clients disable redirects and automatic retries. Missing preference, disabled environments, unknown endpoints, unauthorized calls, unavailable providers, an oversized response or unsuccessful rollback do not yield a successful envelope.
+For example, `PATCH /tenant/items/12?audit=true` becomes `PATCH /tenant/sendproof/_preview/items/12?audit=true`. Preview must stay inside the host application: dispatch it in-process through the normal router, never as an outbound HTTP request built from the `Host` header or an absolute URL. The target after the prefix must not be empty, start with `//`, or decode to a backslash, a control character, a `.` or `..` segment, a `/sendproof` path or a second preview. Reject a preview with HTTP 400 or 403 when `Sec-Fetch-Site` is `cross-site` or when an `Origin` header is present and is not exactly the request's own scheme, host and port; the opaque origin `null` never matches. Clients disable redirects and automatic retries. Missing preference, disabled environments, unknown endpoints, unauthorized calls, unavailable providers, an oversized response or unsuccessful rollback do not yield a successful envelope.
 
 ```json
 {
@@ -75,19 +75,19 @@ An adapter reports capture limits using optional `logsTruncated`, `effectsTrunca
 
 ## Observed Send
 
-When capabilities contain `observedSend: true`, clients can send `Prefer: trace` to operations in `previewOperations` using the original URL. The response retains the application's status, headers and body. If present, `X-TestBench-Trace` identifies a [trace](trace.schema.json) at `GET /bench/_api/traces/{id}`, with the same path base and credentials as the operation. The trace contains `changes`, `effects`, `logs` and `timing`. The .NET adapter requires an authenticated principal with an issued stable subject (`NameIdentifier` or `sub`), and applies any configured workbench authorization policy. The trace belongs to that subject and its authentication context. Missing, expired, evicted and foreign trace IDs return 404 to callers admitted to the workbench, as does a trace read from a cross-site or cross-origin request. Trace IDs carry at least 122 random bits from a cryptographic generator. An observed send from a cross-site or cross-origin request still runs normally but records no trace. Trace responses are non-cacheable. The .NET adapter retains up to eight traces per owner and 32 per host for up to five minutes.
+When capabilities contain `observedSend: true`, clients can send `Prefer: trace` to operations in `previewOperations` using the original URL. The response retains the application's status, headers and body. If present, `X-Sendproof-Trace` identifies a [trace](trace.schema.json) at `GET /sendproof/_api/traces/{id}`, with the same path base and credentials as the operation. The trace contains `changes`, `effects`, `logs` and `timing`. The .NET adapter requires an authenticated principal with an issued stable subject (`NameIdentifier` or `sub`), and applies any configured workbench authorization policy. The trace belongs to that subject and its authentication context. Missing, expired, evicted and foreign trace IDs return 404 to callers admitted to the workbench, as does a trace read from a cross-site or cross-origin request. Trace IDs carry at least 122 random bits from a cryptographic generator. An observed send from a cross-site or cross-origin request still runs normally but records no trace. Trace responses are non-cacheable. The .NET adapter retains up to eight traces per owner and 32 per host for up to five minutes.
 
 The reference workbench traces Send by default when the capabilities report `environment: "Development"`, and leaves it off elsewhere; the user can turn it on or off in the result pane or the command palette, and the choice is kept in that browser. A trace is only requested for operations in `previewOperations`; other Sends are not traced, and the result pane says so.
 
 ## Timing
 
-Successful .NET previews and observed sends emit `Server-Timing` with the metrics `auth`, `handler`, `db` and `serialize`, all in milliseconds. `db` is the sum of recorded command durations and its `desc` uses `"N queries"`. `auth` includes routing and access checks up to handler entry. `serialize` measures Test Bench capture serialization, including the preview envelope. Observed send headers reflect the work completed when response headers are written. The trace's final `timing` object includes `auth`, `handler`, `db`, `serialize` and integer `queryCount`.
+Successful .NET previews and observed sends emit `Server-Timing` with the metrics `auth`, `handler`, `db` and `serialize`, all in milliseconds. `db` is the sum of recorded command durations and its `desc` uses `"N queries"`. `auth` includes routing and access checks up to handler entry. `serialize` measures Sendproof capture serialization, including the preview envelope. Observed send headers reflect the work completed when response headers are written. The trace's final `timing` object includes `auth`, `handler`, `db`, `serialize` and integer `queryCount`.
 
 ## Field extensions
 
 - `x-lookup: { "url": "/accounts", "valueField": "id", "labelField": "name", "detailField": "iban" }` supplies an authenticated collection lookup. A static list can use `options: [{ "value": "EUR", "label": "Euro" }]`. The selected value travels in the request.
 - `x-currency-field: "currency"` on a numeric schema binds the currency selector to a sibling field. Both values retain their original JSON names and types.
-- Sibling properties with the same `x-testbench-row` string can share a form row. Use `x-testbench-visible: true` to keep an optional property above the disclosure. A string `x-testbench-type-label` supplies concise display text for a domain type. The underlying schema still controls validation and serialization.
+- Sibling properties with the same `x-sendproof-row` string can share a form row. Use `x-sendproof-visible: true` to keep an optional property above the disclosure. A string `x-sendproof-type-label` supplies concise display text for a domain type. The underlying schema still controls validation and serialization.
 - Standard schema fields and operation-level examples are portable across framework adapters. Custom UI controls must provide a usable native or JSON fallback when an extension is unknown.
 
 ## Data stores
@@ -124,7 +124,7 @@ export const fieldRenderers = [{
 
 The surrounding form supplies the label, validation and serialization. A renderer receives the resolved schema, current value, field path, ID, required flag and setter. Later registrations take precedence when predicates overlap.
 
-For another .NET data layer, expose a fluent extension on `TestBenchBuilder` that registers one scoped `IPreviewProvider`. Begin on the connection the handler will use. Return a session that supplies change snapshots, rolls back explicitly, and disposes partially acquired resources on every failure path. The EF package is a working example.
+For another .NET data layer, expose a fluent extension on `SendproofBuilder` that registers one scoped `IPreviewProvider`. Begin on the connection the handler will use. Return a session that supplies change snapshots, rolls back explicitly, and disposes partially acquired resources on every failure path. The EF package is a working example.
 
 For another language or web framework, implement discovery and the reserved preview route around the normal authorized request dispatcher. Establish whether your data layer can enroll the whole operation before calling the handler. Only advertise eligible operations. A raw SQL provider must define its change capture mechanism, including trigger and bulk statement coverage. Protocol additions that change the meaning of rollback or a required field need a new major version.
 

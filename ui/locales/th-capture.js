@@ -92,7 +92,7 @@ export default {
   'fx.htmlSource': 'ต้นฉบับ HTML',
   'fx.htmlFrame': 'ตัวอย่าง HTML ของอีเมล',
   'fx.heldBanner': {
-    other: '**ระงับผลข้างเคียงที่ดักจับไว้แล้ว** Test Bench ระงับผลข้างเคียง {n} รายการสำหรับการดูตัวอย่างนี้ การส่งจะทำงานจริง',
+    other: '**ระงับผลข้างเคียงที่ดักจับไว้แล้ว** Sendproof ระงับผลข้างเคียง {n} รายการสำหรับการดูตัวอย่างนี้ การส่งจะทำงานจริง',
   },
   'fx.ran': { other: 'ผลข้างเคียง {n} รายการทำงานแล้ว' },
   'fx.capturedCount': { other: 'ดักจับผลข้างเคียงได้ {n} รายการ' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'คุกกี้เซสชัน',
   'kv.requiredValue': 'ป้อนค่าสำหรับเฮดเดอร์ที่จำเป็นนี้',
   'kv.group.required': 'จำเป็นสำหรับการดำเนินการนี้',
-  'kv.group.managed': 'ตั้งค่าโดย Test Bench',
+  'kv.group.managed': 'ตั้งค่าโดย Sendproof',
   'kv.group.managedDetail': 'จากเซสชันและเนื้อหาของคุณ',
   'kv.group.custom': 'กำหนดเอง',
   'kv.grid': 'เฮดเดอร์คำขอ',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'ชื่อ',
   'kv.col.value': 'ค่า',
   'kv.col.actions': 'การดำเนินการ',
-  'kv.managed': 'จัดการโดย Test Bench',
+  'kv.managed': 'จัดการโดย Sendproof',
   'kv.sendName': 'ส่ง {name}',
   'kv.sendNew': 'ส่งเฮดเดอร์ใหม่',
   'kv.namePlaceholder': 'ชื่อเฮดเดอร์',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'สคีมา', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'ไม่มีเฮดเดอร์กำหนดเอง', 'kv.emptyBody': { other: 'Test Bench ส่งเฮดเดอร์ {n} รายการด้านบนให้อยู่แล้ว เพิ่มเฮดเดอร์ของคุณเองสำหรับการติดตาม ภาษา หรือผู้เช่า' },
+  'kv.emptyTitle': 'ไม่มีเฮดเดอร์กำหนดเอง', 'kv.emptyBody': { other: 'Sendproof ส่งเฮดเดอร์ {n} รายการด้านบนให้อยู่แล้ว เพิ่มเฮดเดอร์ของคุณเองสำหรับการติดตาม ภาษา หรือผู้เช่า' },
   'kv.applyPreset': 'ใช้ค่าที่ตั้งไว้ล่วงหน้า',
   'logs.noMatchTitle': 'ไม่มีรายการล็อกที่ตรงกัน', 'logs.noMatchBody': { other: 'ตัวกรองของคุณซ่อนรายการทั้ง {n} รายการไว้: {filters}' },
   'logs.hiddenLevel': 'ระดับ {level}', 'logs.hiddenText': 'ข้อความ “{text}”', 'logs.hiddenSql': 'ซ่อน SQL อยู่', 'logs.clearFilters': 'ล้างตัวกรอง', 'logs.allLevels': 'แสดงทุกระดับ',

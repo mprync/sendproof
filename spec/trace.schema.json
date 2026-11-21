@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Test Bench observed send trace v1",
+  "title": "Sendproof observed send trace v1",
   "type": "object",
   "required": ["changes", "effects", "logs", "timing"],
   "properties": {
