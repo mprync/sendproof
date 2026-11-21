@@ -53,7 +53,7 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   // Preview dispatches into this second router so a handler runs without the workbench gate in front of it.
   const internal = new Hono<E>({ strict: true });
   const operations: RegisteredOperation[] = [];
-  const bench = createBench<Context<E>>(benchOptions, () => operations);
+  const bench = createBench<Context<E>>(benchOptions, () => operations, { language: 'node', framework: 'Hono' });
 
   app.use('*', async (c, next) => {
     const request = describe(c, basePath);

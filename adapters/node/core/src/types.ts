@@ -28,6 +28,18 @@ export interface AuthProvider {
 export interface PreviewProvider {
   /** Run dispatch in the enrolled transaction and resolve only after rollback. */
   preview<T>(dispatch: () => Promise<T>): Promise<T>;
+  /**
+   * The SQL provider id discovery reports as `database.system`: `sqlite`, `postgresql`, `mysql`,
+   * `mariadb`, `mssql` or another lower-case id, so the workbench shows that provider's mark.
+   */
+  readonly system?: string;
+}
+
+/** The binding serving the workbench, reported as capabilities `binding`. */
+export interface BenchBinding {
+  language: 'node';
+  /** The web framework's display name: `Express`, `Fastify`, `Hono` or `NestJS`. */
+  framework: string;
 }
 
 /** How Preview treats a data store: rolled back with its transaction, or guarded so writes block. */

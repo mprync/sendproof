@@ -12,6 +12,18 @@ export function dialectOf(database: Knex): Dialect {
   return 'other';
 }
 
+/**
+ * The SQL provider id discovery reports as `database.system`: the dialect, with MariaDB told
+ * apart from MySQL. Undefined for a client the provider doesn't recognise.
+ */
+export function systemOf(database: Knex): string | undefined {
+  const dialect = dialectOf(database);
+  if (dialect === 'other') return undefined;
+  const client = database.client as { dialect?: unknown; driverName?: unknown; config?: { client?: unknown } } | undefined;
+  const name = [client?.dialect, client?.driverName, client?.config?.client].map(value => String(value ?? '').toLowerCase()).join(' ');
+  return dialect === 'mysql' && name.includes('maria') ? 'mariadb' : dialect;
+}
+
 interface DriverError {
   code?: unknown;
   errno?: unknown;

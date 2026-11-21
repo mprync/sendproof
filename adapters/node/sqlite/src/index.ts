@@ -75,6 +75,8 @@ function isBusy(error: unknown): boolean {
  * transaction and a Preview rollback still discards them. A failed savepoint rolls back alone.
  */
 export class SQLiteDatabase implements PreviewProvider {
+  /** The SQL provider id discovery reports as `database.system`. */
+  readonly system = 'sqlite';
   readonly #connection: DatabaseSync;
   readonly #scope = new AsyncLocalStorage<Scope>();
   readonly #retries: number;

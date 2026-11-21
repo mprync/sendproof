@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Knex } from 'knex';
 import { currentCapture } from '@sendproof/core';
 import type { Change, PreviewProvider } from '@sendproof/core';
-import { dialectOf, isTransient } from './dialect.js';
+import { dialectOf, isTransient, systemOf } from './dialect.js';
 import { compareKeys, insertedRows, keysFromData, keysFromResult, normalizeKey, readPrimaryKey, rowsOf } from './keys.js';
 import { guardPreview, resolveTable, trackClient } from './tracked.js';
 import type { BuilderState, TableName } from './tracked.js';
@@ -64,6 +64,8 @@ function dbType(value: unknown): string {
  * savepoints, and a deadlock or serialization failure can be retried.
  */
 export class KnexPreview implements PreviewProvider {
+  /** The SQL provider id discovery reports as `database.system`, such as `postgresql`. */
+  readonly system: string | undefined;
   readonly #database: Knex;
   readonly #dialect: Dialect;
   readonly #transaction = new AsyncLocalStorage<Scope>();
@@ -99,6 +101,7 @@ export class KnexPreview implements PreviewProvider {
     this.#database = database;
     this.#pool = trackClient(database, (builder, state, execute) => this.#mutation(database, undefined, builder, state, execute));
     this.#dialect = dialectOf(database);
+    this.system = systemOf(database);
     this.#turns = this.#dialect === 'mysql' ? new PreviewTurns() : undefined;
     this.#trackedKeyLimit = trackedKeyLimit;
     this.#retries = retries;

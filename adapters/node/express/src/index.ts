@@ -21,7 +21,7 @@ export function sendproof(options: ExpressBenchOptions = {}): SendproofMiddlewar
   const operations: RegisteredOperation[] = [];
   // Responses created for an in-process preview dispatch; their routes must not start a second observation.
   const internal = new WeakSet<Response>();
-  const bench = createBench<Request>(options, () => operations);
+  const bench = createBench<Request>(options, () => operations, { language: 'node', framework: 'Express' });
 
   const middleware = (async (req: Request, res: Response, next: NextFunction) => {
     const context = requestContext(req);

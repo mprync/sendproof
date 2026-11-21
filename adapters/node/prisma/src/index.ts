@@ -81,6 +81,10 @@ function decorate<T extends object>(target: T, methods: Partial<Record<keyof T, 
 export class PrismaPreview<Client = unknown> implements PreviewProvider {
   /** Pass this factory to `new PrismaClient({ adapter })`. */
   readonly adapter: SqlDriverAdapterFactory;
+  /** The SQL provider id discovery reports as `database.system`: the adapter's provider, such as `postgresql`. */
+  get system(): string {
+    return this.#provider;
+  }
   #client: unknown;
   readonly #scopes = new AsyncLocalStorage<Scope>();
   readonly #probe = new AsyncLocalStorage<Probe>();

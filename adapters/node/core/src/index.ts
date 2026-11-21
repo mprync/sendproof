@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import type { BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
+import type { BenchBinding, BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Capture } from './capture.js';
@@ -129,8 +129,17 @@ function publicIdentity(identity: BenchIdentity | null) {
     ...(typeof identity.role === 'string' ? { role: identity.role } : {}) };
 }
 
-/** Internal protocol interface used by the framework packages. */
-export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, registered: () => RegisteredOperation[] = () => []) {
+/** Capabilities `database`: the label alone, or `{ name, system }` when the SQL provider names itself. */
+function databaseOf(label: string | null, provider: { system?: unknown } | undefined): string | null | { name: string | null; system: string } {
+  const system = provider?.system;
+  return typeof system === 'string' && /^[a-z][a-z0-9]{0,31}$/.test(system) ? { name: label, system } : label;
+}
+
+/**
+ * Internal protocol interface used by the framework packages. `binding` names the framework for
+ * capabilities, so the workbench writes guidance such as the `preview: false` snippet in its idiom.
+ */
+export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, registered: () => RegisteredOperation[] = () => [], binding?: BenchBinding) {
   const {
     apiName = 'API', environment = process.env.NODE_ENV ?? 'production', environments = ['development'],
     openApiUrl = '/openapi.json', documents = [], fieldModules = [], database = null, authProviders = [],
@@ -188,7 +197,8 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
       const addBase = (url: string | null) => url === null ? null : basePath + requireLocalPath(url);
       const providers = [...authProviders, ...((await discoverAuth?.(context)) ?? [])];
       return json(200, {
-        protocolVersion: 1, apiName, environment, database, identity: publicIdentity(identity),
+        protocolVersion: 1, apiName, environment, ...(binding ? { binding: { language: binding.language, framework: binding.framework } } : {}),
+        database: databaseOf(database, sqlProvider), identity: publicIdentity(identity),
         openApiUrl: addBase(openApiUrl),
         documents: documents.map(doc => ({ ...doc, url: addBase(doc.url) })),
         fieldModules: fieldModules.map(addBase),

@@ -51,6 +51,18 @@ const endedMessage = 'The TypeORM request scope has ended.';
  */
 export class TypeOrmPreview implements PreviewProvider {
   readonly #source: DataSource;
+
+  /**
+   * The SQL provider id discovery reports as `database.system`, from the data source's `type`:
+   * `postgresql`, `mysql`, `mariadb`, `sqlite` or `mssql`, or the type itself for other drivers.
+   */
+  get system(): string {
+    const type = String(this.#source.options.type);
+    if (type === 'postgres') return 'postgresql';
+    if (type === 'aurora-mysql') return 'mysql';
+    if (singleConnectionDrivers.has(type)) return 'sqlite'; // Every single-connection driver is SQLite.
+    return type.replace(/[^a-z0-9]/g, '');
+  }
   readonly #lease: ConnectionLease;
   /**
    * Lets one MySQL Preview run at a time. InnoDB checks a new key for duplicates under a shared lock: when three or

@@ -34,7 +34,7 @@ function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): 
   const basePath = app.prefix === '/' ? '' : app.prefix;
   const operations: RegisteredOperation[] = [];
   const observations = new WeakMap<IncomingMessage, Observation>();
-  const bench = createBench<FastifyRequest>(options, () => operations);
+  const bench = createBench<FastifyRequest>(options, () => operations, { language: 'node', framework: 'Fastify' });
 
   app.addHook('onRequest', (request, reply, done) => {
     // In-process Preview dispatch: only registered operations may run, everything else is a 404.

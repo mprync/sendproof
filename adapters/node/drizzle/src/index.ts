@@ -103,6 +103,7 @@ export function drizzlePreview(
   return {
     client: createClient(state),
     dialect,
+    system: dialect,
     preview: dispatch => preview(state, dispatch, turns),
     withParameterNames: (names, query) => withLabels(names, () => settle(query)),
     track: (_rows, mutate) => settle(mutate),
@@ -132,6 +133,7 @@ function sqliteProvider(
   return {
     client: createClient(state),
     dialect: 'sqlite',
+    system: 'sqlite',
     // Await inside the transaction: a returned query builder only runs when awaited.
     preview: dispatch => database.preview(async () => await dispatch()),
     withParameterNames: (_names, query) => settle(query),

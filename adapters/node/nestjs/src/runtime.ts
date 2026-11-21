@@ -44,7 +44,7 @@ export class BenchRuntime implements OnApplicationBootstrap {
     this.bench = createBench<Request>({ openApiUrl: '/api-json', ...benchOptions }, () => this.operations.map(
       ({ method, path, enabled, reason, stores }) => enabled === false
         ? { method, path, preview: false as const, reason: reason!, ...(stores ? { stores } : {}) }
-        : { method, path }));
+        : { method, path }), { language: 'node', framework: 'NestJS' });
   }
 
   /** Collect every controller action decorated with `@SendproofPreview`. */
