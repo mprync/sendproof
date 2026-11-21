@@ -45,8 +45,7 @@ module Sendproof
         @tracker.freeze!
         failures = []
         @enrollments.reverse_each do |enrollment|
-          check_still_open(enrollment, failures)
-          rollback_one(enrollment)
+          rollback_one(enrollment, failures)
         rescue StandardError => error
           failures << error
         end
@@ -111,13 +110,16 @@ module Sendproof
         release&.call
       end
 
-      def rollback_one(enrollment)
+      # @param failures [Array, nil] where the savepoint check reports; nil skips it (the retry in {#close})
+      def rollback_one(enrollment, failures = nil)
         connection = enrollment.connection
         transaction = enrollment.transaction
-        # A handler may leave nested transactions open after a crash; unwind them first.
+        # A handler may leave nested transactions open after a crash; unwind them first, because rolling
+        # back to the start savepoint erases their savepoints.
         while connection.open_transactions.positive? && !connection.current_transaction.equal?(transaction)
           connection.rollback_transaction
         end
+        check_still_open(enrollment, failures) if failures
         connection.rollback_transaction(transaction) if connection.current_transaction.equal?(transaction)
         return if transaction.state.rolledback?
 

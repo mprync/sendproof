@@ -142,6 +142,17 @@ class ProviderTest < Minitest::Test
     Item.delete_all
   end
 
+  # A handler that crashed inside a nested transaction leaves its savepoint open. Rolling back to the start
+  # savepoint first would erase it and fail the unwind, so a Preview that committed nothing would answer 500.
+  def test_nested_transactions_left_open_are_unwound_before_the_savepoint_check
+    session, = preview do
+      Item.lease_connection.begin_transaction(joinable: false)
+      Item.create!(id: "nested", name: "Nested")
+    end
+    assert_equal ["insert"], session.changes.map { |change| change[:operation] }
+    assert_empty durable_items
+  end
+
   def test_changes_are_capped_and_flagged
     session, = preview { (Sendproof::Limits::CHANGES + 3).times { |n| Item.create!(id: "i#{n}", name: "n") } }
     assert_equal Sendproof::Limits::CHANGES, session.changes.length
