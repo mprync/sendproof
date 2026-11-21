@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Markieren Sie die Route mit {mark}, damit die Vorschau-Schaltfläche das erklärt, bevor jemand sie ausführt.",
   "blk.copy": "Kopieren",
   "blk.raw": "Antwortinhalt",
-  "blk.what.snippet": "Attribut",
   "blk.tabTitle": "Eine blockierte Vorschau behält nichts",
   "blk.tabBody": "Der Schreibschutz hat diese Vorschau bei {store} gestoppt, deshalb wurde nichts erfasst. Wirklich senden zeichnet Änderungen, Nebenwirkungen und Logs beim Speichern auf.",
   "bar.previewBlocked": "Vorschau blockiert",

@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Marque a rota com {mark} para que o botão Pré-visualizar explique isso antes que alguém a execute.",
   "blk.copy": "Copiar",
   "blk.raw": "Corpo da resposta",
-  "blk.what.snippet": "Atributo",
   "blk.tabTitle": "Uma pré-visualização bloqueada não guarda nada",
   "blk.tabBody": "A proteção de gravação interrompeu esta pré-visualização no {store}, então nada foi capturado. Enviar de verdade registra alterações, efeitos e logs conforme são confirmados.",
   "bar.previewBlocked": "Pré-visualização bloqueada",

@@ -36,13 +36,20 @@ const normal = system => {
   return ALIASES[id] ?? id;
 };
 
+/** Whether an id can name the binding's SQL database: a known SQL provider, or one Sendproof has no mark for (oracle…). A document or key-value id is a binding mistake. */
+const isSqlProvider = id => !!id && id !== SQL && (STORES[id] ? STORES[id].kind === 'sql' && id !== 'cassandra' : true);
+
 /**
- * The SQL provider behind `capabilities.database`, when its name says so. Capabilities carry only
- * the database's display name; a file name ending in .db, .sqlite or .sqlite3 is a SQLite file.
- * Anything else is shown as a generic "SQL database".
+ * The SQL provider behind `capabilities.database`. A binding that reports `database.system` (the
+ * provider id: sqlite, postgresql, mysql, mariadb, mssql…) is believed. Older bindings send only
+ * the database's display name, so a file name ending in .db, .sqlite or .sqlite3 is guessed to be
+ * a SQLite file; anything else is shown as a generic "SQL database".
  */
 export function sqlSystem(capabilities = {}) {
-  const name = typeof capabilities.database === 'string' ? capabilities.database : capabilities.database?.name;
+  const database = capabilities.database;
+  const reported = normal(typeof database === 'object' ? database?.system : '');
+  if (isSqlProvider(reported)) return reported;
+  const name = typeof database === 'string' ? database : database?.name;
   return /\.(db|sqlite3?)$/i.test(name || '') ? 'sqlite' : SQL;
 }
 

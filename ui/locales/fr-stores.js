@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Marquez la route avec {mark} pour que le bouton Aperçu l’explique avant que quiconque ne la lance.",
   "blk.copy": "Copier",
   "blk.raw": "Corps de la réponse",
-  "blk.what.snippet": "Attribut",
   "blk.tabTitle": "Un aperçu bloqué ne garde rien",
   "blk.tabBody": "La protection d’écriture a arrêté cet aperçu à {store}, donc rien n’a été capturé. Envoyer pour de vrai enregistre modifications, effets et journaux au moment de la validation.",
   "bar.previewBlocked": "Aperçu bloqué",

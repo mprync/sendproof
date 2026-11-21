@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Markera routen med {mark} så att knappen Förhandsvisa förklarar det innan någon kör den.",
   "blk.copy": "Kopiera",
   "blk.raw": "Svarsinnehåll",
-  "blk.what.snippet": "Attribut",
   "blk.tabTitle": "En blockerad förhandsvisning behåller inget",
   "blk.tabBody": "Skrivskyddet stoppade den här förhandsvisningen vid {store}, så inget registrerades. Skicka på riktigt registrerar ändringar, effekter och loggar när de sparas.",
   "bar.previewBlocked": "Förhandsvisning blockerad",

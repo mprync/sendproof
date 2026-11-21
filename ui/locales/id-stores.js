@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Tandai rute dengan {mark} agar tombol Pratinjau menjelaskannya sebelum ada yang menjalankannya.",
   "blk.copy": "Salin",
   "blk.raw": "Isi respons",
-  "blk.what.snippet": "Atribut",
   "blk.tabTitle": "Pratinjau yang diblokir tidak menyimpan apa pun",
   "blk.tabBody": "Pelindung tulis menghentikan pratinjau ini di {store}, jadi tidak ada yang dicatat. Kirim sungguhan mencatat perubahan, efek, dan log saat disimpan.",
   "bar.previewBlocked": "Pratinjau diblokir",

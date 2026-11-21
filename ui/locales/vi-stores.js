@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Đánh dấu tuyến bằng {mark} để nút Xem trước giải thích điều này trước khi ai đó chạy nó.",
   "blk.copy": "Sao chép",
   "blk.raw": "Nội dung phản hồi",
-  "blk.what.snippet": "Thuộc tính",
   "blk.tabTitle": "Xem trước bị chặn không giữ gì cả",
   "blk.tabBody": "Bộ bảo vệ ghi đã dừng lần xem trước này tại {store}, nên không có gì được ghi lại. Gửi thật sẽ ghi lại thay đổi, tác dụng và nhật ký khi chúng được lưu.",
   "bar.previewBlocked": "Đã chặn xem trước",

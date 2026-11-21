@@ -336,7 +336,7 @@ export function createResults({
       panel.innerHTML = `<div class="result-body">${tabContent(tab, result, context())}</div>`;
       const container = panel.querySelector('.result-body');
       const viewContext = { document: state.doc, operation: state.op, operations: state.ops, basePath, onFollowUp, capabilities: state.cap };
-      if (result?.blocked && tab === 'Response') bindBlocked(container, result);
+      if (result?.blocked && tab === 'Response') bindBlocked(container, result, context());
       else if (result?.blocked && tab !== 'Headers') { /* A designed state with no captured data to bind. */ }
       else if (result && !result.error && tab === 'Response') bindResponseViewer(container, result, viewContext);
       else if (result && !result.error && tab === 'Database' && captured(result) && result.changes?.length) bindDatabase(container, result);

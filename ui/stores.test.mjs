@@ -7,7 +7,8 @@ import { diffRows, docCard, tally, treeMarkup, valueMarkup } from './doc-diff.js
 import { coverageNote, databaseMarkup, groupsByStore } from './result-database.js';
 import { logsMarkup, commandMarkup } from './result-logs.js';
 import { actionBar, confirmation, previewDock } from './action-bar.js';
-import { blockedHeader, blockedMarkup, blockedTab, previewFalseSnippet } from './result-blocked.js';
+import { blockedHeader, blockedMarkup, blockedTab } from './result-blocked.js';
+import { previewFalseSnippet } from './preview-false.js';
 import { beforeRun, loadingBody, resultBar, resultCounts } from './result-states.js';
 import { coverageMarkup } from './coverage-popover.js';
 import { authorReason, blockedPreview, dataStores, previewUnavailable, recordCount, sqlSystem, storeMark, storeName } from './stores.js';
@@ -145,6 +146,15 @@ test('discovery: hooked stores, operations marked preview: false and the blocked
   assert.equal(blockedPreview(409, { code: 'preview_unavailable', store: 'redis', operation: 'INCRBY', detail: 'x' }).operation, 'INCRBY');
   assert.equal(sqlSystem({ database: 'treasury-demo.db' }), 'sqlite');
   assert.equal(storeName(sqlSystem({ database: 'orders' })), 'SQL database');
+  // database.system, when the binding reports it, beats the file-name guess.
+  assert.equal(sqlSystem({ database: { name: 'treasury-demo.db', system: 'postgresql' } }), 'postgresql');
+  assert.equal(sqlSystem({ database: { name: 'orders', system: 'mssql' } }), 'sqlserver', 'the OpenTelemetry spelling maps to SQL Server');
+  assert.equal(sqlSystem({ database: { name: 'orders', system: 'MariaDB' } }), 'mariadb');
+  assert.equal(sqlSystem({ database: { name: 'orders', system: 'oracle' } }), 'oracle', 'an id without a mark is still the provider');
+  assert.equal(sqlSystem({ database: { name: 'orders', system: 'mongodb' } }), 'sql', 'a document store is not a SQL provider');
+  assert.equal(sqlSystem({ database: { name: 'treasury-demo.db' } }), 'sqlite', 'the guess stays the fallback');
+  assert.equal(sqlSystem({ database: null }), 'sql');
+  assert.match(storeMark(sqlSystem({ database: { name: 'orders', system: 'postgresql' } })), /mk-postgresql/);
   assert.equal(recordCount('redis', 2), '2 keys');
   assert.match(storeMark('mongodb', 20), /class="mk mk-20 mk-mongodb"/);
   assert.match(storeMark('cosmosdb'), /mk-other/, 'a store without a usable mark keeps the same size with the generic glyph');
@@ -188,7 +198,7 @@ test('Preview unavailable, caught mid-request: a designed amber state, store by 
   assert.match(html, /data-action="send"[^]*data-action="traced-on"/, 'Send for real, and Send with trace when it is off');
   assert.match(html, /\[SendproofPreview\(Enabled = false, Reason = &quot;This operation writes to Redis&quot;\)\]/);
   assert.match(html, /application\/problem\+json/);
-  assert.equal(previewFalseSnippet('Preview unavailable: writes to Redis'), '[SendproofPreview(Enabled = false, Reason = "Writes to Redis")]');
+  assert.equal(previewFalseSnippet({ reason: 'Preview unavailable: writes to Redis' }), '[SendproofPreview(Enabled = false, Reason = "Writes to Redis")]');
   assert.match(blockedHeader(blockedResult), /<bdi class="ltr">409<\/bdi> <span>Preview unavailable<\/span>/);
   assert.match(blockedHeader(blockedResult), /class="resp-acts"[^]*copy-curl|class="resp-acts"/, 'Copy as cURL and Send for real travel together');
   assert.deepEqual(resultCounts(blockedResult), [undefined, '–', '–', '–', 1]);

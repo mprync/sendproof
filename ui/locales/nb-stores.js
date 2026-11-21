@@ -109,7 +109,6 @@ export default {
   "blk.authorBody": "Merk ruten med {mark}, så forklarer Forhåndsvis-knappen dette før noen kjører den.",
   "blk.copy": "Kopier",
   "blk.raw": "Svarinnhold",
-  "blk.what.snippet": "Attributt",
   "blk.tabTitle": "En blokkert forhåndsvisning beholder ingenting",
   "blk.tabBody": "Skrivevakten stoppet denne forhåndsvisningen ved {store}, så ingenting ble registrert. Send på ekte registrerer endringer, effekter og logger mens de lagres.",
   "bar.previewBlocked": "Forhåndsvisning blokkert",
