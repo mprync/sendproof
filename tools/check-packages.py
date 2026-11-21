@@ -13,6 +13,9 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 HOST = "Sendproof.AspNetCore"
 EF = "Sendproof.EntityFrameworkCore"
+# Data-store guards: each depends on the host package and brings in the store's client library.
+STORES = ("Sendproof.Redis", "Sendproof.MongoDB", "Sendproof.DynamoDB")
+PACKAGES = (HOST, EF, *STORES)
 
 
 def require(condition, message):
@@ -28,7 +31,7 @@ def inspect_package(path):
         metadata = ET.fromstring(archive.read(manifests[0])).find("{*}metadata")
         package_id = metadata.findtext("{*}id")
         version = metadata.findtext("{*}version")
-        require(package_id in (HOST, EF), f"Unexpected package {package_id}")
+        require(package_id in PACKAGES, f"Unexpected package {package_id}")
         require(path.name == f"{package_id}.{version}.nupkg", f"Wrong filename {path}")
         require(metadata.findtext("{*}license") == "MIT", f"Missing MIT license in {path.name}")
         require(metadata.findtext("{*}readme") in names, f"Missing packaged README in {path.name}")
@@ -38,10 +41,11 @@ def inspect_package(path):
         assembly = f"lib/net10.0/{package_id}"
         for extension in (".dll", ".xml"):
             require(assembly + extension in names, f"Missing {assembly}{extension}")
-        if package_id == EF:
+        require(metadata.findtext("{*}description"), f"Missing description in {path.name}")
+        if package_id != HOST:
             dep = metadata.find(f".//{{*}}dependency[@id='{HOST}']")
             require(dep is not None and dep.get("version") in (version, f"[{version}]"),
-                    f"EF package must depend on the matching {HOST} version")
+                    f"{package_id} must depend on the matching {HOST} version")
         repository = metadata.find("{*}repository")
         # tools/pack-all.mjs passes the canonical repository (from adapters/go/MODULE_PATH).
         expected = os.getenv("REPOSITORY_URL")
@@ -73,12 +77,50 @@ def copy_consumer(destination, version):
     tree.write(project, encoding="utf-8")
 
 
+def check_store_consumer(directory, version):
+    """An application that registers every data-store guard from the archives (restore, build, run)."""
+    directory.mkdir()
+    refs = "\n    ".join(f'<PackageReference Include="{name}" Version="[{version}]" />' for name in (HOST, *STORES))
+    (directory / "StoreConsumer.csproj").write_text(f"""<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    {refs}
+  </ItemGroup>
+</Project>
+""", encoding="utf-8")
+    (directory / "Program.cs").write_text("""using Sendproof.AspNetCore;
+using Sendproof.DynamoDB;
+using Sendproof.MongoDB;
+using Sendproof.Redis;
+using MongoDB.Driver;
+
+var builder = WebApplication.CreateBuilder(args);
+// A MongoClient connects lazily, so no server is needed to register and resolve it.
+builder.Services.AddSingleton<IMongoClient>(new MongoClient("mongodb://127.0.0.1:27017"));
+builder.Services.AddSendproof()
+    .WithApiName("Store consumer")
+    .AddMongoDB(mongo => mongo.WithName("catalog"))
+    .AddRedis(redis => redis.WithName("cache").WithoutDecoratingTheRegisteredMultiplexer())
+    .AddDynamoDB(dynamo => dynamo.WithName("orders"));
+using var app = builder.Build();
+// Every guard resolves from the container the way an application would use it.
+_ = app.Services.GetRequiredService<RedisStore>();
+_ = app.Services.GetRequiredService<IMongoClient>();
+Console.WriteLine("data-store guards registered");
+""", encoding="utf-8")
+
+
 def write_config(path, packages, dependencies):
     config = ET.Element("configuration")
     sources = ET.SubElement(config, "packageSources")
     ET.SubElement(sources, "clear")
     mapping = ET.SubElement(config, "packageSourceMapping")
-    for key, source, patterns in (("release", str(packages), (HOST, EF)),
+    for key, source, patterns in (("release", str(packages), PACKAGES),
                                   ("dependencies", dependencies, ("*",))):
         ET.SubElement(sources, "add", key=key, value=source)
         entry = ET.SubElement(mapping, "packageSource", key=key)
@@ -89,10 +131,10 @@ def write_config(path, packages, dependencies):
 
 def check(packages, dependencies):
     archives = sorted(packages.glob("*.nupkg"))
-    require(len(archives) == 2, f"Expected exactly two release packages in {packages}")
+    require(len(archives) == len(PACKAGES), f"Expected exactly {len(PACKAGES)} release packages in {packages}")
     versions = dict(inspect_package(path) for path in archives)
-    require(set(versions) == {HOST, EF} and len(set(versions.values())) == 1,
-            f"Expected a matching pair, got {versions}")
+    require(set(versions) == set(PACKAGES) and len(set(versions.values())) == 1,
+            f"Expected {len(PACKAGES)} packages at one version, got {versions}")
     with tempfile.TemporaryDirectory(prefix="sendproof-consumer-") as directory:
         temp = Path(directory).resolve()
         app = temp / "TreasuryApi"
@@ -110,6 +152,15 @@ def check(packages, dependencies):
                         "-m:1", "-nr:false", "-p:UseSharedCompilation=false", "-warnaserror"],
                        cwd=temp, check=True)
         subprocess.run(["dotnet", str(app / "tests/bin/Release/net10.0/TreasuryApi.Tests.dll")],
+                       cwd=temp, check=True)
+        stores = temp / "StoreConsumer"
+        check_store_consumer(stores, versions[HOST])
+        restore = ["dotnet", "restore", str(stores), "--configfile", str(config),
+                   "--packages", str(temp / "packages"), "-m:1"]
+        if dependencies:
+            restore.append("-p:NuGetAudit=false")
+        subprocess.run(restore, cwd=temp, check=True)
+        subprocess.run(["dotnet", "run", "--project", str(stores), "-c", "Release", "--no-restore"],
                        cwd=temp, check=True)
     print(f"Verified packages, symbols and consumer for {versions[HOST]}.")
 
