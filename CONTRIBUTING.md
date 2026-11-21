@@ -1,12 +1,12 @@
-# Contributing to Test Bench
+# Contributing to Sendproof
 
 Install the .NET 10 SDK to build the packages and example. Browser checks use Node.js 22 or newer and Playwright Chromium. Archive and clean-consumer checks use Python 3.10 or newer, plus each binding's own toolchain for its packages.
 
 ## Check a change
 
 ```sh
-dotnet build TestBench.slnx
-dotnet test TestBench.slnx --no-build
+dotnet build Sendproof.slnx
+dotnet test Sendproof.slnx --no-build
 node --test tests/ui/*.test.mjs ui/*.test.mjs
 npm ci --prefix tools
 npx --prefix tools playwright install chromium
@@ -14,7 +14,7 @@ node tools/browser-test.mjs
 node tools/accessibility.mjs
 ```
 
-The browser test creates and removes an isolated sample database by default. Pointing `TESTBENCH_URL` at an existing Treasury example will commit a test payment there.
+The browser test creates and removes an isolated sample database by default. Pointing `SENDPROOF_URL` at an existing Treasury example will commit a test payment there.
 
 The workflow reports the release build, .NET tests, JavaScript tests and browser checks for each operating system, and every registry's packaging and clean installation, in its run summary. Browser evidence is saved under `artifacts/browser/` and uploaded even after a failed comparison. Each comparison uses the approved mock HTML at the matching viewport. Screenshots retain real API data, so row values, enabled sign-in providers and search result counts can differ from the design fixture.
 
@@ -27,7 +27,7 @@ node tools/pack-all.mjs --verify            # build, then install each archive i
 node tools/pack-all.mjs --verify --only npm,pypi
 ```
 
-`--verify` creates a throwaway project outside the repository for each registry, installs the built archives (never the source tree) and starts a minimal application that must serve the workbench at `/bench/` and its OpenAPI document. CI runs the same command for each registry on Linux, Windows and macOS. The version comes from `Directory.Build.props` and the repository URL from `adapters/go/MODULE_PATH`. See the [publishing guide](docs/publishing.md) for releases.
+`--verify` creates a throwaway project outside the repository for each registry, installs the built archives (never the source tree) and starts a minimal application that must serve the workbench at `/sendproof/` and its OpenAPI document. CI runs the same command for each registry on Linux, Windows and macOS. The version comes from `Directory.Build.props` and the repository URL from `adapters/go/MODULE_PATH`. See the [publishing guide](docs/publishing.md) for releases.
 
 ## Choose the extension point
 

@@ -1,12 +1,12 @@
-# Test Bench
+# Sendproof
 
-Test Bench is an open-source workbench for developers who need to know what an API call will actually do. A developer signs in to their API, selects an operation from its OpenAPI document, and edits a typed form. **Preview** runs an eligible operation and returns its response, tracked database changes and recorded effects after rollback. **Send** executes the ordinary request.
+Sendproof is an open-source workbench for developers who need to know what an API call will actually do. A developer signs in to their API, selects an operation from its OpenAPI document, and edits a typed form. **Preview** runs an eligible operation and returns its response, tracked database changes and recorded effects after rollback. **Send** executes the ordinary request.
 
 ## Product decisions
 
 | Decision | Consequence for an adopter |
 | --- | --- |
-| Mount inside the API at `/bench` | The workbench shares the application's origin, authenticated session, authorization pipeline and database configuration. |
+| Mount inside the API at `/sendproof` | The workbench shares the application's origin, authenticated session, authorization pipeline and database configuration. |
 | Ship ASP.NET Core and relational EF Core first | An existing scoped `DbContext` is sufficient for the first provider. A second ORM, raw SQL integration or non-.NET framework can be added independently. |
 | Let the application choose authentication | SSO works on localhost and hosted development when the host's redirect URI is registered. Passwords, seeded personas and other methods appear according to host capabilities. |
 | Generate the workbench from the API description | Consumers install a prebuilt web UI. They do not install Node, regenerate a client, or edit a second list of endpoints. |
@@ -18,19 +18,19 @@ Test Bench is an open-source workbench for developers who need to know what an A
 For an API already using the built-in OpenAPI endpoint and EF Core:
 
 ```csharp
-builder.Services.AddTestBench()
+builder.Services.AddSendproof()
     .AddEntityFrameworkCore<TreasuryDbContext>();
 
 // With the application's ordinary API routes:
-app.MapTestBench();
+app.MapSendproof();
 ```
 
-The ASP.NET Core adapter reads `/openapi/v1.json`, discovers displayable authentication handlers, and serves the workbench in Development. Without a database provider, the API still has a request editor and Send. To enable Preview, a host marks an endpoint or a group of reviewed endpoints with `.WithTestBenchPreview()`, or places `[TestBenchPreview]` on an MVC action or controller. A database registration alone cannot establish that a handler is free of external effects.
+The ASP.NET Core adapter reads `/openapi/v1.json`, discovers displayable authentication handlers, and serves the workbench in Development. Without a database provider, the API still has a request editor and Send. To enable Preview, a host marks an endpoint or a group of reviewed endpoints with `.WithSendproofPreview()`, or places `[SendproofPreview]` on an MVC action or controller. A database registration alone cannot establish that a handler is free of external effects.
 
 Applications can register separate v1 and v2 documents in the existing API picker, point the primary URL at Swashbuckle, or serve a build artifact at a local URL. ASP.NET Core's build-time OpenAPI tooling runs the application's entry point during the build. Example startup and database seeding should account for that when enabling build-time export. Either document source drives the same renderer. [Microsoft's OpenAPI generation guide](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/aspnetcore-openapi?view=aspnetcore-10.0)
 
 ```csharp
-builder.Services.AddTestBench()
+builder.Services.AddSendproof()
     .InEnvironments("Development", "HostedDevelopment")
     .WithApiName("Treasury API")
     .WithOpenApiUrl("/swagger/v2/swagger.json")
@@ -66,22 +66,22 @@ The authenticated application principal governs authorization and data visibilit
 
 ## Preview execution and the rollback boundary
 
-1. The browser sends the real method, query, headers and body to the reserved `/bench/_preview/…` route with `Prefer: tx=rollback`. It never retries a Preview as a Send.
+1. The browser sends the real method, query, headers and body to the reserved `/sendproof/_preview/…` route with `Prefer: tx=rollback`. It never retries a Preview as a Send.
 2. The adapter identifies the original endpoint, applies the host's authorization and workbench policy, and checks its preview eligibility. Exactly one configured provider must own the request.
 3. The EF provider begins a relational transaction on the handler's scoped context. It captures tracked inserts, updates and deletes around successful saves, including generated keys. Two saves of the same row can yield two changes.
 4. The application can record an intended email, publication or webhook at its dispatch boundary and skip delivery during Preview. The preview journal holds those effects and any logs the application records for the request.
 5. The host buffers the bounded result, rolls back and disposes the session before returning the envelope. The outer status describes the preview transport. The inner status and body describe the original endpoint, including validation errors.
 
-**Coverage matters.** EF can roll back enlisted writes while showing a diff only for changes it observed. Raw SQL, database triggers and bulk updates can change rows without populating the EF change tracker. Separate connections, caches, files, calls to another service and work queued after the request require their own guarantees. Database sequences may advance through rollback. A host should enable Preview only when its complete request path meets the declared boundary. The [EF transaction guide](https://learn.microsoft.com/en-us/ef/core/saving/transactions) and [provider coverage notes](adapters/dotnet/TestBench.EntityFrameworkCore/README.md) explain the underlying guarantees.
+**Coverage matters.** EF can roll back enlisted writes while showing a diff only for changes it observed. Raw SQL, database triggers and bulk updates can change rows without populating the EF change tracker. Separate connections, caches, files, calls to another service and work queued after the request require their own guarantees. Database sequences may advance through rollback. A host should enable Preview only when its complete request path meets the declared boundary. The [EF transaction guide](https://learn.microsoft.com/en-us/ef/core/saving/transactions) and [provider coverage notes](adapters/dotnet/Sendproof.EntityFrameworkCore/README.md) explain the underlying guarantees.
 
 ## Extension architecture
 
 | Module | Public contract | Example extension |
 | --- | --- | --- |
 | Web UI | OpenAPI plus the versioned HTTP protocol | A FastAPI adapter can serve the same assets and implement capabilities and preview transport in Python. |
-| ASP.NET Core adapter | Fluent `TestBenchBuilder`, endpoint metadata, host services | A package adds its own builder extension, registers services, and returns the same builder. |
+| ASP.NET Core adapter | Fluent `SendproofBuilder`, endpoint metadata, host services | A package adds its own builder extension, registers services, and returns the same builder. |
 | Persistence | Scoped `IPreviewProvider` and disposable `IPreviewSession` | A Dapper or raw ADO.NET plugin begins a transaction on the application's own connection and exposes that same transaction to all participating commands. |
-| Effects | Scoped `TestBenchPreview` journal | An email adapter records an intended message during Preview and calls the real sender during Send. |
+| Effects | Scoped `SendproofPreview` journal | An email adapter records an intended message during Preview and calls the real sender during Send. |
 | Request controls | Schema renderer registry and OpenAPI extensions | An application-specific picker binds a label to a typed JSON value. |
 | Exports | Prepared request, credential masking, format-specific writer | Add a language without changing request construction, execution, or visual layout. |
 
@@ -89,11 +89,11 @@ A raw SQL provider must define how it enlists commands, handles cancellation and
 
 ## Features selected from other API tools
 
-Swagger UI demonstrates the adoption model teams already understand: generate an operation list from the API description and try a call in the browser. Redoc CE demonstrates searchable schemas, request examples and a three-panel reference. Both can use the same OpenAPI document as Test Bench. The reason to add a host adapter is to observe the application's real transaction and authorization path, which the description alone cannot expose. [Swagger UI](https://swagger.io/open-source/swagger-ui/) · [Redoc CE](https://redocly.com/docs/redoc)
+Swagger UI demonstrates the adoption model teams already understand: generate an operation list from the API description and try a call in the browser. Redoc CE demonstrates searchable schemas, request examples and a three-panel reference. Both can use the same OpenAPI document as Sendproof. The reason to add a host adapter is to observe the application's real transaction and authorization path, which the description alone cannot expose. [Swagger UI](https://swagger.io/open-source/swagger-ui/) · [Redoc CE](https://redocly.com/docs/redoc)
 
-Scalar already renders OpenAPI operations and examples, generates request snippets, and supports multiple client workflows. Its snippet picker is a good fit for the mock's existing **Code** tab. Test Bench exports the *edited* request as cURL, C# HttpClient or an HTTP file. It also supports multiple documents through the mock's existing API switcher. The initial proposal's claim that Scalar is the default UI in ASP.NET templates was incorrect. Microsoft includes document generation and leaves UI installation to the application. [Scalar code generation](https://scalar.com/products/api-client/code-generation) · [Scalar request examples](https://scalar.com/products/api-references/blocks/code-example) · [ASP.NET Core OpenAPI](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/aspnetcore-openapi?view=aspnetcore-10.0)
+Scalar already renders OpenAPI operations and examples, generates request snippets, and supports multiple client workflows. Its snippet picker is a good fit for the mock's existing **Code** tab. Sendproof exports the *edited* request as cURL, C# HttpClient or an HTTP file. It also supports multiple documents through the mock's existing API switcher. The initial proposal's claim that Scalar is the default UI in ASP.NET templates was incorrect. Microsoft includes document generation and leaves UI installation to the application. [Scalar code generation](https://scalar.com/products/api-client/code-generation) · [Scalar request examples](https://scalar.com/products/api-references/blocks/code-example) · [ASP.NET Core OpenAPI](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/aspnetcore-openapi?view=aspnetcore-10.0)
 
-PostgREST supplies a precedent for an explicit transaction rollback preference. Test Bench adds a separate addressed transport and a confirmation envelope so the developer can inspect the result before making a real call. [PostgREST transaction preferences](https://docs.postgrest.org/en/stable/references/api/preferences.html#transaction-end-preference)
+PostgREST supplies a precedent for an explicit transaction rollback preference. Sendproof adds a separate addressed transport and a confirmation envelope so the developer can inspect the result before making a real call. [PostgREST transaction preferences](https://docs.postgrest.org/en/stable/references/api/preferences.html#transaction-end-preference)
 
 Three additions shorten common testing loops without changing the approved designs:
 

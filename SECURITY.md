@@ -6,6 +6,6 @@ Include the package versions, host environment, authentication method, affected 
 
 ## Development deployments
 
-Test Bench uses the host application's identity and endpoint authorization. Enable it only in intended development environments. Hosted environments can require a workbench access policy and use the host's SSO. Seeded personas in the Treasury example are for disposable development data.
+Sendproof uses the host application's identity and endpoint authorization. Enable it only in intended development environments. Hosted environments can require a workbench access policy and use the host's SSO. Seeded personas in the Treasury example are for disposable development data.
 
-For reports involving Preview, identify the configured context, persistence provider and any external effects. The [transaction guide](adapters/dotnet/TestBench.EntityFrameworkCore/README.md) describes what participates in rollback.
+For reports involving Preview, identify the configured context, persistence provider and any external effects. The [transaction guide](adapters/dotnet/Sendproof.EntityFrameworkCore/README.md) describes what participates in rollback.

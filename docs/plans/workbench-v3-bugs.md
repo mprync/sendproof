@@ -1,6 +1,6 @@
 # Workbench v3: root-cause findings
 
-Investigation only. No code was changed. Reproduced in Chromium (Playwright) against the running example at `http://127.0.0.1:5189/bench/`.
+Investigation only. No code was changed. Reproduced in Chromium (Playwright) against the running example at `http://127.0.0.1:5189/sendproof/`.
 Bugs that need a signed-in user were also reproduced on a second instance of the same DLL (`:5291`, throw-away DB and `DemoKeyDirectory`, since stopped).
 Line numbers refer to the current working tree.
 
@@ -20,7 +20,7 @@ Line numbers refer to the current working tree.
 **Symptom.** Both the password form and the "Seeded accounts" persona rows show `Sign in failed (500)` (`#auth-error`).
 
 **Reproduce.**
-- Browser: open `/bench/`, click the persona chip, then submit `ada.admin@acme.dev` / `Demo123!` (seed password is `DemoData.cs:7`), or click a persona. Both give 500.
+- Browser: open `/sendproof/`, click the persona chip, then submit `ada.admin@acme.dev` / `Demo123!` (seed password is `DemoData.cs:7`), or click a persona. Both give 500.
 - curl: `curl -i -X POST http://127.0.0.1:5189/auth/login -H 'content-type: application/json' -d '{"email":"ada.admin@acme.dev","password":"Demo123!"}'` returns 500 with the exception text in the body (Development exception page).
 - Control: wrong credentials return 401 from the same host (the password check is fine).
 - Control: the same DLL started with `DemoKeyDirectory=/tmp/x/keys` returns 200 plus a `Set-Cookie` for the same request. It sets `DemoKeyDirectory`, so the only difference is the key store.

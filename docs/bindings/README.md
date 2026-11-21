@@ -1,10 +1,10 @@
 # Framework bindings
 
-Each binding serves the OpenAPI workbench from the API at `/bench/`. The workbench loads the API's existing OpenAPI document and calls the host's own authentication and request pipeline. A data provider supplies rollback and captures changes for operations the host explicitly makes eligible for Preview.
+Each binding serves the OpenAPI workbench from the API at `/sendproof/`. The workbench loads the API's existing OpenAPI document and calls the host's own authentication and request pipeline. A data provider supplies rollback and captures changes for operations the host explicitly makes eligible for Preview.
 
 | Runtime | Frameworks | Rollback provider |
 | --- | --- | --- |
-| .NET | [ASP.NET Core](../../adapters/dotnet/TestBench.AspNetCore) | [Entity Framework Core](../../adapters/dotnet/TestBench.EntityFrameworkCore) |
+| .NET | [ASP.NET Core](../../adapters/dotnet/Sendproof.AspNetCore) | [Entity Framework Core](../../adapters/dotnet/Sendproof.EntityFrameworkCore) |
 | Node.js | [Express, Fastify, Hono and NestJS](../../adapters/node) | Node SQLite, Drizzle, Knex, TypeORM and Prisma |
 | Python | [FastAPI, Django and Flask](../../adapters/python) | SQLAlchemy and Django ORM |
 | JVM | [Spring Boot and Ktor](../../adapters/java) | JPA/Hibernate and JDBC |

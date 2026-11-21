@@ -69,7 +69,7 @@ No MongoDB driver offers a documented pre-send hook: command monitoring reports 
 | --- | --- | --- |
 | Node | `mongodb` driver; Mongoose 8 | Driver: `mongoStore(client)` returns a guarded client whose `db()` and `collection()` return proxies that add `{ session }` from `AsyncLocalStorage` to every operation and refuse a foreign session. Mongoose: a global plugin whose `pre` middleware sets the Preview session on queries, documents, `aggregate` and `insertMany` (**spike**: confirm it covers `bulkWrite` and model statics). |
 | Python | `pymongo` (sync and `AsyncMongoClient`); Beanie; MongoEngine | `wrap(client)` returns proxies adding `session=` from the `ContextVar`. Beanie takes the wrapped client in `init_beanie`. MongoEngine: `connect(mongo_client_class=GuardedMongoClient)` (**spike**). |
-| .NET | `MongoDB.Driver`; `MongoDB.EntityFrameworkCore` | Driver: a decorator for the registered `IMongoClient` that returns `MongoCollectionBase<T>` subclasses routing each sessionless call to its session overload. EF Core provider: **spike** whether `Database.BeginTransaction()` is supported; if so, the existing `TestBench.EntityFrameworkCore` provider covers it unchanged. |
+| .NET | `MongoDB.Driver`; `MongoDB.EntityFrameworkCore` | Driver: a decorator for the registered `IMongoClient` that returns `MongoCollectionBase<T>` subclasses routing each sessionless call to its session overload. EF Core provider: **spike** whether `Database.BeginTransaction()` is supported; if so, the existing `Sendproof.EntityFrameworkCore` provider covers it unchanged. |
 | Java | Spring Data MongoDB; `mongodb-driver-sync` | Spring: the binding runs the Preview in a `TransactionTemplate` on `MongoTransactionManager`, marked rollback-only, so `MongoTemplate` and repositories join it natively. For guard mode, a `BeanPostProcessor` wraps `MongoDatabaseFactory` so collections are `java.lang.reflect.Proxy` guards. Plain driver: the same proxies over `MongoClient`. |
 | Kotlin | `mongodb-driver-kotlin-coroutine` | Wrapper over `MongoDatabase` and `MongoCollection`, with the session in a coroutine context element. |
 | Go | `go.mongodb.org/mongo-driver/v2` | `mongobench.Wrap(db)` returns `Database` and `Collection` wrappers with the driver's method set; in a Preview they call through `mongo.NewSessionContext(ctx, session)`. Handlers must pass `r.Context()`, as with the SQL wrapper today. |
@@ -86,15 +86,15 @@ Each binding adds one registration per store and one way to mark an operation `p
 ### .NET
 
 ```csharp
-builder.Services.AddTestBench()
+builder.Services.AddSendproof()
     .WithApiName("Inventory")
     .AddEntityFrameworkCore<AppDbContext>()
     .AddMongoDB(mongo => mongo.WithName("catalog"))              // decorates the registered IMongoClient
     .AddRedis(redis => redis.WithName("cache").TreatAsRead("MYMODULE.GET"))
     .AddDynamoDB();                                               // pipeline handler on IAmazonDynamoDB
 
-app.MapDelete("/sessions/{id}", Handler).WithTestBenchPreview(enabled: false, reason: "Clears the Redis session");
-// or [TestBenchPreview(Enabled = false, Reason = "Clears the Redis session")]
+app.MapDelete("/sessions/{id}", Handler).WithSendproofPreview(enabled: false, reason: "Clears the Redis session");
+// or [SendproofPreview(Enabled = false, Reason = "Clears the Redis session")]
 ```
 
 ### Node and TypeScript
@@ -103,17 +103,17 @@ app.MapDelete("/sessions/{id}", Handler).WithTestBenchPreview(enabled: false, re
 const catalog = mongoStore(new MongoClient(url), { name: 'catalog' }); // handlers use catalog.client
 const cache = redisStore(new Redis(redisUrl), { name: 'cache' });      // hooks the instance in place
 const orders = dynamoStore(new DynamoDBClient({}));                    // adds middleware in place
-const bench = testBench({ previewProvider: drizzlePreview(db), dataStores: [catalog, cache, orders] });
+const bench = sendproof({ previewProvider: drizzlePreview(db), dataStores: [catalog, cache, orders] });
 
 bench.operation('POST', '/items', createItem);
 bench.unavailable('DELETE', '/sessions/:id', { reason: 'Clears the Redis session', stores: ['redis'] }, deleteSession);
-// NestJS: @TestBenchPreview('DELETE', '/sessions/:id', { enabled: false, reason: '…' })
+// NestJS: @SendproofPreview('DELETE', '/sessions/:id', { enabled: false, reason: '…' })
 ```
 
 ### Python
 
 ```python
-bench = TestBench(
+bench = Sendproof(
     app,
     provider=SQLAlchemyPreview(engine, database="inventory_dev"),
     data_stores=[mongo_store(client, name="catalog"), redis_store(pool, name="cache"), dynamodb_store(boto_session)],
@@ -127,25 +127,25 @@ def delete_session(id: str): ...
 ### Java (Spring Boot) and Kotlin (Ktor)
 
 ```java
-@Bean TestBench testBench() {
-  return TestBench.builder().apiName("Inventory")
+@Bean Sendproof sendproof() {
+  return Sendproof.builder().apiName("Inventory")
       .dataStore(MongoStore.springData().name("catalog"))   // auto-configured when Spring Data MongoDB is present
       .dataStore(RedisStore.spring().name("cache"))
       .dataStore(DynamoDbStore.interceptor())               // also exposed as an ExecutionInterceptor bean
       .build();
 }
 
-@TestBenchPreview(enabled = false, reason = "Clears the Redis session")
+@SendproofPreview(enabled = false, reason = "Clears the Redis session")
 @DeleteMapping("/sessions/{id}") void deleteSession(@PathVariable String id) { … }
 ```
 
 ```kotlin
-install(TestBench) {
+install(Sendproof) {
   provider = JdbcPreviewProvider(PreviewDataSource(hikari)) { "inventory" }
   dataStores += MongoStore.coroutine(database, name = "catalog")
   dataStores += RedisStore.lettuce(connection, name = "cache")
 }
-testBenchPreview(enabled = false, reason = "Clears the Redis session") { delete("/sessions/{id}") { … } }
+sendproofPreview(enabled = false, reason = "Clears the Redis session") { delete("/sessions/{id}") { … } }
 ```
 
 ### Go
@@ -154,10 +154,10 @@ testBenchPreview(enabled = false, reason = "Clears the Redis session") { delete(
 catalog, _ := mongobench.Wrap(client.Database("catalog"), mongobench.WithName("catalog"))
 rdb.AddHook(redisbench.Hook())                                         // go-redis v9
 cfg.APIOptions = append(cfg.APIOptions, dynamobench.Middleware())      // aws-sdk-go-v2
-bench, _ := testbench.New(
-    testbench.WithProvider(db.Provider()),
-    testbench.WithDataStore(catalog.Store()), testbench.WithDataStore(redisbench.Store("cache")),
-    testbench.WithDataStore(dynamobench.Store("orders")),
+bench, _ := sendproof.New(
+    sendproof.WithProvider(db.Provider()),
+    sendproof.WithDataStore(catalog.Store()), sendproof.WithDataStore(redisbench.Store("cache")),
+    sendproof.WithDataStore(dynamobench.Store("orders")),
 )
 bench.HandlePreview(mux, "POST /items", createItem)
 bench.HandleUnavailable(mux, "DELETE /sessions/{id}", "Clears the Redis session", deleteSession)
@@ -166,36 +166,36 @@ bench.HandleUnavailable(mux, "DELETE /sessions/{id}", "Clears the Redis session"
 ### PHP
 
 ```php
-// config/testbench.php (Laravel)
+// config/sendproof.php (Laravel)
 'data_stores' => [
     'mongodb' => ['connection' => 'mongodb', 'name' => 'catalog'],
     'redis' => ['connections' => ['default'], 'name' => 'cache'],
     'dynamodb' => ['clients' => [DynamoDbClient::class]],
 ],
-Route::delete('/sessions/{id}', DeleteSession::class)->testbenchPreview(false, 'Clears the Redis session');
-// Symfony: testbench.data_stores in YAML; #[AllowPreview(false, reason: 'Clears the Redis session')]
+Route::delete('/sessions/{id}', DeleteSession::class)->sendproofPreview(false, 'Clears the Redis session');
+// Symfony: sendproof.data_stores in YAML; #[AllowPreview(false, reason: 'Clears the Redis session')]
 ```
 
 ### Ruby
 
 ```ruby
 Rails.application.configure do
-  config.test_bench.use TestBench::ActiveRecord::Provider.new(database: "inventory_dev")
-  config.test_bench.data_store TestBench::Mongoid::Store.new(name: "catalog")
-  config.test_bench.data_store TestBench::Redis::Store.new(name: "cache")       # registers redis-client middleware
-  config.test_bench.data_store TestBench::DynamoDB::Store.new(name: "orders")   # adds the Seahorse plugin
+  config.sendproof.use Sendproof::ActiveRecord::Provider.new(database: "inventory_dev")
+  config.sendproof.data_store Sendproof::Mongoid::Store.new(name: "catalog")
+  config.sendproof.data_store Sendproof::Redis::Store.new(name: "cache")       # registers redis-client middleware
+  config.sendproof.data_store Sendproof::DynamoDB::Store.new(name: "orders")   # adds the Seahorse plugin
 end
 
 class SessionsController < ApplicationController
-  test_bench_preview only: %i[create update]
-  test_bench_no_preview only: :destroy, reason: "Clears the Redis session"
+  sendproof_preview only: %i[create update]
+  sendproof_no_preview only: :destroy, reason: "Clears the Redis session"
 end
 ```
 
 ### Rust
 
 ```rust
-let bench = TestBench::new(Config::builder("Inventory")
+let bench = Sendproof::new(Config::builder("Inventory")
     .provider(PgProvider::new(pool))
     .data_store(MongoStore::new(client.database("catalog")).name("catalog"))   // handlers take a Mongo extractor
     .data_store(RedisStore::new(redis_pool).name("cache"))                      // handlers take a Redis extractor

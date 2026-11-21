@@ -1,6 +1,6 @@
-# Test Bench
+# Sendproof
 
-Test Bench mounts an OpenAPI workbench at `/bench` inside an API. Choose an operation, edit typed inputs, then use **Preview** to see its response and the database changes the provider rolls back. **Send** calls the ordinary API endpoint as the current user. See the [binding guide](docs/bindings/README.md) for framework and provider support.
+Sendproof mounts an OpenAPI workbench at `/sendproof` inside an API. Choose an operation, edit typed inputs, then use **Preview** to see its response and the database changes the provider rolls back. **Send** calls the ordinary API endpoint as the current user. See the [binding guide](docs/bindings/README.md) for framework and provider support.
 
 ![Workbench design showing the payment request builder and its rolled-back database changes](mocks/screens/01-request-default.png)
 
@@ -14,20 +14,20 @@ From a fresh clone with the .NET 10 SDK installed:
 dotnet run --project examples/TreasuryApi
 ```
 
-Open **http://localhost:5080/bench**. The API overview explains Preview and Send. Sign in as Ada Admin, select **Create payment**, and choose **Autofill → Fill required fields** (or press the wand in any field for a value within its schema, or a deliberately invalid one). Preview it and check **Database** for the rolled-back changes and **Side effects** for the held email. Send the same request to create the payment: in Development, Send is traced, so the same tabs show what was committed. Then follow **Get payment** from its response. Press **D** for an operation's Docs, open **Models** in the sidebar for every schema, and use **Display settings** (⌘, or Ctrl+,) for density, theme and language (English, German or Arabic). The sample creates its own SQLite database. Its sign-in details and database settings are in the [example guide](examples/TreasuryApi/README.md).
+Open **http://localhost:5080/sendproof**. The API overview explains Preview and Send. Sign in as Ada Admin, select **Create payment**, and choose **Autofill → Fill required fields** (or press the wand in any field for a value within its schema, or a deliberately invalid one). Preview it and check **Database** for the rolled-back changes and **Side effects** for the held email. Send the same request to create the payment: in Development, Send is traced, so the same tabs show what was committed. Then follow **Get payment** from its response. Press **D** for an operation's Docs, open **Models** in the sidebar for every schema, and use **Display settings** (⌘, or Ctrl+,) for density, theme and language (English, German or Arabic). The sample creates its own SQLite database. Its sign-in details and database settings are in the [example guide](examples/TreasuryApi/README.md).
 
 ## Packages
 
 | NuGet package | What it adds |
 | --- | --- |
-| `TestBench.AspNetCore` | The embedded workbench, authentication discovery and Preview protocol for .NET 10. |
-| `TestBench.EntityFrameworkCore` | Relational transaction rollback and tracked row changes for one scoped EF Core context. Includes the ASP.NET Core adapter as a dependency. |
+| `Sendproof.AspNetCore` | The embedded workbench, authentication discovery and Preview protocol for .NET 10. |
+| `Sendproof.EntityFrameworkCore` | Relational transaction rollback and tracked row changes for one scoped EF Core context. Includes the ASP.NET Core adapter as a dependency. |
 
 To try the first prerelease from this checkout, build both packages and install from the local feed. Keep nuget.org enabled for third-party dependencies.
 
 ```sh
 node tools/pack-all.mjs --only nuget
-dotnet add /path/to/YourApi.csproj package TestBench.EntityFrameworkCore --version 0.1.0-alpha.1 --no-restore
+dotnet add /path/to/YourApi.csproj package Sendproof.EntityFrameworkCore --version 0.1.0-alpha.1 --no-restore
 dotnet restore /path/to/YourApi.csproj --source "$PWD/artifacts/packages/nuget" --source https://api.nuget.org/v3/index.json
 ```
 
@@ -35,27 +35,27 @@ For a feed that persists across restores, see the [package guide](docs/packages.
 
 ## Add it to an API
 
-Reference `TestBench.AspNetCore` and `TestBench.EntityFrameworkCore` from the solution or a local NuGet feed. The example uses project references. For an API that already registers its OpenAPI document, authentication, and scoped EF Core context, add:
+Reference `Sendproof.AspNetCore` and `Sendproof.EntityFrameworkCore` from the solution or a local NuGet feed. The example uses project references. For an API that already registers its OpenAPI document, authentication, and scoped EF Core context, add:
 
 ```csharp
-using TestBench.AspNetCore;
-using TestBench.EntityFrameworkCore;
+using Sendproof.AspNetCore;
+using Sendproof.EntityFrameworkCore;
 
-builder.Services.AddTestBench()
+builder.Services.AddSendproof()
     .AddEntityFrameworkCore<TreasuryDbContext>();
 
 // After building the app, alongside app.MapOpenApi() and your routes:
-app.MapTestBench();
+app.MapSendproof();
 ```
 
 The workbench reads `/openapi/v1.json`. New endpoints and changed schemas appear when you reload it after rebuilding the API. The package embeds the web assets. Consumers need only the .NET tooling they already use.
 
-Preview is available for routes the application declares safe to roll back. Apply `.WithTestBenchPreview()` to a minimal API endpoint, or `[TestBenchPreview]` to an MVC action, whose writes use the registered context and whose external effects are accounted for. Remaining routes can still use Send. The [EF provider guide](adapters/dotnet/TestBench.EntityFrameworkCore/README.md) explains the scope of the database diff.
+Preview is available for routes the application declares safe to roll back. Apply `.WithSendproofPreview()` to a minimal API endpoint, or `[SendproofPreview]` to an MVC action, whose writes use the registered context and whose external effects are accounted for. Remaining routes can still use Send. The [EF provider guide](adapters/dotnet/Sendproof.EntityFrameworkCore/README.md) explains the scope of the database diff.
 
 ## Configure a hosted development API
 
 ```csharp
-builder.Services.AddTestBench()
+builder.Services.AddSendproof()
     .InEnvironments("Development", "HostedDevelopment")
     .WithOpenApiUrl("/openapi/internal.json")
     .WithAuthProvider("Company SSO", "oidc", "/account/sign-in")

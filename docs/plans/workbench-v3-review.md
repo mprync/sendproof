@@ -1,6 +1,6 @@
 # Workbench v3: first-use review
 
-A review of the live workbench (`http://127.0.0.1:5189/bench/`, Treasury example, signed out and signed in as Ada Admin) from the point of view of a developer opening it for the first time, without docs. It also covers the v2 mocks where the live app follows them. Each issue names the standard it breaks and the v3 mock that fixes it. The mocks were drafted in `mocks/v3/` and, once approved, became the reference set in `mocks/`; their screen list is in [`mocks/README.md`](../../mocks/README.md).
+A review of the live workbench (`http://127.0.0.1:5189/sendproof/`, Treasury example, signed out and signed in as Ada Admin) from the point of view of a developer opening it for the first time, without docs. It also covers the v2 mocks where the live app follows them. Each issue names the standard it breaks and the v3 mock that fixes it. The mocks were drafted in `mocks/v3/` and, once approved, became the reference set in `mocks/`; their screen list is in [`mocks/README.md`](../../mocks/README.md).
 
 How the review was done:
 
@@ -67,7 +67,7 @@ v3 fixes all three without changing the look. The type and size tokens grow, one
 | 39 | Hover-only explanations: the wand's title "Autofilled" and lock tooltips appear only on mouse hover. | WCAG 1.4.13 Content on Hover or Focus; 2.1.1 Keyboard | Medium | 23 (toggletip opens on focus and click, Esc closes) |
 | 40 | Counts and issue badges change tab widths when they appear, shifting the next tab. | Owner standard: no layout shift; WCAG 2.5.8 (moving targets risk mis-taps) | Medium | 01, 07, 22 ("–" placeholders, overlay dot) |
 | 41 | A 401 result's response body is "No response body." with no `WWW-Authenticate` or retry guidance in view. | H9; H1 | Medium | 11 |
-| 42 | The headers editor with no custom headers shows one empty "Add header" row and "0 headers will be sent", even though Test Bench sends managed headers. | H1; H2 match with the real world | Low | 36 |
+| 42 | The headers editor with no custom headers shows one empty "Add header" row and "0 headers will be sent", even though Sendproof sends managed headers. | H1; H2 match with the real world | Low | 36 |
 | 43 | Captured database values are shown as raw strings but inputs aren't localised either, so the two can't be told apart. There's no rule for which data follows the locale. | i18n: separate data from presentation | Low | 45, 46 (data invariant, chrome localised) |
 | 44 | Small targets: 24–28 px icon buttons in the URL bar, viewer bars and header rows on mobile. | WCAG 2.5.8 Target Size (Minimum) is met at 24 px; owner standard is 44 px on mobile | Medium | m01–m11 (44 px on mobile) |
 | 45 | No density or text-size setting, and no visible statement that the UI follows browser zoom. | ISO 9241-110 controllability; user engagement | Low | 05 |

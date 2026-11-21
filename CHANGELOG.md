@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-First prerelease of Test Bench. The two .NET NuGet packages share the same version.
+First prerelease of Sendproof. The two .NET NuGet packages share the same version.
 
-- Serve the workbench from `/bench`, discover host authentication and render typed forms from OpenAPI.
+- Serve the workbench from `/sendproof`, discover host authentication and render typed forms from OpenAPI.
 - Preview opted-in minimal API and MVC routes with a relational EF Core transaction. Inspect tracked rows and application-reported side effects before deciding to send.
 - Capture scoped structured logs, redacted EF Core commands, request timing and typed effects. Add optional owner-only observed Send traces to protocol v1.
 - Use examples, identity-aware lookups, command search, request history and redacted request exports.

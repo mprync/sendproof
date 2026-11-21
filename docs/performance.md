@@ -1,6 +1,6 @@
 # Performance
 
-What Test Bench costs an application, how it behaves under load, and the limits we recommend. Every number here comes from
+What Sendproof costs an application, how it behaves under load, and the limits we recommend. Every number here comes from
 the load harness in [`tests/load`](../tests/load/README.md) and can be reproduced with one command per binding.
 
 ## Summary
@@ -170,7 +170,7 @@ What the data shows:
 - The dips line up with the host's load average rising above the core count (for example 830 rps in the window where load
   reached 18 on 16 cores).
 - The Rust binding already has a regression test for the related SQLite behaviour:
-  `concurrent_sqlite_previews_queue_for_the_write_lock_instead_of_failing` in `adapters/rust/testbench-sqlx/tests/preview.rs`.
+  `concurrent_sqlite_previews_queue_for_the_write_lock_instead_of_failing` in `adapters/rust/sendproof-sqlx/tests/preview.rs`.
 
 **Verdict: a host and harness artefact, not a binding bug.** The raw data of the original run was lost when its session
 ended, so the 5 rps figure itself is unexplained; the harness now records host load per window and keeps the end of the fixture
@@ -197,7 +197,7 @@ The default rollback journal blocks readers while a writer commits and fsyncs tw
 lock by sleeping and polling rather than queueing. WAL lets readers and the writer proceed together. Go and Rust fixtures
 were already configured this way. This is a property of SQLite, not of the bench, and it also occurs with the bench disabled.
 
-Test Bench itself is correct here: Preview opens its SQLite transaction with `BEGIN IMMEDIATE`, so concurrent Previews queue
+Sendproof itself is correct here: Preview opens its SQLite transaction with `BEGIN IMMEDIATE`, so concurrent Previews queue
 for the write lock instead of failing on a lock upgrade.
 
 ### PostgreSQL Previews that install triggers lock tables
