@@ -82,7 +82,8 @@ module Sendproof
         elsif char == "#" && mysql
           index = line_end(sql, index)
           current << " "
-        elsif char == "/" && following == "*" && !executable && mysql && (opener = EXECUTABLE_COMMENT.match(sql[index, 16]))
+        elsif char == "/" && following == "*" && !executable && (opener = EXECUTABLE_COMMENT.match(sql[index, 16]))
+          # Read as SQL on every database: a stricter check elsewhere, where only MySQL runs it.
           executable = true
           index += opener[0].length
           current << " "

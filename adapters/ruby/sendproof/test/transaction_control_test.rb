@@ -54,6 +54,6 @@ class TransactionControlTest < Minitest::Test
     refute TC.ends_transaction?("SELECT E'a\\'; COMMIT; --'")
     refute TC.ends_transaction?("SELECT $$ COMMIT $$")
     refute TC.ends_transaction?("CALL p()"), "CALL is refused on MySQL and MariaDB only"
-    refute TC.ends_transaction?("/*! COMMIT */"), "only MySQL runs executable comments"
+    assert TC.ends_transaction?("/*! COMMIT */"), "executable comments are read as SQL everywhere, to stay strict"
   end
 end
