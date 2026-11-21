@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "0fc5873907404d0eb3b38b00c8d1e932d14ce6726fc3c8e43751c8de7cb97c5d",
+  "bundleHash": "25c19fe08997be9bf56de9d08fa294955bbf8bcca806025580b34d8039cd27e6",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -848,8 +848,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "views.css": {
-      "sha256": "2ee9a99037684cedf41c5ba44d479287595527f47bf5d9eaf029cc85b1997f8f",
-      "bytes": 57096,
+      "sha256": "c80282d79c220faaa5ef947acf43ebd4f5610b833bb1a2945375028d72b1a718",
+      "bytes": 57094,
       "contentType": "text/css; charset=utf-8"
     }
   }
