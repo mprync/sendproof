@@ -247,6 +247,12 @@ final class MongoEngine
             throw $this->guard->refuse("Preview owns the MongoDB transaction, so the handler's {$operation} cannot run during Preview.");
         }
         if (($state = $this->states[$recorder] ?? null) !== null) {
+            if ($state->finished) {
+                // Code still running in the Preview's request after it ended (a terminating callback, an
+                // after-response job run inline): its session is gone, so nothing may be sent at all.
+                throw $this->guard->refuse('The Preview has ended, so its MongoDB session refuses every further call.')
+                    ?? new PreviewTransactionControlException('The Preview has ended, so its MongoDB session refuses every further call.');
+            }
             $this->enforceDeadline($recorder, $state);
         }
         ['kind' => $kind, 'refusedInTransaction' => $refused] = Classifier::mongo($command, $this->reads);

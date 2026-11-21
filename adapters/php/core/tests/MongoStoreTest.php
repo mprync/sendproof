@@ -314,6 +314,31 @@ final class MongoStoreTest extends TestCase
         $this->assertSame(500, $late->status);
     }
 
+    /**
+     * Code that runs after the Preview ended but still in its request (a terminating callback, an
+     * after-response job run inline) is refused with the Preview's own error, never sent on the
+     * ended session or without one.
+     */
+    public function testACallMadeOnceThePreviewHasEndedIsRefusedNeverSent(): void
+    {
+        [$recorder, $client, $store] = $this->hooked();
+        $collection = $client->selectCollection($this->database, 'documents');
+        $result = $this->preview($recorder, [$store], function () use ($collection): void {
+            $collection->insertOne(['_id' => 'inside']);
+        });
+        $this->assertSame(200, $result->status);
+        foreach ([fn () => $collection->insertOne(['_id' => 'late']), fn () => $collection->findOne(['_id' => 'inside'])] as $late) {
+            try {
+                $late();
+                $this->fail('A call after the Preview ended must be refused.');
+            } catch (PreviewTransactionControlException $error) {
+                $this->assertStringContainsString('has ended', $error->getMessage());
+            }
+        }
+        $this->assertNull($this->documents()->findOne(['_id' => 'late']));
+        $this->assertNull($this->documents()->findOne(['_id' => 'inside']));
+    }
+
     public function testSecretsNeverReachTheLogAndSessionCommandsAreNotLogged(): void
     {
         [$recorder, $client, $store] = $this->hooked();
