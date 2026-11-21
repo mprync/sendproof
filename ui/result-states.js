@@ -5,6 +5,8 @@ import { esc, ghostRows, icon, stateBlock, statusTone } from './components.js';
 import { formatBytes, formatDuration, formatNumber, formatTime, t, th } from './i18n.js';
 import { shortcutAttrs, shortcutHint } from './shortcuts.js';
 import { inline } from './markdown.js';
+import { blockedSkeleton } from './result-blocked.js';
+import { storeMark, storeName, storeNames } from './stores.js';
 
 export const RESULT_TABS = ['Response', 'Database', 'Side effects', 'Logs', 'Headers'];
 export const resultTabLabel = tab => t('res.tab.' + tab);
@@ -29,6 +31,8 @@ export const captured = result => !!result && (result.preview || !!result.traceI
 export function resultCounts(result) {
   if (!result || result.error) return [undefined, '–', '–', '–', '–'];
   const headers = Object.keys(result.headers || {}).length;
+  // A blocked Preview kept nothing, so its capture tabs are not known rather than zero.
+  if (result.blocked) return [undefined, '–', '–', '–', headers];
   if (captured(result)) return [undefined, result.changes?.length ?? 0, result.effects?.length ?? 0, result.logs?.length ?? 0, headers];
   if (rejectedEarly(result)) return [undefined, 0, 0, '–', headers];
   return [undefined, '–', '–', '–', headers];
@@ -55,8 +59,8 @@ export function resultBar(result, { running, identity } = {}) {
   else if (result?.network || result?.error) text = t('bar.noResponse');
   else if (result) {
     const traced = !result.preview && result.traceId;
-    glyph = result.preview ? 'undo' : 'send';
-    const what = t(result.preview ? 'bar.previewRun' : traced ? 'bar.sendTraced' : 'bar.sendRun');
+    glyph = result.blocked ? 'ban' : result.preview ? 'undo' : 'send';
+    const what = t(result.blocked ? 'bar.previewBlocked' : result.preview ? 'bar.previewRun' : traced ? 'bar.sendTraced' : 'bar.sendRun');
     const time = formatTime(result.finishedAt ?? Date.now());
     text = identity ? t('bar.lastRunAs', { what, time, name: identity }) : t('bar.lastRun', { what, time });
   }
@@ -119,13 +123,18 @@ function documentedResponses(context) {
 
 /** What each tab will show before anything has run, and how to fill it. */
 export function beforeRun(tab, context) {
-  const { readOnly, canPreview } = context;
+  const { readOnly, canPreview, unavailable } = context;
+  // An operation marked preview: false says why in the body, and keeps Preview's step, marked off.
+  const offBody = unavailable && (unavailable.stores.length
+    ? t('res.before.response.previewOff', { stores: storeNames(unavailable.stores) })
+    : t('res.before.response.previewOffNoStore'));
+  const offStep = unavailable ? `<li class="step-off">${icon('flask-off', true)}<span>${esc(t('res.step.previewOff'))}</span><span class="spacer"></span>${unavailable.stores.map(store => `<span class="step-tag">${storeMark(store)}${esc(storeName(store))}</span>`).join('')}</li>` : '';
   if (tab === 'Response') return stateBlock({
     glyph: 'braces', title: esc(t('res.before.response.title')),
-    body: esc(t(readOnly ? 'res.before.response.readOnly' : canPreview ? 'res.before.response.body' : 'res.before.response.noPreview')),
+    body: esc(offBody || t(readOnly ? 'res.before.response.readOnly' : canPreview ? 'res.before.response.body' : 'res.before.response.noPreview')),
     extra: `<ol class="steps">
       ${context.fillable ? `<li>${icon('wand', true)}${esc(t('shortcut.autofill-required'))}${shortcutHint('autofill-required')}</li>` : ''}
-      ${canPreview ? `<li>${icon('flask', true)}${esc(t('res.step.preview'))}${shortcutHint('preview')}</li>` : ''}
+      ${canPreview ? `<li>${icon('flask', true)}${esc(t('res.step.preview'))}${shortcutHint('preview')}</li>` : offStep}
       <li>${icon('send', true)}${esc(t(readOnly ? 'res.step.sendReadOnly' : 'res.step.send'))}${shortcutHint(readOnly ? 'send-read-only' : 'send')}</li>
     </ol>${documentedResponses(context)}`,
   });
@@ -189,8 +198,13 @@ export const requestError = result => stateBlock({
   body: esc(result.error), why: esc(t('res.error.why')),
 });
 
-/** Skeletons that mirror the final layout of each tab while a request runs. */
-export function loadingBody(tab, preview) {
+/**
+ * Skeletons that mirror the final layout of each tab while a request runs. `blocked`: this
+ * operation's last Preview was stopped by the write guard, so the Response tab waits in the shape
+ * of the blocked state instead of the JSON viewer.
+ */
+export function loadingBody(tab, preview, { blocked = false } = {}) {
+  if (blocked && tab === 'Response') return blockedSkeleton();
   const sk = (width, height = '0.7rem', extra = '') => `<span class="sk" style="display:block;inline-size:${width};block-size:${height};${extra}"></span>`;
   if (tab === 'Database' && preview) return `<div class="result-body" aria-hidden="true">${sk('100%', '3.25rem', 'border-radius:var(--r-lg)')}
     ${[5, 2].map(rows => `<div class="table-change"><div class="tc-head">${sk('4.5rem', '1.25rem')}${sk('7rem', '0.8rem')}</div><div class="kv">${Array.from({ length: rows }, (_, i) => `<div>${sk(`${40 + (i * 7) % 30}%`)}</div><div>${sk(`${50 + (i * 11) % 40}%`)}</div>`).join('')}</div></div>`).join('')}</div>`;

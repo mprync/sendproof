@@ -8,13 +8,15 @@ import {
   notCaptured, rejectedEarly, requestError, responseHeader, resultBar, resultCounts, resultTabLabel, runningHeader,
   unauthorized, zeroState,
 } from './result-states.js';
-import { databaseMarkup } from './result-database.js';
+import { blockedHeader, blockedMarkup, blockedTab, bindBlocked } from './result-blocked.js';
+import { previewUnavailable as unavailableEntry, storeName } from './stores.js';
+import { bindDatabase, databaseMarkup } from './result-database.js';
 import { bindMatch, bindResponseViewer, matchButton, responseMarkup } from './response-viewer.js';
 import { captureMarkup, bindCapturePane } from './result-capture.js';
 import { formatRequest } from './snippets.js';
 import { copyText } from './copy.js';
 import { formatDuration, formatNumber, t } from './i18n.js';
-import { actionBar, confirmation as confirmationBar, isReadOnly, runningStatus } from './action-bar.js';
+import { actionBar, confirmation as confirmationBar, isReadOnly, previewDock, runningStatus } from './action-bar.js';
 import { tracedSendEnabled } from './settings.js';
 import { isPublic, primarySchemes } from './security.js';
 import { noteSunsetHeader } from './deprecation.js';
@@ -35,20 +37,46 @@ export function createResults({
       operation.method.toUpperCase() === state.op.method && operation.path === state.op.path);
   }
 
+  /** The operation's preview: false mark from discovery, unless it is read-only anyway. */
+  const unavailable = () => isReadOnly(state.op) ? undefined : unavailableEntry(state.op, state.cap);
+
   /** Facts the result states need to explain themselves. */
   function context() {
     const canPreview = previewAvailable();
     return {
       op: state.op, document: state.doc, readOnly: isReadOnly(state.op), canPreview, fillable: fillable(),
+      unavailable: unavailable(), capabilities: state.cap, traced: tracedSendEnabled(state.cap),
       traceAvailable: state.cap.observedSend === true && canPreview, schemaName,
       canSignIn: (state.cap.authProviders || []).length > 0,
       schemes: state.op ? primarySchemes(state.op, state.doc).map(item => item.name) : [],
     };
   }
 
+  /**
+   * The action bar and, for an operation marked preview: false, the reason docked above it. After
+   * a Preview the write guard stopped, the status says so until the next run.
+   */
   function renderBar() {
     const bar = $('.actionbar');
-    if (bar && !confirmation) bar.innerHTML = actionBar(state.op, previewAvailable());
+    const entry = unavailable();
+    const dock = $('[data-preview-dock]');
+    if (dock) {
+      dock.hidden = !entry;
+      dock.innerHTML = previewDock(entry);
+    }
+    const blocked = state.result?.blocked && state.result.operation === state.op ? storeName(state.result.blocked.store) : undefined;
+    if (bar && !confirmation) bar.innerHTML = actionBar(state.op, previewAvailable(), { unavailable: entry, blocked });
+  }
+
+  /** Preview pressed (or ⌘↵) on an operation marked preview: false: point at the reason instead. */
+  function nudgeDock() {
+    const dock = $('[data-preview-dock]');
+    if (!dock || dock.hidden) return false;
+    dock.classList.remove('is-nudged');
+    void dock.offsetWidth;
+    dock.classList.add('is-nudged');
+    dock.focus?.({ preventScroll: false });
+    return true;
   }
 
   function showProgress(preview) {
@@ -79,7 +107,7 @@ export function createResults({
   function askForConfirmation(request) {
     const bar = $('.actionbar');
     confirmation = { request, operation: state.op, documentUrl: state.documentUrl };
-    bar.innerHTML = confirmationBar(request.method, state.op.path);
+    bar.innerHTML = confirmationBar(request.method, state.op.path, unavailable()?.stores ?? []);
     setView('request');
     bar.querySelector('[data-action="cancel-confirm"]').focus();
   }
@@ -169,6 +197,7 @@ export function createResults({
         cancelConfirmation();
         request = readRequest();
       }
+      if (preview && unavailable() && nudgeDock()) return;
       if (preview && !previewAvailable()) throw new Error(t('res.previewUnavailable'));
       if (!preview && !isReadOnly(state.op) && !confirmed) {
         issues?.clear();
@@ -203,6 +232,9 @@ export function createResults({
         state.running = undefined;
         state.result = result;
         result.finishedAt = Date.now();
+        result.operation = operation;
+        // A blocked Preview's loading state mirrors the blocked result the next time it runs.
+        if (preview) state.blockedOps = { ...state.blockedOps, [`${operation.method} ${operation.path}`]: !!result.blocked };
         result.requestHeaders = redactRequestHeaders(result.requestHeaders, sensitiveNames());
         // A Sunset header (RFC 8594) dates a deprecated operation whose spec has no x-sunset.
         noteSunsetHeader(operation, result.headers);
@@ -221,6 +253,7 @@ export function createResults({
         state.history.length = Math.min(state.history.length, 50);
         $('.response').removeAttribute('aria-busy');
         renderResult();
+        if (result.blocked || preview) renderBar();
         setView('response');
         onCompleted(result, { preview, operation });
       } finally {
@@ -264,6 +297,7 @@ export function createResults({
     if (!result) return beforeRun(tab, ctx);
     if (result.network) return tab === 'Response' ? networkError(result) : beforeRun(tab, ctx);
     if (result.error) return tab === 'Response' ? requestError(result) : beforeRun(tab, ctx);
+    if (result.blocked && tab !== 'Headers') return tab === 'Response' ? blockedMarkup(result, ctx) : blockedTab(tab, result, ctx);
     const viewContext = {
       document: state.doc, operation: state.op, operations: state.ops, basePath, onFollowUp, capabilities: state.cap,
     };
@@ -284,6 +318,7 @@ export function createResults({
     if (state.running) head.innerHTML = runningHeader(state.running.preview, state.cap.identity?.name);
     else if (result?.network) head.innerHTML = networkHeader(result);
     else if (result?.error) head.innerHTML = errorHeader();
+    else if (result?.blocked) head.innerHTML = blockedHeader(result);
     else {
       // The schema match sits in the status line, after status, time and size (mock 100).
       const viewContext = { document: state.doc, operation: state.op, operations: state.ops, basePath, onFollowUp, capabilities: state.cap };
@@ -295,12 +330,16 @@ export function createResults({
     if (bar) bar.innerHTML = resultBar(result, { running: !!state.running, identity: state.cap.identity?.name });
     const panel = $('#result');
     const tab = state.resultTab;
-    if (state.running) panel.innerHTML = loadingBody(tab, state.running.preview) + `<span class="sr-only">${esc(t('res.loading'))}</span>`;
+    const wasBlocked = !!state.op && !!state.blockedOps?.[`${state.op.method} ${state.op.path}`];
+    if (state.running) panel.innerHTML = loadingBody(tab, state.running.preview, { blocked: state.running.preview && wasBlocked }) + `<span class="sr-only">${esc(t('res.loading'))}</span>`;
     else {
       panel.innerHTML = `<div class="result-body">${tabContent(tab, result, context())}</div>`;
       const container = panel.querySelector('.result-body');
       const viewContext = { document: state.doc, operation: state.op, operations: state.ops, basePath, onFollowUp, capabilities: state.cap };
-      if (result && !result.error && tab === 'Response') bindResponseViewer(container, result, viewContext);
+      if (result?.blocked && tab === 'Response') bindBlocked(container, result);
+      else if (result?.blocked && tab !== 'Headers') { /* A designed state with no captured data to bind. */ }
+      else if (result && !result.error && tab === 'Response') bindResponseViewer(container, result, viewContext);
+      else if (result && !result.error && tab === 'Database' && captured(result) && result.changes?.length) bindDatabase(container, result);
       else if (result && !result.error && showsCapture(tab, result)) bindCapturePane(container, tab, result, viewContext);
     }
     panel.scrollTop = 0;

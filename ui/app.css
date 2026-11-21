@@ -449,8 +449,365 @@ button.link { border: 0; background: none; padding: 0; font: inherit; color: var
    the viewport and the page scrolled sideways. The search trigger gives way first (its label
    already ellipsizes), then the environment's database name and the persona's name, so the bar
    always fits its row. */
-.topbar .search-trigger { flex: 0 4 auto; min-inline-size: 7rem; }
-.topbar .env { flex: 0 2 auto; min-inline-size: 0; }
-.topbar .env .ltr { min-inline-size: 2.5rem; overflow: hidden; text-overflow: ellipsis; }
-.topbar .persona { flex: 0 1 auto; min-inline-size: 0; }
-.topbar .persona .name { min-inline-size: 2.5rem; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 56rem) {
+  .topbar .search-trigger { flex: 0 4 auto; min-inline-size: 7rem; }
+  .topbar .env { flex: 0 2 auto; min-inline-size: 0; }
+  .topbar .env .ltr { min-inline-size: 2.5rem; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .persona { flex: 0 1 auto; min-inline-size: 0; }
+  .topbar .persona .name { min-inline-size: 2.5rem; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* =====================================================================
+   Data stores (spec/data-stores.md; mocks v6.css, screens 113–131 and m26–m31).
+   Workbench-only, like the rest of app.css. Logical properties throughout, so every rule mirrors right to left; data
+   (keys, values, commands, store ids) stays left to right through .ltr.
+
+   1. Store marks
+   2. Database tab: jump strip, store groups, coverage note
+   3. Document diff
+   4. Db command logs
+   5. Preview unavailable, known in advance: disabled Preview, the docked reason
+   6. Preview unavailable, caught mid-request: the blocked result
+   7. Coverage panel
+   8. Phones, narrow panes, large text and right to left
+   ===================================================================== */
+
+/* ---------- 1. Store marks ---------- */
+/* The size of the table icon they sit beside; the name is always text next to the mark. */
+.mk { display: inline-block; flex: none; inline-size: 0.875rem; block-size: 0.875rem; vertical-align: -0.125em; }
+.mk-16 { inline-size: 1rem; block-size: 1rem; }
+.mk-20 { inline-size: 1.25rem; block-size: 1.25rem; }
+.mk-28 { inline-size: 1.75rem; block-size: 1.75rem; }
+.mk-other { display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); }
+.mk-other .i { inline-size: 100%; block-size: 100%; }
+/* Each vendor's brand colour; dark mode lifts the ones that would sink into a dark panel. */
+.mk-sqlite .f { fill: #0f80cc; }
+.mk-postgresql .f { fill: #4169e1; }
+.mk-mysql .f { fill: #4479a1; }
+.mk-mariadb .f { fill: #003545; }
+.mk-mongodb .f { fill: #00a35c; }
+.mk-redis .f { fill: #ff4438; }
+.mk-cassandra .f { fill: #1287b1; }
+.mk-elasticsearch .f { fill: #005571; }
+.mk-opensearch .f { fill: #005eb8; }
+.mk-firestore .f { fill: #f57c00; }
+[data-theme="dark"] .mk-sqlite .f { fill: #3d9bdb; }
+[data-theme="dark"] .mk-postgresql .f { fill: #6d8ff0; }
+[data-theme="dark"] .mk-mysql .f { fill: #6fa3cc; }
+[data-theme="dark"] .mk-mariadb .f { fill: #c49a6c; }
+[data-theme="dark"] .mk-mongodb .f { fill: #00ed64; }
+[data-theme="dark"] .mk-redis .f { fill: #ff6b5e; }
+[data-theme="dark"] .mk-cassandra .f { fill: #4fb3d9; }
+[data-theme="dark"] .mk-elasticsearch .f { fill: #00bfb3; }
+[data-theme="dark"] .mk-opensearch .f { fill: #3d8fe0; }
+.store-label { display: inline-flex; align-items: center; gap: 0.375rem; min-inline-size: 0; }
+
+/* ---------- 2. Database tab ---------- */
+.ss { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem 0.5rem; margin-block-start: -0.125rem; }
+.ss-item { display: inline-flex; align-items: center; gap: 0.4375rem; block-size: 1.75rem; padding-inline: 0.5625rem 0.625rem; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); color: var(--text); font: 500 var(--fs-sm)/1 var(--font); white-space: nowrap; cursor: pointer; }
+.ss-item:hover { border-color: var(--line-strong); background: var(--hover); }
+.ss-item .n { color: var(--text-3); font-weight: 400; }
+.ss-note { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.375rem; font-size: var(--fs-sm); color: var(--text-3); }
+.ss-note > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; }
+.ss-st { display: inline-flex; align-items: center; gap: 0.3125rem; white-space: nowrap; }
+.sg { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; min-inline-size: 0; scroll-margin-block-start: 0.75rem; }
+.sg + .sg { margin-block-start: 0.625rem; }
+.sg-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; min-block-size: 2rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--line); }
+.sg-head h3 { margin: 0; font-size: var(--fs-base); font-weight: 600; letter-spacing: -0.005em; }
+.sg-head code { font-size: var(--fs-sm); color: var(--text-2); }
+.sg-state { display: inline-flex; align-items: center; gap: 0.3125rem; block-size: 1.375rem; padding-inline: 0.4375rem; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.sg-state.is-ok { background: var(--ok-soft); color: var(--ok); }
+.sg-count { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sg-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; min-inline-size: 0; }
+.tc-key { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-key .k { font: 400 var(--fs-xs)/1 var(--mono); color: var(--text-3); }
+.tc-key .ltr { font: 400 var(--fs-sm)/1 var(--mono); color: var(--text-2); }
+.cov { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.125rem 0 0; padding: 0.625rem 0.75rem; border-radius: var(--r-lg); border: 1px dashed var(--line-strong); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+.cov > .i { color: var(--text-3); margin-block-start: 0.1875rem; flex: none; }
+.cov code { font-size: var(--fs-xs); }
+
+/* ---------- 3. Document diff ---------- */
+.doc-card { container: doc / inline-size; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised); overflow: hidden; min-inline-size: 0; }
+.doc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5625rem; min-block-size: 2.5rem; padding: 0.375rem 0.75rem 0.375rem 0.875rem; padding-inline: 0.875rem 0.75rem; border-block-end: 1px solid var(--line); }
+.doc-head .op-badge { white-space: nowrap; }
+.doc-coll { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--fs-md)/1.3 var(--mono); color: var(--text); }
+.doc-via { display: inline-flex; align-items: center; block-size: 1.25rem; padding-inline: 0.4375rem; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--text-2); font-size: var(--fs-xs); white-space: nowrap; }
+.doc-only[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-soft); }
+.doc-only:disabled { opacity: 0.45; cursor: default; }
+.doc-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.75rem; min-block-size: 2.375rem; padding: 0.3125rem 0.75rem 0.3125rem 0.875rem; padding-inline: 0.875rem 0.75rem; border-block-end: 1px solid var(--line); background: var(--panel); }
+.doc-id { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0.125rem 0.4375rem; min-inline-size: 0; font: 400 var(--fs-sm)/1.45 var(--mono); }
+.doc-id .k { font: 500 var(--fs-xs)/1 var(--mono); color: var(--text-3); }
+.doc-id .xt-v, .doc-id .j-s { overflow-wrap: anywhere; }
+.doc-sum { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.125rem 0.875rem; font-size: var(--fs-sm); color: var(--text-2); }
+.dc { display: inline-flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
+.dc::before { content: ""; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 2px; background: currentColor; opacity: 0.9; }
+.dc.c-upd { color: var(--warn); } .dc.c-ins { color: var(--ok); } .dc.c-del { color: var(--danger); } .dc.c-same { color: var(--text-3); }
+.dc.c-same::before { display: none; }
+/* Tree rows. The marker sits in the card's own inline padding, so a depth-0 row starts exactly where
+   the head and the key bar start: nothing is inset further than the card's edge. */
+.dt { padding-block: 0.25rem; font: 400 var(--fs-md)/1.45 var(--mono); }
+.dt-row { --ind: 1.125rem; position: relative; display: grid; grid-template-columns: 0.875rem minmax(0, 1fr); align-items: start; min-block-size: 1.75rem; }
+.dt-row[hidden] { display: none; }
+.dt-mk { display: flex; align-items: center; justify-content: center; block-size: 1.75rem; font-weight: 600; font-size: var(--fs-sm); }
+/* Twisty, key, value on one row. The value has its own column and wraps inside it, so a long
+   old → new pair never drops under the field name (it did in the mock, at audit.updatedAt). */
+.dt-in { display: grid; grid-template-columns: 0.9375rem auto minmax(0, 1fr); column-gap: 0.5rem; align-items: baseline; min-inline-size: 0;
+  padding-block: 0.1875rem; padding-inline: calc(var(--d) * var(--ind)) 0.875rem;
+  background-image: repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px var(--ind)); background-size: calc(var(--d) * var(--ind)) 100%; background-repeat: no-repeat; background-position: 0.4375rem 0; }
+[dir="rtl"] .dt-in { background-image: repeating-linear-gradient(to left, var(--line) 0 1px, transparent 1px var(--ind)); background-position: calc(100% - 0.4375rem) 0; }
+.dt-tw { display: inline-flex; align-items: center; justify-content: center; align-self: center; inline-size: 0.9375rem; block-size: 1.375rem; padding: 0; border: 0; background: none; color: var(--text-3); border-radius: var(--r-sm); cursor: pointer; }
+.dt-tw:hover { color: var(--text); background: var(--hover); }
+.dt-tw .i { transition: transform 120ms var(--ease); }
+.dt-tw[aria-expanded="false"] .i { transform: rotate(-90deg); }
+[dir="rtl"] .dt-tw[aria-expanded="false"] .i { transform: rotate(90deg); }
+span.dt-tw { cursor: default; }
+.dt-k { min-inline-size: 7.5rem; color: var(--text-2); overflow-wrap: anywhere; }
+.dt-k.is-idx { color: var(--text-3); }
+.dt-k.is-idx::before { content: "["; opacity: 0.7; } .dt-k.is-idx::after { content: "]"; opacity: 0.7; }
+.is-branch .dt-k { color: var(--text); font-weight: 500; }
+.dt-v { min-inline-size: 0; overflow-wrap: anywhere; color: var(--text); }
+.dt-v.is-pair { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.5rem; }
+.dt-meta { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0 0.5rem; color: var(--text-3); font: 400 var(--fs-sm)/1.45 var(--font); }
+.dt-meta .br { font-family: var(--mono); }
+.dt-inner { display: inline-flex; align-items: center; gap: 0.3125rem; color: var(--warn); font-weight: 500; white-space: nowrap; }
+.dt-inner::before { content: ""; inline-size: 0.375rem; block-size: 0.375rem; border-radius: 50%; background: currentColor; }
+.dt-arrow { color: var(--text-3); font-family: var(--font); }
+[dir="rtl"] .dt-arrow { display: inline-block; transform: scaleX(-1); }
+/* Changed, added and removed rows are tinted end to end, with the marker in the gutter and a 2 px
+   bar on the leading edge, so changes read at a glance in a long document. */
+.dt-row.is-chg { background: color-mix(in oklch, var(--warn-soft) 92%, transparent); }
+.dt-row.is-chg .dt-mk { color: var(--warn); }
+.dt-row.is-chg .dt-k { color: var(--text); font-weight: 500; }
+.dt-old { color: var(--text-3); text-decoration: line-through; text-decoration-color: color-mix(in oklch, var(--text-3) 70%, transparent); }
+.dt-old :is(.j-s, .j-n, .j-b, .xt-v) { color: inherit; }
+.dt-old .xt-t { text-decoration: none; }
+.dt-row.is-add { background: var(--ok-soft); }
+.dt-row.is-add .dt-mk { color: var(--ok); }
+.dt-row.is-add .dt-k { color: var(--ok); font-weight: 500; }
+.dt-row.is-add.is-inherit { background: color-mix(in oklch, var(--ok-soft) 55%, transparent); }
+.dt-row.is-add.is-inherit .dt-k { color: var(--text-2); font-weight: 400; }
+.dt-row.is-del { background: var(--danger-soft); }
+.dt-row.is-del .dt-mk { color: var(--danger); }
+.dt-row.is-del .dt-k { color: var(--danger); font-weight: 500; text-decoration: line-through; }
+.dt-row.is-del .dt-v { color: var(--text-3); text-decoration: line-through; }
+.dt-row:is(.is-chg, .is-add, .is-del):not(.is-inherit)::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; inline-size: 2px; background: currentColor; }
+.dt-row.is-chg::before { color: var(--warn); } .dt-row.is-add::before { color: var(--ok); } .dt-row.is-del::before { color: var(--danger); }
+/* Inserted and deleted documents: no tint (the whole card is one operation), only the marker. */
+.is-plain-add .dt-mk { color: color-mix(in oklch, var(--ok) 75%, transparent); }
+.is-plain-del .dt-mk { color: color-mix(in oklch, var(--danger) 75%, transparent); }
+.doc-card.is-delete .dt-v, .doc-card.is-delete .dt-v .j-s { color: var(--text-2); }
+/* Values */
+.j-s { color: var(--t-string); } .j-n { color: var(--t-number); } .j-b { color: var(--t-boolean); }
+.j-null { color: var(--text-3); font-style: italic; } .j-o { color: var(--text-2); }
+.j-k { color: var(--text); } .j-k.is-op { color: var(--accent-text); font-weight: 500; } .j-p { color: var(--text-3); }
+.xt { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 0.125rem 0.375rem; max-inline-size: 100%; min-inline-size: 0; }
+.xt-t { display: inline-flex; align-items: center; align-self: center; block-size: 1.125rem; padding-inline: 0.3125rem; border-radius: var(--r-sm); background: color-mix(in oklch, var(--t-object) 11%, transparent); color: var(--t-object); font: 500 0.65625rem/1 var(--font); letter-spacing: 0.01em; white-space: nowrap; }
+.xt-v { color: var(--text); overflow-wrap: anywhere; min-inline-size: 0; }
+.redacted { display: inline-flex; align-items: center; gap: 0.3125rem; block-size: 1.25rem; padding-inline: 0.375rem 0.5rem; border-radius: var(--r-sm); border: 1px dashed var(--line-strong); color: var(--text-3); background: var(--sunken); font: 500 var(--fs-xs)/1 var(--font); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+.redacted .i { inline-size: 0.75rem; block-size: 0.75rem; }
+
+/* ---------- 4. Db command logs ---------- */
+/* With Db entries the level filter, the search and the store chips are one block that stays in
+   view while the log scrolls (they are how you find the next entry). */
+.log-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; min-inline-size: 0; }
+.log-filters.has-queries { position: sticky; inset-block-start: 0; z-index: 3; margin-block: -1.25rem 0; padding-block: 1.25rem 0.75rem; background: var(--panel); }
+.qf { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem; }
+.qf-l { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); margin-inline-end: 0.125rem; }
+.qc { display: inline-flex; align-items: center; gap: 0.375rem; block-size: 1.75rem; padding-inline: 0.5rem 0.5625rem; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised); color: var(--text-2); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; white-space: nowrap; }
+.qc[aria-pressed="true"] { border-color: color-mix(in oklch, var(--accent) 38%, var(--line)); background: var(--accent-soft); color: var(--text); }
+.qc .n { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.qc .i { color: var(--text-3); }
+/* With Db entries the table keeps the pane's width and long messages end in an ellipsis (mock 119),
+   instead of widening every row to the longest command. */
+.logs[style*="--lvl-w"] .logs-inner { inline-size: auto; }
+/* The level column fits the longest store name in this log (--lvl-w, set by result-logs.js). */
+.logs[style*="--lvl-w"] .log-row { grid-template-columns: 1.125rem 2.5rem var(--lvl-w) 2.2rem 7.25rem minmax(0, 1fr); }
+.lvl-db .lvl { inline-size: auto; min-inline-size: 2.4rem; padding-inline: 0.3125rem; color: var(--patch); background: var(--patch-bg); white-space: nowrap; }
+.src-store { display: inline-flex; align-items: center; gap: 0.375rem; min-inline-size: 0; max-inline-size: 100%; }
+.src-store > span { overflow: hidden; text-overflow: ellipsis; }
+.log-row.is-db .msg { display: flex; align-items: baseline; gap: 0.625rem; min-inline-size: 0; }
+.dbm { flex: none; font: 400 var(--fs-sm)/1.4 var(--mono); color: var(--text-2); }
+.dbm b { color: var(--text); font-weight: 600; }
+.dbs { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; font: 400 var(--fs-xs)/1.4 var(--mono); color: var(--text-3); }
+.log-badge.is-blocked { display: inline-flex; align-items: center; gap: 0.25rem; flex: none; align-self: center; block-size: 1.25rem; padding-inline: 0.375rem; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn); font: 600 var(--fs-xs)/1 var(--font); }
+.log-blocked { display: flex; align-items: flex-start; gap: 0.4375rem; margin: 0; color: var(--warn); font-size: var(--fs-sm); line-height: 1.45; }
+.log-blocked .i { flex: none; margin-block-start: 0.125rem; }
+.log-detail .log-props { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+.log-detail .log-props > div { min-inline-size: 0; }
+.log-detail .log-props dd { overflow-wrap: anywhere; }
+.cmd { border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
+.cmd-bar { display: flex; align-items: center; gap: 0.4375rem; min-block-size: 2rem; padding-inline: 0.8rem; border-block-end: 1px solid var(--line); background: var(--panel); font-size: var(--fs-xs); color: var(--text-2); }
+.cmd .cmd-text { margin: 0; border: 0; border-radius: 0; line-height: 1.65; max-block-size: 14rem; overflow: auto; }
+.ph { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.125rem; block-size: 1.0625rem; padding-inline: 0.1875rem; border-radius: 0.25rem; background: var(--sunken); border: 1px solid var(--line); color: var(--text-3); font: 600 0.6875rem/1 var(--mono); vertical-align: 0.0625rem; }
+.rc-c { color: var(--accent-text); font-weight: 600; }
+.rc-k { color: var(--t-string); }
+.prm { border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); overflow: hidden; }
+.prm-h { display: flex; align-items: center; flex-wrap: wrap; gap: 0.125rem 0.375rem; min-block-size: 2rem; padding: 0.25rem 0.8rem; border-block-end: 1px solid var(--line); font-size: var(--fs-xs); font-weight: 500; color: var(--text-2); }
+.prm-h .faint { font-weight: 400; }
+.prm .params { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0; margin: 0; }
+.prm .params :is(dt, dd) { margin: 0; padding: 0.3125rem 0.8rem; border-block-start: 1px solid var(--line); min-inline-size: 0; overflow-wrap: anywhere; }
+.prm .params :is(dt, dd):nth-child(-n + 2) { border-block-start: 0; }
+.prm .params dd { color: var(--text); }
+.prm-note { display: flex; align-items: flex-start; gap: 0.4375rem; margin: 0; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.45; }
+.prm-note .i { flex: none; margin-block-start: 0.125rem; }
+
+/* ---------- 5. Preview unavailable, known in advance ---------- */
+/* The reason docks right above the action bar and takes its own space (the pane above shrinks),
+   so it never covers the form's help text. Its caret points at the disabled Preview button. */
+.pv-dock { position: relative; display: flex; align-items: flex-start; gap: 0.75rem; flex: none; padding: 0.75rem 1rem 0.8125rem var(--pad); padding-inline: var(--pad) 1rem; border-block-start: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line)); background: var(--warn-soft); outline: none; }
+.pv-dock[hidden] { display: none; }
+.pv-dock:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.pv-dock.is-nudged { animation: pv-nudge 600ms var(--ease); }
+@keyframes pv-nudge { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-3px); } 40%, 80% { transform: translateX(3px); } }
+@media (prefers-reduced-motion: reduce) { .pv-dock.is-nudged { animation: none; box-shadow: inset 0 0 0 2px var(--warn); } }
+.pv-tile { display: inline-flex; align-items: center; justify-content: center; flex: none; inline-size: 2.25rem; block-size: 2.25rem; border-radius: var(--r); background: var(--raised); border: 1px solid color-mix(in oklch, var(--warn) 22%, var(--line)); box-shadow: var(--shadow-sm); color: var(--warn); }
+.pv-text { display: grid; gap: 0.1875rem; min-inline-size: 0; }
+.pv-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.5rem; margin: 0; font-size: var(--fs-base); line-height: 1.4; color: var(--text); }
+.pv-title strong { font-weight: 600; color: var(--warn); }
+.pv-reason { font-weight: 500; overflow-wrap: anywhere; }
+.pv-sub { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-2); }
+.pv-by { color: var(--text-3); }
+.pv-by code { font-size: var(--fs-xs); }
+.pv-more { display: none; padding: 0; border: 0; background: none; color: var(--accent-text); font: 500 var(--fs-sm)/1.5 var(--font); text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer; }
+/* Physical borders: rotated 45°, right + bottom always make a downward point, in LTR and RTL. */
+.pv-caret { position: absolute; inset-block-end: -0.4375rem; inset-inline-end: calc(1rem + var(--w-preview, 10em) / 2 - 0.4375rem); inline-size: 0.875rem; block-size: 0.875rem; background: var(--warn-soft); border-right: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line)); border-bottom: 1px solid color-mix(in oklch, var(--warn) 30%, var(--line)); transform: rotate(45deg); z-index: 1; }
+.actionbar .btn-preview.is-unavailable { background: var(--sunken); border: 1px dashed color-mix(in oklch, var(--warn) 45%, var(--line-strong)); color: var(--text-3); box-shadow: none; cursor: not-allowed; }
+.actionbar .btn-preview.is-unavailable .i { color: var(--warn); }
+.actionbar .status.is-blocked { color: var(--warn); }
+.actionbar .status.is-confirm-store { color: var(--text); }
+.actionbar .status.is-confirm-store > .i { color: var(--warn); flex: none; }
+.nav-item .trail .no-preview { color: var(--warn); }
+.steps .step-off { color: var(--text-3); }
+.steps .step-off > .i { color: var(--warn); }
+.step-tag { display: inline-flex; align-items: center; gap: 0.3125rem; block-size: 1.375rem; padding-inline: 0.4375rem; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--raised); color: var(--text-2); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+
+/* ---------- 6. Preview unavailable, caught mid-request ---------- */
+.status-code.warn.is-blocked { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--warn); min-inline-size: 0; }
+.status-code.warn.is-blocked .i { color: var(--warn); }
+/* Copy as cURL and Send for real travel together, so the copy button never sits alone on a row. */
+.resp-acts { display: inline-flex; align-items: center; gap: 0.5rem; flex: none; margin-inline-start: auto; }
+.blk { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; max-inline-size: 40rem; min-inline-size: 0; }
+.blk-top { display: flex; gap: 1rem; align-items: flex-start; padding-block-start: 0.25rem; }
+.blk-tile { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; inline-size: 3.25rem; block-size: 3.25rem; border-radius: var(--r-lg); background: var(--raised); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.blk-badge { position: absolute; inset-block-end: -0.375rem; inset-inline-end: -0.375rem; display: inline-flex; align-items: center; justify-content: center; inline-size: 1.375rem; block-size: 1.375rem; border-radius: 50%; background: var(--warn); color: var(--panel); box-shadow: 0 0 0 2px var(--panel); }
+.blk-badge .i { inline-size: 0.8125rem; block-size: 0.8125rem; stroke-width: 2.4; }
+.blk-lede { display: grid; gap: 0.3125rem; min-inline-size: 0; }
+.blk-eyebrow { margin: 0; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warn); }
+:root:is(:lang(ar), :lang(fa), :lang(he), :lang(hi), :lang(th), :lang(ja), :lang(ko), :lang(zh)) .blk-eyebrow { letter-spacing: 0; text-transform: none; font-size: var(--fs-sm); }
+.blk-lede h3 { margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.012em; line-height: 1.3; }
+.blk-lede p:not(.blk-eyebrow) { margin: 0; font-size: var(--fs-base); line-height: 1.55; color: var(--text-2); }
+.blk-lede code { font-size: var(--fs-sm); }
+.blk-safe { border: 1px solid color-mix(in oklch, var(--ok) 28%, var(--line)); border-radius: var(--r-lg); background: var(--raised); overflow: hidden; }
+.blk-safe-h { display: flex; align-items: center; gap: 0.5rem; margin: 0; min-block-size: 2.5rem; padding-inline: 0.875rem; background: var(--ok-soft); color: var(--ok); font-size: var(--fs-base); }
+.blk-safe-h strong { font-weight: 600; }
+.blk-safe ul { list-style: none; margin: 0; padding: 0; }
+.blk-safe li { display: flex; align-items: center; flex-wrap: wrap; gap: 0.125rem 0.625rem; min-block-size: 2.5rem; padding: 0.375rem 0.875rem; border-block-start: 1px solid var(--line); }
+.blk-safe .nm { font-size: var(--fs-base); color: var(--text); font-weight: 500; }
+.blk-safe .nm code { margin-inline-start: 0.25rem; font-size: var(--fs-xs); font-weight: 400; color: var(--text-2); }
+.blk-safe .st { display: inline-flex; align-items: center; gap: 0.375rem; margin-inline-start: auto; font-size: var(--fs-sm); color: var(--text-2); }
+.blk-safe .st .i { flex: none; }
+.blk-safe .st.is-block { color: var(--warn); font-weight: 500; }
+.blk-safe .st code { font-size: var(--fs-xs); }
+.blk-note { margin: 0; padding: 0.5rem 0.875rem 0.625rem; border-block-start: 1px solid var(--line); font-size: var(--fs-sm); color: var(--text-3); background: var(--panel); }
+.blk-next { display: grid; gap: 0.75rem; }
+.blk-next h4 { margin: 0; font-size: var(--fs-base); font-weight: 600; }
+.blk-step { display: flex; gap: 0.75rem; align-items: flex-start; }
+.blk-step .n { display: inline-flex; align-items: center; justify-content: center; flex: none; inline-size: 1.375rem; block-size: 1.375rem; border-radius: 50%; border: 1px solid var(--line-strong); font-size: var(--fs-xs); font-weight: 600; color: var(--text-2); margin-block-start: 0.25rem; }
+.blk-step .grow { display: grid; gap: 0.4375rem; justify-items: start; min-inline-size: 0; }
+.blk-step p { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-2); }
+.blk-acts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.blk-step .blk-author { font-size: var(--fs-base); color: var(--text); }
+.blk-author strong { font-weight: 600; margin-inline-end: 0.25rem; }
+.blk-author code { font-size: var(--fs-sm); }
+.blk-code { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 0.25rem; inline-size: 100%; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunken); padding-inline-end: 0.25rem; }
+.blk-lang { grid-column: 1 / -1; padding: 0.375rem 0.75rem 0; font: 500 var(--fs-xs)/1 var(--font); color: var(--text-3); }
+.blk-code pre { margin: 0; padding: 0.375rem 0.75rem 0.5rem; font: 400 var(--fs-sm)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.blk-raw { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised); overflow: hidden; }
+.blk-raw-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; min-block-size: 2.25rem; padding: 0.25rem 0.5rem 0.25rem 0.875rem; padding-inline: 0.875rem 0.5rem; border-block-end: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm); }
+.blk-raw-bar > span:first-child { font-weight: 500; color: var(--text-2); }
+.blk-raw-bar code { font-size: var(--fs-xs); color: var(--text-3); }
+.blk-raw pre { margin: 0; padding: 0.75rem 0.875rem; font: 400 var(--fs-sm)/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- 7. Coverage panel ---------- */
+.env > .i { color: var(--text-3); }
+button.env:hover { border-color: var(--line-strong); background: var(--hover); }
+.cov-pop { inline-size: min(26rem, calc(100vw - 1.5rem)); }
+.cov-list { list-style: none; margin: 0; padding: 0.25rem 0; }
+.cov-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.625rem; padding: 0.5rem 0.875rem; }
+.cov-row .stack { display: grid; gap: 0.125rem; min-inline-size: 0; }
+.cov-row .main { font-size: var(--fs-base); font-weight: 500; color: var(--text); }
+.cov-row .main code { font-size: var(--fs-xs); font-weight: 400; color: var(--text-2); }
+.cov-row .sub { font-size: var(--fs-sm); color: var(--text-3); line-height: 1.4; }
+.mode-pill { display: inline-flex; align-items: center; gap: 0.3125rem; block-size: 1.375rem; padding-inline: 0.4375rem; border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.mode-pill.is-preview { background: var(--accent-soft); color: var(--accent-text); }
+.mode-pill.is-guard { background: var(--warn-soft); color: var(--warn); }
+.cov-foot { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0; padding: 0.625rem 0.875rem 0.75rem; border-block-start: 1px solid var(--line); background: var(--panel); font-size: var(--fs-sm); line-height: 1.45; color: var(--text-2); }
+.cov-foot .i { flex: none; margin-block-start: 0.125rem; color: var(--text-3); }
+
+/* ---------- 8. Phones, narrow panes, large text, right to left ---------- */
+/* A narrow card (a phone, or a narrow result pane): the value moves under its key and old sits
+   over new, so nothing scrolls sideways at 320 px or at 130% text. */
+@container doc (max-width: 30rem) {
+  .dt-row { --ind: 0.75rem; }
+  .dt-in { grid-template-columns: 0.9375rem minmax(0, 1fr); row-gap: 0.0625rem; }
+  .dt-k { min-inline-size: 0; }
+  .dt-row:not(.is-branch) .dt-v { grid-column: 2; }
+  .is-branch .dt-meta { grid-column: 2; }
+  .dt-row.is-chg .dt-v.is-pair { display: grid; gap: 0.125rem; }
+  .dt-row.is-chg .dt-arrow { display: none; }
+  .dt-row.is-chg .dt-old::before { content: "− "; display: inline-block; white-space: pre; text-decoration: none; }
+  .dt-row.is-chg .dt-new::before { content: "+ "; display: inline-block; white-space: pre; color: var(--warn); }
+  .doc-id { flex-basis: 100%; }
+  /* Changes only becomes its icon; the view switch takes its own full-width row. */
+  .doc-only .lbl { display: none; }
+  .doc-head .doc-views { order: 9; flex: 1 1 100%; }
+  .doc-head .doc-views button { flex: 1; }
+}
+@container result (max-width: 28rem) {
+  .logs[style*="--lvl-w"] .log-row { grid-template-columns: 1.125rem var(--lvl-w) minmax(0, 1fr); }
+}
+@media (max-width: 56rem) {
+  /* A phone has no room for a sticky filter block; it scrolls with the log, and the chips wrap. */
+  .log-filters.has-queries { position: static; margin-block: 0; padding-block: 0; }
+  .qf-l { flex-basis: 100%; }
+  .qc { min-block-size: 2.75rem; }
+  .logs[style*="--lvl-w"] .log-row { grid-template-columns: 1.125rem var(--lvl-w) minmax(0, 1fr); }
+  .log-row.is-db .msg { display: grid; gap: 0.125rem; white-space: normal; }
+  .log-row.is-db .dbs { white-space: nowrap; }
+  .prm .params { grid-template-columns: minmax(0, 1fr); }
+  .prm .params dd { border-block-start: 0; padding-block-start: 0; }
+  .cmd .cmd-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ss-note { flex-basis: 100%; }
+  /* The docked reason keeps its title and the author's reason; "Why?" opens the rest. */
+  .pv-dock { padding: 0.75rem 0.875rem; gap: 0.625rem; }
+  .pv-why { display: none; }
+  .pv-dock.is-open .pv-why { display: inline; }
+  .pv-more { display: inline; }
+  .pv-caret { inset-inline-end: 25%; }
+  .resp-head .status-code.is-blocked { flex-basis: 100%; }
+  .resp-head .resp-acts { order: 4; }
+  .blk-top { gap: 0.875rem; }
+  .blk-tile { inline-size: 2.75rem; block-size: 2.75rem; }
+  .blk-tile .mk-28 { inline-size: 1.5rem; block-size: 1.5rem; }
+  .blk-lede h3 { font-size: var(--fs-lg); }
+  .blk-safe .st { margin-inline-start: 1.625rem; flex-basis: 100%; }
+  .blk-safe li { padding-block: 0.5rem; }
+  .blk-acts, .blk-acts .btn { inline-size: 100%; justify-content: center; }
+  .blk-acts .btn .kbd { display: none; }
+}
+
+/* ---------- Shell fixes found while building v6 (they apply everywhere) ---------- */
+/* The result head row never pushes past its pane: when status, time, size, the schema match,
+   Copy as cURL and the next step don't fit, the schema match's label gives way first. */
+.resp-head > .match { flex: 0 1 auto; min-inline-size: 1.75rem; overflow: hidden; }
+.resp-head > .match > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Durations: Geist Mono has no Arabic, Hebrew, Devanagari, Thai or CJK letters, and a monospaced
+   fallback stretched Arabic "ms" into spaced-out letters (m31). Those scripts use the UI font, with
+   tabular digits so the numbers still line up. */
+:root:is(:lang(ar), :lang(fa), :lang(he), :lang(hi), :lang(th), :lang(ja), :lang(ko), :lang(zh)) .metric { font-family: var(--font); font-variant-numeric: tabular-nums; }
+/* "–" (not run yet) sits next to its tab's label instead of floating midway to the next tab; the
+   slot keeps its width, so tabs don't move when the count arrives. */
+.tab .n.unknown { place-items: center start; padding-inline: 0.0625rem; }
+/* An API name in a right-to-left layout keeps its own direction, so a long one is shortened at its
+   end ("Acme Trea…"), not its start ("…easury API"). */
+.api-switch > .name { display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

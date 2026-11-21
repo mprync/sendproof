@@ -1,3 +1,5 @@
+import { blockedPreview } from './stores.js';
+
 const methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'];
 
 /** Resolve a local OpenAPI Reference Object without requesting external documents. */
@@ -212,6 +214,15 @@ export async function execute(request, preview, basePath, signal, { observedSend
     serverTiming: response.headers.get('Server-Timing') || undefined,
   };
   if (preview) {
+    // The write guard stopped the Preview (spec/data-stores.md): a designed result, not an error.
+    // Nothing ran to completion, so there are no captured changes, effects or logs to show.
+    const blocked = blockedPreview(response.status, body);
+    if (blocked) {
+      return {
+        status: response.status, headers: Object.fromEntries(response.headers), body, raw, blocked,
+        changes: [], effects: [], logs: [], ...metadata, size: byteCount(raw), preview: true,
+      };
+    }
     if (!response.ok || body?.rolledBack !== true || !Number.isInteger(body.status)) {
       throw new Error('Preview was not acknowledged as rolled back (HTTP ' + response.status + '). ' + (body?.title || ''));
     }
