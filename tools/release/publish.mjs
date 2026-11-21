@@ -203,7 +203,7 @@ async function publishMaven(source, release) {
  * mirror repository (as Symfony and Laravel do): the release tree from the verified ZIP becomes one
  * commit on the mirror's main branch, tagged with the version. Packagist's GitHub hook on each mirror
  * picks the tag up. Mirrors: <owner>/<repo>-php-<package>, overridable with PACKAGIST_SPLIT_PREFIX
- * (e.g. "acme/sendproof-php-"). Needs GH_SPLIT_TOKEN with contents:write on the mirrors.
+ * (e.g. "mprync/sendproof-php-"). Needs GH_SPLIT_TOKEN with contents:write on the mirrors.
  */
 async function publishPackagist(zips) {
   const repository = parseRepository(`${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY ?? 'owner/repo'}`);
