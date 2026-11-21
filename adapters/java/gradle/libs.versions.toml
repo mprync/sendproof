@@ -8,6 +8,9 @@ ktor = "3.6.1"
 coroutines = "1.10.2"
 jackson = "2.19.4"
 slf4j = "2.0.18"
+mongodb = "5.5.2"
+awssdk = "2.31.78"
+lettuce = "6.6.0.RELEASE"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
@@ -16,6 +19,11 @@ datasource-proxy = { module = "net.ttddyy:datasource-proxy", version.ref = "data
 
 jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jackson" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+mongodb-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
+mongodb-reactivestreams = { module = "org.mongodb:mongodb-driver-reactivestreams", version.ref = "mongodb" }
+mongodb-kotlin = { module = "org.mongodb:mongodb-driver-kotlin-coroutine", version.ref = "mongodb" }
+awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk" }
+lettuce = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
 ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
 
 [plugins]

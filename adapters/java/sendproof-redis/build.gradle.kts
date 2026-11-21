@@ -1,0 +1,1 @@
+description = "Redis write guard."

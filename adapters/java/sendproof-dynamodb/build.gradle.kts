@@ -1,0 +1,1 @@
+description = "DynamoDB write guard."
