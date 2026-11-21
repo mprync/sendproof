@@ -43,10 +43,12 @@ Open `http://localhost:3000/bench/`.
 
 * **Off by default.** Nothing is served unless the configured environment is in `enable_in`. When disabled, `/bench/**` and previews answer as if absent and ordinary routes are untouched.
 * **Explicit opt-in per operation.** Only operations declared with `preview_operation` can run in a preview, and each is checked three times: before dispatch, by the gate on the matched route, and by the data layer, which refuses to run an unenrolled preview.
-* **Real authorization.** The rewritten request goes through your router and middleware in-process; the gate runs after your auth layers.
+* **Real authorization.** The rewritten request goes through your router and middleware in-process; the gate runs after your auth layers. A `workbench_policy` gates previews too, not only the workbench and observed sends.
+* **Gate every route.** A route the gate does not wrap answers a preview with `409` and logs a warning; effects recorded through `testbench_core::capture` are suppressed even there, but anything else such a handler does is real.
+* **No commit escapes a preview.** Named queries that would end the transaction are refused, and SQLite and PostgreSQL also refuse raw commits (see `testbench-sqlx`).
 * **Real rollback, independently checked.** SQL runs in a real transaction that is rolled back; the envelope is returned only after the rollback succeeds. A failed rollback, panic, oversized response (>1 MiB), or an unauthorized/unknown target never yields a confirmed result.
 * **Observed Send** needs an authenticated identity with a stable `subject`; traces are owner-only, kept 5 minutes by default (`trace_retention`), 8 per owner and 32 per host.
-* Capture is bounded (500 logs, 100 effects, 200 changes) and SQL parameter values follow redaction rules (`password`, `token`, `api_key`, ... are `[REDACTED]`; values are only shown when `include_sql_parameter_values` is on, which defaults to `Development`).
+* Capture is bounded (500 logs, 100 effects, 200 changes) and SQL parameter values follow redaction rules (`password`, `token`, `api_key`, ... are `[REDACTED]`; values are only shown when `include_sql_parameter_values` is on, which defaults to `Development`). The same rules hide secret-named columns in change snapshots and secret-named fields of captured `tracing` events.
 
 ## Build and test
 

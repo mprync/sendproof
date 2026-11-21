@@ -29,9 +29,14 @@ let provider = PgProvider::new(pool.clone()).database("inventory");
 ## What every backend guarantees
 
 * **Rollback**: `begin_preview` starts a transaction on a pooled connection and hands it to the handler through request extensions. After the handler, the transaction is rolled back. The envelope is returned only once the rollback succeeds.
-* **The transaction must still be the preview's**: a savepoint (`testbench_guard`) is taken when the preview begins and rolled back to just before the final rollback. If the handler ended the transaction (a raw `COMMIT`, or a MySQL statement that commits implicitly, such as DDL), that savepoint is gone. The preview then answers `500` without claiming a rollback.
+* **The handler cannot commit the preview**:
+  * A named query (`conn.query`) that would end the transaction is refused before it runs, with `DbError::Query`: `COMMIT`, `END`, `ROLLBACK` (but not `ROLLBACK TO`), `BEGIN`/`START`, and PostgreSQL two-phase commit. On MySQL every statement that commits implicitly is refused too: only reads, DML, `SET` (except `autocommit`), savepoints and temporary tables run; DDL, `LOCK TABLES` and `CALL` (a procedure may commit) do not. Observed sends run these statements normally.
+  * Raw SQLx statements on SQLite cannot commit either: a commit hook turns every commit on the preview's connection into a rollback. On PostgreSQL a deferred constraint trigger makes a raw `COMMIT` fail and roll everything back.
+  * **MySQL limit**: a *raw* SQLx statement that commits (explicitly or implicitly, such as DDL) cannot be stopped, and the writes before it become permanent. Run handler SQL through `conn.query` on MySQL. The same holds on PostgreSQL for a raw `ROLLBACK` followed by raw writes.
+  * As a last check, a savepoint (`testbench_guard`) is taken when the preview begins and rolled back to just before the final rollback. If the transaction ended anyway, that savepoint is gone, and the preview answers `500` without claiming a rollback.
 * **Nested transactions**: `conn.begin()` returns a `DbTransaction` (a savepoint inside the preview). Its `query`, `commit` and `rollback` work as you would expect. Rolling it back, or dropping it uncommitted, also removes its changes from the capture.
 * **Ordered changes**: changes are reported in the order they happened, capped at 200. Past the cap, or whenever the backend knows rows are missing from the list, the envelope sets `changesTruncated`.
+* **Secret columns in changes**: in `before`, `after` and `key`, the values of secret-named columns (`password_hash`, `api_key`, `refresh_token`, …, by the same whole-word rules) are shown as `[REDACTED]`.
 * **SQL capture and redaction**: `conn.query("... :name ...").bind("name", v)` reports each statement once, with its parameter names, values, duration and rows affected. Values are shown only when `include_sql_parameter_values` is on, and are always `[REDACTED]` when the parameter name or the statement looks secret (`password`, `token`, `api_key`, …). The provider's own bookkeeping statements never appear in the capture.
 * **Safety**: a preview or observed request that reaches `Db` without being enrolled fails with `DbError::NotEnrolled` before anything runs.
 * **Disposal**: every capture is removed when its request ends, including when the handler fails. A connection that could not be cleaned is closed rather than returned to the pool.
@@ -88,7 +93,7 @@ The server tests run only when `BENCH_POSTGRES_URL` or `BENCH_MYSQL_URL` points 
 * bulk statements;
 * nested transactions (rolled back, dropped and committed);
 * a handled failed statement inside a preview;
-* a `COMMIT` or implicit commit inside a preview, which must not be confirmed;
+* a `COMMIT` or implicit commit inside a preview, which must not be confirmed (and, on SQLite and PostgreSQL, must not persist), and a named one, which is refused before it runs;
 * an observed send with a concurrent writer on another connection;
 * two overlapping observed sends;
 * connections reused across many requests;

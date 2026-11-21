@@ -16,15 +16,16 @@ edition = "2024"
 rust-version = "1.94"
 license = "MIT"
 authors = ["Test Bench contributors"]
-repository = "https://github.com/test-bench/test-bench"
 keywords = ["openapi", "api-testing", "axum", "actix-web", "rollback"]
 categories = ["development-tools::testing", "web-programming"]
 
+# The testbench-* entries carry no version here; tools/release/crates.mjs stamps the release version
+# (and the repository and homepage URLs) into a staged copy when it packs the crates.
 [workspace.dependencies]
-testbench-core = { path = "testbench-core", version = "0.1.0-alpha.1" }
-testbench-actix = { path = "testbench-actix", version = "0.1.0-alpha.1" }
-testbench-axum = { path = "testbench-axum", version = "0.1.0-alpha.1" }
-testbench-sqlx = { path = "testbench-sqlx", version = "0.1.0-alpha.1" }
+testbench-core = { path = "testbench-core" }
+testbench-actix = { path = "testbench-actix" }
+testbench-axum = { path = "testbench-axum" }
+testbench-sqlx = { path = "testbench-sqlx" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 http = "1"
