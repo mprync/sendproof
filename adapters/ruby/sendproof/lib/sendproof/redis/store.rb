@@ -12,8 +12,9 @@ module Sendproof
     #
     # *Coverage.* +RedisClient.register+ is process-wide, so by default every +redis-client+ (and +redis+
     # 5) client in the process is guarded, including ones created later. Pass +global: false+ and add
-    # {#middleware} to a single client's +middlewares:+ to cover only that client. Not covered: clients of
-    # other libraries, +pubsub+ connections (which bypass the middleware), and raw sockets. Sidekiq
+    # {#middleware} to a single client's +middlewares:+ to cover only that client. A +pubsub+ connection
+    # writes straight to its socket, past the middleware, so its +call+ and +call_v+ are guarded too, for
+    # the clients the store covers. Not covered: clients of other libraries and raw sockets. Sidekiq
     # enqueues are writes, so a Preview that enqueues a job is blocked: record the job as an effect
     # with +Sendproof.record_job+ instead.
     #
@@ -31,6 +32,8 @@ module Sendproof
         @reads = Stores::Guard.read_set(treat_as_read) { |command| command.to_s.upcase }
         @active = true
         @middleware = build_middleware
+        PubSubGuard.install!
+        self.class.stores << self
         return unless global
 
         # A second hook would log every command twice and guard it twice.
@@ -43,6 +46,47 @@ module Sendproof
       class << self
         # @return [Store, nil] the store whose middleware is registered process-wide
         attr_accessor :registered
+
+        # @return [Array<Store>] every store still guarding, global or per client
+        def stores = @stores ||= []
+
+        # Guards one command a +pubsub+ connection is about to write, with the store covering the client
+        # the connection came from (+middlewares+ is that client's middleware stack).
+        def guard_pubsub(middlewares, command, &)
+          store = middlewares && stores.find { |candidate| candidate.active? && middlewares.is_a?(candidate.middleware) }
+          store ? store.around([command], &) : yield
+        end
+      end
+
+      # Guards the commands of +pubsub+ connections, which redis-client writes to the socket directly.
+      module PubSubGuard
+        # Remembers which client's middleware stack a +pubsub+ connection came from.
+        module Client
+          def pubsub
+            middlewares = @middlewares
+            super.tap { |connection| connection.instance_variable_set(:@sendproof_middlewares, middlewares) }
+          end
+        end
+
+        # Classifies each command before it is written.
+        module Connection
+          def call(*command, **kwargs)
+            Store.guard_pubsub(@sendproof_middlewares, @command_builder.generate(command, kwargs)) { super }
+          end
+
+          def call_v(command)
+            Store.guard_pubsub(@sendproof_middlewares, @command_builder.generate(command)) { super }
+          end
+        end
+
+        # Prepends both modules once.
+        def self.install!
+          return if @installed
+
+          @installed = true
+          ::RedisClient.prepend(Client)
+          ::RedisClient::PubSub.prepend(Connection)
+        end
       end
 
       # @return [Module] the +redis-client+ middleware, for +RedisClient.config(middlewares: [...])+
@@ -58,6 +102,7 @@ module Sendproof
       # removed from a class) but does nothing, and another store may then register.
       def unhook!
         @active = false
+        self.class.stores.delete(self)
         self.class.registered = nil if self.class.registered.equal?(self)
       end
 

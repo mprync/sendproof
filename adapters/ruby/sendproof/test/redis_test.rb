@@ -77,6 +77,39 @@ class RedisHookTest < Minitest::Test
     assert_nil stored("a")
   end
 
+  # A pubsub connection writes commands straight to its socket, past the middleware, and Redis runs any
+  # command sent on it. Each is classified before it is written; SUBSCRIBE and PUBLISH are writes.
+  def test_commands_on_a_pubsub_connection_are_refused_before_they_are_written
+    pubsub = @client.pubsub
+    recorder = preview do |_|
+      assert_raises(Sendproof::PreviewWriteBlocked) { pubsub.call("SET", key("pubsub"), "1") }
+      assert_raises(Sendproof::PreviewWriteBlocked) { pubsub.call_v(["PUBLISH", key("channel"), "hello"]) }
+      assert_raises(Sendproof::PreviewWriteBlocked) { pubsub.call("SUBSCRIBE", key("channel")) }
+    end
+    assert_equal "SET", recorder.blocked.operation
+    sleep 0.05
+    assert_nil stored("pubsub"), "The SET must never reach Redis"
+  ensure
+    pubsub&.close
+  end
+
+  def test_a_per_client_store_guards_the_pubsub_connections_of_its_client_only
+    @store.unhook!
+    @store = Sendproof::Redis::Store.new(global: false)
+    guarded = RedisClient.config(url: SERVERS[:redis], middlewares: [@store.middleware]).new_client
+    guarded_pubsub = guarded.pubsub
+    other_pubsub = @client.pubsub
+    preview do |_|
+      assert_raises(Sendproof::PreviewWriteBlocked) { guarded_pubsub.call("SET", key("guarded"), "1") }
+      other_pubsub.call("SET", key("other"), "1")
+    end
+    sleep 0.05
+    assert_nil stored("guarded")
+    assert_equal "1", stored("other")
+  ensure
+    [guarded_pubsub, other_pubsub, guarded].compact.each(&:close)
+  end
+
   def test_the_first_block_wins_and_later_writes_are_refused_too
     recorder = preview do |_|
       assert_raises(Sendproof::PreviewWriteBlocked) { @client.call("INCR", key("a")) }
