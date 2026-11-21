@@ -363,6 +363,17 @@ final class MongoStoreTest extends TestCase
         $client->selectDatabase($this->database)->getGridFSBucket();
     }
 
+    public function testTheLibraryFactoryHooksAClientForPlainUse(): void
+    {
+        $recorder = new Recorder();
+        $store = MongoStore::hook($this->raw, new Guard(static fn () => $recorder), 'catalog');
+        $this->assertInstanceOf(GuardedClient::class, $store->client());
+        $result = $this->preview($recorder, [$store], fn () => $store->client()->selectCollection($this->database, 'documents')->insertOne(['_id' => 'plain']));
+        $this->assertTrue($result->isConfirmed());
+        $this->assertSame('plain', $result->envelope['changes'][0]['key']['_id']);
+        $this->assertNull($this->documents()->findOne(['_id' => 'plain']));
+    }
+
     public function testAPreviewResponseIsBuiltFromTheHandlerNotFromTheStore(): void
     {
         [$recorder, $client, $store] = $this->hooked();
