@@ -8,6 +8,8 @@
 //!   ended the Preview transaction, so the Preview can never be confirmed either;
 //! * a reply with code 263 (`OperationNotSupportedInTransaction`) is a **block**: the server refused
 //!   something a transaction can't do and applied nothing;
+//! * a **write no request can be held to** (no task-local capture, no Preview `lsid`, not in
+//!   [`detached`](sendproof_core::detached) work) fails every Preview open on this client with 500;
 //! * every other command becomes a `Db` log entry, and writes yield change candidates.
 //!
 //! The handler runs in the task that sent the command, so the request's task-local capture finds the
@@ -22,7 +24,7 @@ use mongodb::{
 };
 use sendproof_core::{
     capture::{self, Blocked, Recorder},
-    stores::CommandKind,
+    stores::{self, CommandKind},
 };
 
 use crate::{
@@ -116,6 +118,12 @@ impl Shared {
         let session = self.preview_of_session(command.get_document("lsid").ok());
         let capture = capture::current().filter(|current| session.as_ref().is_none_or(|preview| Arc::ptr_eq(current, preview))).or(session);
         let preview = capture.clone().filter(|recorder| recorder.is_rollback_preview());
+        let writes = kind == CommandKind::Write || ends_transaction(&lower);
+        if capture.is_none() && writes && !stores::is_attributed() {
+            // Sent from no request and no detached work, such as a task a Preview's handler spawned: it
+            // may be a Preview's write, and it can't be undone.
+            self.fail_open_previews(name);
+        }
         if let Some(preview) = &preview {
             if ends_transaction(&lower) {
                 // Sent around the hook: it may have committed the Preview transaction, so the Preview can never be confirmed.
@@ -234,6 +242,18 @@ impl Shared {
                 let filter = op.get_document("filter").cloned().unwrap_or_default();
                 state.data().filters.push(Filter { namespace: database, collection, filter, via: flag(op, "upsert").then_some("upsert") });
             }
+        }
+    }
+
+    /// Fails every Preview open on this client with 500: a write reached the server that no request
+    /// can be held to, so none of them can claim a rollback.
+    fn fail_open_previews(&self, name: &str) {
+        let open: Vec<_> = self.previews.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).values().cloned().collect();
+        for state in open {
+            state.recorder.refuse(&format!(
+                "A MongoDB {name} that no request sent reached the server while this Preview was open; the Preview can't be confirmed. \
+                 Wrap background work in sendproof_core::detached."
+            ));
         }
     }
 

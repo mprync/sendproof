@@ -110,7 +110,8 @@ impl BenchService {
             }
             Ordinary::Pass => {}
         }
-        self.app.clone().oneshot(request).await.unwrap_or_else(|never| match never {})
+        // Not a Preview: the store hooks attribute this request's writes to it, never to an open Preview.
+        sendproof_core::detached(self.app.clone().oneshot(request)).await.unwrap_or_else(|never| match never {})
     }
 
     /// `{base}/sendproof/_preview{target}`: validate, dispatch in-process, roll back, report.
@@ -154,5 +155,22 @@ impl BenchService {
             Err(_) => Err(Failure::Error("the handler panicked".into())),
         };
         respond(state.finish(result).await)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::routing::get;
+
+    use super::*;
+
+    /// An ordinary request is attributed: its store writes never fail a Preview open at the same time.
+    #[tokio::test]
+    async fn an_ordinary_request_is_attributed_for_the_store_hooks() {
+        let config = Config::builder("Tests").environment("Development").enable_in(["Development"]).build().unwrap();
+        let app = Router::new().route("/attributed", get(|| async { sendproof_core::stores::is_attributed().to_string() }));
+        let response = Sendproof::new(config).wrap(app).oneshot(Request::get("/attributed").body(Body::empty()).unwrap()).await.unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"true");
     }
 }

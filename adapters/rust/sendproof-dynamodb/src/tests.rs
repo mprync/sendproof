@@ -151,6 +151,52 @@ async fn writes_outside_a_preview_run_and_are_traced() {
     assert_eq!(logs.iter().filter(|log| log.db.as_ref().is_some_and(|db| db.operation == "PutItem")).count(), 1);
 }
 
+/// Runs a Preview of `POST /things` through the core pipeline, with `store` registered.
+async fn run_preview<F: std::future::Future<Output = ()>>(store: &DynamoStore, handler: F) -> sendproof_core::Reply {
+    use sendproof_core::{Core, Headers, Inner, PreviewState};
+    let config = sendproof_core::Config::builder("Test")
+        .environment("Development")
+        .enable_in(["Development"])
+        .preview_operation("POST", "/things")
+        .data_store(store.clone())
+        .build()
+        .unwrap();
+    let core = Core::new(config);
+    let state = PreviewState::new(&core, Instant::now());
+    state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+    capture::scope(state.recorder(), handler).await;
+    state.complete();
+    state.finish(Ok(Inner { status: 200, headers: Headers::new(), body: b"{}".to_vec() })).await
+}
+
+#[tokio::test]
+async fn an_unattributed_write_while_a_preview_is_open_fails_it() {
+    let store = DynamoStore::new();
+    let (client, sent) = client(&store, "{}");
+    let reply = run_preview(&store, async {
+        // A spawned task has no request scope: the write is sent, and nothing can say whose it was.
+        tokio::spawn(async move { client.put_item().table_name("orders").item("id", id("a")).send().await.unwrap() }).await.unwrap();
+    })
+    .await;
+    assert_eq!(sent.load(Ordering::SeqCst), 1);
+    assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+}
+
+#[tokio::test]
+async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
+    let store = DynamoStore::new();
+    let (client, _) = client(&store, "{}");
+    let reply = run_preview(&store, async {
+        tokio::spawn(sendproof_core::detached(
+            async move { client.put_item().table_name("orders").item("id", id("a")).send().await.unwrap() },
+        ))
+        .await
+        .unwrap();
+    })
+    .await;
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+}
+
 #[tokio::test]
 async fn a_host_declared_read_is_allowed_by_exact_name_only() {
     let store = DynamoStore::new().treat_as_read(["PutItem"]).unwrap();

@@ -31,12 +31,19 @@
 //!
 //! Only clients built with the interceptor are covered. A client created without it, in another
 //! process, or through a raw HTTP call is not guarded and not logged. The interceptor finds the
-//! Preview through the request's task-local capture, so an SDK call made from a task the handler spawns
-//! (which does not inherit it) is not covered either: await the call in the handler.
+//! Preview through the request's task-local capture, which a task the handler spawns does not inherit.
+//! A write the interceptor can't attribute to any request, or to
+//! [`detached`](sendproof_core::detached) work, may be a Preview's and has already been sent, so every
+//! Preview open on the store answers 500. Await calls in the handler, and wrap background work that
+//! writes in `detached`.
 
 mod sanitize;
 
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, Weak},
+    time::Instant,
+};
 
 use aws_sdk_dynamodb::{
     config::{
@@ -51,8 +58,10 @@ use aws_sdk_dynamodb::{
 use aws_smithy_runtime_api::box_error::BoxError;
 use aws_smithy_types::config_bag::{Storable, StoreReplace};
 use sendproof_core::{
-    BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, StoreDescription, StoreMode, StoreScope,
-    stores::{classify_dynamo, exact_names, store_label},
+    BoxError as CoreError, BoxFuture, Changes, CommandKind, ConfigError, DataStore, DbEntry, PreviewSession, StoreDescription, StoreMode,
+    StoreScope,
+    capture::Recorder,
+    stores::{CaptureScope, classify_dynamo, exact_names, is_attributed, store_label},
 };
 use serde_json::Value;
 
@@ -64,6 +73,14 @@ pub const SYSTEM: &str = "dynamodb";
 struct Settings {
     name: Option<String>,
     reads: HashSet<String>,
+    /// The Previews open on this store, which an unattributed write fails.
+    open: Arc<Mutex<Vec<Weak<Recorder>>>>,
+}
+
+impl Settings {
+    fn open(&self) -> std::sync::MutexGuard<'_, Vec<Weak<Recorder>>> {
+        self.open.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// A hooked DynamoDB, ready for [`ConfigBuilder::data_store`](sendproof_core::ConfigBuilder::data_store).
@@ -83,14 +100,14 @@ impl Default for DynamoStore {
 impl DynamoStore {
     /// A DynamoDB store with no display label and no host-declared reads.
     pub fn new() -> Self {
-        Self { settings: Arc::new(Settings { name: None, reads: HashSet::new() }) }
+        Self { settings: Arc::new(Settings { name: None, reads: HashSet::new(), open: Arc::default() }) }
     }
 
     /// The display label shown in capabilities, such as `orders`. A label that looks like an endpoint,
     /// ARN or connection string is refused: discovery is visible to anyone who can open the workbench.
     pub fn name(self, label: &str) -> Result<Self, ConfigError> {
         let name = store_label(label)?;
-        Ok(Self { settings: Arc::new(Settings { name: Some(name), reads: self.settings.reads.clone() }) })
+        Ok(Self { settings: Arc::new(Settings { name: Some(name), reads: self.settings.reads.clone(), open: self.settings.open.clone() }) })
     }
 
     /// Action names the host states never write, matched exactly (`"MyCustomRead"`).
@@ -103,7 +120,7 @@ impl DynamoStore {
         S: AsRef<str>,
     {
         let reads = exact_names(names, str::to_owned)?;
-        Ok(Self { settings: Arc::new(Settings { name: self.settings.name.clone(), reads }) })
+        Ok(Self { settings: Arc::new(Settings { name: self.settings.name.clone(), reads, open: self.settings.open.clone() }) })
     }
 
     /// The interceptor to add to the DynamoDB client's configuration with
@@ -117,6 +134,50 @@ impl DataStore for DynamoStore {
     fn describe(&self) -> BoxFuture<'_, StoreDescription> {
         let name = self.settings.name.clone();
         Box::pin(async move { StoreDescription { system: SYSTEM.into(), name, mode: StoreMode::Guard, reason: None } })
+    }
+
+    /// Registers the Preview as open on this store until it finishes, so a write the interceptor can't
+    /// attribute to a request fails it. Nothing is started on DynamoDB.
+    fn begin_preview<'a>(
+        &'a self,
+        extensions: &'a mut http::Extensions,
+    ) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, CoreError>> {
+        let recorder = extensions.get::<CaptureScope>().map(|scope| scope.0.clone());
+        Box::pin(async move {
+            let recorder = recorder.ok_or("the Preview has no capture scope")?;
+            let mut open = self.settings.open();
+            open.retain(|preview| preview.strong_count() > 0);
+            open.push(Arc::downgrade(&recorder));
+            Ok(Some(Box::new(OpenPreview { settings: self.settings.clone(), recorder }) as Box<dyn PreviewSession>))
+        })
+    }
+}
+
+/// A Preview open on a DynamoDB store. There is nothing to roll back: writes never reach DynamoDB.
+struct OpenPreview {
+    settings: Arc<Settings>,
+    recorder: Arc<Recorder>,
+}
+
+impl PreviewSession for OpenPreview {
+    fn rollback(&mut self) -> BoxFuture<'_, Result<(), CoreError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn changes(&mut self) -> Changes {
+        Changes::default()
+    }
+
+    fn close(self: Box<Self>) -> BoxFuture<'static, Result<(), CoreError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// Closing, or dropping a Preview that never finished, removes it from the open list.
+impl Drop for OpenPreview {
+    fn drop(&mut self) {
+        let recorder = Arc::as_ptr(&self.recorder);
+        self.settings.open().retain(|preview| preview.strong_count() > 0 && preview.as_ptr() != recorder);
     }
 }
 
@@ -241,7 +302,19 @@ impl Intercept for DynamoGuard {
             (!statements.is_empty()).then(|| statements.iter().map(|text| sanitize_partiql(text)).collect::<Vec<_>>().join("; "));
         let target = target_of(&body, statement.as_deref());
         let mut pending = Pending { operation: operation.clone(), target, statement, started: Instant::now(), refused: false };
-        if let Err(blocked) = StoreScope::current().guard(SYSTEM, &operation, kind, None) {
+        let scope = StoreScope::current();
+        if kind == CommandKind::Write && scope.recorder().is_none() && !is_attributed() {
+            // Sent from no request and no detached work, such as a task a Preview's handler spawned: it
+            // may be a Preview's write, and it can't be undone, so no open Preview may claim a rollback.
+            let open: Vec<Arc<Recorder>> = self.settings.open().iter().filter_map(Weak::upgrade).collect();
+            for preview in open {
+                preview.refuse(&format!(
+                    "A DynamoDB {operation} that no request sent was made while this Preview was open; the Preview can't be confirmed. \
+                     Wrap background work in sendproof_core::detached."
+                ));
+            }
+        }
+        if let Err(blocked) = scope.guard(SYSTEM, &operation, kind, None) {
             pending.refused = true;
             cfg.interceptor_state().store_put(pending);
             return Err(Box::new(blocked));

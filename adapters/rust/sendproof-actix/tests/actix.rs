@@ -234,3 +234,18 @@ async fn observed_send_commits_and_serves_an_owner_only_trace() {
     assert_eq!(test::call_service(&app, read(Some("sam"))).await.status(), StatusCode::NOT_FOUND);
     assert_eq!(test::call_service(&app, read(None)).await.status(), StatusCode::NOT_FOUND);
 }
+
+/// An ordinary request is attributed: its store writes never fail a Preview open at the same time.
+#[actix_web::test]
+async fn an_ordinary_request_is_attributed_for_the_store_hooks() {
+    let pool = pool().await;
+    let bench = bench(&pool, true);
+    let app = test::init_service(
+        App::new()
+            .wrap(bench.middleware())
+            .service(web::resource("/attributed").route(web::get().to(|| async { HttpResponse::Ok().body(sendproof_core::stores::is_attributed().to_string()) }))),
+    )
+    .await;
+    let response = test::call_service(&app, test::TestRequest::get().uri("/attributed").to_request()).await;
+    assert_eq!(test::read_body(response).await, "true");
+}

@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 sendproof-core.workspace = true
+http.workspace = true
 aws-sdk-dynamodb.workspace = true
 aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x"] }
 aws-smithy-types.workspace = true

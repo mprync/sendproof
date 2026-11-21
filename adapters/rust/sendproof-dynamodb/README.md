@@ -13,4 +13,4 @@ let client = aws_sdk_dynamodb::Client::from_conf(config);
 * PartiQL text in `Db` entries has its literals replaced with `?`. Credentials, the `Authorization` header and signatures never reach the guard: it runs before signing.
 * `treat_as_read(["MyAction"])` declares host reads by exact action name. It is your statement that the action never writes.
 
-**Coverage:** only clients built with the interceptor, and awaited in the request's task, are covered. See [the data-stores page](../data-stores.md).
+**Coverage:** only clients built with the interceptor are covered. A write the interceptor can't attribute to a request (sent from a spawned task) fails every open Preview with 500; wrap background work that writes in `sendproof_core::detached`. See [the data-stores page](../data-stores.md).

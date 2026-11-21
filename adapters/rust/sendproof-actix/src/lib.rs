@@ -60,7 +60,7 @@ use actix_web::{
     },
 };
 use futures_util::{FutureExt, future::LocalBoxFuture};
-pub use sendproof_core::{Config, ConfigBuilder, ConfigError, Identity, SendproofLayer};
+pub use sendproof_core::{Config, ConfigBuilder, ConfigError, Identity, SendproofLayer, detached};
 use sendproof_core::{Core, Failure, Headers, Inner, Ordinary, PreviewRequired, PreviewState, Reply, Route, capture, limits};
 
 /// Sendproof for one Actix Web application. Cheap to clone.
@@ -183,7 +183,8 @@ where
                 if matches!(other, Ordinary::Observe) {
                     request.extensions_mut().insert(ObservedMarker { started });
                 }
-                service.call(request).await.map(ServiceResponse::map_into_boxed_body)
+                // Not a Preview: the store hooks attribute this request's writes to it, never to an open Preview.
+                sendproof_core::detached(service.call(request)).await.map(ServiceResponse::map_into_boxed_body)
             }
         },
     }

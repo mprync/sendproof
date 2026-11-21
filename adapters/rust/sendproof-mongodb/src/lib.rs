@@ -44,8 +44,9 @@
 //! `Client`, one created inside a handler, or a raw socket is invisible to the tripwire, and its writes
 //! are neither blocked nor rolled back. A [`Mongo`] handle moved into a task the handler spawns keeps
 //! its Preview: its calls carry the Preview session and are captured. A write sent through
-//! [`MongoStore::client`] from such a task carries no request scope, so the tripwire can't attribute
-//! it to the Preview: use the handle in spawned tasks.
+//! [`MongoStore::client`] from such a task carries no request scope: monitoring can't tell whose it
+//! is, so every Preview open on the client answers 500. Use the handle in spawned tasks, and wrap
+//! background work that writes in [`detached`](sendproof_core::detached).
 //!
 //! A Preview whose request is dropped before it finishes (the client disconnected) aborts its
 //! transaction straight away.

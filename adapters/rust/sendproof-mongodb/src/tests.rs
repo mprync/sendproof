@@ -405,6 +405,46 @@ async fn a_call_from_a_task_the_handler_spawns_is_still_captured() {
 }
 
 #[tokio::test]
+async fn an_unattributed_write_while_a_preview_is_open_fails_it() {
+    let fixture = fixture!();
+    let (client, database) = (fixture.store.client().clone(), fixture.database.clone());
+    let reply = fixture
+        .preview(|_| async move {
+            // A spawned task has no request scope: the write commits, and nothing can say whose it was.
+            tokio::spawn(async move {
+                client.database(&database).collection::<Document>("documents").insert_one(doc! { "_id": "unattributed" }).await.unwrap()
+            })
+            .await
+            .unwrap();
+            201
+        })
+        .await;
+    assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+    assert!(!confirmed(&reply));
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
+    let fixture = fixture!();
+    let (client, database) = (fixture.store.client().clone(), fixture.database.clone());
+    let reply = fixture
+        .preview(|_| async move {
+            // A background worker marks its work detached: it is not part of any Preview.
+            tokio::spawn(sendproof_core::detached(async move {
+                client.database(&database).collection::<Document>("documents").insert_one(doc! { "_id": "worker" }).await.unwrap()
+            }))
+            .await
+            .unwrap();
+            201
+        })
+        .await;
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(fixture.find(doc! { "_id": "worker" }).await.len(), 1, "the worker's write is its own and commits");
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
 async fn a_preview_dropped_before_it_finishes_aborts_its_transaction() {
     // A client that disconnects drops the Preview future: `finish` never runs.
     let fixture = fixture!(Some(Duration::from_secs(30)));

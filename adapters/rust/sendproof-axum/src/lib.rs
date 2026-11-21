@@ -49,4 +49,4 @@ mod service;
 
 pub use gate::SendproofRouterExt;
 pub use service::Sendproof;
-pub use sendproof_core::{Config, ConfigBuilder, ConfigError, Identity, SendproofLayer};
+pub use sendproof_core::{Config, ConfigBuilder, ConfigError, Identity, SendproofLayer, detached};
