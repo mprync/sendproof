@@ -1,0 +1,41 @@
+{
+  "name": "testbench/symfony",
+  "description": "Test Bench for Symfony: an in-app API workbench with rollback previews and observed sends for Doctrine.",
+  "type": "symfony-bundle",
+  "license": "MIT",
+  "keywords": ["symfony", "doctrine", "testbench", "openapi", "api", "preview"],
+  "require": {
+    "php": "^8.2",
+    "doctrine/dbal": "^4.0",
+    "doctrine/doctrine-bundle": "^2.13|^3.0",
+    "doctrine/orm": "^3.0",
+    "symfony/config": "^7.0|^8.0",
+    "symfony/dependency-injection": "^7.0|^8.0",
+    "symfony/framework-bundle": "^7.0|^8.0",
+    "symfony/http-foundation": "^7.0|^8.0",
+    "symfony/http-kernel": "^7.0|^8.0",
+    "symfony/routing": "^7.0|^8.0",
+    "testbench/core": "^0.1 || dev-main"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0",
+    "symfony/security-bundle": "^7.0|^8.0"
+  },
+  "suggest": {
+    "symfony/mailer": "Captures and suppresses outgoing mail during a preview",
+    "symfony/security-bundle": "Identity display, trace ownership and workbench authorization",
+    "symfony/monolog-bundle": "Captures log records into previews"
+  },
+  "autoload": { "psr-4": { "TestBench\\Symfony\\": "src/" } },
+  "autoload-dev": { "psr-4": { "TestBench\\Symfony\\Tests\\": "tests/" } },
+  "repositories": [
+    { "type": "path", "url": "../core", "options": { "symlink": true } }
+  ],
+  "scripts": { "test": "phpunit" },
+  "archive": {
+    "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
+  },
+  "config": { "sort-packages": true, "allow-plugins": { "symfony/runtime": true } },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}

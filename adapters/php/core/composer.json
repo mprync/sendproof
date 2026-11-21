@@ -1,0 +1,30 @@
+{
+  "name": "testbench/core",
+  "description": "Framework-neutral Test Bench protocol core for PHP: preview, observed send, capture and embedded workbench assets.",
+  "type": "library",
+  "license": "MIT",
+  "keywords": ["testbench", "openapi", "api", "preview", "rollback"],
+  "require": {
+    "php": "^8.2",
+    "ext-json": "*",
+    "ext-mbstring": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": { "TestBench\\Core\\": "src/" }
+  },
+  "autoload-dev": {
+    "psr-4": { "TestBench\\Core\\Tests\\": "tests/" }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "embed-ui": "node ../../../tools/pack-ui.mjs --version 0.1.0-alpha.1 --out resources/ui"
+  },
+  "archive": {
+    "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
+  },
+  "config": { "sort-packages": true },
+  "minimum-stability": "stable"
+}

@@ -1,0 +1,120 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TestBench\Laravel\Capture;
+
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Database\Events\TransactionRolledBack;
+use Illuminate\Log\Events\MessageLogged;
+use TestBench\Core\Capture\Recorder;
+use TestBench\Core\Capture\SqlRedactor;
+use TestBench\Laravel\Eloquent\ChangeCollector;
+
+/**
+ * Subscribes once to Laravel's events and feeds the current request's recorder.
+ *
+ * Every listener returns immediately unless a preview or observed send is capturing, so the
+ * cost for ordinary requests is a single flag check.
+ */
+final class CaptureListeners
+{
+    private const LEVELS = [
+        'debug' => 'Debug', 'info' => 'Information', 'notice' => 'Information', 'warning' => 'Warning',
+        'error' => 'Error', 'critical' => 'Critical', 'alert' => 'Critical', 'emergency' => 'Critical',
+    ];
+
+    public function __construct(private readonly Application $app)
+    {
+    }
+
+    public function register(Dispatcher $events): void
+    {
+        $events->listen(QueryExecuted::class, fn (QueryExecuted $event) => $this->query($event));
+        $events->listen(MessageLogged::class, fn (MessageLogged $event) => $this->log($event));
+        foreach (['created' => 'insert', 'updated' => 'update', 'restored' => 'update', 'deleted' => 'delete'] as $name => $operation) {
+            $events->listen("eloquent.{$name}: *", function (string $event, array $payload) use ($name, $operation): void {
+                $model = $payload[0] ?? null;
+                if ($model instanceof Model) {
+                    $soft = $name === 'deleted' && method_exists($model, 'isForceDeleting') && !$model->isForceDeleting();
+                    $this->app->make(ChangeCollector::class)->record($soft ? 'update' : $operation, $model);
+                }
+            });
+        }
+        $events->listen(TransactionBeginning::class, fn () => $this->app->make(ChangeCollector::class)->transactionBegan());
+        $events->listen(TransactionCommitted::class, fn () => $this->app->make(ChangeCollector::class)->transactionCommitted());
+        $events->listen(TransactionRolledBack::class, fn () => $this->app->make(ChangeCollector::class)->transactionRolledBack());
+        if (class_exists(\Illuminate\Mail\Events\MessageSending::class)) {
+            $events->listen(\Illuminate\Mail\Events\MessageSending::class, fn ($event) => $this->mail($event));
+        }
+    }
+
+    private function query(QueryExecuted $event): void
+    {
+        $recorder = $this->app->make(Recorder::class);
+        if (!$recorder->isCapturing() || preg_match('/^\s*(?:release\s+|rollback\s+to\s+)?savepoint\b/i', $event->sql)) {
+            return;
+        }
+
+        $bindings = [];
+        $position = 0;
+        foreach ($event->bindings as $key => $value) {
+            $bindings[] = ['name' => is_string($key) ? ltrim($key, ':') : 'p' . $position, 'value' => $value];
+            $position++;
+        }
+        [$sql, $truncated] = SqlRedactor::entry($event->sql, $bindings, $this->showValues());
+        $recorder->recordSql((float) $event->time, $sql, $truncated, 'Illuminate.Database.Query');
+    }
+
+    private function log(MessageLogged $event): void
+    {
+        $recorder = $this->app->make(Recorder::class);
+        if (!$recorder->isCapturing()) {
+            return;
+        }
+
+        $context = $event->context;
+        $exception = null;
+        if (($context['exception'] ?? null) instanceof \Throwable) {
+            $exception = ['type' => $context['exception']::class, 'message' => $context['exception']->getMessage()];
+            unset($context['exception']);
+        }
+        $recorder->log(self::LEVELS[$event->level] ?? ucfirst((string) $event->level), (string) $event->message, 'Laravel.Log', $context, null, $exception);
+    }
+
+    /** Records outgoing mail and halts sending while a preview is running. */
+    private function mail(object $event): ?bool
+    {
+        $recorder = $this->app->make(Recorder::class);
+        if (!$recorder->isCapturing() || !method_exists($event, 'message') && !isset($event->message)) {
+            return null;
+        }
+
+        $message = $event->message;
+        $addresses = static fn (array $list): array => array_map(static fn ($address): string => $address->getAddress(), $list);
+        $from = $addresses($message->getFrom())[0] ?? '';
+        $suppress = $recorder->tryRecordEmail(
+            'Mail: ' . $message->getSubject(),
+            $from,
+            $addresses($message->getTo()),
+            $addresses($message->getCc()),
+            (string) $message->getSubject(),
+            (string) $message->getTextBody(),
+            $message->getHtmlBody() === null ? null : (string) $message->getHtmlBody(),
+        );
+
+        return $suppress ? false : null;
+    }
+
+    private function showValues(): bool
+    {
+        $configured = $this->app->make('config')->get('testbench.include_sql_parameter_values');
+
+        return $configured ?? $this->app->environment('local', 'development', 'testing');
+    }
+}

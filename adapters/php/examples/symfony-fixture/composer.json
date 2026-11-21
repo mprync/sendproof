@@ -1,0 +1,27 @@
+{
+  "name": "testbench/symfony-fixture",
+  "description": "Conformance fixture: a disposable Symfony + Doctrine app for the Test Bench protocol runner.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "ext-pdo_sqlite": "*",
+    "doctrine/doctrine-bundle": "^2.13|^3.0",
+    "doctrine/orm": "^3.0",
+    "symfony/framework-bundle": "^7.0|^8.0",
+    "symfony/mailer": "^7.0|^8.0",
+    "symfony/monolog-bundle": "^3.10|^4.0",
+    "symfony/security-bundle": "^7.0|^8.0",
+    "symfony/yaml": "^7.0|^8.0",
+    "testbench/core": "*@dev",
+    "testbench/symfony": "*@dev"
+  },
+  "autoload": { "psr-4": { "Fixture\\": "src/" } },
+  "repositories": [
+    { "type": "path", "url": "../../core", "options": { "symlink": true } },
+    { "type": "path", "url": "../../symfony", "options": { "symlink": true } }
+  ],
+  "config": { "sort-packages": true, "allow-plugins": { "symfony/runtime": true, "symfony/flex": false } },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
