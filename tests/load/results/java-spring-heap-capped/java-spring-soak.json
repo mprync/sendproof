@@ -6,7 +6,7 @@
   "start": [
     "sh",
     "-c",
-    ". adapters/java/scripts/jdk.sh && exec java $BENCH_JAVA_OPTS -jar examples/java-spring-fixture/build/libs/test-bench-java-fixture.jar"
+    ". adapters/java/scripts/jdk.sh && exec java $BENCH_JAVA_OPTS -jar examples/java-spring-fixture/build/libs/sendproof-java-fixture.jar"
   ],
   "startedAt": "2026-11-21T16:27:36.878Z",
   "phases": [

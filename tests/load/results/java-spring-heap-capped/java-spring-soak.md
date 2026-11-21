@@ -2,7 +2,7 @@
 
 Machine: Apple M4 Max, 16 cores, 48 GiB, Darwin 25.5.0 arm64, Node v24.5.0. Started 2026-11-21T16:27:36.878Z.
 
-Fixture start command: `sh -c . adapters/java/scripts/jdk.sh && exec java $BENCH_JAVA_OPTS -jar examples/java-spring-fixture/build/libs/test-bench-java-fixture.jar`.
+Fixture start command: `sh -c . adapters/java/scripts/jdk.sh && exec java $BENCH_JAVA_OPTS -jar examples/java-spring-fixture/build/libs/sendproof-java-fixture.jar`.
 
 ## Memory soak, 300s at concurrency 24: BOUNDED
 

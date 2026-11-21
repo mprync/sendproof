@@ -2,7 +2,7 @@
 
 Machine: Apple M4 Max, 16 cores, 48 GiB, Darwin 25.5.0 arm64, Node v24.5.0. Started 2026-11-21T14:06:54.656Z.
 
-Fixture start command: `sh -c . adapters/java/scripts/jdk.sh && exec java -jar examples/java-spring-fixture/build/libs/test-bench-java-fixture.jar`.
+Fixture start command: `sh -c . adapters/java/scripts/jdk.sh && exec java -jar examples/java-spring-fixture/build/libs/sendproof-java-fixture.jar`.
 
 ## Idle overhead (bench disabled vs enabled; median of 8 alternating 1500 ms bursts)
 
