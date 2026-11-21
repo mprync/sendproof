@@ -104,18 +104,19 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         }
         self::$guarded[$connection] = true;
         $mysql = $this->takesTurns($connection);
+        $sqlServer = self::sqlServer($connection);
         $recorder = $this->recorder;
         $safe = $this->safeProcedures;
         $key = self::endedKey($connection);
-        $connection->beforeExecuting(static function (string $query) use ($mysql, $recorder, $safe, $connection, $key): void {
+        $connection->beforeExecuting(static function (string $query) use ($mysql, $sqlServer, $recorder, $safe, $connection, $key): void {
             $current = $recorder();
             if (!$current->isPreview()) {
                 return;
             }
             // An `unprepared()` statement runs on the PDO itself; its error stays on the PDO until the next call.
             $pdo = $connection->getRawPdo();
-            if ($mysql && $pdo instanceof \PDO) {
-                self::noticeServerRollback($current, $key, $pdo, $pdo->errorInfo()[1] ?? null);
+            if (($mysql || $sqlServer) && $pdo instanceof \PDO) {
+                self::noticeServerRollback($current, $key, $pdo, $pdo->errorInfo()[1] ?? null, $sqlServer);
             }
             if (($ended = $current->transactionEnded($key)) !== null) {
                 // The server already ended the Preview transaction: this statement would run outside it.
@@ -139,11 +140,19 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         return 'eloquent:' . $connection->getName();
     }
 
+    /** Whether the connection is SQL Server, which marks a savepoint with `SAVE TRANSACTION`. */
+    private static function sqlServer(Connection $connection): bool
+    {
+        return $connection->getDriverName() === 'sqlsrv';
+    }
+
     /**
      * Records a MySQL deadlock (or a lock wait timeout with `innodb_rollback_on_timeout`) that ended the
-     * Preview transaction on `$pdo`, so every later statement in the Preview is refused.
+     * Preview transaction on `$pdo`, so every later statement in the Preview is refused. On SQL Server
+     * (`$sqlServer`) a deadlock victim (1205) does, and so does any other server error that leaves
+     * no transaction open or runs under `XACT_ABORT ON` (see {@see Statements::sqlServerTransactionGone()}).
      */
-    private static function noticeServerRollback(Recorder $recorder, string $key, \PDO $pdo, int|string|null $code): void
+    private static function noticeServerRollback(Recorder $recorder, string $key, \PDO $pdo, int|string|null $code, bool $sqlServer = false): void
     {
         if ($code === null || $recorder->transactionEnded($key) !== null) {
             return;
@@ -154,14 +163,24 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
             } catch (\Throwable) {
                 return true; // unknown: assume the transaction is gone
             }
-        });
+        }, $sqlServer);
+        if ($reason === null && $sqlServer) {
+            try {
+                $statement = $pdo->query(Statements::SQL_SERVER_STATE);
+                $state = $statement === false ? null : ($statement->fetch(\PDO::FETCH_NUM) ?: null);
+                $statement?->closeCursor();
+            } catch (\Throwable) {
+                $state = null; // unknown: assume the transaction is gone
+            }
+            $reason = Statements::sqlServerTransactionGone($state) ? 'the server rolled back the Preview transaction' : null;
+        }
         if ($reason !== null) {
             $recorder->endTransaction($key, $reason);
         }
     }
 
     /** Why Preview is refused on a MySQL connection that uses the application's own statement class. */
-    public const CUSTOM_STATEMENT_CLASS_REASON = 'Preview unavailable: a MySQL connection uses its own PDO statement class, '
+    public const CUSTOM_STATEMENT_CLASS_REASON = 'Preview unavailable: a MySQL or SQL Server connection uses its own PDO statement class, '
         . 'so Sendproof could not see a deadlock that ends the Preview transaction and stop a retry from committing.';
 
     /**
@@ -179,7 +198,7 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         foreach ($this->connections as $name) {
             try {
                 $connection = $this->database->connection($name);
-                if (in_array($connection->getDriverName(), ['mysql', 'mariadb'], true) && self::customStatementClass($connection->getPdo())) {
+                if (in_array($connection->getDriverName(), ['mysql', 'mariadb', 'sqlsrv'], true) && self::customStatementClass($connection->getPdo())) {
                     return self::CUSTOM_STATEMENT_CLASS_REASON;
                 }
             } catch (\Throwable) {
@@ -218,10 +237,11 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         }
         $recorder = $this->recorder;
         $key = self::endedKey($connection);
-        $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [WatchedStatement::class, [static function (\PDOException $error) use ($recorder, $key, $pdo): void {
+        $sqlServer = self::sqlServer($connection);
+        $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [WatchedStatement::class, [static function (\PDOException $error) use ($recorder, $key, $pdo, $sqlServer): void {
             $current = $recorder();
             if ($current->isPreview()) {
-                self::noticeServerRollback($current, $key, $pdo, $error->errorInfo[1] ?? null);
+                self::noticeServerRollback($current, $key, $pdo, $error->errorInfo[1] ?? null, $sqlServer);
             }
         }]]);
 
@@ -271,8 +291,8 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                 $enrolled[] = [$connection, $before, true];
                 // The backstop's mark, on every database, made first thing in the Preview transaction on
                 // the PDO itself, so it neither passes the handler's guard nor shows in the SQL log.
-                $connection->getPdo()->exec(($connection->getDriverName() === 'sqlsrv' ? 'SAVE TRANSACTION ' : 'SAVEPOINT ') . self::SAVEPOINT);
-                if (in_array($connection->getDriverName(), ['mysql', 'mariadb'], true) && ($undo = $this->watchStatements($connection)) !== null) {
+                $connection->getPdo()->exec((self::sqlServer($connection) ? 'SAVE TRANSACTION ' : 'SAVEPOINT ') . self::SAVEPOINT);
+                if (in_array($connection->getDriverName(), ['mysql', 'mariadb', 'sqlsrv'], true) && ($undo = $this->watchStatements($connection)) !== null) {
                     $restore[] = $undo;
                 }
             }

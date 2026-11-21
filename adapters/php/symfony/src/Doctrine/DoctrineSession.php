@@ -107,21 +107,16 @@ final class DoctrineSession implements PreviewSession
      * exist. Any commit, explicit or implicit, erases every savepoint, and the driver (or MySQL with
      * autocommit off) may then open a new transaction by itself (which `PDO::inTransaction()` reports
      * as open), so a savepoint made now would prove nothing. A missing savepoint, or a lost connection,
-     * means the rollback can't be confirmed. SQL Server can't test a savepoint without rolling back to
-     * it, so there the transaction must still be open (`@@TRANCOUNT` at least 1, `XACT_STATE()` not 0).
+     * means the rollback can't be confirmed. SQL Server has no `ROLLBACK TO SAVEPOINT`: it marks the
+     * savepoint with `SAVE TRANSACTION` and rolls back to it with `ROLLBACK TRANSACTION`.
      */
     private function checkStillOpen(Connection $connection): void
     {
         try {
-            if (DoctrinePreviewProvider::sqlServer($connection)) {
-                [$count, $state] = DoctrinePreviewProvider::native($connection, 'SELECT @@TRANCOUNT, XACT_STATE()') ?? [0, 0];
-                if ((int) $count < 1 || (int) $state === 0) {
-                    throw new \RuntimeException('No transaction is open.');
-                }
-
-                return;
-            }
-            DoctrinePreviewProvider::native($connection, 'ROLLBACK TO SAVEPOINT ' . DoctrinePreviewProvider::SAVEPOINT);
+            // SQL Server fails `ROLLBACK TRANSACTION <savepoint>` once the transaction has ended. `@@TRANCOUNT`
+            // proves nothing: with `IMPLICIT_TRANSACTIONS ON` the next statement after a commit opens a new
+            // transaction and the count reads 1 again.
+            DoctrinePreviewProvider::native($connection, (DoctrinePreviewProvider::sqlServer($connection) ? 'ROLLBACK TRANSACTION ' : 'ROLLBACK TO SAVEPOINT ') . DoctrinePreviewProvider::SAVEPOINT);
         } catch (\Throwable $error) {
             throw new \RuntimeException("The Preview transaction was committed before its rollback (its savepoint is gone), so the Preview can't be confirmed.", 0, $error);
         }

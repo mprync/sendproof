@@ -334,6 +334,21 @@
       "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"]
     },
     {
+    {
+      "id": "php-laravel-sqlserver",
+      "database": "sqlserver",
+      "toolchain": "php",
+      "port": 5422,
+      "readiness": "/ready",
+      "prepare": "sh adapters/php/scripts/prepare.sh",
+      "test": "sh adapters/php/scripts/test.sh",
+      "start": [
+        "php",
+        "adapters/php/examples/laravel-fixture/serve.php"
+      ],
+      "traceTtlMs": 5000,
+      "sharedRules": ["secret-columns", "raw-commit"]
+    },
       "id": "php-symfony",
       "database": "sqlite",
       "toolchain": "php",

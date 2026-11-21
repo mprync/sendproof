@@ -20,6 +20,10 @@ final class FixtureServiceProvider extends ServiceProvider
         $scenario = getenv('BENCH_SCENARIO') ?: 'standard';
         $this->registerStores();
         $this->app->booting(function () use ($scenario): void {
+            // The compose SQL Server uses a self-signed certificate, and Laravel's sqlsrv config leaves these unset.
+            if (getenv('DB_CONNECTION') === 'sqlsrv') {
+                config(['database.connections.sqlsrv.encrypt' => 'no', 'database.connections.sqlsrv.trust_server_certificate' => 'true']);
+            }
             if ($scenario === 'no-provider') {
                 config(['sendproof.provider' => null]);
             } elseif ($scenario === 'rollback-failure') {

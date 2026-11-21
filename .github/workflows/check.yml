@@ -171,7 +171,7 @@ jobs:
         with:
           php-version: '8.4'
           tools: composer:v2
-          extensions: pdo_sqlite, sqlite3, mbstring, dom, pcntl
+          extensions: ${{ matrix.id == 'php-laravel-sqlserver' && 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, sqlsrv, pdo_sqlsrv' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl' }}
       - if: matrix.toolchain == 'ruby'
         uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
         with:
@@ -184,6 +184,18 @@ jobs:
         env:
           DATABASE: ${{ matrix.database }}
         run: |
+      # PHP reaches SQL Server through Microsoft's ODBC driver, which the sqlsrv and pdo_sqlsrv extensions
+      # need. It comes from Microsoft's apt repository (installing it accepts Microsoft's licence terms)
+      # and is installed only for the entry that uses it; the repository publishes it for the runner's
+      # Ubuntu release.
+      - name: Install the Microsoft ODBC driver for PHP on SQL Server
+        if: matrix.id == 'php-laravel-sqlserver'
+        run: |
+          curl -fsSL -o packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
           case "$DATABASE" in
             postgresql) test -n "$BENCH_POSTGRES_URL" ;;
             mysql) test -n "$BENCH_MYSQL_URL" ;;

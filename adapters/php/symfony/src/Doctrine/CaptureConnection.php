@@ -27,7 +27,7 @@ final class CaptureConnection extends AbstractConnectionMiddleware
     private const CATEGORY = 'Doctrine.DBAL.Connection';
 
     /** @param list<string> $safeProcedures see {@see CaptureMiddleware} */
-    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues, private readonly bool $mysql = false, private readonly array $safeProcedures = [])
+    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues, private readonly bool $mysql = false, private readonly array $safeProcedures = [], private readonly bool $sqlServer = false)
     {
         parent::__construct($connection);
     }
@@ -42,11 +42,14 @@ final class CaptureConnection extends AbstractConnectionMiddleware
     /**
      * Records a MySQL deadlock (1213), or a lock wait timeout (1205) with `innodb_rollback_on_timeout`,
      * which rolled back the whole Preview transaction: every later statement on this connection is
-     * then refused (see {@see refuseTransactionControl()}). The caller rethrows the error unchanged.
+     * then refused (see {@see refuseTransactionControl()}). On SQL Server a deadlock victim (1205) does the
+     * same, and so does any other server error that leaves no transaction open or runs under `XACT_ABORT ON`
+     * (see {@see Statements::sqlServerTransactionGone()}).
+     * The caller rethrows the error unchanged.
      */
     public function noticeServerRollback(\Throwable $error): void
     {
-        if (!$this->mysql || !$this->recorder->isPreview() || $this->recorder->transactionEnded($this->key()) !== null) {
+        if (!($this->mysql || $this->sqlServer) || !$this->recorder->isPreview() || $this->recorder->transactionEnded($this->key()) !== null) {
             return;
         }
         $reason = Statements::serverEndedTransaction($error->getCode(), true, function (): bool {
@@ -55,7 +58,15 @@ final class CaptureConnection extends AbstractConnectionMiddleware
             } catch (\Throwable) {
                 return true; // unknown: assume the transaction is gone
             }
-        });
+        }, $this->sqlServer);
+        if ($reason === null && $this->sqlServer) {
+            try {
+                $state = parent::query(Statements::SQL_SERVER_STATE)->fetchNumeric() ?: null;
+            } catch (\Throwable) {
+                $state = null; // unknown: assume the transaction is gone
+            }
+            $reason = Statements::sqlServerTransactionGone($state) ? 'the server rolled back the Preview transaction' : null;
+        }
         if ($reason !== null) {
             $this->recorder->endTransaction($this->key(), $reason);
         }

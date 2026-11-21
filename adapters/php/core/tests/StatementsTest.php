@@ -14,7 +14,7 @@ final class StatementsTest extends TestCase
     /** @return iterable<string,array{string,bool,bool}> */
     public static function statements(): iterable
     {
-        foreach (['COMMIT', 'commit work', 'END', 'ROLLBACK', 'ABORT', 'BEGIN', 'START TRANSACTION', 'SET autocommit = 1', 'set session autocommit=1', 'PREPARE TRANSACTION \'x\'', 'SET IMPLICIT_TRANSACTIONS ON', "select 1; COMMIT", '/*!COMMIT*/', '-- note' . "\n" . 'COMMIT'] as $sql) {
+        foreach (['COMMIT', 'commit work', 'END', 'ROLLBACK', 'ABORT', 'BEGIN', 'START TRANSACTION', 'SET autocommit = 1', 'set session autocommit=1', 'PREPARE TRANSACTION \'x\'', "select 1; COMMIT", '/*!COMMIT*/', '-- note' . "\n" . 'COMMIT'] as $sql) {
             yield $sql => [$sql, false, true];
         }
         foreach (['SELECT 1', 'INSERT INTO t VALUES (1)', "select 'COMMIT;' as v", 'SAVEPOINT s1', 'RELEASE SAVEPOINT s1', 'ROLLBACK TO SAVEPOINT s1', 'ROLLBACK TO s1', '/* COMMIT */ select 1', 'select $$ COMMIT; $$'] as $sql) {
@@ -94,6 +94,42 @@ final class StatementsTest extends TestCase
         $this->assertNull(Statements::serverEndedTransaction(1205, true, $off), 'only the statement rolled back');
         $this->assertNull(Statements::serverEndedTransaction(1062, true, $on));
         $this->assertNull(Statements::serverEndedTransaction(1213, false, $on), 'PostgreSQL refuses later statements itself');
+    }
+
+    /** spec/data-stores.md: `SET IMPLICIT_TRANSACTIONS OFF` leaves the transaction alone, `ON` (alone or in a list) does not. */
+    public function testOnlyExactlyImplicitTransactionsOffIsAllowed(): void
+    {
+        foreach (['SET IMPLICIT_TRANSACTIONS OFF', 'set implicit_transactions off;', "SET\tIMPLICIT_TRANSACTIONS  OFF"] as $allowed) {
+            $this->assertFalse(Statements::endsTransaction($allowed), $allowed);
+        }
+        foreach (['SET IMPLICIT_TRANSACTIONS ON', 'SET NOCOUNT ON, IMPLICIT_TRANSACTIONS ON', 'SET NOCOUNT OFF, IMPLICIT_TRANSACTIONS OFF', 'SET IMPLICIT_TRANSACTIONS', 'SET IMPLICIT_TRANSACTIONS OFF; SET IMPLICIT_TRANSACTIONS ON'] as $refused) {
+            $this->assertTrue(Statements::endsTransaction($refused), $refused);
+        }
+    }
+
+    public function testSqlServerTransactionControlIsRefusedAndItsStartSavepointIsReserved(): void
+    {
+        foreach (['COMMIT TRAN', 'COMMIT TRANSACTION t1', 'ROLLBACK TRAN', 'ROLLBACK TRANSACTION', 'BEGIN TRAN', 'BEGIN TRANSACTION'] as $sql) {
+            $this->assertTrue(Statements::endsTransaction($sql), $sql);
+        }
+        foreach (['SAVE TRANSACTION sendproof_preview', 'ROLLBACK TRANSACTION sendproof_preview', 'save tran [sendproof_preview]'] as $sql) {
+            $this->assertNotNull(Statements::reason($sql, false, [], 'sendproof_preview'), $sql);
+        }
+        $this->assertNull(Statements::reason('SAVE TRANSACTION mine', false, [], 'sendproof_preview'), 'the handler may keep its own savepoints');
+    }
+
+    public function testASqlServerDeadlockVictimOrAnAbortedTransactionEndsThePreviewTransaction(): void
+    {
+        $off = static fn (): bool => false;
+        $this->assertNotNull(Statements::serverEndedTransaction(1205, false, $off, true));
+        $this->assertNotNull(Statements::serverEndedTransaction('1205', false, $off, true));
+        $this->assertNull(Statements::serverEndedTransaction(2627, false, $off, true), 'a duplicate key only fails its statement');
+        $this->assertNull(Statements::serverEndedTransaction(1213, false, $off, true), '1213 is MySQL');
+        // No open transaction, or XACT_ABORT ON, means the server rolled back; the row is TRANCOUNT and the XACT_ABORT flag.
+        $this->assertTrue(Statements::sqlServerTransactionGone([0, 0]));
+        $this->assertTrue(Statements::sqlServerTransactionGone(['1', '1']));
+        $this->assertTrue(Statements::sqlServerTransactionGone(null), 'unknown counts as gone');
+        $this->assertFalse(Statements::sqlServerTransactionGone([1, 0]));
     }
 
     public function testTheReservedSavepointCannotBeReleasedOrRolledBackTo(): void

@@ -149,7 +149,8 @@ class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         $native = $connection->getNativeConnection();
         if ($native instanceof \PDO) {
             $statement = $native->query($sql);
-            $row = $statement === false ? false : $statement->fetch(\PDO::FETCH_NUM);
+            // pdo_sqlsrv throws when asked for a row of a statement that returns none (`SAVE TRANSACTION`).
+            $row = $statement === false || $statement->columnCount() === 0 ? false : $statement->fetch(\PDO::FETCH_NUM);
 
             return $row === false ? null : $row;
         }

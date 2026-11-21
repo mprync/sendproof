@@ -25,10 +25,19 @@ final class Statements
     /** MySQL and MariaDB run the body of `/*! ... *\/` and `/*M! ... *\/` comments as SQL. */
     private const EXECUTABLE_COMMENT = '/^\/\*M?!\d*/';
 
-    private const TRANSACTION_CONTROL = '/^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:WORK\s+|TRANSACTION\s+)?TO\b)|PREPARE\s+TRANSACTION|XA\b|SET\s+(?:(?:SESSION|GLOBAL|LOCAL)\s+|@@(?:SESSION\.|GLOBAL\.)?)?AUTOCOMMIT\b|SET\s+IMPLICIT_TRANSACTIONS\b)/i';
+    private const TRANSACTION_CONTROL = '/^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:WORK\s+|TRANSACTION\s+)?TO\b)|PREPARE\s+TRANSACTION|XA\b|SET\s+(?:(?:SESSION|GLOBAL|LOCAL)\s+|@@(?:SESSION\.|GLOBAL\.)?)?AUTOCOMMIT\b)/i';
 
     /** A `SET` that changes autocommit anywhere in its list (`SET sql_mode = '', autocommit = 1`). */
     private const SET_AUTOCOMMIT = '/^SET\b.*(?<![\w$])AUTOCOMMIT\b/is';
+
+    /**
+     * SQL Server's `SET IMPLICIT_TRANSACTIONS ON` makes the statement after a commit open a new transaction, which
+     * hides the commit from a count of open transactions. Any `SET` naming it is refused (it may share a list with
+     * other options, `SET NOCOUNT, IMPLICIT_TRANSACTIONS ON`), except exactly `SET IMPLICIT_TRANSACTIONS OFF`, which
+     * leaves the open transaction alone and which EF Core sends at the start of its batches.
+     */
+    private const SET_IMPLICIT_TRANSACTIONS = '/^SET\b.*(?<![\w$])IMPLICIT_TRANSACTIONS\b/is';
+    private const IMPLICIT_TRANSACTIONS_OFF = '/^SET\s+IMPLICIT_TRANSACTIONS\s+OFF\s*$/i';
 
     /** MySQL commits the open transaction before (and after) these statements. https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html */
     private const MYSQL_IMPLICIT_COMMIT = '/^(?:ALTER|CREATE|DROP|RENAME|TRUNCATE|GRANT|REVOKE|LOCK\s+TABLES?|UNLOCK\s+TABLES?|ANALYZE|OPTIMIZE|REPAIR|CHECK\s+TABLES?|FLUSH|INSTALL|UNINSTALL|LOAD\s+(?:INDEX|DATA|XML)|CACHE\s+INDEX|RESET|SET\s+PASSWORD|SET\s+DEFAULT\s+ROLE|START\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|STOP\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|CHANGE\s+(?:REPLICATION|MASTER)|IMPORT\s+TABLE|CLONE)\b/i';
@@ -66,10 +75,11 @@ final class Statements
     {
         foreach (self::split($sql, $mysql) as $statement) {
             $verb = strtoupper((string) strtok($statement, " \t\r\n("));
-            if (preg_match(self::TRANSACTION_CONTROL, $statement) === 1 || preg_match(self::SET_AUTOCOMMIT, $statement) === 1) {
+            if (preg_match(self::TRANSACTION_CONTROL, $statement) === 1 || preg_match(self::SET_AUTOCOMMIT, $statement) === 1
+                || (preg_match(self::SET_IMPLICIT_TRANSACTIONS, $statement) === 1 && preg_match(self::IMPLICIT_TRANSACTIONS_OFF, $statement) !== 1)) {
                 return "the handler's {$verb} would end the Preview transaction";
             }
-            if ($reserved !== null && preg_match('/^(?:RELEASE|ROLLBACK|SAVEPOINT)\b/i', $statement) === 1
+            if ($reserved !== null && preg_match('/^(?:RELEASE|ROLLBACK|SAVEPOINT|SAVE)\b/i', $statement) === 1
                 && preg_match('/(?<![\w$])`?' . preg_quote($reserved, '/') . '`?(?![\w$])/i', $statement) === 1) {
                 return "the Preview's own savepoint is reserved for Sendproof";
             }
@@ -124,10 +134,16 @@ final class Statements
      * setting only when needed and should answer true when it can't. Every later statement would
      * run outside the Preview transaction, and with autocommit on commit for real.
      *
+     * On SQL Server (`$sqlServer`) a deadlock victim (1205) does the same. An error under `XACT_ABORT ON`
+     * also rolls the transaction back, and the code doesn't show it: the caller runs {@see SQL_SERVER_STATE}.
+     *
      * @param \Closure(): bool $rollbackOnTimeout
      */
-    public static function serverEndedTransaction(int|string|null $code, bool $mysql, \Closure $rollbackOnTimeout): ?string
+    public static function serverEndedTransaction(int|string|null $code, bool $mysql, \Closure $rollbackOnTimeout, bool $sqlServer = false): ?string
     {
+        if ($sqlServer) {
+            return (int) $code === 1205 ? 'a deadlock rolled back the Preview transaction' : null;
+        }
         if (!$mysql) {
             return null;
         }
@@ -140,6 +156,26 @@ final class Statements
         }
 
         return null;
+    }
+
+    /**
+     * The query a provider runs on SQL Server after any server error other than a deadlock victim, to learn whether
+     * the error rolled the Preview transaction back (answer to {@see sqlServerTransactionGone()}): the open
+     * transaction count and the session's `XACT_ABORT` setting.
+     */
+    public const SQL_SERVER_STATE = 'SELECT @@TRANCOUNT, CASE WHEN (@@OPTIONS & 16384) = 16384 THEN 1 ELSE 0 END';
+
+    /**
+     * Whether SQL Server rolled the whole transaction back after an error: no transaction is open, or the session
+     * runs under `XACT_ABORT ON`, where a run-time error ends the transaction. The second test is needed because a
+     * driver with auto-commit off (ODBC, so `pdo_sqlsrv`) runs the connection with `IMPLICIT_TRANSACTIONS ON`, and
+     * the statement after a rollback then opens a new transaction and the count reads 1 again.
+     *
+     * @param list<mixed>|null $state the row of {@see SQL_SERVER_STATE}; null (unknown) counts as gone
+     */
+    public static function sqlServerTransactionGone(?array $state): bool
+    {
+        return $state === null || (int) ($state[0] ?? 0) === 0 || (int) ($state[1] ?? 0) === 1;
     }
 
     /** `` `Shop` . `Rebuild` `` becomes `shop.rebuild`; a quoted name that isn't a plain name never matches. */
