@@ -45,6 +45,8 @@ final class MongoEngine
 {
     /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
     public const STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions";
+    /** The reason shown when the client's own commands never reached Sendproof's monitor. */
+    public const UNMONITORED_REASON = "Preview unavailable: Sendproof's command monitor doesn't see this MongoDB client's commands";
     /** Below the server's 60-second `transactionLifetimeLimitSeconds`, so the binding, not the server, ends a long Preview. */
     public const DEFAULT_TIMEOUT_MS = 50_000;
 
@@ -63,8 +65,22 @@ final class MongoEngine
     private \WeakMap $states;
     /** @var array<int|string,array<string,mixed>> Commands seen by monitoring, kept until their reply arrives */
     private array $pending = [];
-    /** Set while the engine itself talks to the server, so monitoring ignores those commands. */
-    private bool $internal = false;
+    /**
+     * Above zero while any engine talks to the server itself, so monitoring ignores those commands.
+     * Shared by every engine: the driver pools clients that share a URI, and every subscriber of a
+     * pooled client sees every one of its commands.
+     */
+    private static int $internal = 0;
+    /** @var array<string,array{0:MongoPreview,1:\WeakReference<Recorder>}> The open Preview transactions of every engine, by lsid */
+    private static array $open = [];
+    /** @var \WeakMap<object,\WeakMap<Recorder,true>>|null Monitoring events already handled for each recorder, so a pooled client's command is handled once */
+    private static ?\WeakMap $handled = null;
+    /** The `comment` of this engine's own `hello`: seeing it proves the monitor is installed on this client. */
+    private readonly string $probe;
+    /** The subscriber registered on {@see $manager}: the tripwire, the `Db` log and change candidates. */
+    private readonly MongoMonitor $monitor;
+    /** Set once monitoring saw {@see $probe}. */
+    private bool $probeSeen = false;
     /** @var array{mode:string,reason?:string}|null */
     private ?array $detected = null;
     /** The detected mode; known before any Preview runs, because {@see begin()} detects first. */
@@ -83,7 +99,9 @@ final class MongoEngine
     ) {
         $this->modes = new \WeakMap();
         $this->states = new \WeakMap();
-        $manager->addSubscriber(new MongoMonitor($this));
+        $this->probe = 'sendproof-monitor-' . bin2hex(random_bytes(8));
+        $this->monitor = new MongoMonitor($this);
+        $manager->addSubscriber($this->monitor);
     }
 
     /** The reason shown for a command MongoDB refuses inside a transaction. */
@@ -101,12 +119,11 @@ final class MongoEngine
     /** Runs engine-internal commands (topology, change capture, abort) without logging or tripping. */
     public function internal(callable $work): mixed
     {
-        $previous = $this->internal;
-        $this->internal = true;
+        self::$internal++;
         try {
             return $work();
         } finally {
-            $this->internal = $previous;
+            self::$internal--;
         }
     }
 
@@ -124,16 +141,32 @@ final class MongoEngine
         try {
             $hello = $this->internal(fn (): object => $this->hello !== null
                 ? ($this->hello)()
-                : $this->manager->executeCommand('admin', new Command(['hello' => 1]))->toArray()[0]);
+                : $this->manager->executeCommand('admin', new Command(['hello' => 1, 'comment' => $this->probe]))->toArray()[0]);
             $transactions = (!empty($hello->setName) || ($hello->msg ?? null) === 'isdbgrid') && ($hello->logicalSessionTimeoutMinutes ?? null) !== null;
         } catch (\Throwable) {
             $this->mode ??= 'guard';
 
             return ['mode' => 'guard', 'reason' => self::STANDALONE_REASON];
         }
+        if (!$this->monitored()) {
+            // The tripwire can't see this client: never claim a rollback (see begin()).
+            $this->mode = 'guard';
+
+            return $this->detected = ['mode' => 'guard', 'reason' => self::UNMONITORED_REASON];
+        }
         $this->mode = $transactions ? 'preview' : 'guard';
 
         return $this->detected = $transactions ? ['mode' => 'preview'] : ['mode' => 'guard', 'reason' => self::STANDALONE_REASON];
+    }
+
+    /**
+     * Whether this engine's monitor is installed on the client it guards, proven by its own `hello`
+     * reaching it. Commands from some other client don't count. A topology supplied by a test
+     * (`$hello`) sends no `hello`, so it is taken as monitored.
+     */
+    private function monitored(): bool
+    {
+        return $this->hello !== null || $this->probeSeen;
     }
 
     /** The current Preview's state, when this code runs in a `preview`-mode Preview that began. */
@@ -161,11 +194,20 @@ final class MongoEngine
     /** Prepares a Preview: detects the mode and, in `preview` mode, starts the session and transaction. */
     public function begin(Recorder $recorder): ?MongoPreview
     {
+        // PHP runs one request at a time, so a transaction still open here belongs to a Preview that
+        // never finished (a fatal error, `exit`, a worker that kept running): abort it now.
+        foreach ($this->states as $stale) {
+            $this->end($stale);
+        }
         unset($this->states[$recorder], $this->modes[$recorder]);
         if (!$recorder->inPreviewScope()) {
             return null;
         }
-        $mode = $this->detect()['mode'];
+        $detected = $this->detect();
+        if (($detected['reason'] ?? null) === self::UNMONITORED_REASON) {
+            throw new \RuntimeException('The MongoDB command monitor is not installed on the guarded client, so a write that escaped the Preview could not be detected.');
+        }
+        $mode = $detected['mode'];
         $this->modes[$recorder] = $mode;
         if ($mode !== 'preview') {
             return null;
@@ -178,6 +220,7 @@ final class MongoEngine
         }
         $state = new MongoPreview($session, $lsid, hrtime(true) + $this->timeoutMs * 1_000_000);
         $this->states[$recorder] = $state;
+        self::$open[$lsid] = [$state, \WeakReference::create($recorder)];
 
         return $state;
     }
@@ -235,14 +278,25 @@ final class MongoEngine
     /** @internal Called by {@see MongoMonitor} */
     public function started(CommandStartedEvent $event): void
     {
-        if ($this->internal) {
+        $command = $event->getCommand();
+        if (($command->comment ?? null) === $this->probe) {
+            $this->probeSeen = true;
+        }
+        if (self::$internal > 0) {
             return;
         }
-        $command = $event->getCommand();
+        // A pooled client hands the same event to every engine's subscriber: for each request's
+        // recorder, the first engine handles it.
+        $recorder = $this->guard->recorder();
+        self::$handled ??= new \WeakMap();
+        $seen = self::$handled[$event] ??= new \WeakMap();
+        if (isset($seen[$recorder])) {
+            return;
+        }
+        $seen[$recorder] = true;
         $name = $event->getCommandName();
         $lower = strtolower($name);
         $kind = Classifier::mongo($command, $this->reads)['kind'];
-        $recorder = $this->guard->recorder();
         $preview = $recorder->inPreviewScope();
         if ($preview && self::endsTransaction($lower)) {
             // Sent around the hook, for example through a raw driver call: it may have committed
@@ -271,9 +325,10 @@ final class MongoEngine
     /** A write seen during a Preview: collect change candidates, or trip if it escaped the session. */
     private function watchWrite(Recorder $preview, object $command, string $namespace, string $lower): void
     {
-        $state = $this->states[$preview] ?? null;
+        // The Preview transaction it names, on whichever engine owns it (pooled clients share monitoring).
+        $state = self::openState($preview, $command);
         // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
-        if ($state === null || $state->finished || self::lsidHex($command->lsid ?? null) !== $state->lsid || ($command->autocommit ?? null) !== false) {
+        if ($state === null || ($command->autocommit ?? null) !== false) {
             // The hook couldn't stop it and nothing can undo it: never claim a rollback.
             $preview->refuse(new PreviewTransactionControlException("A MongoDB {$lower} escaped the Preview session; the Preview can't be confirmed."));
 
@@ -340,9 +395,9 @@ final class MongoEngine
             return;
         }
         $reply = $event->getReply();
-        $state = $pending['preview'] !== null ? ($this->states[$pending['preview']] ?? null) : null;
+        $state = $pending['preview'] !== null ? self::openState($pending['preview'], $pending['command']) : null;
         // The first reply in the transaction carries its snapshot time (the read timestamp).
-        if ($state !== null && $state->startTime === null && isset($reply->operationTime) && self::lsidHex($pending['command']->lsid ?? null) === $state->lsid) {
+        if ($state !== null && $state->startTime === null && isset($reply->operationTime)) {
             $state->startTime = $reply->operationTime;
         }
         if ($state !== null && $pending['target'] !== null) {
@@ -378,7 +433,7 @@ final class MongoEngine
         }
         $error = $event->getError();
         // The server refused something a transaction can't do and applied nothing: a block, not a crash.
-        if ($pending['preview'] !== null && isset($this->states[$pending['preview']]) && $error->getCode() === 263) {
+        if ($pending['preview'] !== null && self::openState($pending['preview'], $pending['command']) !== null && $error->getCode() === 263) {
             $pending['preview']->block(['store' => 'mongodb', 'operation' => $pending['name'], 'detail' => self::refusedReason($pending['name'])]);
         }
         $reply = $event->getReply();
@@ -464,6 +519,7 @@ final class MongoEngine
             return;
         }
         $state->finished = true;
+        unset(self::$open[$state->lsid]);
         $this->internal(static function () use ($state): void {
             try {
                 if ($state->session->isInTransaction()) {
@@ -560,6 +616,19 @@ final class MongoEngine
     }
 
     // ---- Helpers ----
+
+    /**
+     * The open Preview transaction a command carries, by its `lsid`, when it belongs to `$preview`.
+     * Any engine's Preview counts: the driver pools clients that share a URI, so one engine's
+     * monitor sees another hooked client's commands.
+     */
+    private static function openState(Recorder $preview, object $command): ?MongoPreview
+    {
+        $lsid = self::lsidHex($command->lsid ?? null);
+        [$state, $owner] = $lsid === null ? [null, null] : (self::$open[$lsid] ?? [null, null]);
+
+        return $state !== null && !$state->finished && $owner->get() === $preview ? $state : null;
+    }
 
     /** Commands that end a transaction. In a Preview only the engine may send them. */
     private static function endsTransaction(string $name): bool

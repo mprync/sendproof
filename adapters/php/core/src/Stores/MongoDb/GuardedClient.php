@@ -43,8 +43,14 @@ final class GuardedClient extends Client
 
     public function __construct(private readonly Client $inner, private readonly MongoHook $hook)
     {
-        // The inner client owns the connection; this one only delegates, so its own manager is never used.
-        parent::__construct();
+        // The inner client owns the connection. Its state is shared rather than a second manager
+        // built, so the library's final methods (`addSubscriber()`, `removeSubscriber()`, which
+        // laravel-mongodb's query log uses) act on the manager that really sends the commands.
+        \Closure::bind(function (Client $inner): void {
+            foreach (['manager', 'readConcern', 'readPreference', 'uri', 'writeConcern', 'driverOptions'] as $property) {
+                $this->{$property} = $inner->{$property};
+            }
+        }, $this, Client::class)($inner);
     }
 
     /** The hook the client's handles share, which holds the engine. */

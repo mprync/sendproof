@@ -63,6 +63,16 @@ final class MongoStoreTest extends TestCase
         return [$recorder, new GuardedClient($this->raw, new MongoHook($engine)), new MongoStore($engine, 'catalog'), $engine];
     }
 
+    /**
+     * The documents collection through a client that gives up after 3 seconds. A write that meets an
+     * open transaction's lock waits for the transaction to end, ignoring `maxTimeMS`, so only a
+     * socket timeout shows that a transaction was left open.
+     */
+    private function impatient(): \MongoDB\Collection
+    {
+        return (new Client(Services::mongodbUrl() . '&appName=impatient&socketTimeoutMS=3000'))->selectCollection($this->database, 'documents');
+    }
+
     private function documents(string $name = 'documents'): \MongoDB\Collection
     {
         return $this->independent->selectCollection($this->database, $name);
@@ -361,6 +371,153 @@ final class MongoStoreTest extends TestCase
         $recorder->begin(true);
         $this->expectException(PreviewWriteBlockedException::class);
         $client->selectDatabase($this->database)->getGridFSBucket();
+    }
+
+    public function testTwoHookedClientsOnOneUriShareMonitoringWithoutFailingEachOther(): void
+    {
+        // The driver pools both clients, so each engine's monitor sees the other's commands.
+        $recorder = new Recorder();
+        $guard = new Guard(static fn () => $recorder);
+        $url = Services::mongodbUrl() . '&appName=pooled';
+        $one = MongoStore::hook(new Client($url), $guard, 'one');
+        $two = MongoStore::hook(new Client($url), $guard, 'two');
+        $result = $this->preview($recorder, [$one, $two], function () use ($one, $two): void {
+            $one->client()->selectCollection($this->database, 'documents')->insertOne(['_id' => 'from-one']);
+            $two->client()->selectCollection($this->database, 'documents')->insertOne(['_id' => 'from-two']);
+        });
+        $this->assertTrue($result->isConfirmed(), 'Neither engine may take the other\'s Preview writes or abort for an escape.');
+        $keys = array_map(static fn (array $change): string => $change['key']['_id'], $result->envelope['changes']);
+        $this->assertEqualsCanonicalizing(['from-one', 'from-two'], $keys);
+        $inserts = array_filter($result->envelope['logs'], static fn (array $entry): bool => ($entry['db']['operation'] ?? '') === 'insert');
+        $this->assertCount(2, $inserts, 'A pooled command is logged once, not once per engine.');
+        $this->assertNull($this->documents()->findOne(['_id' => 'from-two']));
+
+        // An unhooked client on the same URI really escaped: its write commits, so the Preview never confirms.
+        $escaped = $this->preview($recorder, [$one], function () use ($url): void {
+            (new Client($url))->selectCollection($this->database, 'documents')->insertOne(['_id' => 'pooled-escape']);
+        });
+        $this->assertSame(500, $escaped->status);
+        $this->documents()->deleteOne(['_id' => 'pooled-escape']);
+    }
+
+    public function testAWriteWithThePreviewLsidButOutsideItsTransactionTripsTheWire(): void
+    {
+        // The tripwire needs autocommit: false as well as the lsid: the same session outside its transaction commits.
+        [$recorder, $client, $store, $engine] = $this->hooked();
+        $result = $this->preview($recorder, [$store], function () use ($client, $engine): void {
+            $client->selectCollection($this->database, 'documents')->insertOne(['_id' => 'inside']);
+            $session = $engine->state()->session;
+            $engine->internal(static fn () => $session->abortTransaction());
+            $bulk = new \MongoDB\Driver\BulkWrite();
+            $bulk->insert(['_id' => 'autocommitted']);
+            $this->raw->getManager()->executeBulkWrite($this->database . '.documents', $bulk, ['session' => $session]);
+        });
+        $this->assertSame(500, $result->status);
+        $this->assertNotNull($this->documents()->findOne(['_id' => 'autocommitted']), 'The write committed, which is why it is never confirmed.');
+        $this->documents()->deleteOne(['_id' => 'autocommitted']);
+    }
+
+    public function testAPreviewWithoutAProvenMonitorNeverRuns(): void
+    {
+        [$recorder, $client, $store, $engine] = $this->hooked();
+        $monitor = (new \ReflectionProperty(MongoEngine::class, 'monitor'))->getValue($engine);
+        $engine->manager->removeSubscriber($monitor);
+        $this->assertSame(MongoEngine::UNMONITORED_REASON, $store->describe()['reason'] ?? null);
+        $result = $this->preview($recorder, [$store], fn () => $client->selectCollection($this->database, 'documents')->findOne([]));
+        $this->assertSame(500, $result->status, 'Without its own monitor the engine could not see an escaped write, so it never claims a rollback.');
+    }
+
+    public function testAnUnfinishedPreviewTransactionIsAbortedWhenTheNextPreviewBegins(): void
+    {
+        // A worker that survived a Preview which never reached finish() (a fatal error) must not keep its transaction.
+        [, $client, $store] = $this->hooked();
+        $abandoned = new Recorder();
+        $guard = new Guard(static fn () => $abandoned);
+        $engine = new MongoEngine($this->raw->getManager(), $guard);
+        $hooked = new GuardedClient($this->raw, new MongoHook($engine));
+        $abandoned->begin(true);
+        $engine->begin($abandoned);
+        $hooked->selectCollection($this->database, 'documents')->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'Abandoned']]);
+
+        $next = new Recorder();
+        $abandoned->forget();
+        $next->begin(true);
+        $engine->begin($next);
+        $engine->finish($next);
+        $next->finish();
+
+        $this->impatient()->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'Free']]);
+        $this->assertSame('Free', $this->documents()->findOne(['_id' => 'seeded'])['name'], 'The abandoned transaction released its lock and wrote nothing.');
+    }
+
+    public function testATransactionIsAbortedWhenThePreviewProcessExitsOrDiesOfAFatalError(): void
+    {
+        foreach (['exit', 'fatal'] as $ending) {
+            $code = sprintf(<<<'PHP'
+                require %s;
+                $recorder = new Sendproof\Core\Capture\Recorder();
+                $store = Sendproof\Core\Stores\MongoDb\MongoStore::hook(new MongoDB\Client(%s), new Sendproof\Core\Stores\Guard(static fn () => $recorder));
+                $recorder->begin(true);
+                $store->begin($recorder);
+                $store->client()->selectCollection(%s, 'documents')->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'Dying']]);
+                echo "locked\n";
+                if (%s === 'exit') { exit(0); }
+                ini_set('memory_limit', '16M');
+                $grow = str_repeat('x', 64000000);
+                PHP, var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true), var_export(Services::mongodbUrl() . '&appName=dying', true), var_export($this->database, true), var_export($ending, true));
+            $output = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code) . ' 2>&1');
+            $this->assertStringContainsString('locked', $output, $ending);
+            $this->impatient()->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'After ' . $ending]]);
+            $this->assertSame('After ' . $ending, $this->documents()->findOne(['_id' => 'seeded'])['name'], "{$ending}: the transaction was aborted and its lock released.");
+        }
+    }
+
+    public function testDerivedHandlesStayGuarded(): void
+    {
+        $standalone = static fn (): object => (object) ['isWritablePrimary' => true, 'maxWireVersion' => 27];
+        [$recorder, $client, $store] = $this->hooked($standalone);
+        $majority = ['writeConcern' => new \MongoDB\Driver\WriteConcern(\MongoDB\Driver\WriteConcern::MAJORITY)];
+        foreach ([
+            'collection withOptions' => fn () => $client->selectCollection($this->database, 'documents')->withOptions($majority),
+            'database withOptions' => fn () => $client->selectDatabase($this->database)->withOptions($majority)->selectCollection('documents'),
+            'getDatabase with options' => fn () => $client->getDatabase($this->database, $majority)->getCollection('documents', $majority),
+            'getCollection with options' => fn () => $client->getCollection($this->database, 'documents', $majority),
+        ] as $label => $derive) {
+            $result = $this->preview($recorder, [$store], function () use ($derive): void {
+                try {
+                    $derive()->insertOne(['_id' => 'derived']);
+                } catch (PreviewWriteBlockedException) {
+                }
+            });
+            $this->assertSame(409, $result->status, $label);
+        }
+        $this->assertNull($this->documents()->findOne(['_id' => 'derived']));
+    }
+
+    public function testTheQueryLogSubscriberOfLaravelMongodbReachesTheManagerThatSendsTheCommands(): void
+    {
+        [, $client] = $this->hooked();
+        $subscriber = new class () implements \MongoDB\Driver\Monitoring\CommandSubscriber {
+            public array $seen = [];
+
+            public function commandStarted(\MongoDB\Driver\Monitoring\CommandStartedEvent $event): void
+            {
+                $this->seen[] = $event->getCommandName();
+            }
+
+            public function commandSucceeded(\MongoDB\Driver\Monitoring\CommandSucceededEvent $event): void
+            {
+            }
+
+            public function commandFailed(\MongoDB\Driver\Monitoring\CommandFailedEvent $event): void
+            {
+            }
+        };
+        $client->addSubscriber($subscriber);
+        $client->selectCollection($this->database, 'documents')->findOne(['_id' => 'seeded']);
+        $client->removeSubscriber($subscriber);
+        $this->assertContains('find', $subscriber->seen);
+        $this->assertSame($this->raw->getManager(), $client->getManager());
     }
 
     public function testGridFsIsRefusedInPreviewModeBecauseItsWritesCantJoinTheTransaction(): void
