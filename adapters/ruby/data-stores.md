@@ -73,6 +73,8 @@ The same subscriber classifies every command during a Preview:
 - on a standalone server (`guard` mode), a write is refused and the Preview answers 409;
 - on a replica set (`preview` mode), what MongoDB can't run in a transaction (`$out`, `$merge`, `count`, an explicit `create`, `drop`, `listCollections`, `listIndexes` …) is refused with a reason such as "Preview unavailable: MongoDB can't run $out inside a transaction", and a write that doesn't carry the Preview's session and `autocommit: false` is refused and fails the Preview with 500.
 
+The guard sees commands only through monitoring, so a client created with `monitoring: false` is refused when you hook it. Hook the client at boot: a client Mongoid builds later (after `Mongoid::Clients.clear`) is not hooked.
+
 A refused command marks its pooled connection as failed, so the next operation on it opens a new one. That costs one reconnect per refusal and is invisible otherwise.
 
 Each Preview keeps the mode it started in. If the topology check failed when a Preview began, that Preview runs in `guard` mode even if a later check succeeds.

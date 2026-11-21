@@ -53,7 +53,7 @@ Other local suites passed as follows:
 - **Python, 80:** core 29, FastAPI 10, Django 8, Flask 20 (including 13 extension tests on SQLite) and SQLAlchemy 13. The PostgreSQL and MySQL extension runs are listed separately above.
 - **JVM, 79:** core 30, Spring Boot 27, JPA 9, Ktor 7 and JDBC 6.
 - **PHP, 95:** core 49, Laravel 22 and Symfony 24.
-- **Ruby, 233:** core 163 (95 of them data-store tests: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 36 (listed above for SQLite and MySQL), Rails 26 and the Rails fixture 8.
+- **Ruby, 235:** core 165 (97 of them data-store tests: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 36 (listed above for SQLite and MySQL), Rails 26 and the Rails fixture 8.
 
 The Rails ActiveRecord suite skips one test on each database: the MySQL-only regression test for concurrent Previews on SQLite, and the bound-parameter test on MySQL, which has no prepared statements through Trilogy. The Go counts exclude parent tests that group subtests. The SQL Server case for a single-statement upsert is skipped because SQL Server uses `MERGE`, which is outside keyed capture. The Go packages also pass vet, race checks and the 15 module-path rewrite tests. The Rust workspace includes 82 local tests in total.
 

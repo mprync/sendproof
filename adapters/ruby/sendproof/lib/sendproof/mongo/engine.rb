@@ -68,6 +68,12 @@ module Sendproof
       def initialize(client, reads: nil, preview_timeout: DEFAULT_TIMEOUT, hello: nil)
         raise ArgumentError, "preview_timeout must be a positive number of seconds." unless preview_timeout.is_a?(Numeric) && preview_timeout.positive?
 
+        # The guard sees commands only through monitoring: a client that doesn't publish them would run every
+        # write unguarded, so it is refused rather than hooked.
+        if client.options[:monitoring] == false
+          raise ArgumentError, "Create the Mongo::Client without monitoring: false: the Preview guard needs command monitoring."
+        end
+
         @client = client
         @reads = reads
         @timeout = preview_timeout

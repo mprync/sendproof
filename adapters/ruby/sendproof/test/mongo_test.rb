@@ -356,6 +356,13 @@ class MongoHookTest < Minitest::Test
     assert_equal 2, stored.count { |document| document["_id"].start_with?("plain") }
   end
 
+  def test_a_client_without_command_monitoring_is_refused
+    blind = ::Mongo::Client.new(@url, monitoring: false, server_selection_timeout: 3)
+    assert_raises(ArgumentError) { Sendproof::Mongo::Store.new(blind) }
+  ensure
+    blind&.close
+  end
+
   def test_discovery_lists_the_store_in_preview_mode
     assert_equal({ system: "mongodb", name: "catalog", mode: :preview }, @store.describe)
   end
