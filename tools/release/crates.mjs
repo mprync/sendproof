@@ -1,4 +1,4 @@
-// crates.io packaging: `cargo package` the four published Rust crates into .crate archives.
+// crates.io packaging: `cargo package` the seven published Rust crates into .crate archives.
 //
 // pack   Stages adapters/rust into ctx.work, stamps the release version, repository and homepage into the
 //        staged manifests, generates the embedded UI into the staged sendproof-core, then runs
@@ -239,6 +239,9 @@ export async function verify(ctx) {
       '[dependencies]',
       `sendproof-core = { path = ${quote(paths['sendproof-core'])} }`,
       `sendproof-axum = { path = ${quote(paths['sendproof-axum'])} }`,
+      `sendproof-redis = { path = ${quote(paths['sendproof-redis'])} }`,
+      `sendproof-dynamodb = { path = ${quote(paths['sendproof-dynamodb'])} }`,
+      `sendproof-mongodb = { path = ${quote(paths['sendproof-mongodb'])} }`,
       'axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }',
       'serde_json = "1"',
       'tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }', '',

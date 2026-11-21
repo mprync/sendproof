@@ -24,6 +24,10 @@ async fn main() {
             .build()
             .expect("valid Sendproof configuration"),
     );
+    // The data-store crates build against their client libraries from the extracted archives.
+    let _redis = sendproof_redis::RedisStore::new();
+    let _dynamodb = sendproof_dynamodb::DynamoStore::new();
+    let _mongodb = std::any::type_name::<sendproof_mongodb::MongoStoreBuilder>();
     let api = Router::new().route("/openapi.json", get(openapi)).route("/ping", get(|| async { "pong" }));
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.expect("bind");
     axum::serve(listener, bench.wrap(api)).await.expect("serve");
