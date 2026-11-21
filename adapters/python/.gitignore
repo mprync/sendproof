@@ -1,0 +1,9 @@
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+__pycache__/
+# Embedded UI is produced by scripts/embed_ui.py from the shared packer.
+core/src/testbench_core/ui/
+.cache/

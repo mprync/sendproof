@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "testbench-core"
+version = "0.1.0a1"
+description = "Framework-neutral core of the Test Bench Python adapters: protocol, capture, trace store and embedded workbench UI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Test Bench contributors" }]
+keywords = ["openapi", "testing", "api", "workbench", "rollback"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/testbench_core"]
+# The UI bundle is generated from the shared packer and is not tracked by git.
+artifacts = ["src/testbench_core/ui/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/testbench_core", "README.md"]
+artifacts = ["src/testbench_core/ui/**"]
