@@ -155,7 +155,10 @@ export async function verify(ctx) {
       '    module = importlib.import_module(name)',
       '    assert "site-packages" in pathlib.Path(module.__file__).parts, f"{name} imported from {module.__file__}"',
       '    assert module.__version__ == expected, f"{name} {module.__version__} != {expected}"',
-      'print("imported", ", ".join(' + JSON.stringify(modules) + '))',
+      // The data-store hooks ship inside sendproof-core (their client libraries are optional extras).
+      'stores = importlib.import_module("sendproof_core.stores")',
+      'assert "site-packages" in pathlib.Path(stores.__file__).parts, f"stores imported from {stores.__file__}"',
+      'print("imported", ", ".join(' + JSON.stringify(modules) + '), "and sendproof_core.stores")',
     ].join('\n')], { cwd: consumer, label: 'pypi' });
 
     await copyFile(join(consumerFiles, 'app.py'), join(consumer, 'app.py'));
