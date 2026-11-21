@@ -1,0 +1,27 @@
+[package]
+name = "sendproof-redis"
+description = "Redis write guard for Sendproof: a Preview reads Redis normally and is stopped before the first write is sent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[features]
+# `Redis` as an Axum extractor (`RedisStore: FromRef<State>`).
+axum = ["dep:axum"]
+# `Redis` as an Actix Web extractor (`web::Data<RedisStore>` in `app_data`).
+actix = ["dep:actix-web"]
+
+[dependencies]
+sendproof-core.workspace = true
+redis = { workspace = true, features = ["aio", "tokio-comp"] }
+http.workspace = true
+axum = { workspace = true, optional = true }
+actix-web = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }

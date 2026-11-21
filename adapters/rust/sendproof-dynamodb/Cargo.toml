@@ -1,0 +1,25 @@
+[package]
+name = "sendproof-dynamodb"
+description = "DynamoDB write guard for Sendproof: an AWS SDK interceptor that stops a Preview before the first write is sent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+sendproof-core.workspace = true
+aws-sdk-dynamodb.workspace = true
+aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x"] }
+aws-smithy-types.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+aws-smithy-runtime = { workspace = true, features = ["test-util"] }
+aws-credential-types = { workspace = true, features = ["test-util"] }
+# The SDK test client answers with `http` 0.2 responses.
+http02 = { package = "http", version = "0.2" }
