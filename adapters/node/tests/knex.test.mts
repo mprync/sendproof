@@ -1,6 +1,7 @@
 import { afterEach, before, after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import knex from 'knex';
 import type { Knex } from 'knex';
 import { KnexPreview } from '@sendproof/knex';
 import { capturing, sqlEntries } from './support/capture.mts';
@@ -93,6 +94,81 @@ for (const target of targets()) {
       for (const [name, message] of Object.entries(outcomes)) assert.match(message, /Preview owns the transaction/, name);
       assert.deepEqual(await ids(), []);
     });
+
+    it('refuses a COMMIT inside a nested transaction and DDL from the schema builder during a Preview', async () => {
+      provider = provide();
+      const outcomes: Record<string, string> = {};
+      const attempt = async (name: string, run: () => PromiseLike<unknown>) => {
+        try { await run(); outcomes[name] = 'ran'; } catch (error) { outcomes[name] = (error as Error).message; }
+      };
+      await assert.rejects(provider.preview(async () => {
+        await provider.client('items').insert({ id: 'escaped', name: 'Must roll back' });
+        // A savepoint's own transaction object runs on the Preview connection, so its COMMIT would end the Preview too.
+        await attempt('nested COMMIT', () => provider.transaction(trx => trx.raw('COMMIT')));
+        if (provider.dialect === 'mysql') {
+          await attempt('schema builder', () => provider.client.schema.createTable('escape_ddl', table => { table.integer('n'); }));
+        }
+      }), /not contained/);
+      for (const [name, message] of Object.entries(outcomes)) assert.match(message, /Preview owns the transaction/, name);
+      assert.deepEqual(await ids(), []);
+      if (provider.dialect === 'mysql') assert.equal(await database.schema.hasTable('escape_ddl'), false);
+    });
+
+    if (target.name === 'MySQL') {
+      it('refuses CALL during a MySQL Preview unless the procedure is declared safe, and catches a declared one that commits', async () => {
+        await database.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+        await database.raw('CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END');
+        try {
+          provider = provide();
+          let refusal = '';
+          await assert.rejects(provider.preview(async () => {
+            await provider.client('items').insert({ id: 'called', name: 'Must roll back' });
+            try { await provider.client.raw('CALL sendproof_commit_probe()'); } catch (error) { refusal = (error as Error).message; }
+          }), /not contained/);
+          assert.match(refusal, /Preview owns the transaction/);
+          assert.deepEqual(await ids(), []);
+
+          // A host that wrongly declares the procedure safe lets it run; the start-savepoint check still fails the Preview.
+          const trusting = provide({ safeProcedures: ['sendproof_commit_probe'] });
+          await assert.rejects(trusting.preview(async () => {
+            await trusting.client('items').insert({ id: 'declared', name: 'Committed by the procedure' });
+            await trusting.client.raw('CALL sendproof_commit_probe()');
+          }), /savepoint set when the Preview started was gone/);
+          await database('items').where({ id: 'declared' }).delete();
+
+          // With autocommit=0, MySQL opens a new transaction after the procedure's COMMIT, so a savepoint set only at
+          // the end would succeed; the one set when the Preview started is gone either way.
+          const manual = knex({ ...database.client.config, pool: { min: 1, max: 1,
+            afterCreate: (connection: { query: (sql: string, done: (error?: Error) => void) => void }, done: (error?: Error) => void) =>
+              connection.query('SET autocommit = 0', done) } });
+          try {
+            const late = new KnexPreview(manual, { safeProcedures: ['sendproof_commit_probe'] });
+            providers.push(late);
+            await assert.rejects(late.preview(async () => {
+              await late.client('items').insert({ id: 'manual', name: 'Committed by the procedure' });
+              await late.client.raw('CALL sendproof_commit_probe()');
+              await late.client('items').insert({ id: 'after', name: 'In the implicit transaction' });
+            }), /savepoint set when the Preview started was gone/);
+            assert.deepEqual(await ids(), ['manual']);
+          } finally {
+            await manual.destroy();
+          }
+        } finally {
+          await database.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+        }
+      });
+
+      it('refuses a handler releasing or recreating the Preview savepoint', async () => {
+        provider = provide();
+        const outcomes: string[] = [];
+        await assert.rejects(provider.preview(async () => {
+          for (const sql of ['RELEASE SAVEPOINT sendproof_preview', 'SAVEPOINT sendproof_preview', 'ROLLBACK TO SAVEPOINT sendproof_preview']) {
+            try { await provider.client.raw(sql); outcomes.push('ran'); } catch (error) { outcomes.push((error as Error).message); }
+          }
+        }), /not contained/);
+        for (const message of outcomes) assert.match(message, /Preview owns the transaction/);
+      });
+    }
 
     it('derives the rows of conditional, aliased and counter updates from the builder, in key order', async () => {
       provider = provide();
@@ -353,12 +429,15 @@ for (const target of targets()) {
 }
 
 describe('Knex provider rollback confirmation', () => {
+  /** The transaction client the statement guard wraps; these fakes never send a statement. */
+  const fakeTransactionClient = () => ({ query: async () => undefined, stream: async () => undefined });
+
   it('treats a rollback that completes without acknowledgment as unconfirmed and removes its listener', async () => {
     const client = new EventEmitter() as EventEmitter & { transaction: () => Promise<unknown> };
     client.transaction = async () => {
       let rejectCompletion!: () => void;
       const executionPromise = new Promise<never>((_resolve, reject) => { rejectCompletion = reject; });
-      return { executionPromise, isCompleted: () => false, async rollback() { rejectCompletion(); } };
+      return { executionPromise, client: fakeTransactionClient(), isCompleted: () => false, async rollback() { rejectCompletion(); } };
     };
     const provider = new KnexPreview(client as unknown as Knex);
     await assert.rejects(provider.preview(async () => 'response'), /did not acknowledge the rollback/);
@@ -369,7 +448,7 @@ describe('Knex provider rollback confirmation', () => {
   it('refuses to report a preview whose transaction the operation already completed', async () => {
     const client = new EventEmitter() as EventEmitter & { transaction: () => Promise<unknown> };
     client.transaction = async () => ({
-      executionPromise: Promise.resolve(), isCompleted: () => true, async rollback() { throw new Error('unreachable'); },
+      executionPromise: Promise.resolve(), client: fakeTransactionClient(), isCompleted: () => true, async rollback() { throw new Error('unreachable'); },
     });
     const provider = new KnexPreview(client as unknown as Knex);
     await assert.rejects(provider.preview(async () => 'response'), /completed the Knex transaction/);

@@ -2,11 +2,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import type { Knex } from 'knex';
-import { currentCapture } from '@sendproof/core';
+import { currentCapture, previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
 import type { Change, PreviewProvider } from '@sendproof/core';
 import { dialectOf, isTransient, systemOf } from './dialect.js';
 import { compareKeys, insertedRows, keysFromData, keysFromResult, normalizeKey, readPrimaryKey, rowsOf } from './keys.js';
-import { guardPreview, resolveTable, trackClient } from './tracked.js';
+import { guardPreview, guardStatements, resolveTable, trackClient } from './tracked.js';
 import type { BuilderState, TableName } from './tracked.js';
 import { PreviewTurns } from './turns.js';
 import type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
@@ -29,6 +29,8 @@ interface Scope {
   depth: number;
   /** Set when a Preview refused a statement that would have ended its transaction. */
   refused?: boolean;
+  /** The Preview scope this scope runs in (itself for the Preview), or undefined outside a Preview. */
+  preview?: Scope;
 }
 
 type Row = Record<string, unknown>;
@@ -71,6 +73,10 @@ export class KnexPreview implements PreviewProvider {
   readonly #transaction = new AsyncLocalStorage<Scope>();
   readonly #names = new AsyncLocalStorage<readonly string[]>();
   readonly #internal = new AsyncLocalStorage<true>();
+  /** Set only while the provider ends a Preview itself, so its ROLLBACK passes the statement guard. */
+  readonly #ending = new AsyncLocalStorage<true>();
+  /** Stored procedures the host declared never commit; every other MySQL `CALL` is refused in a Preview. */
+  readonly #safeProcedures: ReadonlySet<string>;
   readonly #keys = new Map<string, Promise<readonly string[]>>();
   readonly #pool: Knex;
   readonly #trackedKeyLimit: number;
@@ -94,10 +100,11 @@ export class KnexPreview implements PreviewProvider {
   };
 
   constructor(database: Knex, options: KnexPreviewOptions = {}) {
-    const { trackedKeyLimit = defaultTrackedKeyLimit, retries = 0, retryDelayMs = 25 } = options;
+    const { trackedKeyLimit = defaultTrackedKeyLimit, retries = 0, retryDelayMs = 25, safeProcedures = [] } = options;
     for (const [name, value] of Object.entries({ trackedKeyLimit, retries, retryDelayMs })) {
       if (!Number.isInteger(value) || value < 0) throw new RangeError(name + ' must be a non-negative integer.');
     }
+    this.#safeProcedures = safeProcedureNames(safeProcedures);
     this.#database = database;
     this.#pool = trackClient(database, (builder, state, execute) => this.#mutation(database, undefined, builder, state, execute));
     this.#dialect = dialectOf(database);
@@ -219,6 +226,15 @@ export class KnexPreview implements PreviewProvider {
   async #previewNow<T>(dispatch: () => Promise<T>): Promise<T> {
     const connection = await this.#database.transaction(undefined as never, { doNotRejectOnRollback: true });
     const completion = connection.executionPromise.then(() => true as const, (error: unknown) => ({ error }));
+    if (this.#dialect === 'mysql') {
+      try {
+        await this.#internal.run(true, () => setPreviewSavepoint(async sql => await connection.raw(sql)));
+      } catch (error) {
+        await connection.rollback();
+        await completion;
+        throw error;
+      }
+    }
     const scope = this.#scope(connection, 0, undefined, true);
     try {
       return await this.#transaction.run(scope, dispatch);
@@ -227,12 +243,28 @@ export class KnexPreview implements PreviewProvider {
       if (connection.isCompleted()) {
         throw new Error('The operation completed the Knex transaction before Preview could roll it back.');
       }
-      await connection.rollback();
+      // A failed check can't confirm the transaction was never committed, so it fails the Preview; the rollback still runs.
+      const contained = await this.#neverCommitted(connection);
+      await this.#ending.run(true, () => connection.rollback());
       const outcome = await completion;
       if (outcome !== true) throw new Error('Knex did not acknowledge the rollback.', { cause: outcome.error });
       // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
       if (scope.refused) throw new Error('The Knex preview was not contained: the operation tried to end the Preview transaction.');
+      if (!contained) {
+        throw new Error('The Knex preview was not contained: the savepoint set when the Preview started was gone, so something committed the MySQL transaction.');
+      }
     }
+  }
+
+  /**
+   * The backstop of spec/data-stores.md "Transaction-control statements from the handler": on MySQL
+   * and MariaDB, release the savepoint set when the Preview started. A statement the guard didn't
+   * recognise, or a procedure wrongly declared safe, may have committed the transaction, which
+   * erases it. Other databases answer true.
+   */
+  async #neverCommitted(connection: Knex.Transaction): Promise<boolean> {
+    if (this.#dialect !== 'mysql') return true;
+    return this.#internal.run(true, () => this.#ending.run(true, () => previewSavepointHeld(async sql => await connection.raw(sql))));
   }
 
   /** Remove the SQL listener while leaving the host's connection pool open. */
@@ -258,7 +290,18 @@ export class KnexPreview implements PreviewProvider {
    */
   #scope(trx: Knex.Transaction, depth: number, parent?: Scope, preview = false): Scope {
     const scope: Scope = { connection: trx, client: trx, active: true, tail: Promise.resolve(), depth };
-    const connection = preview ? guardPreview(trx, this.#dialect, () => { scope.refused = true; }) : trx;
+    const root = preview ? scope : parent?.preview;
+    if (root) {
+      scope.preview = root;
+      // Every transaction inside a Preview, savepoints included, shares its connection, so each is guarded.
+      guardStatements(trx, {
+        provider: this.#dialect,
+        safeProcedures: this.#safeProcedures,
+        refused: () => { root.refused = true; },
+        internal: () => this.#ending.getStore() === true,
+      });
+    }
+    const connection = preview ? guardPreview(trx, () => { scope.refused = true; }) : trx;
     scope.connection = connection;
     if (parent) {
       scope.parent = parent;

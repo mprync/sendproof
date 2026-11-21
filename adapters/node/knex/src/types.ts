@@ -41,6 +41,15 @@ export interface KnexPreviewOptions {
   retries?: number;
   /** Delay before the first retry in milliseconds. It doubles on each further attempt. Defaults to 25. */
   retryDelayMs?: number;
+  /**
+   * MySQL and MariaDB stored procedures that never commit, by exact name (`name` or `schema.name`, no
+   * wildcards). During a Preview every other `CALL` is refused, because a procedure can run `COMMIT`
+   * or an implicitly committing statement inside the Preview transaction.
+   *
+   * **Warning:** listing a procedure is your statement that it never commits. One that does would
+   * commit the handler's writes; the Preview still fails, but the writes stay.
+   */
+  safeProcedures?: readonly string[];
 }
 
 /** Options of {@link KnexPreview.transaction}. */

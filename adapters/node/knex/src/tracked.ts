@@ -106,29 +106,71 @@ export function resolveTable(spec: unknown): TableName | undefined {
 export const previewOwnsMessage = 'Preview owns the transaction and must roll it back. Use provider.transaction() for a nested unit of work.';
 
 /**
- * Wrap the Preview transaction so the operation cannot end it: `commit()` is refused, and so is
- * raw SQL that would commit, roll back or otherwise end the transaction (including MySQL's
- * implicit commits). `refused` is told of every refusal, so the Preview fails even if the
- * operation catches the error. Savepoints and `transaction()` nesting stay available. Everything else,
- * including calling the transaction as a query builder, passes through untouched.
+ * Wrap the Preview transaction so the operation cannot `commit()` or `rollback()` it. `refused` is
+ * told of the refusal, so the Preview fails even if the operation catches the error. Refusing the
+ * methods here, rather than their SQL in {@link guardStatements}, keeps Knex from marking the
+ * transaction finished while it is still open on the connection. SQL that would end the
+ * transaction is refused below the builders. Everything else, including calling the transaction as
+ * a query builder, passes through untouched.
  */
-export function guardPreview<Client extends Knex>(connection: Client, provider: AdapterProvider, refused: () => void): Client {
-  const refuse = () => {
-    refused();
-    return new Error(previewOwnsMessage);
-  };
+export function guardPreview<Client extends Knex>(connection: Client, refused: () => void): Client {
   return new Proxy(connection, {
     get(target, property, receiver: unknown) {
-      if (property === 'commit') return () => Promise.reject(refuse());
-      const value: unknown = Reflect.get(target, property, receiver);
-      if (property === 'raw' && typeof value === 'function') {
-        return (...args: unknown[]) => {
-          const [text] = args;
-          if (typeof text === 'string' && endsTransaction(text, provider)) throw refuse();
-          return (value as (...a: unknown[]) => unknown).apply(receiver, args);
+      if (property === 'commit' || property === 'rollback') {
+        return () => {
+          refused();
+          return Promise.reject(new Error(previewOwnsMessage));
         };
       }
-      return value;
+      return Reflect.get(target, property, receiver);
     },
   });
+}
+
+/** What {@link guardStatements} needs from the provider. */
+export interface StatementGuard {
+  provider: AdapterProvider;
+  /** Stored procedures the host declared never commit (MySQL `CALL`). */
+  safeProcedures: ReadonlySet<string>;
+  /** Told of every refusal, so the Preview fails even if the operation catches the error. */
+  refused: () => void;
+  /** True while the provider runs its own statements, such as the final ROLLBACK. */
+  internal: () => boolean;
+}
+
+/** A transaction's client, as Knex builds it: every query and stream on the transaction goes through these two. */
+interface TransactionClient {
+  query(connection: unknown, query: unknown): Promise<unknown>;
+  stream(connection: unknown, query: unknown, ...rest: unknown[]): Promise<unknown>;
+}
+
+/**
+ * Refuse, before it is sent, any statement on `transaction` that would commit, roll back or
+ * otherwise end the Preview transaction: explicit transaction control, `SET autocommit`, and on
+ * MySQL every implicitly committing statement and `CALL` to an undeclared procedure.
+ *
+ * Knex sends every statement of a transaction (builders, `raw`, the schema builder, and the
+ * transaction's own `COMMIT`) through the transaction's client, so the check sits there. Each
+ * nested transaction gets a client of its own that skips its parent's, so every savepoint inside a
+ * Preview is guarded too. Savepoint statements pass.
+ */
+export function guardStatements(transaction: Knex.Transaction, guard: StatementGuard): void {
+  const client = transaction.client as unknown as TransactionClient;
+  const check = (query: unknown): Error | undefined => {
+    if (guard.internal()) return undefined;
+    const text = typeof query === 'string' ? query : (query as { sql?: unknown } | null)?.sql;
+    if (typeof text !== 'string' || !endsTransaction(text, guard.provider, guard.safeProcedures)) return undefined;
+    guard.refused();
+    return new Error(previewOwnsMessage);
+  };
+  const query = client.query;
+  client.query = function guardedQuery(this: TransactionClient, connection, sent) {
+    const refusal = check(sent);
+    return refusal ? Promise.reject(refusal) : query.call(this, connection, sent);
+  };
+  const stream = client.stream;
+  client.stream = function guardedStream(this: TransactionClient, connection, sent, ...rest) {
+    const refusal = check(sent);
+    return refusal ? Promise.reject(refusal) : stream.call(this, connection, sent, ...rest);
+  };
 }
