@@ -268,6 +268,34 @@ def commit_item(id: str):
     return jsonify(id=id, name=data["name"]), 201
 
 
+# ------------------------------------------------------------------------- mysql-escape
+# spec/conformance/fixture.md, "MySQL and MariaDB: mysql-escape": statements that commit the Preview
+# transaction without saying COMMIT. The fixture declares no procedure safe.
+if _kind == "mysql":
+    with engine.begin() as _connection:
+        if not _connection.scalar(text(
+                "SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = DATABASE() "
+                "AND routine_name = 'sendproof_commit_probe'")):
+            _connection.execute(text("CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END"))
+
+    @app.post("/items/<id>/escape")
+    @preview
+    def escape_item(id: str):
+        require_admin()
+        data = json_body("name", "via")
+        via = data["via"]
+        if via not in ("ddl", "call") or not id.replace("_", "").isalnum():
+            abort(400)  # the id becomes part of a table name below
+        db().add(Item(id=id, name=data["name"]))
+        db().flush()
+        if via == "ddl":
+            db().execute(text(f"CREATE TABLE sendproof_escape_{id} (n INT)"))  # commits implicitly
+        else:
+            db().execute(text("CALL sendproof_commit_probe()"))  # the procedure runs COMMIT
+        db().commit()
+        return jsonify(id=id, name=data["name"]), 201
+
+
 # ------------------------------------------------------------------------- data stores
 # Present only when the runner passes a store's variables. Flask uses the synchronous clients
 # (PyMongo, redis-py, boto3); the FastAPI fixture uses the asynchronous ones.
@@ -414,6 +442,8 @@ def _store_paths() -> dict:
         })
     if {"redis", "dynamodb"} & set(stores.stores):
         paths["/items/{id}/remember"] = {"post": _operation("Write the item, then a store", "201", True)}
+    if _kind == "mysql":
+        paths["/items/{id}/escape"] = {"post": _operation("Commit implicitly inside the handler", "201", True)}
     return paths
 
 

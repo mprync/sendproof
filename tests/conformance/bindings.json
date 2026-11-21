@@ -708,7 +708,7 @@
       "id": "python-flask-sqlalchemy-mysql",
       "database": "mysql",
       "stores": ["mongodb", "redis", "dynamodb"],
-      "sharedRules": ["secret-columns", "raw-commit"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "python",
       "port": 5392,
       "readiness": "/ready",
