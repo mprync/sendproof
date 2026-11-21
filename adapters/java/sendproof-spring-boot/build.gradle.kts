@@ -31,6 +31,8 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-web")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-mongodb")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-redis")
     testImplementation(rootProject.libs.springdoc.webmvc.api)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

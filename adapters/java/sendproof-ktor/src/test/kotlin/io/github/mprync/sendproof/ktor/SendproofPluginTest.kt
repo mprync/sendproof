@@ -189,7 +189,11 @@ class SendproofPluginTest {
     fun discoveryListsMarkedOperationsAndTheWorkbenchIsServed() = testApplication {
         application { app() }
         val capabilities = send(HttpMethod.Get, "/sendproof/_api/capabilities").json()
-        assertEquals("Test DB", capabilities["database"].asText())
+        // The SQL database is a name and the provider's system, so the workbench shows the right mark.
+        assertEquals("Test DB", capabilities["database"]["name"].asText())
+        assertEquals("h2", capabilities["database"]["system"].asText())
+        assertEquals("kotlin", capabilities["binding"]["language"].asText())
+        assertEquals("Ktor", capabilities["binding"]["framework"].asText())
         val operations = capabilities["previewOperations"].map { it["method"].asText() + " " + it["path"].asText() }
         assertEquals(listOf("POST /items", "POST /items/boom"), operations)
         val index = send(HttpMethod.Get, "/sendproof/")

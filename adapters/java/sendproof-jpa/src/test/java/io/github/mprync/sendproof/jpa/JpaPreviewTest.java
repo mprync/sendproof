@@ -205,7 +205,9 @@ class JpaPreviewTest {
     @Test
     void discoveryNamesTheDatabaseWithoutLeakingItsUrl() throws Exception {
         JsonNode capabilities = json(mvc.perform(get("/sendproof/_api/capabilities")).andReturn());
-        assertThat(capabilities.get("database").asText()).isEqualTo("In-memory H2");
+        assertThat(capabilities.get("database").get("name").asText()).isEqualTo("In-memory H2");
+        assertThat(capabilities.get("database").get("system").asText()).isEqualTo("h2");
+        assertThat(capabilities.get("binding").get("language").asText()).isEqualTo("java");
         assertThat(capabilities.toString()).doesNotContain("jdbc:").doesNotContain("jpatest");
         List<String> operations = new ArrayList<>();
         capabilities.get("previewOperations").forEach(o -> operations.add(o.get("method").asText() + " " + o.get("path").asText()));
