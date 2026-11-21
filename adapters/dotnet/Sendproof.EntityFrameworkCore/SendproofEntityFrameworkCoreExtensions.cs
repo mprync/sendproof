@@ -18,8 +18,11 @@ public static class SendproofEntityFrameworkCoreExtensions
         builder.Services.TryAddEnumerable(ServiceDescriptor.Scoped<IPreviewProvider, EntityFrameworkPreviewProvider<TContext>>());
         builder.Services.TryAddSingleton<SendproofCommandInterceptor>();
         builder.Services.TryAddSingleton<SendproofTransactionInterceptor>();
+        builder.Services.TryAddSingleton<SendproofCommitDiagnostics>();
         builder.Services.ConfigureDbContext<TContext>((services, options) =>
         {
+            // Started before the context can save: refuses commits by providers without interceptors (MongoDB's).
+            _ = services.GetRequiredService<SendproofCommitDiagnostics>();
             var interceptors = new IInterceptor[]
             {
                 services.GetRequiredService<SendproofCommandInterceptor>(),

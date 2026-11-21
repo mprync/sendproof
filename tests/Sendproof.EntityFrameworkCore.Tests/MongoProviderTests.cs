@@ -51,6 +51,59 @@ public sealed class MongoProviderTests
         }
     }
 
+    [ServiceFact("mongodb")]
+    public async Task AHandlerCommitThroughTheEfMongoProviderIsRefusedBeforeItReachesTheServer()
+    {
+        var name = "tb_ef_" + Guid.NewGuid().ToString("N")[..10];
+        var client = new MongoClient(ServiceFactAttribute.MongoUrl);
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddDbContext<NotesContext>(options => options.UseMongoDB(client, name));
+            services.AddSendproof().AddEntityFrameworkCore<NotesContext>();
+            await using var root = services.BuildServiceProvider();
+            foreach (var how in new[] { "facade", "transaction", "rollback" })
+            {
+                await using var scope = root.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<NotesContext>();
+                var provider = scope.ServiceProvider.GetRequiredService<IPreviewProvider>();
+                var recorder = scope.ServiceProvider.GetRequiredService<SendproofPreview>();
+                recorder.MarkPreview();
+                using var current = root.GetRequiredService<CaptureContext>().Enter(recorder);
+                var session = await provider.BeginAsync(new DefaultHttpContext { RequestServices = scope.ServiceProvider }, CancellationToken.None);
+                db.Notes.Add(new Note { Id = how, Text = "draft" });
+                await db.SaveChangesAsync();
+                switch (how)
+                {
+                    case "facade":
+                        await Assert.ThrowsAsync<PreviewTransactionControlException>(() => db.Database.CommitTransactionAsync());
+                        break;
+                    case "transaction":
+                        await Assert.ThrowsAsync<PreviewTransactionControlException>(() => db.Database.CurrentTransaction!.CommitAsync());
+                        break;
+                    default:
+                        // Rolling back would end the Preview transaction, and EF's next save would then write for real
+                        // (the MongoDB provider saves one document without a transaction), so the rollback is refused.
+                        await Assert.ThrowsAsync<PreviewTransactionControlException>(() => db.Database.RollbackTransactionAsync());
+                        db.Notes.Add(new Note { Id = how + "-2", Text = "draft" });
+                        await db.SaveChangesAsync();
+                        break;
+                }
+
+                Assert.IsType<PreviewTransactionControlException>(recorder.Fault);
+                try { await session.RollbackAsync(CancellationToken.None); } catch (InvalidOperationException) { }
+                try { await session.DisposeAsync(); } catch (InvalidOperationException) { }
+            }
+
+            var stored = await client.GetDatabase(name).GetCollection<MongoDB.Bson.BsonDocument>("notes").CountDocumentsAsync(FilterDefinition<MongoDB.Bson.BsonDocument>.Empty);
+            Assert.Equal(0, stored);
+        }
+        finally
+        {
+            await client.DropDatabaseAsync(name);
+        }
+    }
+
     public sealed class Note
     {
         public string Id { get; set; } = "";

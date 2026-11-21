@@ -17,7 +17,7 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
     public async ValueTask RollbackAsync(CancellationToken cancellationToken)
     {
         if (_rolledBack) return;
-        await transaction.RollbackAsync(cancellationToken);
+        await SendproofCommitDiagnostics.RollingBackAsync(() => transaction.RollbackAsync(cancellationToken));
         _rolledBack = true;
     }
 

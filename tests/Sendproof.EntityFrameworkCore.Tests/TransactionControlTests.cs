@@ -100,6 +100,9 @@ public sealed class TransactionControlTests
 
             await Assert.ThrowsAsync<PreviewTransactionControlException>(() => db.Database.CommitTransactionAsync());
             Assert.NotNull(recorder.Fault);
+            // A rollback would end the Preview transaction, so a later save would run outside it: refused as well.
+            await Assert.ThrowsAsync<PreviewTransactionControlException>(() => db.Database.RollbackTransactionAsync());
+            Assert.NotNull(db.Database.CurrentTransaction);
             await session.RollbackAsync(CancellationToken.None);
         }
 

@@ -58,7 +58,7 @@ The SQL provider is optional when you register data stores. An app whose only da
 - Two Previews that write the same document don't queue: the second gets a `WriteConflict` and the handler decides what to answer. The Preview still rolls back.
 - `EstimatedDocumentCount()` (`count`), `Indexes.List()`, `CreateCollection` and the other commands in the `notInTransaction` list fail inside a transaction, so the binding blocks them before sending. Inserting into a new collection creates it and rolls back.
 
-**EF Core MongoDB provider.** `MongoDB.EntityFrameworkCore` supports `Database.BeginTransaction()` on a replica set, so the existing `AddEntityFrameworkCore<TContext>()` provider covers it: it accepts this non-relational provider, rolls back through EF's own transaction and reports changes from the change tracker with the collection name and `store: "mongodb"`. A context that also uses `IMongoClient` directly needs `AddMongoDB` as well.
+**EF Core MongoDB provider.** `MongoDB.EntityFrameworkCore` supports `Database.BeginTransaction()` on a replica set, so the existing `AddEntityFrameworkCore<TContext>()` provider covers it: it accepts this non-relational provider, rolls back through EF's own transaction and reports changes from the change tracker with the collection name and `store: "mongodb"`. A context that also uses `IMongoClient` directly needs `AddMongoDB` as well. This provider has no transaction interceptors, so the binding refuses the handler's `Database.CommitTransaction()`, `CurrentTransaction.Commit()` and `Database.RollbackTransaction()` through EF's `TransactionCommitting` and `TransactionRollingBack` diagnostic events, before anything reaches the server; the Preview then answers 500. The rollback is refused because the provider saves a single document with no transaction at all, so a save after it would write for real.
 
 ### Redis
 
@@ -116,7 +116,7 @@ When the guard refuses a write, the command never reaches the store and the hand
 
 The order is fixed: each store finishes (changes captured, transactions aborted), then the SQL transaction rolls back, and every step runs even if another failed. A failed abort or rollback, a recorded fault (a handler commit, an escaped write, an unattributed write) answers 500 without confirmation; otherwise a blocked write answers 409; otherwise the Preview is confirmed. A Preview whose handler throws after a blocked write still answers 409.
 
-A raw `COMMIT`, `BEGIN` or similar statement through an EF Core context, and a handler calling `Database.CommitTransaction()`, are refused during a Preview and fail it with 500 (MySQL's implicitly committing statements too).
+A raw `COMMIT`, `BEGIN` or similar statement through an EF Core context, and a handler calling `Database.CommitTransaction()` or `Database.RollbackTransaction()`, are refused during a Preview and fail it with 500 (MySQL's implicitly committing statements too). Rolling back to a savepoint stays allowed.
 
 ## MySQL Previews take turns
 
