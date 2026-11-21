@@ -10,14 +10,14 @@ use axum::{
     routing::post,
 };
 use http_body_util::BodyExt;
+use sendproof_axum::{Config, Identity, Sendproof, SendproofRouterExt};
+use sendproof_core::SendproofLayer;
+use sendproof_sqlx::{Db, DbError, SqliteProvider};
 use serde_json::{Value, json};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use sendproof_axum::{Config, Identity, Sendproof, SendproofRouterExt};
-use sendproof_core::SendproofLayer;
-use sendproof_sqlx::{Db, DbError, SqliteProvider};
 use tower::ServiceExt;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -355,9 +355,10 @@ async fn a_named_commit_is_refused_before_it_runs() {
         }
     }
     let pool = pool().await;
-    let envelope = json_body(single(pool.clone(), post(named_commit), false).oneshot(preview("/op", json!({}))).await.unwrap()).await;
-    assert_eq!(envelope["rolledBack"], true, "{envelope}");
-    assert_eq!(envelope["status"], 200);
+    // Refused before it runs, and the preview still fails even though the handler caught the error.
+    let response = single(pool.clone(), post(named_commit), false).oneshot(preview("/op", json!({}))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(response.headers().get("preference-applied").is_none(), "no rollback is claimed");
     assert_eq!(count(&pool, "items").await, 0);
 }
 

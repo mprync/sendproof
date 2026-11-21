@@ -6,11 +6,14 @@ use std::{
     sync::Arc,
 };
 
-use sqlx::{Pool, Transaction, pool::PoolConnection};
 use sendproof_core::Enrollment;
+use sqlx::{Pool, Transaction, pool::PoolConnection};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
-use crate::{backend::Backend, query::NamedQuery};
+use crate::{
+    backend::Backend,
+    query::{NamedQuery, Rules},
+};
 
 /// The connection a preview or observed send holds for the handler.
 pub(crate) enum Slot<B: Backend> {
@@ -23,11 +26,13 @@ pub(crate) enum Slot<B: Backend> {
 pub(crate) struct Scope<B: Backend> {
     pub(crate) slot: Arc<Mutex<Slot<B>>>,
     pub(crate) capture: Arc<B::Capture>,
+    /// What the statement guard knows of the preview (`query::Rules`).
+    pub(crate) safe: Arc<Rules>,
 }
 
 impl<B: Backend> Clone for Scope<B> {
     fn clone(&self) -> Self {
-        Self { slot: self.slot.clone(), capture: self.capture.clone() }
+        Self { slot: self.slot.clone(), capture: self.capture.clone(), safe: self.safe.clone() }
     }
 }
 
@@ -124,9 +129,9 @@ impl<B: Backend> Db<B> {
                 if matches!(*guard, Slot::Closed) {
                     return Err(DbError::NotEnrolled);
                 }
-                Ok(DbConn { inner: Inner::Scoped(guard), capture: Some(scope.capture.clone()) })
+                Ok(DbConn { inner: Inner::Scoped(guard), capture: Some(scope.capture.clone()), safe: scope.safe.clone() })
             }
-            None => Ok(DbConn { inner: Inner::Pool(self.pool.acquire().await?), capture: None }),
+            None => Ok(DbConn { inner: Inner::Pool(self.pool.acquire().await?), capture: None, safe: Arc::default() }),
         }
     }
 }
@@ -136,6 +141,7 @@ impl<B: Backend> Db<B> {
 pub struct DbConn<B: Backend> {
     inner: Inner<B>,
     capture: Option<Arc<B::Capture>>,
+    safe: Arc<Rules>,
 }
 
 enum Inner<B: Backend> {
@@ -148,18 +154,18 @@ enum Inner<B: Backend> {
 impl<B: Backend> DbConn<B> {
     /// Starts a named-parameter query on this connection.
     pub fn query(&mut self, sql: &str) -> NamedQuery<'_, B> {
-        let capture = self.capture.clone();
-        NamedQuery::new(&mut **self, capture, sql)
+        let (capture, safe) = (self.capture.clone(), self.safe.clone());
+        NamedQuery::new(&mut **self, capture, safe, sql)
     }
 
     /// Begins a transaction, or a savepoint inside the preview's transaction.
     ///
     /// Rolling it back (or dropping it uncommitted) also drops the changes it made from the capture.
     pub async fn begin(&mut self) -> Result<DbTransaction<'_, B>, DbError> {
-        let capture = self.capture.clone();
+        let (capture, safe) = (self.capture.clone(), self.safe.clone());
         let mark = capture.as_deref().map_or(0, B::mark);
         let transaction = sqlx::Connection::begin(&mut **self).await?;
-        Ok(DbTransaction { transaction: Some(transaction), capture, mark })
+        Ok(DbTransaction { transaction: Some(transaction), capture, safe, mark })
     }
 }
 
@@ -199,14 +205,15 @@ impl<B: Backend> DerefMut for DbConn<B> {
 pub struct DbTransaction<'c, B: Backend> {
     transaction: Option<Transaction<'c, B>>,
     capture: Option<Arc<B::Capture>>,
+    safe: Arc<Rules>,
     mark: usize,
 }
 
 impl<B: Backend> DbTransaction<'_, B> {
     /// Starts a named-parameter query inside the transaction.
     pub fn query(&mut self, sql: &str) -> NamedQuery<'_, B> {
-        let capture = self.capture.clone();
-        NamedQuery::new(&mut **self, capture, sql)
+        let (capture, safe) = (self.capture.clone(), self.safe.clone());
+        NamedQuery::new(&mut **self, capture, safe, sql)
     }
 
     /// Commits the transaction (releases the savepoint when nested).

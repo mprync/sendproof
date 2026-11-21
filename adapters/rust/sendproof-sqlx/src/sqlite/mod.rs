@@ -11,8 +11,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use sqlx::{Sqlite, SqliteConnection, query::Query, sqlite::SqliteQueryResult};
 use sendproof_core::{BoxError, BoxFuture, Changes, capture};
+use sqlx::{Sqlite, SqliteConnection, query::Query, sqlite::SqliteQueryResult};
 
 use crate::{
     backend::{Backend, Driver, Fetch, Output, RowsAffected},

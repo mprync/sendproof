@@ -25,6 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use sendproof_core::{BoxError, BoxFuture, Changes, capture, capture::Recorder, model::Change};
 use serde_json::Value;
 use sqlx::{
     Connection, MySql, MySqlConnection, Row,
@@ -32,7 +33,6 @@ use sqlx::{
     query::Query,
     types::Json,
 };
-use sendproof_core::{BoxError, BoxFuture, Changes, capture, capture::Recorder, model::Change};
 
 use crate::{
     backend::{Backend, Driver, Fetch, Output, RowsAffected},
@@ -173,7 +173,14 @@ impl Table {
 
     fn change(&self, operation: &str, before: Option<Value>, after: Option<Value>) -> Change {
         let image = after.as_ref().or(before.as_ref()).cloned().unwrap_or(Value::Null);
-        Change { operation: operation.into(), table: self.name.name.clone(), key: Some(self.key_json(&image)), before, after, ..Change::default() }
+        Change {
+            operation: operation.into(),
+            table: self.name.name.clone(),
+            key: Some(self.key_json(&image)),
+            before,
+            after,
+            ..Change::default()
+        }
     }
 }
 
@@ -472,6 +479,15 @@ impl Driver for MySql {
     const SYSTEM: &'static str = "mysql";
     const SERIAL_PREVIEWS: bool = true;
 
+    fn ends_transaction(error: &sqlx::Error) -> bool {
+        // 1213: deadlock, which rolls the transaction back. 1205: lock wait timeout, which does with
+        // innodb_rollback_on_timeout; the provider can't see the setting, so it is treated the same.
+        error
+            .as_database_error()
+            .and_then(|error| error.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>())
+            .is_some_and(|error| matches!(error.number(), 1213 | 1205))
+    }
+
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {
         match value {
             SqlValue::Null => query.bind(Option::<String>::None),
@@ -517,7 +533,9 @@ impl Driver for MySql {
     }
 
     fn begin<'a>(_connection: &'a mut MySqlConnection, rollback: bool) -> BoxFuture<'a, Result<Capture, BoxError>> {
-        Box::pin(async move { Ok(Capture { rollback, recorder: capture::current(), log: ChangeLog::default(), tables: Mutex::new(HashMap::new()) }) })
+        Box::pin(async move {
+            Ok(Capture { rollback, recorder: capture::current(), log: ChangeLog::default(), tables: Mutex::new(HashMap::new()) })
+        })
     }
 
     fn finish<'a>(_connection: &'a mut MySqlConnection, capture: &'a Capture) -> BoxFuture<'a, Result<(), BoxError>> {

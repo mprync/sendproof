@@ -22,11 +22,11 @@ use axum::{
     routing::post,
 };
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
-use sqlx::{MySql, MySqlPool, Pool, Postgres, postgres::PgPoolOptions};
 use sendproof_axum::{Config, Identity, Sendproof, SendproofRouterExt};
 use sendproof_core::{BoxFuture, SendproofLayer};
 use sendproof_sqlx::{Backend, Db, DbConn, DbError, SqlxProvider};
+use serde_json::{Value, json};
+use sqlx::{MySql, MySqlPool, Pool, Postgres, postgres::PgPoolOptions};
 use tokio::sync::{Barrier, Notify};
 use tower::ServiceExt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -462,9 +462,10 @@ async fn ending_the_transaction_inside_a_preview_is_unconfirmed<B: Server>(pool:
 }
 
 async fn a_named_statement_that_ends_the_transaction_is_refused<B: Server>(pool: Pool<B>) {
-    let envelope = json_body(app(pool.clone(), Arc::default()).oneshot(preview("/named-end")).await.unwrap()).await;
-    assert_eq!(envelope["rolledBack"], true, "{envelope}");
-    assert_eq!(item_changes(&envelope), pairs(&[("insert", "kept"), ("insert", "still")]));
+    // Refused before it runs, and the preview still fails even though the handler caught the error.
+    let response = app(pool.clone(), Arc::default()).oneshot(preview("/named-end")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(response.headers().get("preference-applied").is_none(), "no rollback is claimed");
     assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0);
 }
 
@@ -709,6 +710,112 @@ async fn mysql_flags_writes_it_cannot_capture() {
         for (table, rows) in [("items", 0), ("audited", 0), ("item_audit", 0), ("parents", 1), ("children", 2), ("counters", 0)] {
             assert_eq!(MySql::count(&pool, &format!("SELECT COUNT(*) FROM {table}")).await, rows, "{table} is unchanged");
         }
+    })
+    .await;
+}
+
+/// A preview app over `provider` with one route, `/run`, served by `handler`.
+fn single_route<H, T>(provider: SqlxProvider<MySql>, pool: Pool<MySql>, signals: Arc<Signals>, handler: H) -> Router
+where
+    H: axum::handler::Handler<T, AppState<MySql>>,
+    T: 'static,
+{
+    let config =
+        Config::builder("Tests").environment("Development").enable_in(["Development"]).provider(provider).preview_operation("POST", "/run");
+    let bench = Sendproof::new(config.build().unwrap());
+    bench.wrap(Router::new().route("/run", post(handler)).bench_gate(&bench).with_state(AppState { pool, signals }))
+}
+
+/// spec/data-stores.md "Transaction-control statements from the handler" on MySQL: an undeclared
+/// `CALL` is refused before it runs, and a procedure wrongly declared safe that commits still fails
+/// the preview, because the savepoint set when it started is gone. The last part runs with
+/// `autocommit=0`, where MySQL opens a new transaction after the commit, which only the start
+/// savepoint sees through.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mysql_procedures_never_commit_a_confirmed_preview() {
+    async fn call(db: Db<MySql>) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        insert(&mut conn, "before", "Preview").await?;
+        let _ = conn.query("CALL sendproof_commit_probe()").execute().await;
+        insert(&mut conn, "after", "Preview").await?;
+        Ok(StatusCode::CREATED)
+    }
+    with_server::<MySql, _, _>(|pool| async move {
+        MySql::exec(&pool, "CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END").await;
+        let count = || MySql::count(&pool, "SELECT COUNT(*) FROM items");
+
+        let guarded = single_route(SqlxProvider::new(pool.clone()), pool.clone(), Arc::default(), call);
+        let response = guarded.oneshot(preview("/run")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "a refused CALL fails the preview");
+        assert_eq!(count().await, 0);
+
+        let trusting = SqlxProvider::new(pool.clone()).safe_procedure("sendproof_commit_probe");
+        let response = single_route(trusting, pool.clone(), Arc::default(), call).oneshot(preview("/run")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "a declared procedure that commits fails the preview");
+        assert!(response.headers().get("preference-applied").is_none());
+        MySql::exec(&pool, "DELETE FROM items").await;
+
+        let manual = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(1)
+            .after_connect(|conn, _| Box::pin(async move { sqlx::raw_sql("SET autocommit = 0").execute(conn).await.map(drop) }))
+            .connect_with((*pool.connect_options()).clone())
+            .await
+            .unwrap();
+        let trusting = SqlxProvider::new(manual.clone()).safe_procedure("sendproof_commit_probe");
+        let response = single_route(trusting, manual.clone(), Arc::default(), call).oneshot(preview("/run")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "under autocommit=0 the start savepoint still sees the commit");
+        assert!(response.headers().get("preference-applied").is_none());
+        manual.close().await;
+    })
+    .await;
+}
+
+/// spec/data-stores.md: a MySQL deadlock rolls the whole preview transaction back, so a retried write
+/// would run with autocommit and commit for real. The provider refuses every statement after it, and
+/// the preview answers 500.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mysql_refuses_every_statement_after_a_deadlock() {
+    async fn deadlocked(State(state): State<AppState<MySql>>, db: Db<MySql>) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        conn.query("UPDATE items SET name = :name WHERE id = :id").bind("name", "Preview").bind("id", "a").execute().await?;
+        let resumed = state.signals.resume.notified();
+        state.signals.written.notify_one();
+        resumed.await;
+        // The other transaction holds `b` and waits for `a`: this closes the cycle, and InnoDB rolls back the
+        // preview, which changed fewer rows.
+        let deadlock = conn.query("UPDATE items SET name = :name WHERE id = :id").bind("name", "Preview").bind("id", "b").execute().await;
+        assert!(deadlock.is_err(), "the preview was the deadlock victim");
+        // An ORM retries the write; with the transaction gone it would commit on its own.
+        let retried =
+            conn.query("INSERT INTO items (id, name) VALUES (:id, :name)").bind("id", "retried").bind("name", "x").execute().await;
+        assert!(matches!(retried, Err(DbError::Query(ref message)) if message.contains("refused")), "{retried:?}");
+        Ok(StatusCode::CREATED)
+    }
+    with_server::<MySql, _, _>(|pool| async move {
+        MySql::exec(&pool, "INSERT INTO items (id, name) VALUES ('a', 'A'), ('b', 'B')").await;
+        for n in 0..20 {
+            MySql::exec(&pool, &format!("INSERT INTO items (id, name) VALUES ('filler{n}', 'F')")).await;
+        }
+        let signals = Arc::new(Signals::default());
+        let app = single_route(SqlxProvider::new(pool.clone()), pool.clone(), signals.clone(), deadlocked);
+        let request = tokio::spawn(app.oneshot(preview("/run")));
+        signals.written.notified().await;
+
+        let mut other = pool.begin().await.unwrap();
+        sqlx::raw_sql("UPDATE items SET name = 'Other' WHERE id = 'b' OR id LIKE 'filler%'").execute(&mut *other).await.unwrap();
+        let waiting = tokio::spawn(async move {
+            let result = sqlx::raw_sql("UPDATE items SET name = 'Other' WHERE id = 'a'").execute(&mut *other).await.map(drop);
+            let _ = other.rollback().await;
+            result
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        signals.resume.notify_one();
+
+        let response = request.await.unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "a deadlocked preview is never confirmed");
+        assert!(response.headers().get("preference-applied").is_none());
+        waiting.await.unwrap().unwrap();
+        assert_eq!(MySql::count(&pool, "SELECT COUNT(*) FROM items WHERE id = 'retried'").await, 0, "the retry never ran");
     })
     .await;
 }

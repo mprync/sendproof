@@ -27,6 +27,7 @@ use std::{
     time::Instant,
 };
 
+use sendproof_core::{BoxError, BoxFuture, Changes, capture, limits, model::Change};
 use serde_json::Value;
 use sqlx::{
     Connection, PgConnection, Postgres, Row,
@@ -34,7 +35,6 @@ use sqlx::{
     query::Query,
     types::Json,
 };
-use sendproof_core::{BoxError, BoxFuture, Changes, capture, limits, model::Change};
 
 use crate::{
     backend::{Backend, Driver, Fetch, Output, RowsAffected},

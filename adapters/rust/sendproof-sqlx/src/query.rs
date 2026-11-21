@@ -1,9 +1,12 @@
 //! Named-parameter queries that report their parameters to the capture.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use sqlx::Row;
 use sendproof_core::limits;
+use sqlx::Row;
 
 use crate::{
     backend::{Backend, Fetch, Output, prepare},
@@ -163,12 +166,36 @@ impl Statement {
 pub struct NamedQuery<'c, B: Backend> {
     connection: &'c mut B::Connection,
     capture: Option<Arc<B::Capture>>,
+    /// What the statement guard knows of the request's preview.
+    safe: Arc<Rules>,
     statement: Statement,
 }
 
+/// What the statement guard knows of one preview (spec/data-stores.md "Transaction-control
+/// statements from the handler").
+#[derive(Default)]
+pub(crate) struct Rules {
+    /// MySQL procedures the preview may `CALL` (see `SqlxProvider::safe_procedure`).
+    pub(crate) procedures: HashSet<String>,
+    /// Set when the database answered a deadlock or lock wait timeout, which on MySQL roll the whole
+    /// preview transaction back. Later statements would run outside it, and with autocommit a
+    /// retry would commit for real, so every further statement is refused and the preview fails.
+    pub(crate) broken: std::sync::atomic::AtomicBool,
+    /// Set when the guard refused a statement. Nothing was sent, but spec/data-stores.md fails such a
+    /// preview with 500 even when the handler catches the error.
+    pub(crate) refused: std::sync::atomic::AtomicBool,
+}
+
+impl Rules {
+    /// Whether the database already ended the preview transaction after an error.
+    pub(crate) fn broken(&self) -> bool {
+        self.broken.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 impl<'c, B: Backend> NamedQuery<'c, B> {
-    pub(crate) fn new(connection: &'c mut B::Connection, capture: Option<Arc<B::Capture>>, sql: &str) -> Self {
-        Self { connection, capture, statement: Statement::new(sql, B::DIALECT) }
+    pub(crate) fn new(connection: &'c mut B::Connection, capture: Option<Arc<B::Capture>>, safe: Arc<Rules>, sql: &str) -> Self {
+        Self { connection, capture, safe, statement: Statement::new(sql, B::DIALECT) }
     }
 
     /// Binds `value` to the parameter `name` (given without its `:`, `@` or `$` prefix).
@@ -218,14 +245,27 @@ impl<'c, B: Backend> NamedQuery<'c, B> {
         self.statement.ordered_values()?;
         // In a preview, a statement that ends the transaction would make the writes before it
         // permanent. Refuse it before it reaches the database.
-        if self.capture.as_deref().is_some_and(B::rolls_back)
-            && let Some(verb) = preview_refusal(&self.statement.original, B::DIALECT)
-        {
+        let preview = self.capture.as_deref().is_some_and(B::rolls_back);
+        if preview && self.safe.broken() {
+            return Err(DbError::Query(
+                "Sendproof refused the statement: the database already rolled the preview transaction back after a deadlock or lock wait timeout".into(),
+            ));
+        }
+        if preview && let Some(verb) = preview_refusal(&self.statement.original, B::DIALECT, &self.safe.procedures) {
+            self.safe.refused.store(true, std::sync::atomic::Ordering::SeqCst);
             return Err(DbError::Query(format!(
                 "Sendproof refused `{verb}` in a preview: it would end the preview transaction and make its writes permanent"
             )));
         }
-        B::run(self.connection, self.capture.as_deref(), &self.statement, fetch).await
+        let result = B::run(self.connection, self.capture.as_deref(), &self.statement, fetch).await;
+        // The handler still gets the original error; every later statement of the preview is refused.
+        if preview
+            && let Err(DbError::Sqlx(error)) = &result
+            && B::ends_transaction(error)
+        {
+            self.safe.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        result
     }
 }
 
@@ -353,102 +393,255 @@ fn dollar_tag(chars: &[char], index: usize) -> Option<Vec<char>> {
     (chars.get(end) == Some(&'$') && !first.is_some_and(char::is_ascii_digit)).then(|| chars[index..=end].to_vec())
 }
 
-/// The bare words of each top-level statement of `sql`, upper-cased. String literals, quoted
-/// identifiers, comments and dollar-quoted bodies are skipped, and `;` separates statements.
-fn statement_words(sql: &str, dialect: Dialect) -> Vec<Vec<String>> {
+/// One top-level statement: its bare words, upper-cased, and its text.
+struct Words {
+    words: Vec<String>,
+    text: String,
+}
+
+/// The top-level statements of `sql` as the dialect's server reads it, with `backslash` deciding
+/// whether a backslash escapes a quote in `'...'` and `"..."` (a session setting the provider can't
+/// see: MySQL `NO_BACKSLASH_ESCAPES` and `ANSI_QUOTES`, PostgreSQL `standard_conforming_strings`).
+/// String literals, quoted identifiers, comments and dollar-quoted bodies are skipped, and `;`
+/// separates statements.
+///
+/// MySQL ([`Dialect::implicit_commits`]): `#` starts a comment, `--` only when whitespace or a
+/// control character follows, and the bodies of `/*! ... */` and `/*M! ... */` run as SQL.
+/// PostgreSQL ([`Dialect::dollar_quotes`]): block comments nest and `E'...'` always takes escapes.
+fn statement_words(sql: &str, dialect: Dialect, backslash: bool) -> Vec<Words> {
+    let mysql = dialect.implicit_commits;
+    let postgres = dialect.dollar_quotes;
     let chars: Vec<char> = sql.chars().collect();
-    let mut statements = vec![Vec::new()];
+    let mut statements = vec![Words { words: Vec::new(), text: String::new() }];
+    let mut start = 0;
+    let mut executable = false;
     let mut index = 0;
+    // Skips a quoted string or identifier that opens at `index`.
+    let skip_quoted = |chars: &[char], mut index: usize, closer: char, backslash: bool| -> usize {
+        index += 1;
+        while index < chars.len() {
+            let current = chars[index];
+            index += 1;
+            if backslash && current == '\\' && closer != '`' && closer != ']' {
+                index += 1;
+            } else if current == closer {
+                if closer != ']' && chars.get(index) == Some(&closer) {
+                    index += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        index
+    };
     while index < chars.len() {
         let c = chars[index];
+        let next = chars.get(index + 1).copied();
         let closer = match c {
             '\'' => Some('\''),
             '"' => Some('"'),
             '`' => Some('`'),
-            '[' if !dialect.dollar_quotes => Some(']'),
+            '[' if !postgres && !mysql => Some(']'),
             _ => None,
         };
-        if let Some(closer) = closer {
-            index += 1;
-            while index < chars.len() {
-                let current = chars[index];
-                index += 1;
-                if dialect.backslash_escapes && current == '\\' && closer != '`' {
-                    index += 1;
-                } else if current == closer {
-                    if closer != ']' && chars.get(index) == Some(&closer) {
-                        index += 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if (c == '-' && chars.get(index + 1) == Some(&'-')) || (c == '#' && dialect.hash_comments) {
+        let dash = c == '-'
+            && next == Some('-')
+            && (!mysql || chars.get(index + 2).is_none_or(|after| after.is_whitespace() || after.is_control()));
+        if executable && c == '*' && next == Some('/') {
+            executable = false;
+            index += 2;
+        } else if let Some(closer) = closer {
+            index = skip_quoted(&chars, index, closer, backslash);
+        } else if dash || (c == '#' && dialect.hash_comments) {
             while index < chars.len() && chars[index] != '\n' {
                 index += 1;
             }
-        } else if c == '/' && chars.get(index + 1) == Some(&'*') {
-            index += 2;
-            while index < chars.len() && !(chars[index] == '*' && chars.get(index + 1) == Some(&'/')) {
+        } else if mysql && !executable && c == '/' && next == Some('*') && matches!(chars.get(index + 2), Some('!' | 'M')) {
+            let marker = if chars.get(index + 2) == Some(&'M') { 4 } else { 3 };
+            if marker == 4 && chars.get(index + 3) != Some(&'!') {
+                // `/*M` without `!` is an ordinary comment.
+                index = skip_comment(&chars, index, false);
+                continue;
+            }
+            // The server runs the body (after an optional version number) as SQL.
+            index += marker;
+            while chars.get(index).is_some_and(char::is_ascii_digit) {
                 index += 1;
             }
-            index += 2;
+            executable = true;
+        } else if c == '/' && next == Some('*') {
+            index = skip_comment(&chars, index, postgres);
         } else if let Some(tag) = dialect.dollar_quotes.then(|| dollar_tag(&chars, index)).flatten() {
             let body = index + tag.len();
             index = (body..=chars.len().saturating_sub(tag.len()))
                 .find(|&at| chars[at..].starts_with(&tag))
                 .map_or(chars.len(), |at| at + tag.len());
         } else if c == ';' {
-            statements.push(Vec::new());
+            let current = statements.last_mut().expect("at least one statement");
+            current.text = chars[start..index].iter().collect();
+            statements.push(Words { words: Vec::new(), text: String::new() });
             index += 1;
+            start = index;
         } else if c.is_alphabetic() || c == '_' {
-            let start = index;
+            let word_start = index;
             while index < chars.len() && (chars[index].is_alphanumeric() || chars[index] == '_' || chars[index] == '$') {
                 index += 1;
             }
-            let word: String = chars[start..index].iter().collect();
-            statements.last_mut().expect("at least one statement").push(word.to_ascii_uppercase());
+            if postgres && index == word_start + 1 && matches!(c, 'E' | 'e') && chars.get(index) == Some(&'\'') {
+                // An escape string literal, not a word.
+                index = skip_quoted(&chars, index, '\'', true);
+                continue;
+            }
+            let word: String = chars[word_start..index].iter().collect();
+            statements.last_mut().expect("at least one statement").words.push(word.to_ascii_uppercase());
         } else {
             index += 1;
         }
     }
-    statements.retain(|words| !words.is_empty());
+    statements.last_mut().expect("at least one statement").text = chars[start.min(chars.len())..].iter().collect();
+    statements.retain(|statement| !statement.words.is_empty());
     statements
 }
+
+/// The index after a block comment that opens at `index`; PostgreSQL's nest.
+fn skip_comment(chars: &[char], mut index: usize, nested: bool) -> usize {
+    let mut depth = 0usize;
+    while index < chars.len() {
+        if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
+            depth = if nested { depth + 1 } else { 1 };
+            index += 2;
+        } else if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+            depth = depth.saturating_sub(1);
+            index += 2;
+            if depth == 0 {
+                return index;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    chars.len()
+}
+
+/// The savepoint the provider sets when a preview starts and rolls back to before the final
+/// rollback (see `provider.rs`). A handler may not set, release or roll back to it.
+pub(crate) const PREVIEW_SAVEPOINT: &str = "sendproof_preview";
 
 /// The statement verb that a rollback preview must refuse in `sql`, if any.
 ///
 /// Refused everywhere: statements that end the transaction (`COMMIT`, `END`, `ROLLBACK` other than
-/// `ROLLBACK TO`, `ABORT`, `BEGIN`, `START`, PostgreSQL two-phase commit). With
-/// [`Dialect::implicit_commits`] (MySQL) only the statements that keep the transaction open are
-/// allowed: reads and DML, `SET` (except `autocommit`), savepoints, and temporary tables. DDL, `LOCK`,
-/// `CALL` (a procedure may commit) and the rest commit implicitly or may do so.
-pub(crate) fn preview_refusal(sql: &str, dialect: Dialect) -> Option<String> {
-    for words in statement_words(sql, dialect) {
-        let verb = words[0].as_str();
-        let second = words.get(1).map(String::as_str);
-        let ends = match verb {
-            "COMMIT" | "END" | "ABORT" | "BEGIN" | "START" | "XA" => true,
-            "ROLLBACK" => !words.iter().any(|word| word == "TO"),
-            "PREPARE" => second == Some("TRANSACTION"),
-            _ => false,
-        };
-        let implicit = dialect.implicit_commits
-            && !match verb {
-                "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "REPLACE" | "VALUES" | "TABLE" | "SHOW" | "DESCRIBE"
-                | "DESC" | "EXPLAIN" | "DO" | "SAVEPOINT" | "RELEASE" | "ROLLBACK" => true,
-                "SET" => !words.iter().any(|word| word == "AUTOCOMMIT"),
-                "CREATE" | "DROP" => second == Some("TEMPORARY"),
-                _ => false,
-            };
-        if ends || implicit {
-            return Some(match second {
-                Some(second) if matches!(verb, "PREPARE" | "CREATE" | "DROP" | "ALTER") => format!("{verb} {second}"),
-                _ => verb.to_owned(),
-            });
+/// `ROLLBACK TO`, `ABORT`, `BEGIN`, `START`, PostgreSQL two-phase commit), and savepoint statements
+/// naming the preview's own savepoint. With [`Dialect::implicit_commits`] (MySQL) only the
+/// statements that keep the transaction open are allowed: reads and DML, `SET` (except
+/// `autocommit`), savepoints, temporary tables, and `CALL` of a procedure in `safe`. DDL, `LOCK`,
+/// other `CALL`s, `PREPARE` and `EXECUTE` (including MariaDB's `EXECUTE IMMEDIATE`) and the rest
+/// commit implicitly or may do so. MariaDB's `SET STATEMENT ... FOR` is judged by its inner
+/// statement.
+///
+/// The text is read both ways a backslash can be read, and refused when either reading finds a
+/// refused statement.
+pub(crate) fn preview_refusal(sql: &str, dialect: Dialect, safe: &HashSet<String>) -> Option<String> {
+    for backslash in [dialect.backslash_escapes, !dialect.backslash_escapes] {
+        for statement in statement_words(sql, dialect, backslash) {
+            if let Some(verb) = refusal(&statement.words, &statement.text, dialect, safe) {
+                return Some(verb);
+            }
         }
     }
     None
+}
+
+/// The verb to refuse for one statement, if any. `text` is empty for an inner statement.
+fn refusal(words: &[String], text: &str, dialect: Dialect, safe: &HashSet<String>) -> Option<String> {
+    let verb = words.first()?.as_str();
+    let second = words.get(1).map(String::as_str);
+    let savepoint = matches!(verb, "SAVEPOINT" | "RELEASE") || (verb == "ROLLBACK" && words.iter().any(|word| word == "TO"));
+    if savepoint && text.to_ascii_lowercase().contains(PREVIEW_SAVEPOINT) {
+        return Some(format!("{verb} {PREVIEW_SAVEPOINT}"));
+    }
+    if dialect.implicit_commits && verb == "SET" && second == Some("STATEMENT") {
+        return match words.iter().position(|word| word == "FOR") {
+            Some(at) => refusal(&words[at + 1..], "", dialect, safe),
+            None => Some("SET STATEMENT".to_owned()),
+        };
+    }
+    let ends = match verb {
+        "COMMIT" | "END" | "ABORT" | "BEGIN" | "START" | "XA" => true,
+        "ROLLBACK" => !words.iter().any(|word| word == "TO"),
+        "PREPARE" => second == Some("TRANSACTION"),
+        _ => false,
+    };
+    let implicit = dialect.implicit_commits
+        && !match verb {
+            "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "REPLACE" | "VALUES" | "TABLE" | "SHOW" | "DESCRIBE" | "DESC"
+            | "EXPLAIN" | "DO" | "SAVEPOINT" | "RELEASE" | "ROLLBACK" => true,
+            "SET" => !words.iter().any(|word| word == "AUTOCOMMIT"),
+            "CREATE" | "DROP" => second == Some("TEMPORARY"),
+            "CALL" => called_procedure(text).is_some_and(|name| safe.contains(&name)),
+            _ => false,
+        };
+    if ends || implicit {
+        return Some(match second {
+            Some(second) if matches!(verb, "PREPARE" | "CREATE" | "DROP" | "ALTER" | "EXECUTE") => format!("{verb} {second}"),
+            _ => verb.to_owned(),
+        });
+    }
+    None
+}
+
+/// The procedure a plain MySQL `CALL` names, as `name` or `schema.name` with the case written, from
+/// bare or backtick-quoted identifiers. `None` when the text is anything but `CALL`, the name and an
+/// optional argument list, so a call hidden behind a comment or odd quoting is refused.
+fn called_procedure(text: &str) -> Option<String> {
+    let rest = text.trim_start();
+    let rest = rest.get(..4).filter(|verb| verb.eq_ignore_ascii_case("CALL")).map(|_| &rest[4..])?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let (name, rest) = procedure_name(rest.trim_start())?;
+    let rest = rest.trim_start();
+    (rest.is_empty() || rest.starts_with('(')).then_some(name)
+}
+
+/// Reads `name` or `schema.name` at the start of `text`, returning it and the text after it.
+fn procedure_name(text: &str) -> Option<(String, &str)> {
+    fn part(text: &str) -> Option<(String, &str)> {
+        if let Some(body) = text.strip_prefix('`') {
+            let mut value = String::new();
+            let mut chars = body.char_indices().peekable();
+            while let Some((at, c)) = chars.next() {
+                if c == '`' {
+                    if chars.peek().is_some_and(|(_, next)| *next == '`') {
+                        chars.next();
+                        value.push('`');
+                        continue;
+                    }
+                    return (!value.is_empty()).then(|| (value, &body[at + 1..]));
+                }
+                value.push(c);
+            }
+            None
+        } else {
+            let end = text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')).unwrap_or(text.len());
+            (end > 0).then(|| (text[..end].to_owned(), &text[end..]))
+        }
+    }
+    let (first, rest) = part(text)?;
+    let after = rest.trim_start();
+    match after.strip_prefix('.') {
+        Some(tail) => {
+            let (second, rest) = part(tail.trim_start())?;
+            Some((format!("{first}.{second}"), rest))
+        }
+        None => Some((first, rest)),
+    }
+}
+
+/// Checks one procedure name a host declares never commits: an exact `name` or `schema.name`,
+/// optionally backtick-quoted, with nothing else, so no wildcards or argument lists.
+pub(crate) fn safe_procedure_name(name: &str) -> Option<String> {
+    let (parsed, rest) = procedure_name(name.trim())?;
+    rest.trim().is_empty().then_some(parsed)
 }
 
 /// Placeholder spellings.
@@ -532,29 +725,147 @@ mod tests {
     #[test]
     fn previews_refuse_statements_that_end_the_transaction() {
         for dialect in [SQLITE, POSTGRES, MYSQL] {
-            for sql in ["COMMIT", "commit work", "END", "ROLLBACK", "begin", "START TRANSACTION", "/* x */ COMMIT", "UPDATE t SET a = 1; COMMIT"] {
-                assert!(preview_refusal(sql, dialect).is_some(), "{sql}");
+            for sql in
+                ["COMMIT", "commit work", "END", "ROLLBACK", "begin", "START TRANSACTION", "/* x */ COMMIT", "UPDATE t SET a = 1; COMMIT"]
+            {
+                assert!(preview_refusal(sql, dialect, &none()).is_some(), "{sql}");
             }
-            for sql in ["UPDATE t SET a = ':x; COMMIT'", "ROLLBACK TO SAVEPOINT s", "SAVEPOINT s", "SELECT 1 -- COMMIT", "INSERT INTO t VALUES (1)"] {
-                assert_eq!(preview_refusal(sql, dialect), None, "{sql}");
+            for sql in [
+                "UPDATE t SET a = ':x; COMMIT'",
+                "ROLLBACK TO SAVEPOINT s",
+                "SAVEPOINT s",
+                "SELECT 1 -- COMMIT",
+                "INSERT INTO t VALUES (1)",
+            ] {
+                assert_eq!(preview_refusal(sql, dialect, &none()), None, "{sql}");
             }
         }
-        assert_eq!(preview_refusal("PREPARE TRANSACTION 'x'", POSTGRES).as_deref(), Some("PREPARE TRANSACTION"));
-        assert_eq!(preview_refusal("SELECT $$ ; COMMIT $$", POSTGRES), None);
+        assert_eq!(preview_refusal("PREPARE TRANSACTION 'x'", POSTGRES, &none()).as_deref(), Some("PREPARE TRANSACTION"));
+        assert_eq!(preview_refusal("SELECT $$ ; COMMIT $$", POSTGRES, &none()), None);
         // PostgreSQL DDL is transactional, so it is rolled back with the preview.
-        assert_eq!(preview_refusal("CREATE TABLE t (x int)", POSTGRES), None);
+        assert_eq!(preview_refusal("CREATE TABLE t (x int)", POSTGRES, &none()), None);
     }
 
     #[test]
     fn mysql_previews_refuse_implicit_commits() {
-        for sql in ["CREATE TABLE t (x INT)", "ALTER TABLE t ADD y INT", "TRUNCATE t", "DROP TABLE t", "LOCK TABLES t WRITE",
-            "SET autocommit = 1", "SET @@session.autocommit = 1", "CALL refresh()", "RENAME TABLE a TO b", "GRANT ALL ON *.* TO x",
-            "SELECT 1; CREATE INDEX i ON t (x)", "ANALYZE TABLE t"] {
-            assert!(preview_refusal(sql, MYSQL).is_some(), "{sql}");
+        for sql in [
+            "CREATE TABLE t (x INT)",
+            "ALTER TABLE t ADD y INT",
+            "TRUNCATE t",
+            "DROP TABLE t",
+            "LOCK TABLES t WRITE",
+            "SET autocommit = 1",
+            "SET @@session.autocommit = 1",
+            "CALL refresh()",
+            "RENAME TABLE a TO b",
+            "GRANT ALL ON *.* TO x",
+            "SELECT 1; CREATE INDEX i ON t (x)",
+            "ANALYZE TABLE t",
+        ] {
+            assert!(preview_refusal(sql, MYSQL, &none()).is_some(), "{sql}");
         }
-        for sql in ["SELECT 1", "INSERT INTO t SELECT * FROM u", "SET @x = 1", "CREATE TEMPORARY TABLE tmp (x INT)",
-            "DROP TEMPORARY TABLE tmp", "WITH c AS (SELECT 1) SELECT * FROM c", "REPLACE INTO t VALUES (1)", "SHOW TABLES"] {
-            assert_eq!(preview_refusal(sql, MYSQL), None, "{sql}");
+        for sql in [
+            "SELECT 1",
+            "INSERT INTO t SELECT * FROM u",
+            "SET @x = 1",
+            "CREATE TEMPORARY TABLE tmp (x INT)",
+            "DROP TEMPORARY TABLE tmp",
+            "WITH c AS (SELECT 1) SELECT * FROM c",
+            "REPLACE INTO t VALUES (1)",
+            "SHOW TABLES",
+        ] {
+            assert_eq!(preview_refusal(sql, MYSQL, &none()), None, "{sql}");
+        }
+    }
+
+    /// No procedure declared safe.
+    fn none() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    #[test]
+    fn mysql_previews_refuse_call_unless_declared_and_the_preview_savepoint() {
+        let safe: HashSet<String> = ["audit_read", "`app`.`lookup`"].iter().map(|name| safe_procedure_name(name).unwrap()).collect();
+        for sql in [
+            "CALL p()",
+            "CALL other.audit_read()",
+            "CALL AUDIT_READ()",
+            "CALL audit_read_all()",
+            "CALL lookup(1)",
+            "/* x */ CALL audit_read()",
+            "PREPARE s FROM 'COMMIT'",
+            "EXECUTE s",
+            "EXECUTE IMMEDIATE 'COMMIT'",
+            "SET STATEMENT max_statement_time = 1 FOR COMMIT",
+            "SET STATEMENT max_statement_time = 1 FOR CREATE TABLE t (n INT)",
+            "SET sql_mode = '', autocommit = 1",
+            "SAVEPOINT sendproof_preview",
+            "RELEASE SAVEPOINT `sendproof_preview`",
+            "ROLLBACK TO SAVEPOINT SENDPROOF_PREVIEW",
+        ] {
+            assert!(preview_refusal(sql, MYSQL, &safe).is_some(), "{sql}");
+        }
+        for sql in [
+            "CALL audit_read()",
+            "CALL `audit_read`",
+            "CALL app.lookup(1)",
+            "CALL `app` . `lookup`()",
+            "SET STATEMENT max_statement_time = 1 FOR SELECT 1",
+            "SAVEPOINT sp1",
+            "RELEASE SAVEPOINT sp1",
+        ] {
+            assert_eq!(preview_refusal(sql, MYSQL, &safe), None, "{sql}");
+        }
+        for name in ["", "p%", "p*", "a.b.c", "p()", "p q"] {
+            assert_eq!(safe_procedure_name(name), None, "{name:?}");
+        }
+        // Every backend guards its own savepoint.
+        assert!(preview_refusal("RELEASE SAVEPOINT sendproof_preview", POSTGRES, &none()).is_some());
+    }
+
+    #[test]
+    fn mysql_text_is_read_as_the_server_reads_it() {
+        for sql in [
+            "# note\nCOMMIT",
+            "SELECT 1; # x\nCOMMIT",
+            "SELECT 1 --1; COMMIT",
+            "/*!COMMIT*/",
+            "SELECT 1; /*!50000 COMMIT */",
+            "/*M!100100 ROLLBACK */",
+            "SELECT 'a\\'; COMMIT; -- '",
+            "SELECT \"a\\\"; COMMIT; -- \"",
+            "SELECT $$; COMMIT; $$",
+        ] {
+            assert!(preview_refusal(sql, MYSQL, &none()).is_some(), "{sql:?}");
+        }
+        for sql in [
+            "SELECT 1 -- COMMIT",
+            "SELECT 1 # COMMIT",
+            "SELECT 1 /* COMMIT */",
+            "INSERT INTO t VALUES ('it''s; COMMIT')",
+            "SELECT `a;COMMIT` FROM t",
+            "SELECT 2--1",
+            "/*!40101 SET NAMES utf8mb4 */",
+        ] {
+            assert_eq!(preview_refusal(sql, MYSQL, &none()), None, "{sql:?}");
+        }
+    }
+
+    #[test]
+    fn postgres_text_is_read_as_the_server_reads_it() {
+        for sql in [
+            "SELECT 'x\\'; COMMIT; SELECT '",
+            "SELECT E'x\\\\'; COMMIT; SELECT 'y'",
+            "SELECT 'x\\''; COMMIT; SELECT '",
+            "/* outer /* inner */ still a comment */ COMMIT",
+            "SELECT \"a\\\"; COMMIT; --\"",
+        ] {
+            assert!(preview_refusal(sql, POSTGRES, &none()).is_some(), "{sql:?}");
+        }
+        for sql in
+            ["SELECT E'it\\'s; COMMIT'", "DO $$ BEGIN COMMIT; END $$", "SELECT $body$; COMMIT; $body$", "/* a /* b */ COMMIT */ SELECT 1"]
+        {
+            assert_eq!(preview_refusal(sql, POSTGRES, &none()), None, "{sql:?}");
         }
     }
 

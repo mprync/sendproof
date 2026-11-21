@@ -1,22 +1,26 @@
 //! The preview provider, generic over the database backend.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use http::Extensions;
-use sqlx::Pool;
 use sendproof_core::{BoxError, BoxFuture, Changes, Observation, PreviewProvider, PreviewSession, capture};
+use sqlx::Pool;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
     backend::Backend,
     db::{Scope, Slot},
+    query::Rules,
 };
 
-/// The savepoint taken right after a preview begins. Rolling back to it before the final rollback
-/// proves the handler did not end the transaction (a raw `COMMIT`, or a MySQL statement that
-/// commits implicitly), which would have made its writes permanent.
-const GUARD: &str = "SAVEPOINT sendproof_guard";
-const ROLLBACK_TO_GUARD: &str = "ROLLBACK TO SAVEPOINT sendproof_guard";
+/// The savepoint taken right after a preview begins (spec/data-stores.md, `sendproof_preview`).
+/// Rolling back to it before the final rollback proves the handler did not end the transaction (a
+/// raw `COMMIT`, or a MySQL statement that commits implicitly), which would have made its writes
+/// permanent: any commit erases every savepoint. A savepoint taken only at the end could not tell,
+/// because under `autocommit=0` MySQL opens a new transaction after a commit. The guard refuses a
+/// handler's statements naming it (`query::PREVIEW_SAVEPOINT`).
+const GUARD: &str = "SAVEPOINT sendproof_preview";
+const ROLLBACK_TO_GUARD: &str = "ROLLBACK TO SAVEPOINT sendproof_preview";
 
 /// Enrolls operations in a transaction on the connection the handler uses.
 ///
@@ -28,6 +32,8 @@ pub struct SqlxProvider<B: Backend> {
     /// Held by the running preview when the backend's previews take turns (see `SERIAL_PREVIEWS`). Clones of the
     /// provider share it.
     turn: Arc<Mutex<()>>,
+    /// MySQL procedures a preview may `CALL`; see [`safe_procedure`](Self::safe_procedure).
+    safe: Arc<HashSet<String>>,
 }
 
 /// The SQLite provider.
@@ -42,14 +48,38 @@ pub type MySqlProvider = SqlxProvider<sqlx::MySql>;
 
 impl<B: Backend> Clone for SqlxProvider<B> {
     fn clone(&self) -> Self {
-        Self { pool: self.pool.clone(), database: self.database.clone(), turn: self.turn.clone() }
+        Self { pool: self.pool.clone(), database: self.database.clone(), turn: self.turn.clone(), safe: self.safe.clone() }
     }
 }
 
 impl<B: Backend> SqlxProvider<B> {
     /// Creates a provider over `pool`.
     pub fn new(pool: Pool<B>) -> Self {
-        Self { pool, database: None, turn: Arc::new(Mutex::new(())) }
+        Self { pool, database: None, turn: Arc::new(Mutex::new(())), safe: Arc::default() }
+    }
+
+    /// Declares a MySQL or MariaDB stored procedure that never commits, by exact name (`name` or
+    /// `schema.name`, optionally backtick-quoted, no wildcards). During a preview every other `CALL`
+    /// is refused, because a procedure can run `COMMIT` or an implicitly committing statement inside
+    /// the preview transaction. The name is compared as written in the `CALL`, case included.
+    ///
+    /// **Warning:** declaring a procedure is your statement that it never commits. One that does
+    /// commits the handler's writes; the preview still fails, because the savepoint it set at the
+    /// start is gone, but the writes stay.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `name` is not an exact procedure name, at startup rather than in a request.
+    pub fn safe_procedure(mut self, name: &str) -> Self {
+        let parsed = crate::query::safe_procedure_name(name)
+            .unwrap_or_else(|| panic!("safe procedure names are exact names, such as `name` or `schema.name`: {name:?}"));
+        Arc::make_mut(&mut self.safe).insert(parsed);
+        self
+    }
+
+    /// Fresh guard state for one preview or observed send.
+    fn rules(&self) -> Arc<Rules> {
+        Arc::new(Rules { procedures: (*self.safe).clone(), ..Rules::default() })
     }
 
     /// The label shown for the database. Use a short name, never a path or connection string.
@@ -97,7 +127,7 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
                 B::abandon(&mut transaction, &capture).await;
                 return Err(error.into());
             }
-            let scope = Scope { slot: Arc::new(Mutex::new(Slot::Tx(transaction))), capture };
+            let scope = Scope { slot: Arc::new(Mutex::new(Slot::Tx(transaction))), capture, safe: self.rules() };
             extensions.insert(scope.clone());
             Ok(Box::new(Session { scope, finished: false, _turn: turn }) as Box<dyn PreviewSession>)
         })
@@ -115,7 +145,7 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
                     return Err(error);
                 }
             };
-            let scope = Scope { slot: Arc::new(Mutex::new(Slot::Conn(connection))), capture };
+            let scope = Scope { slot: Arc::new(Mutex::new(Slot::Conn(connection))), capture, safe: self.rules() };
             extensions.insert(scope.clone());
             Ok(Some(Box::new(Session { scope, finished: false, _turn: None }) as Box<dyn Observation>))
         })
@@ -175,7 +205,19 @@ impl<B: Backend> PreviewSession for Session<B> {
                 return Err(error);
             }
             self.finished = true;
-            B::run_raw(&mut transaction, ROLLBACK_TO_GUARD).await.map_err(|error| -> BoxError {
+            let guard = B::run_raw(&mut transaction, ROLLBACK_TO_GUARD).await;
+            if self.scope.safe.broken() {
+                let _ = transaction.rollback().await;
+                return Err("the database rolled the preview transaction back after a deadlock or lock wait timeout, so the preview can't be confirmed".into());
+            }
+            if self.scope.safe.refused.load(std::sync::atomic::Ordering::SeqCst) {
+                transaction.rollback().await?;
+                return Err(
+                    "the handler tried to end the preview transaction; the statement was refused, but the preview can't be confirmed"
+                        .into(),
+                );
+            }
+            guard.map_err(|error| -> BoxError {
                 format!("the preview transaction ended before its rollback, so its writes may be permanent: {error}").into()
             })?;
             transaction.rollback().await?;

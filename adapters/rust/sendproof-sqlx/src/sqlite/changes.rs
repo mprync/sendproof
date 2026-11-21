@@ -2,12 +2,12 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use sendproof_core::{limits, model::Change};
 use serde_json::{Map, Value, json};
 use sqlx::{
     Decode, Sqlite, SqliteConnection, TypeInfo, ValueRef,
     sqlite::{PreupdateHookResult, SqliteOperation, SqliteValueRef},
 };
-use sendproof_core::{limits, model::Change};
 
 use crate::log::ChangeLog;
 

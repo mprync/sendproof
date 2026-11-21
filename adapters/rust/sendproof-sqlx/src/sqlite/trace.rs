@@ -12,8 +12,8 @@ use std::{
 };
 
 use libsqlite3_sys as ffi;
-use sqlx::SqliteConnection;
 use sendproof_core::{capture::Recorder, redact};
+use sqlx::SqliteConnection;
 
 /// Parameters announced by [`crate::NamedQuery`] for the statement it is about to run.
 pub(crate) struct Pending {

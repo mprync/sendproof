@@ -4,8 +4,8 @@
 //! generic types of this crate ([`Db`](crate::Db), [`DbConn`](crate::DbConn),
 //! [`SqlxProvider`](crate::SqlxProvider)) can call them without exposing them.
 
-use sqlx::{Database, Executor, query::Query};
 use sendproof_core::{BoxError, BoxFuture, Changes};
+use sqlx::{Database, Executor, query::Query};
 
 use crate::{
     db::DbError,
@@ -81,6 +81,13 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// with a deadlock (error 1213). Sent for real, the first insert commits and the others get a duplicate-key error
     /// instead. Taking turns keeps previews from waiting on one another's rolled-back rows.
     const SERIAL_PREVIEWS: bool = false;
+
+    /// Whether `error` means the database rolled the whole transaction back, so later statements would
+    /// run outside it: a MySQL deadlock (1213) or lock wait timeout (1205, which rolls back with
+    /// `innodb_rollback_on_timeout`; refused either way). PostgreSQL and SQLite keep the transaction.
+    fn ends_transaction(_error: &sqlx::Error) -> bool {
+        false
+    }
 
     /// Binds one value.
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments>;
