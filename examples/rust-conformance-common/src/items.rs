@@ -270,6 +270,31 @@ raw_commit!(sqlx::Sqlite);
 raw_commit!(sqlx::Postgres);
 raw_commit!(sqlx::MySql);
 
+/// `POST /items/{id}/escape` (the `mysql-escape` shared rule, MySQL only): inserts the item, then on the
+/// same connection runs, by `via`, `CREATE TABLE sendproof_escape_<id> (n INT)` (an implicit commit) or
+/// `CALL sendproof_commit_probe()` (a procedure that commits), ignoring the refusal as a careless handler
+/// would, and answers 201. A Preview must answer 500 with nothing kept.
+pub async fn escape<B: Backend>(db: &Db<B>, id: &str, body: &Value) -> Result<Outcome, DbError> {
+    if B::SYSTEM != "mysql" {
+        return Ok(Outcome::empty(404));
+    }
+    let Some(name) = body.get("name").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+        return Ok(Outcome::problem(400, "An item needs a name."));
+    };
+    let statement = match body.get("via").and_then(Value::as_str) {
+        Some("ddl") if !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+            format!("CREATE TABLE sendproof_escape_{id} (n INT)")
+        }
+        Some("call") => "CALL sendproof_commit_probe()".to_owned(),
+        _ => return Ok(Outcome::problem(400, "`via` must be \"ddl\" or \"call\", with a word id.")),
+    };
+    insert(db, id, name).await?;
+    let mut conn = db.acquire().await?;
+    let _ = conn.query(&statement).execute().await;
+    drop(conn);
+    Ok(Outcome::new(201, json!({ "id": id, "name": name })))
+}
+
 /// `POST /items/{id}/commit`: inserts the item, then executes a raw `COMMIT` on the same connection and
 /// answers 201. Used by the `raw-commit` shared rule: a Preview must answer 500 without confirming.
 pub async fn commit<B: RawCommit>(db: &Db<B>, id: &str, body: &Value) -> Result<Outcome, DbError> {

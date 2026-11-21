@@ -575,6 +575,7 @@
       "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
       "test": "CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo test --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml --workspace",
       "start": ["adapters/rust/target/debug/rust-conformance"],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000,
       "startupMs": 120000
     },
@@ -597,6 +598,7 @@
       "readiness": "/ready",
       "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance-actix",
       "start": ["adapters/rust/target/debug/rust-conformance-actix"],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000,
       "startupMs": 120000
     },

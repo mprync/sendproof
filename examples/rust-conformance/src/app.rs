@@ -179,6 +179,12 @@ where
             post(|db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
                 items::commit(&db, &id, &body).await.map(reply)
             }),
+        )
+        .route(
+            "/items/{id}/escape",
+            post(|db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
+                items::escape(&db, &id, &body).await.map(reply)
+            }),
         );
     items = store_routes(items, &stores);
     let items = items

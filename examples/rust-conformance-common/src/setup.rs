@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// The operations declared for preview. `/items/{id}/ordinary` is deliberately absent.
-pub const PREVIEW_OPERATIONS: [(&str, &str); 9] = [
+pub const PREVIEW_OPERATIONS: [(&str, &str); 10] = [
     ("POST", "/items"),
     ("PATCH", "/items/{id}"),
     ("DELETE", "/items/{id}"),
@@ -29,6 +29,8 @@ pub const PREVIEW_OPERATIONS: [(&str, &str); 9] = [
     // The shared security rules (`spec/conformance/fixture.md`).
     ("POST", "/accounts"),
     ("POST", "/items/{id}/commit"),
+    // `mysql-escape`; the route answers 404 on other databases.
+    ("POST", "/items/{id}/escape"),
 ];
 
 /// The fixture's database, chosen by `BENCH_DATABASE` (`sqlite`, the default, `postgresql` or
@@ -103,6 +105,11 @@ impl Database {
                     .execute(&pool)
                     .await?;
                 sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id VARCHAR(191) PRIMARY KEY, email VARCHAR(191) NOT NULL, password_hash TEXT NOT NULL) ENGINE=InnoDB")
+                    .execute(&pool)
+                    .await?;
+                // The `mysql-escape` shared rule (spec/conformance/fixture.md): a procedure that commits. The
+                // provider declares no procedure safe. CREATE PROCEDURE needs the text protocol.
+                sqlx::raw_sql("CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END")
                     .execute(&pool)
                     .await?;
                 Self::MySql(pool)

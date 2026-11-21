@@ -228,6 +228,10 @@ async fn commit<B: RawCommit>(db: Db<B>, id: Path<String>, body: Json<Value>) ->
     items::commit(&db, &id, &body).await.map(reply)
 }
 
+async fn escape<B: Backend>(db: Db<B>, id: Path<String>, body: Json<Value>) -> Result<HttpResponse, DbError> {
+    items::escape(&db, &id, &body).await.map(reply)
+}
+
 // ---- data stores: present only when the runner provisioned them ----
 
 async fn document_get(fixture: Data<Fixture>, mongo: Mongo, id: Path<String>) -> HttpResponse {
@@ -414,7 +418,8 @@ where
                 // The shared security rules.
                 .service(item("/accounts").route(web::post().to(create_account::<B>)))
                 .service(item("/accounts/{id}").route(web::get().to(read_account::<B>)))
-                .service(item("/items/{id}/commit").route(web::post().to(commit::<B>)));
+                .service(item("/items/{id}/commit").route(web::post().to(commit::<B>)))
+                .service(item("/items/{id}/escape").route(web::post().to(escape::<B>)));
             let mut mount = mount;
             if stores.mongo.is_some() {
                 mount = mount
