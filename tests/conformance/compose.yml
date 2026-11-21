@@ -98,7 +98,8 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-  # Batch two, heavy job only: start with `--profile heavy-stores`.
+  # Batch two, heavy job only: start with `--profile heavy-stores`. Both are guard-only stores, so
+  # neither needs auth or persistence; the runner makes a fresh keyspace or index per fixture process.
   cassandra:
     profiles: ['heavy-stores']
     image: cassandra:5.0@sha256:7ec032283c56c9ea7c022007b2fecdf5ca69c7a9871e0634f41ae05833dc1638

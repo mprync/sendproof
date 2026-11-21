@@ -73,7 +73,7 @@ Entries on MySQL or MariaDB also list `"mysql-escape"` in `sharedRules`. At star
 
 ## Data store routes
 
-A manifest entry that lists `"stores"` (any of `mongodb`, `redis` and `dynamodb`) adds the routes for those stores, hooks each store's client as its binding documents, and advertises the stores in capabilities `dataStores`. The runner provisions a fresh namespace per fixture process, passes it in these variables, and removes it after stopping the fixture. The services are the ones in [compose.yml](../../tests/conformance/compose.yml).
+A manifest entry that lists `"stores"` (any of `mongodb`, `redis`, `dynamodb`, `cassandra` and `opensearch`) adds the routes for those stores, hooks each store's client as its binding documents, and advertises the stores in capabilities `dataStores`. The runner provisions a fresh namespace per fixture process, passes it in these variables, and removes it after stopping the fixture. The services are the ones in [compose.yml](../../tests/conformance/compose.yml).
 
 | Variable | Meaning |
 | --- | --- |
