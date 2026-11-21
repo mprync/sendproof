@@ -20,6 +20,8 @@ PACKAGES = ["core", "sqlalchemy", "fastapi", "flask", "django"]
 TEST_DEPENDENCIES = [
     "greenlet", "uvicorn", "httpx", "pytest", "pytest-asyncio", "aiosqlite", "build", "hatchling",
     "django-ninja", "djangorestframework", "flask-sqlalchemy", "psycopg[binary]", "pymysql",
+    # Data-store clients: the hooks in sendproof_core.stores are tested against these.
+    "redis", "boto3", "aioboto3", "pymongo", "motor",
 ]
 
 

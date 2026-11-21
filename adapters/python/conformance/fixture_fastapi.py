@@ -29,6 +29,8 @@ from sendproof_core import PreviewRollbackError, PreviewSession, RequestScope, r
 from sendproof_fastapi import AuthProvider, Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 
+from fixture_stores import AsyncStores
+
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
 SCENARIO = os.environ.get("BENCH_SCENARIO", "standard")
@@ -59,6 +61,13 @@ class Item(Base):
     __tablename__ = "items"
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String)
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String)
+    password_hash: Mapped[str] = mapped_column(String)
 
 
 Base.metadata.create_all(engine)
@@ -246,6 +255,142 @@ def ordinary_item(id: str, db: Session = Depends(get_db), user: dict = Depends(r
     return {"id": id, "name": "Ordinary"}
 
 
+# ------------------------------------------------------------------ shared security rules
+class AccountIn(BaseModel):
+    id: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+@app.post("/accounts", status_code=201)
+@preview
+def create_account(account: AccountIn, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    db.add(Account(id=account.id, email=account.email, password_hash="hashed:" + account.password))
+    db.commit()
+    return {"id": account.id, "email": account.email}
+
+
+@app.get("/accounts/{id}")
+def read_account(id: str, db: Session = Depends(get_db), user: dict = Depends(require_user)):
+    account = db.get(Account, id)
+    if account is None:
+        raise HTTPException(404, "Account not found.")
+    return {"id": account.id, "email": account.email}
+
+
+@app.post("/items/{id}/commit", status_code=201)
+@preview
+def commit_item(id: str, patch: ItemPatch, db: Session = Depends(get_db), user: dict = Depends(require_admin)):
+    db.add(Item(id=id, name=patch.name))
+    db.flush()
+    db.execute(text("COMMIT"))  # a handler that ends the transaction itself: a Preview must refuse it
+    return {"id": id, "name": patch.name}
+
+
+# ------------------------------------------------------------------------- data stores
+# Present only when the runner passes a store's variables. FastAPI uses the asynchronous clients
+# (AsyncMongoClient, redis.asyncio, aioboto3); the Flask and Django fixtures use the synchronous ones.
+stores = AsyncStores()
+
+
+def reply(result: tuple[int, object]) -> Response:
+    status, body = result
+    return Response(status_code=status) if body is None else JSONResponse(body, status_code=status)
+
+
+class DocumentIn(BaseModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    city: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class DocumentPatch(BaseModel):
+    name: str | None = None
+    city: str | None = None
+
+
+if "mongodb" in stores.stores:
+    @app.get("/documents/{id}")
+    @preview
+    async def read_document(id: str, user: dict = Depends(require_user)):
+        return reply(await stores.get_document(id))
+
+    @app.post("/documents", status_code=201)
+    @preview
+    async def create_document(document: DocumentIn, user: dict = Depends(require_admin)):
+        return reply(await stores.create_document(document.model_dump()))
+
+    @app.patch("/documents/{id}")
+    @preview
+    async def patch_document(id: str, patch: DocumentPatch, user: dict = Depends(require_admin)):
+        return reply(await stores.patch_document(id, patch.model_dump()))
+
+    @app.post("/documents/archive", status_code=204)
+    @preview
+    async def archive_documents(user: dict = Depends(require_admin)):
+        return reply(await stores.archive_documents())
+
+    @app.delete("/documents/{id}", status_code=204)
+    @preview(False, stores=["mongodb"])
+    async def delete_document(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.delete_document(id))
+
+if "redis" in stores.stores:
+    @app.get("/counters/{key}")
+    @preview
+    async def read_counter(key: str, user: dict = Depends(require_user)):
+        return reply(await stores.get_counter(key))
+
+    @app.post("/counters/{key}")
+    @preview
+    async def increment_counter(key: str, user: dict = Depends(require_admin)):
+        return reply(await stores.incr_counter(key))
+
+    @app.post("/counters/{key}/take")
+    @preview
+    async def take_counter(key: str, user: dict = Depends(require_admin)):
+        return reply(await stores.take_counter(key))
+
+    @app.delete("/counters/{key}", status_code=204)
+    @preview(False, stores=["redis"])
+    async def delete_counter(key: str, user: dict = Depends(require_admin)):
+        return reply(await stores.delete_counter(key))
+
+if "dynamodb" in stores.stores:
+    @app.get("/orders/{id}")
+    @preview
+    async def read_order(id: str, user: dict = Depends(require_user)):
+        return reply(await stores.get_order(id))
+
+    @app.post("/orders/{id}/touch")
+    @preview
+    async def touch_order(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.touch_order(id))
+
+    @app.post("/orders/{id}/cancel")
+    @preview
+    async def cancel_order(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.cancel_order(id))
+
+    @app.delete("/orders/{id}", status_code=204)
+    @preview(False, stores=["dynamodb"])
+    async def delete_order(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.delete_order(id))
+
+if {"redis", "dynamodb"} & set(stores.stores):
+    @app.post("/items/{id}/remember", status_code=201)
+    @preview
+    async def remember_item(id: str, patch: ItemPatch, store: str = Query(...), db: Session = Depends(get_db),
+                            user: dict = Depends(require_admin)):
+        if store not in ("redis", "dynamodb"):
+            raise HTTPException(400, "Unknown store.")
+        db.add(Item(id=id, name=patch.name))
+        db.commit()
+        await stores.remember(store, id)
+        return {"id": id, "name": patch.name}
+
+
 # ----------------------------------------------------------------------- Sendproof
 class RollbackFailingProvider(SQLAlchemyPreview):
     """Rolls back for real, then reports an injected failure so the transport withholds confirmation."""
@@ -271,6 +416,7 @@ elif SCENARIO != "no-provider":
 Sendproof(
     app,
     provider=provider,
+    data_stores=stores.data_stores,
     identity=identity,
     environment="Production" if SCENARIO == "disabled" else "Development",
     auth_providers=[

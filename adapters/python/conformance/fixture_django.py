@@ -19,11 +19,15 @@ from pathlib import Path
 import django
 from django.conf import settings
 
+from fixture_stores import SyncStores
+
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
 SCENARIO = os.environ.get("BENCH_SCENARIO", "standard")
 TRACE_TTL_SECONDS = 5.0
 _directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
+# Hooked data stores: present only when the runner passes a store's variables.
+stores = SyncStores()
 
 log = logging.getLogger("fixture")
 log.setLevel(logging.INFO)
@@ -73,6 +77,7 @@ def configure() -> None:
         SENDPROOF={
             "ENVIRONMENT": "Production" if SCENARIO == "disabled" else "Development",
             "PROVIDER": provider,
+            "DATA_STORES": stores.data_stores,
             "IDENTITY": f"{__name__}.identity",
             "AUTH_PROVIDERS": [
                 {"label": "Fixture password", "kind": "cookie", "url": "/auth/sign-in"},
@@ -110,8 +115,19 @@ class Item(models.Model):
         db_table = "items"
 
 
+class Account(models.Model):
+    id = models.CharField(primary_key=True, max_length=200)
+    email = models.CharField(max_length=200)
+    password_hash = models.CharField(max_length=200)
+
+    class Meta:
+        app_label = "fixture"
+        db_table = "accounts"
+
+
 with connection.schema_editor() as editor:
     editor.create_model(Item)
+    editor.create_model(Account)
 
 USERS = {
     "admin@example.test": {"name": "Fixture Admin", "role": "admin", "password": "bench-fixture"},
@@ -294,6 +310,158 @@ def capture_items(request, id: str):
 def ordinary_item(request, id: str):
     require_admin(request)
     return 201, Item.objects.create(id=id, name="Ordinary")
+
+
+# ------------------------------------------------------------------ shared security rules
+class AccountIn(Schema):
+    id: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class AccountOut(Schema):
+    id: str
+    email: str
+
+
+@api.post("/accounts", response={201: AccountOut})
+@preview
+def create_account(request, payload: AccountIn):
+    require_admin(request)
+    account = Account.objects.create(id=payload.id, email=payload.email, password_hash="hashed:" + payload.password)
+    return 201, account
+
+
+@api.get("/accounts/{id}", response=AccountOut)
+def read_account(request, id: str):
+    require_user(request)
+    account = Account.objects.filter(pk=id).first()
+    if account is None:
+        raise HttpError(404, "Account not found.")
+    return account
+
+
+@api.post("/items/{id}/commit", response={201: ItemOut})
+@preview
+def commit_item(request, id: str, payload: ItemPatch):
+    require_admin(request)
+    Item.objects.create(id=id, name=payload.name)
+    with connection.cursor() as cursor:
+        cursor.execute("COMMIT")  # a handler that ends the transaction itself: a Preview must refuse it
+    return 201, {"id": id, "name": payload.name}
+
+
+# ------------------------------------------------------------------------- data stores
+# The Django fixture uses the synchronous clients (PyMongo, redis-py, boto3).
+def reply(result):
+    status, body = result
+    return HttpResponse(status=status) if body is None else JsonResponse(body, status=status)
+
+
+class DocumentIn(Schema):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    city: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class DocumentPatch(Schema):
+    name: str | None = None
+    city: str | None = None
+
+
+if "mongodb" in stores.stores:
+    # Registered before /documents/{id}, which Django would otherwise match first for "archive".
+    @api.post("/documents/archive")
+    @preview
+    def archive_documents(request):
+        require_admin(request)
+        return reply(stores.archive_documents())
+
+    @api.get("/documents/{id}")
+    @preview
+    def read_document(request, id: str):
+        require_user(request)
+        return reply(stores.get_document(id))
+
+    @api.post("/documents")
+    @preview
+    def create_document(request, payload: DocumentIn):
+        require_admin(request)
+        return reply(stores.create_document(payload.dict()))
+
+    @api.patch("/documents/{id}")
+    @preview
+    def patch_document(request, id: str, payload: DocumentPatch):
+        require_admin(request)
+        return reply(stores.patch_document(id, payload.dict()))
+
+    @api.delete("/documents/{id}")
+    @preview(False, stores=["mongodb"])
+    def delete_document(request, id: str):
+        require_admin(request)
+        return reply(stores.delete_document(id))
+
+if "redis" in stores.stores:
+    @api.get("/counters/{key}")
+    @preview
+    def read_counter(request, key: str):
+        require_user(request)
+        return reply(stores.get_counter(key))
+
+    @api.post("/counters/{key}")
+    @preview
+    def increment_counter(request, key: str):
+        require_admin(request)
+        return reply(stores.incr_counter(key))
+
+    @api.post("/counters/{key}/take")
+    @preview
+    def take_counter(request, key: str):
+        require_admin(request)
+        return reply(stores.take_counter(key))
+
+    @api.delete("/counters/{key}")
+    @preview(False, stores=["redis"])
+    def delete_counter(request, key: str):
+        require_admin(request)
+        return reply(stores.delete_counter(key))
+
+if "dynamodb" in stores.stores:
+    @api.get("/orders/{id}")
+    @preview
+    def read_order(request, id: str):
+        require_user(request)
+        return reply(stores.get_order(id))
+
+    @api.post("/orders/{id}/touch")
+    @preview
+    def touch_order(request, id: str):
+        require_admin(request)
+        return reply(stores.touch_order(id))
+
+    @api.post("/orders/{id}/cancel")
+    @preview
+    def cancel_order(request, id: str):
+        require_admin(request)
+        return reply(stores.cancel_order(id))
+
+    @api.delete("/orders/{id}")
+    @preview(False, stores=["dynamodb"])
+    def delete_order(request, id: str):
+        require_admin(request)
+        return reply(stores.delete_order(id))
+
+if {"redis", "dynamodb"} & set(stores.stores):
+    @api.post("/items/{id}/remember", response={201: ItemOut})
+    @preview
+    def remember_item(request, id: str, payload: ItemPatch, store: str):
+        require_admin(request)
+        if store not in ("redis", "dynamodb"):
+            raise HttpError(400, "Unknown store.")
+        item = Item.objects.create(id=id, name=payload.name)
+        stores.remember(store, id)
+        return 201, item
 
 
 def openapi(request):

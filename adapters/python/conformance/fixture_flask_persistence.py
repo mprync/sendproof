@@ -1,7 +1,7 @@
 """Persistence layers for the Flask conformance fixture.
 
 ``BENCH_FLASK_ORM`` selects how the fixture talks to the database. Both layers expose the same
-four names, so the Flask app in ``fixture_flask.py`` is identical for either:
+names, so the Flask app in ``fixture_flask.py`` is identical for either:
 
 ``sqlalchemy`` (default)
     Plain SQLAlchemy: one ``Session`` per request kept on ``flask.g`` and closed on teardown.
@@ -29,9 +29,10 @@ class Base(DeclarativeBase):
 
 
 class Persistence:
-    """The fixture's view of its database: ``Item``, ``engine``, ``session()`` and ``init_app``."""
+    """The fixture's view of its database: ``Item``, ``Account``, ``engine``, ``session()`` and ``init_app``."""
 
     Item: Any
+    Account: Any
     engine: Engine
     label: str
 
@@ -52,12 +53,23 @@ def _define_item(base: type) -> Any:
     return Item
 
 
+def _define_account(base: type) -> Any:
+    class Account(base):  # type: ignore[valid-type, misc]
+        __tablename__ = "accounts"
+        id: Mapped[str] = mapped_column(String(255), primary_key=True)
+        email: Mapped[str] = mapped_column(String(255))
+        password_hash: Mapped[str] = mapped_column(String(255))
+
+    return Account
+
+
 class PlainSqlAlchemy(Persistence):
     label = "sqlalchemy"
 
     def __init__(self, url: URL) -> None:
         self.engine = create_engine(url)
         self.Item = _define_item(Base)
+        self.Account = _define_account(Base)
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
 
@@ -85,6 +97,7 @@ class FlaskSqlAlchemy(Persistence):
         # Flask-SQLAlchemy's default ``expire_on_commit=True`` is kept on purpose: handlers read
         # attributes after ``commit()``, which reloads the row through the same session.
         self.Item = _define_item(self.db.Model)
+        self.Account = _define_account(self.db.Model)
 
     def init_app(self, app: Flask) -> None:
         app.config["SQLALCHEMY_DATABASE_URI"] = self._url.render_as_string(hide_password=False)

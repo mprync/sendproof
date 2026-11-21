@@ -29,6 +29,7 @@ from sendproof_sqlalchemy import SQLAlchemyPreview
 
 import fixture_database
 import fixture_flask_persistence
+from fixture_stores import SyncStores
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -42,6 +43,7 @@ _directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
 _url, _kind = fixture_database.resolve(_directory)
 persistence = fixture_flask_persistence.create(_url)
 Item = persistence.Item
+Account = persistence.Account
 
 USERS = {
     "admin@example.test": {"name": "Fixture Admin", "role": "admin", "password": "bench-fixture"},
@@ -235,6 +237,144 @@ def ordinary_item(id: str):
     return jsonify(id=id, name="Ordinary"), 201
 
 
+# ------------------------------------------------------------------ shared security rules
+@app.post("/accounts")
+@preview
+def create_account():
+    require_admin()
+    data = json_body("id", "email", "password")
+    db().add(Account(id=data["id"], email=data["email"], password_hash="hashed:" + data["password"]))
+    db().commit()
+    return jsonify(id=data["id"], email=data["email"]), 201
+
+
+@app.get("/accounts/<id>")
+def read_account(id: str):
+    require_user()
+    account = db().get(Account, id)
+    if account is None:
+        abort(404)
+    return jsonify(id=account.id, email=account.email)
+
+
+@app.post("/items/<id>/commit")
+@preview
+def commit_item(id: str):
+    require_admin()
+    data = json_body("name")
+    db().add(Item(id=id, name=data["name"]))
+    db().flush()
+    db().execute(text("COMMIT"))  # a handler that ends the transaction itself: a Preview must refuse it
+    return jsonify(id=id, name=data["name"]), 201
+
+
+# ------------------------------------------------------------------------- data stores
+# Present only when the runner passes a store's variables. Flask uses the synchronous clients
+# (PyMongo, redis-py, boto3); the FastAPI fixture uses the asynchronous ones.
+stores = SyncStores()
+
+
+def reply(result: tuple[int, object]):
+    status, body = result
+    return Response(status=status) if body is None else (jsonify(body), status)
+
+
+if "mongodb" in stores.stores:
+    @app.get("/documents/<id>")
+    @preview(methods=["GET"])
+    def read_document(id: str):
+        require_user()
+        return reply(stores.get_document(id))
+
+    @app.post("/documents")
+    @preview
+    def create_document():
+        require_admin()
+        return reply(stores.create_document(json_body("id", "name", "city", "password")))
+
+    @app.patch("/documents/<id>")
+    @preview
+    def patch_document(id: str):
+        require_admin()
+        return reply(stores.patch_document(id, request.get_json(silent=True) or {}))
+
+    @app.post("/documents/archive")
+    @preview
+    def archive_documents():
+        require_admin()
+        return reply(stores.archive_documents())
+
+    @app.delete("/documents/<id>")
+    @preview(False, stores=["mongodb"])
+    def delete_document(id: str):
+        require_admin()
+        return reply(stores.delete_document(id))
+
+if "redis" in stores.stores:
+    @app.get("/counters/<key>")
+    @preview(methods=["GET"])
+    def read_counter(key: str):
+        require_user()
+        return reply(stores.get_counter(key))
+
+    @app.post("/counters/<key>")
+    @preview
+    def increment_counter(key: str):
+        require_admin()
+        return reply(stores.incr_counter(key))
+
+    @app.post("/counters/<key>/take")
+    @preview
+    def take_counter(key: str):
+        require_admin()
+        return reply(stores.take_counter(key))
+
+    @app.delete("/counters/<key>")
+    @preview(False, stores=["redis"])
+    def delete_counter(key: str):
+        require_admin()
+        return reply(stores.delete_counter(key))
+
+if "dynamodb" in stores.stores:
+    @app.get("/orders/<id>")
+    @preview(methods=["GET"])
+    def read_order(id: str):
+        require_user()
+        return reply(stores.get_order(id))
+
+    @app.post("/orders/<id>/touch")
+    @preview
+    def touch_order(id: str):
+        require_admin()
+        return reply(stores.touch_order(id))
+
+    @app.post("/orders/<id>/cancel")
+    @preview
+    def cancel_order(id: str):
+        require_admin()
+        return reply(stores.cancel_order(id))
+
+    @app.delete("/orders/<id>")
+    @preview(False, stores=["dynamodb"])
+    def delete_order(id: str):
+        require_admin()
+        return reply(stores.delete_order(id))
+
+if {"redis", "dynamodb"} & set(stores.stores):
+    @app.post("/items/<id>/remember")
+    @preview
+    def remember_item(id: str):
+        require_admin()
+        data = json_body("name")
+        store = request.args.get("store", "")
+        if store not in ("redis", "dynamodb"):
+            abort(400)
+        db().add(Item(id=id, name=data["name"]))
+        db().commit()
+        stores.remember(store, id)
+        return jsonify(id=id, name=data["name"]), 201
+
+
 _ITEM = {"type": "object", "required": ["id", "name"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}}}
 _ID = [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}]
 
@@ -246,6 +386,35 @@ def _operation(summary: str, status: str, body: bool = False, schema: dict | Non
     if body:
         operation["requestBody"] = {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Item"}}}}
     return operation
+
+
+def _store_paths() -> dict:
+    """OpenAPI paths of the data-store routes the runner enabled."""
+    paths: dict = {}
+    if "mongodb" in stores.stores:
+        paths.update({
+            "/documents": {"post": {"summary": "Create document", "responses": {"201": {"description": "Created"}}}},
+            "/documents/archive": {"post": {"summary": "Archive documents", "responses": {"204": {"description": "Archived"}}}},
+            "/documents/{id}": {"get": _operation("Read document", "200"), "patch": _operation("Update document", "200"),
+                                "delete": _operation("Delete document", "204")},
+        })
+    if "redis" in stores.stores:
+        key = [{"name": "key", "in": "path", "required": True, "schema": {"type": "string"}}]
+        paths.update({
+            "/counters/{key}": {"get": {"summary": "Read counter", "parameters": key, "responses": {"200": {"description": "Counter"}}},
+                                "post": {"summary": "Increment counter", "parameters": key, "responses": {"200": {"description": "Counter"}}},
+                                "delete": {"summary": "Delete counter", "parameters": key, "responses": {"204": {"description": "Deleted"}}}},
+            "/counters/{key}/take": {"post": {"summary": "Take counter", "parameters": key, "responses": {"200": {"description": "Counter"}}}},
+        })
+    if "dynamodb" in stores.stores:
+        paths.update({
+            "/orders/{id}": {"get": _operation("Read order", "200"), "delete": _operation("Delete order", "204")},
+            "/orders/{id}/touch": {"post": _operation("Touch order", "200")},
+            "/orders/{id}/cancel": {"post": _operation("Cancel order", "200")},
+        })
+    if {"redis", "dynamodb"} & set(stores.stores):
+        paths["/items/{id}/remember"] = {"post": _operation("Write the item, then a store", "201", True)}
+    return paths
 
 
 @app.get("/openapi.json")
@@ -268,6 +437,12 @@ def openapi():
             "/items/{id}/redirect": {"post": action("Redirect")},
             "/items/{id}/capture": {"post": action("Exceed capture limits")},
             "/items/{id}/ordinary": {"post": action("Insert without Preview")},
+            "/items/{id}/commit": {"post": _operation("Commit inside the handler", "201", True, item)},
+            "/accounts": {"post": {"summary": "Create account", "responses": {"201": {"description": "Created"}}, "requestBody": {
+                "required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {
+                    "id": {"type": "string"}, "email": {"type": "string"}, "password": {"type": "string"}}}}}}}},
+            "/accounts/{id}": {"get": action("Read account")},
+            **_store_paths(),
         },
         "components": {"schemas": {"Item": _ITEM}},
     })
@@ -297,6 +472,7 @@ elif SCENARIO != "no-provider":
 Sendproof(
     app,
     provider=provider,
+    data_stores=stores.data_stores,
     identity=identity,
     environment="Production" if SCENARIO == "disabled" else "Development",
     auth_providers=[
