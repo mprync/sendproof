@@ -11,7 +11,11 @@ module Sendproof
 
       attr_reader :sql_writes, :tracked_writes
 
-      def initialize
+      # @return [Array<String>] the procedures the host declared never commit (see {Provider#initialize})
+      attr_reader :safe_procedures
+
+      def initialize(safe_procedures: [])
+        @safe_procedures = safe_procedures
         @mutex = Mutex.new
         @changes = []
         @frozen = false

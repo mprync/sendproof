@@ -112,7 +112,8 @@ class ProviderTest < Minitest::Test
         Item.lease_connection.commit_transaction
       end
     end
-    assert_match(/not rolled back/, error.message)
+    # On MySQL the savepoint check notices first (see the backstop tests below).
+    assert_match(/not rolled back|committed before its rollback/, error.message)
   ensure
     Item.delete_all
   end
@@ -404,5 +405,56 @@ class ObservationTest < Minitest::Test
     Timeout.timeout(2) { preview(Sendproof::ActiveRecord::Provider.new(serialize_previews: true)) { Item.create!(id: "a", name: "A") } }
     provider.instance_variable_set(:@connection_classes, [ActiveRecord::Base])
     Timeout.timeout(2) { preview(provider) { Item.create!(id: "b", name: "B") } }
+  end
+
+  # --- MySQL transaction escapes (spec/data-stores.md, "Transaction-control statements from the handler") ---
+
+  def with_procedures
+    connection = Item.lease_connection
+    connection.execute("DROP PROCEDURE IF EXISTS commits")
+    connection.execute("CREATE PROCEDURE commits() BEGIN COMMIT; END")
+    connection.execute("DROP PROCEDURE IF EXISTS reads_only")
+    connection.execute("CREATE PROCEDURE reads_only() BEGIN SELECT 1; END")
+    yield connection
+  ensure
+    connection.execute("DROP TABLE IF EXISTS escape_probe")
+  end
+
+  def test_mysql_call_and_implicit_commits_are_refused_before_sending
+    skip "Set BENCH_DATABASE=mysql to run this against a MySQL server." unless MYSQL
+    provider = Sendproof::ActiveRecord::Provider.new(safe_procedures: ["reads_only"])
+    with_procedures do |connection|
+      ["CALL commits()", "CREATE TABLE escape_probe (n INT)", "/*!50000 COMMIT */", "RELEASE SAVEPOINT sendproof_preview"].each do |sql|
+        preview(provider) do
+          Item.create!(id: "a", name: "Alpha")
+          connection.select_all("CALL reads_only()") # declared safe: allowed
+          assert_raises(Sendproof::PreviewTransactionControl, sql) { connection.execute(sql) }
+        end
+        assert_kind_of Sendproof::PreviewTransactionControl, recorder.fault, sql
+        assert_empty durable_items, sql
+      end
+      refute connection.table_exists?("escape_probe")
+    end
+    assert_raises(ArgumentError) { Sendproof::ActiveRecord::Provider.new(safe_procedures: ["reads_*"]) }
+  end
+
+  # With autocommit off (a driver that turns it off for transactions), MySQL opens a new transaction by itself
+  # after a commit, so only the savepoint made when the Preview began shows that its transaction is gone.
+  def test_mysql_preview_whose_transaction_was_committed_anyway_is_never_confirmed
+    skip "Set BENCH_DATABASE=mysql to run this against a MySQL server." unless MYSQL
+    connection = Item.lease_connection
+    connection.execute("SET autocommit = 0")
+    error = assert_raises(RuntimeError) do
+      preview do
+        Item.create!(id: "escaped", name: "Escaped")
+        connection.raw_connection.query("COMMIT") # the driver's own handle, around every guard
+        connection.raw_connection.query("INSERT INTO items (id, name) VALUES ('after', 'After')")
+      end
+    end
+    assert_match(/committed before its rollback/, error.message)
+    assert_equal ["escaped"], durable_items
+  ensure
+    connection&.execute("SET autocommit = 1")
+    Item.delete_all
   end
 end

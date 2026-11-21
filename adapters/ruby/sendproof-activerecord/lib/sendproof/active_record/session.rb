@@ -7,7 +7,13 @@ module Sendproof
     # Because the outer transaction is not joinable, the handler's own +transaction+ blocks become
     # savepoints and can neither commit nor leak it. Records never reach +after_commit+.
     class Session < Sendproof::Provider::PreviewSession
-      Enrollment = Struct.new(:connection, :transaction)
+      # @!attribute marked [Boolean] whether the transaction opened with {SAVEPOINT} (MySQL and MariaDB)
+      Enrollment = Struct.new(:connection, :transaction, :marked)
+
+      # The savepoint a MySQL or MariaDB Preview opens its transaction with, for the backstop in
+      # {#rollback!}. Rails names its own savepoints +active_record_<n>+, so it never makes this one, and
+      # the {TransactionGuard} refuses a handler's +RELEASE+ or +ROLLBACK TO+ of it like a +COMMIT+.
+      SAVEPOINT = "sendproof_preview"
 
       # @param release_turn [#call, nil] hands the provider's MySQL turn back (see {Turns})
       def initialize(tracker, release_turn: nil)
@@ -19,11 +25,17 @@ module Sendproof
         @closed = false
       end
 
-      # Starts a transaction on +connection+; it is lazy, so no BEGIN is sent until the first statement.
+      # Starts a transaction on +connection+. It is lazy, so no BEGIN is sent until the first statement,
+      # except on MySQL and MariaDB, where the transaction opens at once with {SAVEPOINT}.
       def enroll(connection)
         return if @enrollments.any? { |enrollment| enrollment.connection.equal?(connection) }
 
-        @enrollments << Enrollment.new(connection, connection.begin_transaction(joinable: false))
+        enrollment = Enrollment.new(connection, connection.begin_transaction(joinable: false), false)
+        @enrollments << enrollment
+        return unless TransactionGuard::MYSQL_ADAPTERS.include?(connection.pool.db_config.adapter.to_s)
+
+        connection.create_savepoint(SAVEPOINT) # materializes the BEGIN first
+        enrollment.marked = true
       end
 
       def changes = @tracker.changes
@@ -35,6 +47,7 @@ module Sendproof
         @tracker.freeze!
         failures = []
         @enrollments.reverse_each do |enrollment|
+          check_still_open(enrollment, failures)
           rollback_one(enrollment)
         rescue StandardError => error
           failures << error
@@ -79,6 +92,20 @@ module Sendproof
       end
 
       private
+
+      # The backstop on MySQL and MariaDB: the savepoint the Preview transaction opened with must still
+      # exist. Any commit, explicit or implicit, erases every savepoint, and with autocommit off MySQL
+      # then opens a new transaction by itself, so a savepoint made now would prove nothing. Error 1305
+      # (SAVEPOINT does not exist), or a lost connection, means the rollback can't be confirmed; the
+      # rollback itself still runs.
+      def check_still_open(enrollment, failures)
+        return unless enrollment.marked
+
+        enrollment.connection.exec_rollback_to_savepoint(SAVEPOINT)
+      rescue StandardError => error
+        failures << RuntimeError.new("The Preview transaction was committed before its rollback (its savepoint is gone: " \
+                                     "#{error.class}), so the Preview can't be confirmed.")
+      end
 
       def hand_back_turn
         release = @release_turn

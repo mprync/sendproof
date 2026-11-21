@@ -25,15 +25,16 @@ module Sendproof
       end
 
       def refuse_transaction_control(sql, name)
-        return if name == "TRANSACTION" || Tracker.current.nil?
+        tracker = Tracker.current
+        return if name == "TRANSACTION" || tracker.nil?
 
         recorder = Sendproof::Capture.preview or return
         mysql = MYSQL_ADAPTERS.include?(pool.db_config.adapter.to_s)
-        return unless Sendproof::TransactionControl.ends_transaction?(sql, mysql: mysql)
+        reason = Sendproof::TransactionControl.reason(sql, mysql: mysql, safe_procedures: tracker.safe_procedures,
+                                                           reserved: Session::SAVEPOINT)
+        return unless reason
 
-        error = Sendproof::Stores::Guard.refuse_in_preview(
-          "Preview owns the database transaction, so the handler's #{sql.to_s.strip.split.first.to_s.upcase} cannot run during Preview."
-        )
+        error = Sendproof::Stores::Guard.refuse_in_preview("Preview owns the database transaction, so #{reason}; it cannot run during Preview.")
         raise error if error && recorder
       end
     end

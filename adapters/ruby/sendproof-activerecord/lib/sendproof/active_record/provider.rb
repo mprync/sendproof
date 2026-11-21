@@ -22,12 +22,20 @@ module Sendproof
       #   +postgresql+, +mysql+, +mariadb+, +mssql+); defaults to the first connection's adapter, so pass
       #   +"mariadb"+ yourself for a MariaDB server
       # @param serialize_previews [Boolean, nil] whether Previews take turns; nil means "only on MySQL and MariaDB"
-      def initialize(database: nil, connection_classes: [::ActiveRecord::Base], system: nil, serialize_previews: nil)
+      # @param safe_procedures [Array<String>] on MySQL and MariaDB a Preview refuses +CALL+, because a
+      #   stored procedure can commit the Preview transaction; list the procedures that never commit, by
+      #   exact name (optionally +schema.name+; case-insensitive, like MySQL), to allow calling them. The
+      #   binding trusts the list: a listed procedure that does commit makes the Preview's writes durable,
+      #   and the savepoint check before the rollback then answers 500.
+      # @raise [ArgumentError] when a safe procedure is not an exact name
+      def initialize(database: nil, connection_classes: [::ActiveRecord::Base], system: nil, serialize_previews: nil,
+                     safe_procedures: [])
         super()
         @database = database
         @connection_classes = connection_classes
         @system = system
         @serialize_previews = serialize_previews
+        @safe_procedures = Sendproof::TransactionControl.normalize_procedures(safe_procedures)
         @turns = Turns.new
       end
 
@@ -50,7 +58,7 @@ module Sendproof
       end
 
       def begin_preview(_context)
-        tracker = Tracker.new
+        tracker = Tracker.new(safe_procedures: @safe_procedures)
         # Wait for this provider's turn before leasing a connection (MySQL only; see {Turns}).
         session = Session.new(tracker, release_turn: serialize? ? @turns.take : nil)
         begin
