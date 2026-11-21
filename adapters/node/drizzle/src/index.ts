@@ -10,6 +10,7 @@ import { createClient } from './client.js';
 import { dialectOf } from './metadata.js';
 import type { DrizzleDialect } from './metadata.js';
 import { asCaller, asInternal, currentScope, inScope, isInternal, withLabels } from './scope.js';
+import { PreviewTurns } from './turns.js';
 import type { Scope } from './scope.js';
 import { instrumentSession } from './statements.js';
 
@@ -97,10 +98,12 @@ export function drizzlePreview(
   const base = database as unknown as DatabaseLike;
   const state: ProviderState = { dialect, base, trackedRowLimit };
   const restore = instrumentSession(base.session, dialect);
+  // MySQL previews take turns: concurrent rolled-back inserts of one key would deadlock (see PreviewTurns).
+  const turns = dialect === 'mysql' ? new PreviewTurns() : undefined;
   return {
     client: createClient(state),
     dialect,
-    preview: dispatch => preview(state, dispatch),
+    preview: dispatch => preview(state, dispatch, turns),
     withParameterNames: (names, query) => withLabels(names, () => settle(query)),
     track: (_rows, mutate) => settle(mutate),
     dispose: restore,
@@ -158,8 +161,13 @@ class PreviewRollback extends Error {
   }
 }
 
-async function preview<T>(state: ProviderState, dispatch: () => Promise<T>): Promise<T> {
+async function preview<T>(state: ProviderState, dispatch: () => Promise<T>, turns?: PreviewTurns): Promise<T> {
   if (currentScope()?.preview) throw new Error('Nested Drizzle previews are unavailable.');
+  return turns ? turns.run(() => previewNow(state, dispatch)) : previewNow(state, dispatch);
+}
+
+/** Run one Preview in a transaction that always rolls back, resolving only after the rollback. */
+async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): Promise<T> {
   const rollback = new PreviewRollback();
   let outcome: { value: T } | undefined;
   let opened: Scope | undefined;
