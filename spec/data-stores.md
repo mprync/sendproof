@@ -235,7 +235,7 @@ These were checked against the MongoDB 8.2 server in [compose.yml](../tests/conf
 - **Lock wait:** a transaction waits only `maxTransactionLockRequestTimeoutMillis` (5 ms by default) for a lock. A Preview that writes a document another Preview or request is writing gets a `WriteConflict`. The Preview still rolls back; the inner response is whatever the handler made of the error. Unlike SQL Previews, concurrent MongoDB Previews of the same document do not queue.
 - **Size:** one document is at most 16 MB, and a transaction's changes must fit in the server's cache. MongoDB recommends modifying no more than 1,000 documents per transaction.
 - **Snapshot history:** before images read at the start time need `minSnapshotHistoryWindowInSeconds` (300 seconds by default) to exceed the Preview's run time, which the lifetime limit guarantees.
-- **Refused operations:** the `notInTransaction` list in [mongodb.json](data-stores/mongodb.json). Creating a new collection, explicitly or by inserting into it, is allowed and rolls back.
+- **Refused operations:** the `notInTransaction` list in [mongodb.json](data-stores/mongodb.json). Creating a new collection by inserting into it is allowed and rolls back. An explicit `create` fails inside a transaction with read concern `snapshot`, and MongoDB applies nothing.
 
 ## Transaction-control statements from the handler
 

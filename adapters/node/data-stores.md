@@ -38,7 +38,11 @@ const bench = sendproof({ previewProvider: db, dataStores: [catalog, cache, orde
 
 `name` is the label the workbench shows. It must be a display name such as `catalog`, never a URL, host name or credentials; a value that looks like one is refused.
 
-Preview still needs a SQL `previewProvider`, as before.
+`previewProvider` (the SQL rollback provider) is optional when you pass `dataStores`. An app whose only database is MongoDB, or that has only Redis or DynamoDB, can Preview without one: MongoDB rolls back its own transaction and the guarded stores block writes. A SQL database you give no provider for is then not covered, like any unhooked client.
+
+```ts
+const bench = sendproof({ dataStores: [mongoStore(new MongoClient(url), { name: 'catalog' })] });
+```
 
 ### MongoDB with the driver
 
@@ -53,7 +57,9 @@ app.get('/documents/:id', async (req, res) => {
 
 - Call `mongoStore` before the client connects, or create the client with `{ monitorCommands: true }`. The store relies on command monitoring and refuses a connected client without it.
 - During a Preview, every database and collection method adds the Preview session to its options. A call that passes its own session is refused, and the Preview answers 500.
-- `client.startSession()` and `client.withSession()` hand out the Preview session. Its `startTransaction` and `withTransaction` run inside the Preview transaction; its `commitTransaction` and `abortTransaction` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`.
+- `client.startSession()` and `client.withSession()` hand out the Preview session. Its `startTransaction` and `withTransaction` run inside the Preview transaction; its `commitTransaction` and `abortTransaction` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`. A raw `{ commitTransaction: 1 }` or `{ abortTransaction: 1 }` command through `db.command()` is refused the same way.
+- An aggregation cursor's `out()`, `merge()` and `addStage()` are checked when you call them, so a `$out` or `$merge` added after `aggregate()` is blocked before it is sent.
+- A Preview may hold its transaction for `previewTimeoutMs`, 50 seconds by default (below MongoDB's 60-second transaction lifetime). A handler still running at the limit loses the transaction: its later commands fail, nothing commits, and the Preview answers 500.
 
 ### MongoDB with Mongoose 8
 
@@ -65,7 +71,7 @@ const Item = mongoose.model('Item', itemSchema); // define models after mongoose
 
 Call `mongooseStore` after `mongoose.connect` and before defining models: it adds a global plugin, which only reaches models compiled afterwards, and it refuses an instance that already has models. Queries, `save()`, `Model.create`, `insertMany`, `bulkWrite`, aggregations and `connection.transaction()` all join the Preview transaction through Mongoose's `transactionAsyncLocalStorage`, which the store turns on.
 
-`Model.collection.*` and `connection.db.*` bypass Mongoose's middleware. During a Preview, a write through them reaches MongoDB without the Preview session; the store sees it through command monitoring and fails the Preview with 500, so no rollback is claimed for it. Use model methods in previewed handlers.
+`Model.collection.*` and `connection.db.*` bypass Mongoose's middleware. During a Preview, a write through them reaches MongoDB without the Preview session and commits; the store sees it through command monitoring and fails the Preview with 500, so no rollback is claimed for it. The same goes for a raw `commitTransaction` sent through `connection.db` with the Preview session: it may commit the Preview's writes, so the Preview fails with 500. Use model methods in previewed handlers.
 
 ### Redis
 
@@ -125,13 +131,14 @@ redisStore(client, { treatAsRead: ['MYMODULE.GET'] });
 
 These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spec/data-stores.md#mongodb-in-preview).
 
-- A Preview whose handler runs longer than 60 seconds fails with 500, and nothing is written.
+- A Preview whose handler runs longer than `previewTimeoutMs` (50 seconds by default) fails with 500, and nothing is written.
 - Two Previews that write the same document don't queue: the second gets a `WriteConflict`, and the handler decides what to answer. The Preview still rolls back.
 - Keep a Preview under about 1,000 changed documents.
-- Document `before` images come from the majority-committed view, so a concurrent commit by another request can show up in a change's `before`.
+- Document `before` images are read at the Preview transaction's snapshot time, so a concurrent commit by another request never shows up as a change.
+- `createCollection()` fails inside a Preview, because MongoDB refuses an explicit `create` in a transaction with snapshot read concern. Inserting into a new collection creates it and rolls back.
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with its `?` placeholders. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Session commands such as `AUTH` and `hello` are never logged.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{ _id }` as `key`, and whole nested documents as `before` and `after`. A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
