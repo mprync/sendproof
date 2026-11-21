@@ -77,6 +77,21 @@ public sealed class MySqlEscapeTests
     [Fact]
     public void OtherDatabasesMayCallProcedures() => Assert.False(SqlStatements.EndsTransaction("CALL refresh_totals()", mysql: false));
 
+    [Fact]
+    public void SafeProceduresMatchAsMySqlNamesRoutines()
+    {
+        // Case-insensitive, backticks stripped, and a schema-qualified call matches only a declaration with that schema.
+        var safe = SqlStatements.SafeProcedures(["audit"]);
+        Assert.False(SqlStatements.EndsTransaction("CALL AUDIT()", mysql: true, safe));
+        Assert.False(SqlStatements.EndsTransaction("CALL `Audit`()", mysql: true, safe));
+        Assert.True(SqlStatements.EndsTransaction("CALL other.audit()", mysql: true, safe));
+        Assert.True(SqlStatements.EndsTransaction("CALL `other`.`audit`()", mysql: true, safe));
+        Assert.False(SqlStatements.EndsTransaction(CommandType.StoredProcedure, "AUDIT", true, safe));
+        var qualified = SqlStatements.SafeProcedures(["`Reports`.audit"]);
+        Assert.False(SqlStatements.EndsTransaction("CALL reports.AUDIT()", mysql: true, qualified));
+        Assert.True(SqlStatements.EndsTransaction("CALL other.audit()", mysql: true, qualified));
+    }
+
     [Theory]
     [InlineData("audit_*")]
     [InlineData("audit%")]

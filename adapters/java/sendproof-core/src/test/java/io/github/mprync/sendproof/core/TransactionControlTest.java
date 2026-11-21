@@ -62,6 +62,19 @@ class TransactionControlTest {
     }
 
     @Test
+    void safeProceduresMatchAsMySqlNamesRoutines() {
+        // Case-insensitive, backticks stripped, and a schema-qualified call matches only a declaration with that schema.
+        Set<String> safe = TransactionControl.safeProcedures(List.of("audit"));
+        assertThat(TransactionControl.find("CALL AUDIT()", "mysql", safe)).isNull();
+        assertThat(TransactionControl.find("CALL `Audit`()", "mysql", safe)).isNull();
+        assertThat(TransactionControl.find("CALL other.audit()", "mysql", safe)).isEqualTo("call");
+        assertThat(TransactionControl.find("CALL `other`.`audit`()", "mysql", safe)).isEqualTo("call");
+        Set<String> qualified = TransactionControl.safeProcedures(List.of("`Reports`.audit"));
+        assertThat(TransactionControl.find("CALL reports.AUDIT()", "mysql", qualified)).isNull();
+        assertThat(TransactionControl.find("CALL other.audit()", "mysql", qualified)).isEqualTo("call");
+    }
+
+    @Test
     void safeProceduresTakeExactNamesOnly() {
         for (String name : List.of("audit_*", "audit%", "", " ", "a?b")) {
             assertThatThrownBy(() -> TransactionControl.safeProcedures(List.of(name))).as(name)
