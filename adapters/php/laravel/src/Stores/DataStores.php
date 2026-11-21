@@ -6,6 +6,7 @@ namespace Sendproof\Laravel\Stores;
 
 use Aws\DynamoDb\DynamoDbClient;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Redis\RedisManager;
 use MongoDB\Laravel\Connection as MongoConnection;
 use Sendproof\Core\Stores\DataStore;
@@ -68,10 +69,21 @@ final class DataStores
         // The connection has no setter for its client, so replace it from inside. Its `getClient()`,
         // `getDatabase()` and `getCollection()` then hand out guarded handles, and the transaction
         // helpers (`DB::transaction()`) start their session on the guarded client.
-        \Closure::bind(function (GuardedClient $guarded): void {
-            $this->connection = $guarded;
-            $this->db = $guarded->getDatabase($this->database);
-        }, $connection, MongoConnection::class)($guarded);
+        $install = static function (MongoConnection $connection) use ($guarded): void {
+            \Closure::bind(function (GuardedClient $guarded): void {
+                $this->connection = $guarded;
+                $this->db = $guarded->getDatabase($this->database);
+            }, $connection, MongoConnection::class)($guarded);
+        };
+        $install($connection);
+        // `DB::purge()` or `DB::reconnect()` builds a new connection object with its own client:
+        // it gets the same guarded client, so it never sends around the hook.
+        $name = $connection->getName();
+        $app->make('events')->listen(ConnectionEstablished::class, static function (ConnectionEstablished $event) use ($install, $name, $guarded): void {
+            if ($event->connection instanceof MongoConnection && $event->connection->getName() === $name && $event->connection->getClient() !== $guarded) {
+                $install($event->connection);
+            }
+        });
 
         return new MongoStore($engine, Guard::storeLabel($config['name'] ?? null));
     }
@@ -95,6 +107,15 @@ final class DataStores
     {
         $reads = Guard::readSet($config['treat_as_read'] ?? null);
         foreach ((array) ($config['clients'] ?? []) as $id) {
+            if (is_string($id)) {
+                // A binding that isn't shared, or one the application rebinds, builds new clients
+                // after boot: each is hooked as the container hands it out.
+                $app->afterResolving($id, static function (mixed $client) use ($guard, $reads): void {
+                    if ($client instanceof DynamoDbClient) {
+                        DynamoGuard::install($client, $guard, $reads);
+                    }
+                });
+            }
             $client = is_object($id) ? $id : $app->make($id);
             if (!$client instanceof DynamoDbClient) {
                 throw new \InvalidArgumentException('sendproof.data_stores.dynamodb.clients must name Aws\DynamoDb\DynamoDbClient services.');

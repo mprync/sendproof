@@ -74,6 +74,15 @@ final class DynamoPreviewTest extends StoresTestCase
         $this->assertSame('open', $this->reader->getItem(['TableName' => $this->table, 'Key' => ['id' => ['S' => 'seeded']], 'ConsistentRead' => true])['Item']['status']['S']);
     }
 
+    public function testAClientTheContainerBuildsAfterTheHookIsGuardedToo(): void
+    {
+        // A binding that isn't shared hands out a new client on every resolve, each built after boot.
+        $this->app->bind(DynamoDbClient::class, fn () => $this->client());
+        $this->signIn();
+        $this->preview('/orders/seeded/cancel')->assertStatus(409);
+        $this->assertSame('open', $this->reader->getItem(['TableName' => $this->table, 'Key' => ['id' => ['S' => 'seeded']], 'ConsistentRead' => true])['Item']['status']['S']);
+    }
+
     public function testAnOperationMarkedUnavailableIsNeverRun(): void
     {
         $this->signIn();

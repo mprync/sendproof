@@ -37,9 +37,9 @@ Hooks are installed only when Sendproof is enabled for the environment (`enabled
 ],
 ```
 
-- `mongodb.connection` names a `mongodb/laravel-mongodb` connection. Its client and database are replaced in place by guarded ones, so Eloquent models, the query builder and `DB::connection('mongodb')` all use them.
+- `mongodb.connection` names a `mongodb/laravel-mongodb` connection. Its client and database are replaced in place by guarded ones, so Eloquent models, the query builder and `DB::connection('mongodb')` all use them. A connection rebuilt after `DB::purge()` or `DB::reconnect()` gets the same guarded client.
 - `redis` hooks Laravel's Redis manager: every Predis or phpredis connection it creates afterwards is guarded, including the ones the cache, session and queue drivers use.
-- `dynamodb.clients` lists container ids or class names of `DynamoDbClient` services. For a client the container doesn't hold, call `Sendproof::hookDynamoDb($client)` once, at startup.
+- `dynamodb.clients` lists container ids or class names of `DynamoDbClient` services. Every client the container resolves for them is hooked, including the new client a binding that isn't shared builds on each resolve. For a client the container doesn't hold, call `Sendproof::hookDynamoDb($client)` once, at startup.
 
 `name` is the label the workbench shows. It must be a display name such as `catalog`, never a URL, host name or credentials; a value that looks like one is refused.
 

@@ -138,6 +138,16 @@ class MongoPreviewTest extends StoresTestCase
         $this->assertSame('Leeds', $this->seeded('seeded')['profile']['city']);
     }
 
+    public function testAConnectionRebuiltAfterAPurgeIsGuardedToo(): void
+    {
+        // DB::purge() drops the hooked connection object; the next DB::connection() builds a new one.
+        DB::purge('mongodb');
+        $this->signIn();
+        $created = $this->preview('/documents', ['id' => 'after-purge', 'name' => 'Rebuilt', 'city' => 'York', 'password' => 'x'])->assertOk()->json();
+        $this->assertSame('after-purge', $created['changes'][0]['key']['_id'] ?? null);
+        $this->assertNull($this->seeded('after-purge'), 'A write through the rebuilt connection must roll back.');
+    }
+
     public function testOutIsBlockedWithItsReasonAndNothingIsWritten(): void
     {
         $this->signIn();
