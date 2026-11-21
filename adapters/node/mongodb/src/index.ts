@@ -35,6 +35,12 @@ export interface MongoStoreOptions {
    * does). A wrongly listed write is not blocked in `guard` mode.
    */
   treatAsRead?: string[];
+  /**
+   * How long a Preview may hold its MongoDB transaction, in milliseconds; 50 seconds by default,
+   * below the server's 60-second transaction lifetime. A Preview still running at the limit has
+   * its transaction aborted and answers 500 without confirmation.
+   */
+  previewTimeoutMs?: number;
 }
 
 /** A hooked MongoDB driver client. */
@@ -53,7 +59,11 @@ const engines = new WeakMap<object, MongoEngine>();
 
 function engineFor(client: MongoClient, options: MongoStoreOptions): MongoEngine {
   if (engines.has(client)) throw new TypeError('This MongoClient is already hooked.');
-  const engine = new MongoEngine(client, { reads: readSet(options.treatAsRead, name => name.toLowerCase()) });
+  const { previewTimeoutMs } = options;
+  if (previewTimeoutMs !== undefined && (!Number.isSafeInteger(previewTimeoutMs) || previewTimeoutMs <= 0)) {
+    throw new TypeError('previewTimeoutMs must be a positive whole number of milliseconds.');
+  }
+  const engine = new MongoEngine(client, { reads: readSet(options.treatAsRead, name => name.toLowerCase()), ...(previewTimeoutMs === undefined ? {} : { previewTimeoutMs }) });
   engines.set(client, engine);
   return engine;
 }

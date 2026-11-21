@@ -11,11 +11,12 @@
  *   context. A write during a Preview without the Preview's `lsid` fails the Preview with 500, a
  *   reply with code 263 blocks it, and every other command becomes a `Db` log entry. Candidate
  *   document ids for change capture come from the same events.
- * - **Finish**: after the handler, changes are read (inside the transaction for `after`, from the
- *   majority-committed view for `before`), then the transaction is aborted and the session ended.
+ * - **Finish**: after the handler, changes are read (inside the transaction for `after`, and at the
+ *   transaction's own snapshot time for `before`), then the transaction is aborted and the session
+ *   ended. A Preview that outlives `previewTimeoutMs` is aborted early and answers 500.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, sanitizeDocument } from '@sendproof/core';
+import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, refuseInPreview, sanitizeDocument } from '@sendproof/core';
 import type { CaptureRecorder, DataStoreDescription } from '@sendproof/core';
 import type { ClientSession, MongoClient } from 'mongodb';
 
@@ -33,6 +34,18 @@ const envelope = new Set(['lsid', 'txnNumber', 'autocommit', 'startTransaction',
 
 /** Most candidate documents read back for change capture in one Preview. */
 const candidateLimit = 1000;
+
+/**
+ * The default Preview time limit: below the server's 60-second `transactionLifetimeLimitSeconds`,
+ * so the binding, not the server, ends a Preview whose handler runs too long.
+ */
+export const defaultPreviewTimeoutMs = 50_000;
+
+/** Commands that end a transaction. In a Preview only the engine may send them. */
+const endsTransaction = (name: string) => name === 'committransaction' || name === 'aborttransaction';
+
+/** Server error codes meaning the collection or snapshot didn't exist at the start time. */
+const absentAtStart = new Set([26 /* NamespaceNotFound */, 246 /* SnapshotUnavailable */]);
 
 type Doc = Record<string, unknown>;
 type Via = 'upsert' | 'replace';
@@ -52,6 +65,14 @@ export interface PreviewState {
   finished: boolean;
   candidates: Map<string, Candidate>;
   filters: Filter[];
+  /**
+   * The transaction's snapshot time: the `operationTime` of the first reply to a command the
+   * Preview session sent. `before` images are read at this time, so a concurrent commit by
+   * another request never shows up as a Preview change.
+   */
+  startTime?: unknown;
+  /** Aborts the transaction when the Preview outlives its time limit. */
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /** A command seen by monitoring, kept until its reply arrives. */
@@ -106,12 +127,21 @@ const replaces = (update: unknown) => isPlain(update) && Object.keys(update).len
 
 export interface EngineOptions {
   reads: ReadonlySet<string> | undefined;
+  /** Abort a Preview's transaction, and fail the Preview with 500, after this many milliseconds. */
+  previewTimeoutMs?: number;
 }
 
 /** One engine per hooked MongoClient. */
 export class MongoEngine {
   readonly client: MongoClient;
   readonly #reads: ReadonlySet<string> | undefined;
+  readonly #timeoutMs: number;
+  /**
+   * The mode each Preview began in. A Preview keeps the mode it began with even if detection
+   * later changes {@link mode}, so a Preview that began without a session never has its writes
+   * treated as joining a transaction.
+   */
+  readonly #modes = new WeakMap<CaptureRecorder, 'preview' | 'guard'>();
   readonly #states = new WeakMap<CaptureRecorder, PreviewState>();
   readonly #pending = new Map<number | string, Pending>();
   /** Set while the engine itself talks to the server, so monitoring ignores those commands. */
@@ -123,6 +153,7 @@ export class MongoEngine {
   constructor(client: MongoClient, options: EngineOptions) {
     this.client = client;
     this.#reads = options.reads;
+    this.#timeoutMs = options.previewTimeoutMs ?? defaultPreviewTimeoutMs;
     const raw = client as unknown as { options?: { monitorCommands?: boolean }; topology?: unknown; monitorCommands: boolean };
     if (!raw.options?.monitorCommands) {
       // Connections copy the setting when they open, so it can only be turned on before connecting.
@@ -168,10 +199,12 @@ export class MongoEngine {
    * Preview transaction instead of ending it.
    */
   async begin(capture: CaptureRecorder): Promise<PreviewState | undefined> {
-    await this.detect();
-    if (this.mode !== 'preview' || capture.mode !== 'preview') return undefined;
     const existing = this.#states.get(capture);
-    if (existing) return existing;
+    if (existing || this.#modes.has(capture)) return existing;
+    const { mode } = await this.detect();
+    if (capture.mode !== 'preview') return undefined;
+    this.#modes.set(capture, mode);
+    if (mode !== 'preview') return undefined;
     const session = this.client.startSession();
     session.startTransaction({ readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
     const lsid = sessionHex(session.id);
@@ -187,7 +220,19 @@ export class MongoEngine {
     for (const [name, method] of Object.entries(join)) Object.defineProperty(session, name, { value: method, configurable: true, writable: true });
     const state: PreviewState = { session, lsid, used: false, finished: false, candidates: new Map(), filters: [] };
     this.#states.set(capture, state);
+    // A handler still running at the limit loses its transaction: later commands fail, nothing
+    // commits, and the Preview answers 500 when it ends.
+    state.timer = setTimeout(() => {
+      capture.refuse(new PreviewTransactionControlError(`The Preview ran longer than ${this.#timeoutMs} ms, so its MongoDB transaction was aborted.`));
+      void this.#end(state).catch(() => {});
+    }, this.#timeoutMs);
+    state.timer.unref?.();
     return state;
+  }
+
+  /** The mode the current Preview began in; `guard` for a Preview that never began on this store. */
+  #modeOf(capture: CaptureRecorder): 'preview' | 'guard' {
+    return this.#modes.get(capture) ?? 'guard';
   }
 
   /**
@@ -198,8 +243,11 @@ export class MongoEngine {
   check(command: Doc, operation = Object.keys(command)[0] ?? 'command', database?: string): void {
     const capture = currentPreview();
     if (!capture) return;
+    if (endsTransaction(operation.toLowerCase())) {
+      throw refuseInPreview(`Preview owns the MongoDB transaction, so the handler's ${operation} cannot run during Preview.`)!;
+    }
     const { kind, refusedInTransaction } = classifyMongo(command, this.#reads);
-    if (this.mode === 'preview' && !systemDatabase(database)) {
+    if (this.#modeOf(capture) === 'preview' && !systemDatabase(database)) {
       if (refusedInTransaction) guard('mongodb', operation, 'write', refusedReason(refusedInTransaction));
       return;
     }
@@ -215,7 +263,11 @@ export class MongoEngine {
     const lower = name.toLowerCase();
     const { kind } = classifyMongo(command, this.#reads);
     const preview = currentPreview();
-    if (preview && kind === 'write') this.#watchWrite(preview, command, event.databaseName, lower);
+    if (preview && endsTransaction(lower)) {
+      // Sent around the hook, for example through Mongoose's connection.db: it may have committed
+      // the Preview transaction, so the Preview can never be confirmed.
+      preview.refuse(new PreviewTransactionControlError(`A MongoDB ${name} reached the server during a Preview; the Preview can't be confirmed.`));
+    } else if (preview && kind === 'write') this.#watchWrite(preview, command, event.databaseName, lower);
     if (kind === 'session' || sensitive.has(lower)) return;
     const target = typeof command[name] === 'string' ? command[name] as string : undefined;
     const body = Object.fromEntries(Object.entries(command).filter(([field]) => !envelope.has(field)));
@@ -229,7 +281,8 @@ export class MongoEngine {
   #watchWrite(preview: CaptureRecorder, command: Doc, namespace: string, name: string) {
     const state = this.#states.get(preview);
     const lsid = sessionHex(command.lsid);
-    if (!state || state.finished || lsid !== state.lsid) {
+    // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
+    if (!state || state.finished || lsid !== state.lsid || command.autocommit !== false) {
       // The hook couldn't stop it and nothing can undo it: never claim a rollback.
       preview.refuse(new PreviewTransactionControlError(`A MongoDB ${name} escaped the Preview session; the Preview can't be confirmed.`));
       return;
@@ -272,6 +325,10 @@ export class MongoEngine {
     if (!pending) return;
     const reply = (event.reply ?? {}) as Doc;
     const state = pending.preview ? this.#states.get(pending.preview) : undefined;
+    // The first reply in the transaction carries its snapshot time (the read timestamp).
+    if (state && state.startTime === undefined && reply.operationTime !== undefined && sessionHex(pending.command.lsid) === state.lsid) {
+      state.startTime = reply.operationTime;
+    }
     if (state && pending.target) {
       // Upserted ids appear only in the reply.
       for (const upsert of (reply.upserted as Doc[] | undefined) ?? []) this.#candidate(state, { namespace: pending.namespace, collection: pending.target, id: upsert._id, via: 'upsert' });
@@ -290,7 +347,7 @@ export class MongoEngine {
     if (!pending) return;
     const failure = event.failure as { code?: number; codeName?: string; name?: string } | undefined;
     // The server refused something a transaction can't do and applied nothing: a block, not a crash.
-    if (pending.preview && this.mode === 'preview' && failure?.code === 263) {
+    if (pending.preview && this.#states.has(pending.preview) && failure?.code === 263) {
       pending.preview.block({ store: 'mongodb', operation: pending.name, detail: refusedReason(pending.name) });
     }
     this.#log(pending, event.duration, undefined, failure?.codeName ?? failure?.name ?? 'Error');
@@ -323,31 +380,62 @@ export class MongoEngine {
   async finish(capture: CaptureRecorder): Promise<void> {
     const state = this.#states.get(capture);
     if (!state || state.finished) return;
-    state.finished = true;
-    const prototype = Object.getPrototypeOf(state.session) as ClientSession;
     let failure: unknown;
-    await this.internal(async () => {
-      try {
-        if (state.used) await this.#capture(capture, state);
-      } catch (error) {
-        // A failed command inside a transaction makes the server abort it: nothing to capture.
-        if ((error as { codeName?: string }).codeName !== 'NoSuchTransaction') failure = error;
-      } finally {
-        if (state.session.inTransaction()) await prototype.abortTransaction.call(state.session).catch(() => {});
-        await prototype.endSession.call(state.session).catch(() => {});
-      }
-    });
+    try {
+      if (state.used) await this.internal(() => this.#capture(capture, state));
+    } catch (error) {
+      // A failed command inside a transaction makes the server abort it: nothing to capture.
+      if ((error as { codeName?: string }).codeName !== 'NoSuchTransaction') failure = error;
+    } finally {
+      await this.#end(state);
+    }
     if (failure) throw failure;
   }
 
-  /** Compare each candidate's committed and in-transaction versions and record the differences. */
+  /**
+   * Abort the Preview transaction and end its session, once. The driver ignores abort errors, as
+   * the transactions specification requires; an unacknowledged abort still commits nothing,
+   * because no `commitTransaction` is ever sent for the Preview session.
+   */
+  async #end(state: PreviewState): Promise<void> {
+    if (state.finished) return;
+    state.finished = true;
+    clearTimeout(state.timer);
+    const prototype = Object.getPrototypeOf(state.session) as ClientSession;
+    await this.internal(async () => {
+      if (state.session.inTransaction()) await prototype.abortTransaction.call(state.session).catch(() => {});
+      await prototype.endSession.call(state.session).catch(() => {});
+    });
+  }
+
+  /**
+   * Find documents as they were when the Preview transaction started: a snapshot read at its
+   * start time, outside the transaction. The driver drops `atClusterTime` from read concern
+   * options, so the read is a raw `find` command. Without a start time (no reply carried one),
+   * it reads the majority-committed view, which the spec allows: nothing the Preview wrote is
+   * committed, so the only difference is a concurrent commit by another request.
+   */
+  async #atStart(state: PreviewState, namespace: string, collection: string, filter: Doc, projection?: Doc): Promise<Doc[]> {
+    const readConcern = state.startTime === undefined ? { level: 'majority' } : { level: 'snapshot', atClusterTime: state.startTime };
+    try {
+      const reply = await this.client.db(namespace).command({
+        find: collection, filter, ...(projection ? { projection } : {}), batchSize: candidateLimit, limit: candidateLimit, singleBatch: true, readConcern,
+      }) as { cursor?: { firstBatch?: Doc[] } };
+      return reply.cursor?.firstBatch ?? [];
+    } catch (error) {
+      // The collection was created after the start time: nothing in it existed then.
+      if (absentAtStart.has((error as { code?: number }).code ?? 0)) return [];
+      throw error;
+    }
+  }
+
+  /** Compare each candidate's start-time and in-transaction versions and record the differences. */
   async #capture(capture: CaptureRecorder, state: PreviewState) {
     const { session } = state;
-    const committed = { readConcern: { level: 'majority' as const } };
     for (const { namespace, collection, filter, via } of state.filters) {
       const target = this.client.db(namespace).collection(collection);
-      const projection = { projection: { _id: 1 } };
-      for (const document of [...await target.find(filter, { ...projection, session }).toArray(), ...await target.find(filter, { ...projection, ...committed }).toArray()]) {
+      const projection = { _id: 1 };
+      for (const document of [...await target.find(filter, { projection, session }).toArray(), ...await this.#atStart(state, namespace, collection, filter, projection)]) {
         this.#candidate(state, { namespace, collection, id: document._id, ...(via ? { via } : {}) });
         if (state.candidates.size >= candidateLimit) break;
       }
@@ -356,7 +444,7 @@ export class MongoEngine {
     for (const { namespace, collection, id, via } of state.candidates.values()) {
       if (read++ >= candidateLimit) { capture.truncate('changes'); break; }
       const target = this.client.db(namespace).collection(collection);
-      const before = await target.findOne({ _id: id as never }, committed);
+      const [before = null] = await this.#atStart(state, namespace, collection, { _id: id });
       const after = await target.findOne({ _id: id as never }, { session });
       const [was, now] = [before === null ? null : plain(before) as Doc, after === null ? null : plain(after) as Doc];
       if (JSON.stringify(was) === JSON.stringify(now)) continue;

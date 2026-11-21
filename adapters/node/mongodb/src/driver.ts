@@ -8,7 +8,9 @@
  * - an explicit session other than the Preview's is refused, failing the Preview with 500;
  * - the guard classifies the command the method sends and blocks writes (`guard` mode) or what a
  *   transaction can't run (`preview` mode);
- * - a method the table below doesn't know is refused, so a new driver method fails closed.
+ * - a method the table below doesn't know is refused, so a new driver method fails closed;
+ * - an aggregation cursor's builder methods (`out`, `merge`, `addStage`) are classified too, so a
+ *   stage added after `aggregate()` returned can't slip a write past the guard.
  *
  * Outside a Preview every call passes straight through.
  */
@@ -70,6 +72,37 @@ const synchronous = new Set(['find', 'aggregate', 'listIndexes', 'listCollection
 /** Methods that are neither commands nor handles, passed through untouched. */
 const inert = new Set(['constructor', 'toString', 'toJSON', 'on', 'once', 'off', 'emit', 'addListener', 'removeListener', 'removeAllListeners', 'listeners', 'listenerCount', 'eventNames', 'getMaxListeners', 'setMaxListeners', 'prependListener', 'prependOnceListener', 'rawListeners']);
 
+/** Aggregation cursor methods that add a stage, and the stage each adds. */
+const cursorStages: Record<string, (args: unknown[]) => unknown> = {
+  out: () => ({ $out: '?' }),
+  merge: () => ({ $merge: '?' }),
+  addStage: args => args[0],
+};
+
+/**
+ * Guard an aggregation or change-stream cursor: during a Preview, a stage added through its
+ * builder is classified with the pipeline it joins before the cursor can run. Builder methods
+ * return the guarded cursor, so chaining keeps the guard.
+ */
+function guardCursor<T extends object>(cursor: T, engine: MongoEngine, name: string, database: string | undefined): T {
+  const proxy: T = new Proxy(cursor, {
+    get(object, property, receiver) {
+      const value = Reflect.get(object, property, receiver);
+      if (typeof value !== 'function') return value;
+      const stage = typeof property === 'string' ? cursorStages[property] : undefined;
+      return function call(this: unknown, ...args: unknown[]) {
+        if (stage && currentPreview()) {
+          const pipeline = (object as { pipeline?: unknown[] }).pipeline ?? [];
+          engine.check({ aggregate: name, pipeline: [...pipeline, stage(args)] }, 'aggregate', database);
+        }
+        const result = (value as (...a: unknown[]) => unknown).apply(object, args);
+        return result === object ? proxy : result;
+      };
+    },
+  });
+  return proxy;
+}
+
 /** Fail a call the way its method fails: a throw for synchronous methods, a rejection otherwise. */
 function fail(method: string, error: unknown): unknown {
   if (synchronous.has(method)) throw error;
@@ -104,8 +137,12 @@ function guarded<T extends object>(target: T, engine: MongoEngine, rules: Record
       const value = Reflect.get(object, property, receiver);
       if (typeof value !== 'function' || typeof property !== 'string' || inert.has(property)) return value;
       const rule = rules[property];
+      const run = (args: unknown[]) => {
+        const result = (value as (...a: unknown[]) => unknown).apply(object, args);
+        return property === 'aggregate' && result && typeof result === 'object' ? guardCursor(result, engine, name, database) : result;
+      };
       return function call(...args: unknown[]) {
-        if (!currentPreview()) return (value as (...a: unknown[]) => unknown).apply(object, args);
+        if (!currentPreview()) return run(args);
         if (!rule) {
           // A method this guard doesn't know: refuse it in a Preview rather than let it escape.
           try {
@@ -120,7 +157,7 @@ function guarded<T extends object>(target: T, engine: MongoEngine, rules: Record
         } catch (error) {
           return fail(property, error);
         }
-        return (value as (...a: unknown[]) => unknown).apply(object, prepared);
+        return run(prepared);
       };
     },
   });
