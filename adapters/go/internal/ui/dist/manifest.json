@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "e717ff560d4bf90e200b164dd95ab41f5cc27b081a4e35637232545a9da3ab14",
+  "bundleHash": "59618252a621a3d5f287a700a324de335d74c2fb2792c6ea032d7ce91d23a402",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -13,13 +13,13 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "app.css": {
-      "sha256": "7461eda23341ab812480486dfda1723391db8631664b06034440fb607bd22c78",
-      "bytes": 68099,
+      "sha256": "266f6e933eb92f912990ebccb7caa07dccd1f8ad396886416267b8727ff0b7b0",
+      "bytes": 67856,
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
-      "sha256": "3de5752657a54499e72ce4ed71255878a102d1423e119e859743781dda3e4c12",
-      "bytes": 35611,
+      "sha256": "d4dbd8b8a464c064886542c86040d2bc45ec18eefba315652bb1a86e35e24e3f",
+      "bytes": 35672,
       "contentType": "text/javascript; charset=utf-8"
     },
     "autofill.js": {
@@ -60,6 +60,11 @@
     "coverage-popover.js": {
       "sha256": "7cb4a0e879034602eaf67beeeb690d7b2a96cc5a955a818abf8adc17a1f219e4",
       "bytes": 2295,
+      "contentType": "text/javascript; charset=utf-8"
+    },
+    "crumb-fit.js": {
+      "sha256": "dd4213d82cc6620f0b4987f33cba0adaeaf380689033df40bdc27ab497575b3d",
+      "bytes": 4378,
       "contentType": "text/javascript; charset=utf-8"
     },
     "deprecation.js": {
