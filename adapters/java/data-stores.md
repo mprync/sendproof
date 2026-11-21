@@ -14,7 +14,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client it hooked: the Spring Data MongoDB `MongoDatabaseFactory` and the Spring Data Redis `RedisConnectionFactory` that Spring creates, the clients you pass to `MongoStore`, `RedisStore.jedis` and `DynamoDbStore`, and nothing else. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a raw Lettuce connection, a Redis Cluster or Sentinel client, reactive Spring Data Redis access, and a raw socket. Hook every client your handlers use, at startup.
+> The binding covers a store only through the client it hooked: the Spring Data MongoDB `MongoDatabaseFactory` and the Spring Data Redis `RedisConnectionFactory` that Spring creates, the clients you pass to `MongoStore` and `RedisStore.jedis`, and every DynamoDB client (see below). Other clients are not covered: their writes are neither blocked nor rolled back. That includes a MongoDB or Redis client created inside a handler, a second client for the same store, a raw Lettuce connection, a Redis Cluster or Sentinel client, reactive Spring Data MongoDB (`ReactiveMongoTemplate` and reactive repositories), reactive Spring Data Redis access, and a raw socket. Hook every client your handlers use, at startup.
 
 ## Spring Boot
 
@@ -53,11 +53,13 @@ During a Preview the binding starts one session and one transaction (read concer
 
 ### Redis with Spring Data Redis
 
-Each `RedisConnection` method is mapped to its Redis command by name (`hGetAll` is `HGETALL`), classified, and refused before it reaches Lettuce or Jedis when it writes. Pipelines and `MULTI` are checked command by command as they are queued, so a refused write is never queued, and a `MULTI` that was opened is discarded. A method the mapping doesn't know is a command the table doesn't list, so it is treated as a write. A Preview that asks for a reactive connection fails with 500.
+Each `RedisConnection` method is mapped to its Redis command by name (`hGetAll` is `HGETALL`), classified, and refused before it reaches Lettuce or Jedis when it writes. Pipelines and `MULTI` are checked command by command as they are queued, so a refused write is never queued, and a `MULTI` that was opened is discarded, whether the write came through the connection or one of its command groups (`stringCommands()` and the rest). A method the mapping doesn't know is a command the table doesn't list, so it is treated as a write. `commands()` returns the guarded connection. A Preview that asks for the native Lettuce or Jedis connection (`getNativeConnection()`) or a reactive connection fails with 500, because neither is guarded.
 
 ### DynamoDB with the AWS SDK for Java v2
 
-`DynamoDbStore` is an `ExecutionInterceptor`. Add it to the override configuration of each client you build; Sendproof doesn't build the client. `beforeExecution` runs before a request is serialized or signed, so credentials and signatures never reach a capture. The Enhanced Client calls the same low-level client, so hooking that client covers both.
+`DynamoDbStore` is an `ExecutionInterceptor`. Add it to the override configuration of each client you build; Sendproof doesn't build the client. `beforeExecution` runs before a request is serialized or signed, so credentials and signatures never reach a capture. The Enhanced Client calls the same low-level client, so hooking that client covers both, sync or async.
+
+A DynamoDB client built without the interceptor, for example inside a handler, is still guarded. `sendproof-dynamodb` lists a fallback guard in the SDK's `software/amazon/awssdk/services/dynamodb/execution.interceptors`, which the SDK adds to every DynamoDB client it builds. It refuses writes during a Preview the same way, but it doesn't apply a store's `treatAsRead` names or log `Db` entries, so still add the store to the clients you build. A DAX client is not covered.
 
 ```java
 DynamoDbStore orders = DynamoDbStore.interceptor().name("orders").build();
@@ -106,6 +108,7 @@ install(Sendproof) {
 - **MongoDB** uses the Kotlin coroutine driver over the reactive streams driver. `contextProvider` is required: the reactive driver reports command events on its own threads, so each operation carries its request's capture from the thread that subscribes to it.
 - **Redis** uses Jedis 5. The pool's connections are guarded, so single commands, pipelines and `MULTI` are checked before the first byte is written. Raw Lettuce is not covered.
 - Handlers run the stores' blocking calls on `Dispatchers.IO`. The plugin begins and finishes store sessions off the event loop.
+- A cancelled call (the client went away, a timeout, a cancelled parent job) is never confirmed, and the plugin still aborts every store, rolls back SQL and hands on the MySQL Preview turn before the cancellation continues.
 
 ## Mark an operation `preview: false`
 
@@ -137,7 +140,7 @@ The SQL transaction rolls back as usual. A failed rollback or abort, a handler `
 
 While a Preview is open, a MongoDB write that carries no request attribution fails every open Preview with 500, because nothing can say it isn't a Preview's own write that escaped. Both adapters mark every ordinary request, so a Send is never mistaken for one. Code that runs outside any request, such as a scheduler or a background worker, writes to MongoDB inside `CaptureContext.detached { … }` to be exempt. Without it, such a write fails whatever Previews happen to be open. A write that carries an open Preview's own session from another thread is that Preview's write and is captured as such.
 
-Redis and DynamoDB hooks guard by call, not by command monitoring, so they don't have this check: a client that was never hooked is simply not covered.
+Redis and DynamoDB hooks guard by call, not by command monitoring, so they don't have this check: a Redis client that was never hooked is simply not covered, and every DynamoDB client is guarded by the fallback above.
 
 ## Host-declared reads
 
@@ -154,6 +157,8 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 - Keep a Preview under about 1,000 changed documents.
 - Document `before` images are read at the Preview transaction's snapshot time, so a concurrent commit by another request never shows up as a change.
 - An explicit `createCollection` fails inside a Preview, because MongoDB refuses an explicit `create` in a transaction with snapshot read concern. Inserting into a new collection creates it and rolls back.
+- Handles derived with other options (`withWriteConcern`, `withReadPreference`, `withCodecRegistry`, `withDocumentClass`, `getCollection(name, type)`) stay guarded. `withTimeout` does too, but the driver refuses to change `timeoutMS` inside a transaction, so a call through it fails in a Preview.
+- Once the Preview ends, or reaches its time limit while the handler is still running, the session the handler holds refuses every call, so nothing it sends afterwards can run outside the aborted transaction.
 - Spring Data MongoDB's session holder is package-private, so the binding builds it reflectively. A Spring Data version that changes it fails at the first Preview with a message saying so.
 
 ## Logs and redaction
