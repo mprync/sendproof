@@ -12,17 +12,23 @@ go 1.26.0
 use (
 	.
 	./chi
+	./dynamobench
 	./echo
 	./examples
 	./gin
 	./gorm
+	./mongobench
+	./redisbench
 	./tools/modzip
 )
 
 replace (
 	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1 => ./
 	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.1 => ./chi
+	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.1 => ./dynamobench
 	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1 => ./echo
 	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.1 => ./gin
 	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
+	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.1 => ./mongobench
+	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.1 => ./redisbench
 )

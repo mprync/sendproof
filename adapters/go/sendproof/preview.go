@@ -107,9 +107,12 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 	if invoked {
 		// Pipeline order (spec/data-stores.md): abort every store transaction, then
 		// roll back SQL. Both always run, so one failure never leaves the other open.
+		// Stores report changes and faults through the Preview scope, so Finish gets
+		// the context of this Preview, not the outer request's.
+		finishing := context.WithValue(cleanup, stateKey{}, state)
 		for _, entry := range stores {
 			if entry.preview != nil {
-				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Finish(cleanup))
+				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Finish(finishing))
 			}
 		}
 		if session != nil {

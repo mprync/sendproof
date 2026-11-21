@@ -35,6 +35,9 @@ func (s *fakeStore) BeginPreview(context.Context) (sendproof.StorePreview, error
 type fakeStorePreview struct{ store *fakeStore }
 
 func (p *fakeStorePreview) Finish(ctx context.Context) error {
+	// A store reports what it captured through the Preview scope: Finish must get
+	// the context of this Preview.
+	sendproof.RecordChange(ctx, sendproof.Change{Operation: "insert", Store: "redis", Table: "counter", Key: map[string]any{"key": "counter:a"}, After: map[string]any{"value": 1}})
 	p.store.mu.Lock()
 	defer p.store.mu.Unlock()
 	p.store.finished++
@@ -234,8 +237,11 @@ func TestPreviewRunsWithoutASQLProviderWhenStoresAreRegistered(t *testing.T) {
 		t.Errorf("not rolled back: %v", body)
 	}
 	changes := body["changes"].([]any)
-	if len(changes) != 1 {
-		t.Fatalf("changes: %v", changes)
+	if len(changes) != 2 {
+		t.Fatalf("changes recorded in the handler and in Finish: %v", changes)
+	}
+	if finish := changes[1].(map[string]any); finish["store"] != "redis" || finish["table"] != "counter" {
+		t.Errorf("a change recorded by Finish is missing: %v", changes)
 	}
 	change := changes[0].(map[string]any)
 	if change["store"] != "mongodb" || change["namespace"] != "catalog" || change["table"] != "documents" || change["via"] != "upsert" {
