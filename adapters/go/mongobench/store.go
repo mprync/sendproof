@@ -111,7 +111,10 @@ type Store struct {
 	client    *mongo.Client
 	detected  *detection
 	pending   map[int64]*pendingCommand
-	monitored bool // the monitor has seen a command: ClientOptions was used
+	// monitored records that the monitor saw the detection hello, which is sent
+	// through the attached client: proof that this client, not just some client,
+	// was created with ClientOptions.
+	monitored bool
 }
 
 // detection is the topology the engine found with hello.
@@ -161,6 +164,10 @@ func isInternal(ctx context.Context) bool {
 	return marked
 }
 
+// probeKey marks the detection hello, so the monitor can tell that it is installed
+// on the client the guarded handles use. The value is the Store that sent it.
+type probeKey struct{}
+
 // detect finds the topology once: preview mode on a replica set or mongos with
 // logical sessions, guard mode otherwise. A failure answers guard mode for now and
 // is asked again next time.
@@ -174,7 +181,7 @@ func (s *Store) detect(ctx context.Context) detection {
 	if client == nil {
 		return detection{mode: sendproof.ModeGuard, reason: StandaloneReason}
 	}
-	ctx, cancel := context.WithTimeout(internal(ctx), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithValue(internal(ctx), probeKey{}, s), 10*time.Second)
 	defer cancel()
 	var hello bson.M
 	if err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
@@ -249,7 +256,7 @@ func (s *Store) BeginPreview(ctx context.Context) (sendproof.StorePreview, error
 	client, seen := s.client, s.monitored
 	s.mu.Unlock()
 	if !seen {
-		return nil, errors.New("mongobench: the client was not created with the store's ClientOptions, so the Preview tripwire is missing")
+		return nil, errors.New("mongobench: the guarded client was not created with the store's ClientOptions, so the Preview tripwire is missing")
 	}
 	session, err := client.StartSession()
 	if err != nil {

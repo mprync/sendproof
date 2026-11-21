@@ -89,9 +89,11 @@ func (s *Store) previewOf(ctx context.Context) *preview {
 // of the call that sent it.
 func (s *Store) started(ctx context.Context, e *event.CommandStartedEvent) {
 	defer s.recovered(ctx)
-	s.mu.Lock()
-	s.monitored = true
-	s.mu.Unlock()
+	if probe, _ := ctx.Value(probeKey{}).(*Store); probe == s {
+		s.mu.Lock()
+		s.monitored = true
+		s.mu.Unlock()
+	}
 	if isInternal(ctx) {
 		return
 	}

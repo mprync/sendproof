@@ -650,3 +650,36 @@ func TestTheChecksFailWithoutTheMonitor(t *testing.T) {
 		t.Errorf("a Preview without its tripwire must fail closed and write nothing: %v", stored)
 	}
 }
+
+// A monitor installed on some other client is not the tripwire of the client the
+// handles guard: the Preview must refuse to run rather than miss an escaped write.
+func TestAMonitorOnAnotherClientDoesNotCountAsTheTripwire(t *testing.T) {
+	store := mongobench.New()
+	monitored := connect(t, store) // the store's monitor, on a client the handles never use
+	if err := monitored.Ping(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	unmonitored := connect(t, nil)
+	random := make([]byte, 4)
+	_, _ = rand.Read(random)
+	database := "tb_" + hex.EncodeToString(random)
+	t.Cleanup(func() { _ = unmonitored.Database(database).Drop(context.Background()) })
+	_ = store.Database(unmonitored.Database(database))
+	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	bench.HandlePreview(mux, "POST /escape", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = unmonitored.Database(database).Collection("documents").InsertOne(r.Context(), bson.D{{Key: "_id", Value: "unseen"}})
+		w.WriteHeader(201)
+	}))
+	request := httptest.NewRequest("POST", "/sendproof/_preview/escape", strings.NewReader(`{}`))
+	request.Header.Set("Prefer", "tx=rollback")
+	response := httptest.NewRecorder()
+	bench.Middleware(mux).ServeHTTP(response, request)
+	assertUnconfirmed(t, response, 500)
+	if count, _ := unmonitored.Database(database).Collection("documents").CountDocuments(context.Background(), bson.D{}); count != 0 {
+		t.Error("the handler ran without its tripwire and its write was not caught")
+	}
+}
