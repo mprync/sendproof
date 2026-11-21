@@ -287,7 +287,7 @@ export class TypeOrmPreview implements PreviewProvider {
         this.#refused.add(runner);
         throw new Error(previewOwnsMessage);
       }
-    } else if (mayWrite(text)) {
+    } else if (mayWrite(text, provider)) {
       throw new Error('The TypeORM preview was not contained: a write was attempted outside the Preview transaction. Use provider.run().');
     }
   }

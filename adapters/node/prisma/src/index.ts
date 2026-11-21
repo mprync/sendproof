@@ -379,9 +379,9 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       probe.escaped = 'a statement would end the Preview transaction early.';
     } else {
       // SQLite shares one connection. Other databases can run reads on a pooled connection.
-      if (this.#singleConnection || !mayWrite(sql)) return;
+      if (this.#singleConnection || !mayWrite(sql, this.#provider)) return;
       // A separate transaction's own BEGIN, COMMIT and savepoints do not change rows.
-      if (kind === 'foreign' && controlsTransaction(sql)) return;
+      if (kind === 'foreign' && controlsTransaction(sql, this.#provider)) return;
       probe.escaped = kind === 'foreign'
         ? 'a separate transaction tried to write during the Preview.'
         : 'a write was attempted outside the Preview transaction.';

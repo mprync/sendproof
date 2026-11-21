@@ -15,12 +15,60 @@ export type AdapterProvider = 'sqlite' | 'postgres' | 'mysql' | 'sqlserver' | (s
 const executableComment = /^\/\*M?!\d*/;
 
 /**
- * Split SQL text into statements, ignoring separators inside quotes and comments.
+ * How a server reads SQL text: which comments and quotes it knows, and whether a backslash escapes
+ * a quote. A session setting the provider can't see decides some of this (MySQL
+ * `NO_BACKSLASH_ESCAPES` and `ANSI_QUOTES`, PostgreSQL `standard_conforming_strings`), so the
+ * guard reads a text every way its server might and refuses it when any reading finds a refused
+ * statement. An extra reading can only add refusals.
+ */
+interface Reading {
+  /** `#` starts a comment to the end of the line (MySQL and MariaDB). */
+  hash: boolean;
+  /** `--` starts a comment only when whitespace or a control character follows (MySQL); otherwise always. */
+  dashNeedsSpace: boolean;
+  /** The bodies of `/*! ... *\/` and `/*M! ... *\/` comments run as SQL (MySQL and MariaDB). */
+  executable: boolean;
+  /** `$tag$ ... $tag$` quotes a string (PostgreSQL). */
+  dollar: boolean;
+  /** Block comments nest (PostgreSQL). */
+  nested: boolean;
+  /** `E'...'` strings take backslash escapes whatever the session says (PostgreSQL). */
+  escapeStrings: boolean;
+  /** A backslash escapes the next character inside `'...'` and `"..."`. */
+  backslash: boolean;
+}
+
+const plain = { hash: false, dashNeedsSpace: false, executable: false, dollar: false, nested: false, escapeStrings: false };
+const mysqlReading = { ...plain, hash: true, dashNeedsSpace: true, executable: true };
+const postgresReading = { ...plain, dollar: true, nested: true, escapeStrings: true };
+
+/**
+ * Every way the provider's server might read a text; the first is the usual one. SQLite and SQL
+ * Server read it plainly. An unknown server, or none named, is read every way, since refusing more
+ * is the safe side.
+ */
+function readingsOf(provider: AdapterProvider | undefined): Reading[] {
+  const both = (base: Omit<Reading, 'backslash'>, first: boolean): Reading[] =>
+    [{ ...base, backslash: first }, { ...base, backslash: !first }];
+  if (provider === 'mysql' || provider === 'mariadb') return both(mysqlReading, true);
+  if (provider === 'postgres' || provider === 'postgresql' || provider === 'cockroachdb') return both(postgresReading, false);
+  if (provider === 'sqlite' || provider === 'sqlserver' || provider === 'mssql') return both(plain, false);
+  return [...both(plain, false), ...both(mysqlReading, true), ...both(postgresReading, false)];
+}
+
+/**
+ * Split SQL text into statements as the provider's server reads it, ignoring separators inside
+ * quotes and comments.
  *
  * The body of a MySQL executable comment is kept as statement text, because the server runs it:
- * `/*!COMMIT*\/` is a COMMIT, not a comment.
+ * `/*!COMMIT*\/` is a COMMIT, not a comment. Without a provider the text is read the way SQLite
+ * and SQL Server read it.
  */
-export function splitStatements(sql: string): string[] {
+export function splitStatements(sql: string, provider?: AdapterProvider): string[] {
+  return splitWith(sql, readingsOf(provider)[0]!);
+}
+
+function splitWith(sql: string, reading: Reading): string[] {
   const statements: string[] = [];
   let current = '';
   let index = 0;
@@ -34,13 +82,16 @@ export function splitStatements(sql: string): string[] {
       current += ' ';
       continue;
     }
-    if (char === '-' && next === '-') {
+    const dashComment = char === '-' && next === '-'
+      && (!reading.dashNeedsSpace || index + 2 >= sql.length || /[\s\x00-\x1f]/.test(sql[index + 2]!));
+    if (dashComment || (reading.hash && char === '#')) {
       const end = sql.indexOf('\n', index);
       index = end === -1 ? sql.length : end + 1;
       current += ' ';
       continue;
     }
-    const opener = char === '/' && next === '*' && !executable ? executableComment.exec(sql.slice(index, index + 16))?.[0] : undefined;
+    const opener = reading.executable && char === '/' && next === '*' && !executable
+      ? executableComment.exec(sql.slice(index, index + 16))?.[0] : undefined;
     if (opener) {
       executable = true;
       index += opener.length;
@@ -48,24 +99,26 @@ export function splitStatements(sql: string): string[] {
       continue;
     }
     if (char === '/' && next === '*') {
-      const end = sql.indexOf('*/', index + 2);
-      index = end === -1 ? sql.length : end + 2;
+      index = closingComment(sql, index, reading.nested);
       current += ' ';
       continue;
     }
-    if (char === "'" || char === '"' || char === '`') {
-      const end = closingQuote(sql, index, char);
+    const escapeString = reading.escapeStrings && (char === 'E' || char === 'e') && next === "'"
+      && (index === 0 || !/[\w$]/.test(sql[index - 1]!));
+    if (escapeString) {
+      const end = closingQuote(sql, index + 1, "'", true);
       current += sql.slice(index, end);
       index = end;
       continue;
     }
-    if (char === '$' && sql[index - 1] !== undefined && /[\w$]/.test(sql[index - 1]!)) {
-      current += char;
-      index++;
+    if (char === "'" || char === '"' || char === '`') {
+      const end = closingQuote(sql, index, char, reading.backslash && char !== '`');
+      current += sql.slice(index, end);
+      index = end;
       continue;
     }
-    if (char === '$') {
-      const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(index))?.[0];
+    if (reading.dollar && char === '$' && (index === 0 || !/[\w$]/.test(sql[index - 1]!))) {
+      const tag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(index))?.[0];
       if (tag) {
         const end = sql.indexOf(tag, index + tag.length);
         const stop = end === -1 ? sql.length : end + tag.length;
@@ -87,10 +140,11 @@ export function splitStatements(sql: string): string[] {
   return statements;
 }
 
-function closingQuote(sql: string, start: number, quote: string): number {
+/** The index after a quoted string or identifier that opens at `start`. A doubled quote stays inside it. */
+function closingQuote(sql: string, start: number, quote: string, backslash: boolean): number {
   let index = start + 1;
   while (index < sql.length) {
-    if (sql[index] === '\\' && quote !== '"') {
+    if (backslash && sql[index] === '\\') {
       index += 2;
       continue;
     }
@@ -100,6 +154,27 @@ function closingQuote(sql: string, start: number, quote: string): number {
         continue;
       }
       return index + 1;
+    }
+    index++;
+  }
+  return sql.length;
+}
+
+/** The index after a block comment that opens at `start`; PostgreSQL's nest. */
+function closingComment(sql: string, start: number, nested: boolean): number {
+  let depth = 0;
+  let index = start;
+  while (index < sql.length) {
+    if (sql[index] === '/' && sql[index + 1] === '*') {
+      depth = nested ? depth + 1 : 1;
+      index += 2;
+      continue;
+    }
+    if (sql[index] === '*' && sql[index + 1] === '/') {
+      depth--;
+      index += 2;
+      if (depth === 0) return index;
+      continue;
     }
     index++;
   }
@@ -188,7 +263,12 @@ const noProcedures: ReadonlySet<string> = new Set();
  * (see {@link safeProcedureNames}). Savepoint statements are allowed because ORMs use them for nested transactions.
  */
 export function refusedStatement(sql: string, provider: AdapterProvider, safeProcedures: ReadonlySet<string> = noProcedures): string | undefined {
-  return splitStatements(sql).find(statement => refuses(statement, provider, safeProcedures));
+  // Refused when any way the server might read the text finds a refused statement.
+  for (const reading of readingsOf(provider)) {
+    const refused = splitWith(sql, reading).find(statement => refuses(statement, provider, safeProcedures));
+    if (refused !== undefined) return refused;
+  }
+  return undefined;
 }
 
 /**
@@ -238,11 +318,12 @@ export function endsTransaction(sql: string, provider: AdapterProvider, safeProc
 
 /**
  * Whether a statement could change durable state when it runs outside the Preview
- * transaction. Plain reads are allowed; everything else is treated as a write.
+ * transaction. Plain reads are allowed; everything else is treated as a write, under any way the
+ * provider's server might read the text.
  */
-export function mayWrite(sql: string): boolean {
-  return splitStatements(sql).some(statement => !readOnly.test(statement)
-    || (/^SELECT\b/i.test(statement) && writingSelect.test(statement)));
+export function mayWrite(sql: string, provider?: AdapterProvider): boolean {
+  return readingsOf(provider).some(reading => splitWith(sql, reading).some(statement => !readOnly.test(statement)
+    || (/^SELECT\b/i.test(statement) && writingSelect.test(statement))));
 }
 
 /** Whether a statement is the physical ROLLBACK Prisma issues to finish a transaction. */
@@ -253,9 +334,14 @@ export function isRollback(sql: string): boolean {
 
 const savepoint = /^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO)\b/i;
 
-/** Whether every statement only begins, ends or marks a transaction, without touching rows. */
-export function controlsTransaction(sql: string): boolean {
-  const statements = splitStatements(sql);
-  return statements.length > 0 && statements.every(statement => transactionControl.test(statement)
-    || setAutocommit.test(statement) || savepoint.test(statement));
+/**
+ * Whether every statement only begins, ends or marks a transaction, without touching rows, under
+ * every way the provider's server might read the text.
+ */
+export function controlsTransaction(sql: string, provider?: AdapterProvider): boolean {
+  return readingsOf(provider).every(reading => {
+    const statements = splitWith(sql, reading);
+    return statements.length > 0 && statements.every(statement => transactionControl.test(statement)
+      || setAutocommit.test(statement) || savepoint.test(statement));
+  });
 }

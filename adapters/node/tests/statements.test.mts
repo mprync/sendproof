@@ -55,6 +55,36 @@ describe('Transaction-control classifier', () => {
     }
   });
 
+  it('reads MySQL text as the server does: # and -- comments, executable comments, both string readings, no $$ quoting', () => {
+    for (const sql of [
+      '# note\nCOMMIT', 'SELECT 1; # x\nCOMMIT', 'SELECT 1 --1; COMMIT', '/*!50000 COMMIT */', '/*M!100000 DROP TABLE t */',
+      // NO_BACKSLASH_ESCAPES ends the string at the backslash; ANSI_QUOTES makes "..." an identifier without escapes.
+      "SELECT 'a\\'; COMMIT; -- '", 'SELECT "a\\"; COMMIT; -- "',
+      // $$ is no quote on MySQL.
+      'SELECT $$; COMMIT; $$', 'SELECT 1; EXECUTE IMMEDIATE \'COMMIT\'', 'execute immediate @sql',
+    ]) {
+      assert.ok(endsTransaction(sql, 'mysql'), JSON.stringify(sql));
+    }
+    for (const sql of ['SELECT 1 -- COMMIT', 'SELECT 1 # COMMIT', "INSERT INTO t VALUES ('it''s; COMMIT')", 'SELECT `a;COMMIT` FROM t', 'SELECT 2--1']) {
+      assert.ok(!endsTransaction(sql, 'mysql'), JSON.stringify(sql));
+    }
+  });
+
+  it('reads PostgreSQL text as the server does: E strings, dollar quotes, nested comments, both string readings', () => {
+    for (const sql of [
+      // With standard_conforming_strings on, the backslash is a plain character and the string ends there.
+      "SELECT 'x\\'; COMMIT; SELECT '", "SELECT E'x\\\\'; COMMIT; SELECT 'y'",
+      // Nested block comments end only at the matching close.
+      '/* outer /* inner */ still a comment */ COMMIT', 'SELECT "a\\"; COMMIT; --"',
+    ]) {
+      assert.ok(endsTransaction(sql, 'postgres'), JSON.stringify(sql));
+    }
+    for (const sql of ["SELECT E'it\\'s; COMMIT'", 'DO $$ BEGIN COMMIT; END $$', 'SELECT $body$; COMMIT; $body$', '/* a /* b */ COMMIT */ SELECT 1',
+      'SELECT 1 # 2']) {
+      assert.ok(!endsTransaction(sql, 'postgres'), JSON.stringify(sql));
+    }
+  });
+
   it('names the refused statement', () => {
     assert.equal(refusedStatement('SELECT 1; CREATE TABLE t (n INT); SELECT 2', 'mysql'), 'CREATE TABLE t (n INT)');
     assert.equal(refusedStatement('SELECT 1', 'mysql'), undefined);

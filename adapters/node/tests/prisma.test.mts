@@ -189,10 +189,12 @@ describe('Prisma provider options', () => {
 });
 
 describe('Prisma statement classification', () => {
-  it('splits statements outside quotes, comments and dollar quoting', () => {
-    assert.deepEqual(splitStatements("SELECT 'a;b'; -- c;\nUPDATE t SET x = $$;$$ /* ; */; COMMIT"),
+  it('splits statements outside quotes, comments and, on PostgreSQL, dollar quoting', () => {
+    assert.deepEqual(splitStatements("SELECT 'a;b'; -- c;\nUPDATE t SET x = $$;$$ /* ; */; COMMIT", 'postgres'),
       ["SELECT 'a;b'", 'UPDATE t SET x = $$;$$', 'COMMIT']);
-    assert.deepEqual(splitStatements('SELECT $1, $2'), ['SELECT $1, $2']);
+    assert.deepEqual(splitStatements('SELECT $1, $2', 'postgres'), ['SELECT $1, $2']);
+    // Other servers have no dollar quoting, so the separator inside counts.
+    assert.deepEqual(splitStatements('UPDATE t SET x = $$;$$', 'mysql'), ['UPDATE t SET x = $$', '$$']);
   });
 
   it('recognises statements that end a transaction, per dialect', () => {
