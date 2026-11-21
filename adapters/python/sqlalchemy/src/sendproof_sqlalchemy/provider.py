@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import event
@@ -25,9 +26,9 @@ from sendproof_core.scope import current_scope
 
 from . import changes as change_capture
 from .connection import SAVEPOINT, Hold, ensure_supported
-from .turns import take_turn
+from .turns import SERIAL_DIALECTS, take_turn
 from sendproof_core.redaction import describe_parameters, python_type_name
-from sendproof_core.txguard import escapes_transaction
+from sendproof_core.txguard import escapes_transaction, normalize_procedures
 
 try:  # AsyncEngine support needs greenlet; synchronous use does not.
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -50,9 +51,12 @@ _STARTED = "_sendproof_started"
 class _State:
     """Per-request state shared by listeners, the pool hook and the session."""
 
-    def __init__(self, engines: frozenset[Engine], rollback: bool) -> None:
+    def __init__(self, engines: frozenset[Engine], rollback: bool,
+                 safe_procedures: frozenset[str] = frozenset()) -> None:
         self.engines = engines
         self.rollback = rollback
+        #: Procedures the host declared never commit; any other MySQL ``CALL`` is refused.
+        self.safe_procedures = safe_procedures
         self.holds: dict[Engine, Hold] = {}
         self.changes: list[PreviewChange] = []
         self.changes_truncated = False
@@ -126,7 +130,7 @@ class _Instrumentation:
                 state.unsafe = "A statement ran in AUTOCOMMIT mode, which cannot be rolled back."
             # Refuse COMMIT, END, implicit-commit DDL and the like before they reach the driver:
             # flagging them afterwards would be too late, the earlier writes would be durable.
-            reason = escapes_transaction(statement, conn.dialect.name, SAVEPOINT)
+            reason = escapes_transaction(statement, conn.dialect.name, SAVEPOINT, state.safe_procedures)
             if reason is not None:
                 state.unsafe = reason
                 raise PreviewRollbackError(reason)
@@ -172,12 +176,20 @@ class SQLAlchemyPreview(PreviewProvider):
     ``engines`` may be :class:`~sqlalchemy.engine.Engine` or
     :class:`~sqlalchemy.ext.asyncio.AsyncEngine` instances. ``database`` is a public label for the
     workbench; never put a connection string in it.
+
+    On MySQL and MariaDB a Preview refuses ``CALL``, because a stored procedure can commit the
+    Preview transaction. ``safe_procedures`` lists procedures the host declares never commit, by
+    exact name (optionally ``schema.name``; case-insensitive, like MySQL): a ``CALL`` of one of
+    them is allowed. The binding trusts the declaration, so a listed procedure that does commit
+    makes the Preview's writes durable; the savepoint check before the rollback then answers 500.
     """
 
-    def __init__(self, *engines: Engine | AsyncEngine, database: str | None = None) -> None:
+    def __init__(self, *engines: Engine | AsyncEngine, database: str | None = None,
+                 safe_procedures: Iterable[str] = ()) -> None:
         if not engines:
             raise ValueError("Pass at least one engine.")
         self.database = database
+        self._safe_procedures = normalize_procedures(safe_procedures)
         self._async = {e.sync_engine for e in engines if isinstance(e, AsyncEngine)}
         self._engines = frozenset(e.sync_engine if isinstance(e, AsyncEngine) else e for e in engines)
         first = (engines[0].sync_engine if isinstance(engines[0], AsyncEngine) else engines[0]).dialect
@@ -192,7 +204,7 @@ class SQLAlchemyPreview(PreviewProvider):
     def begin(self, scope: RequestScope) -> PreviewSession:
         for engine in self._engines:
             ensure_supported(engine)
-        state = _State(self._engines, rollback=True)
+        state = _State(self._engines, rollback=True, safe_procedures=self._safe_procedures)
         scope.extensions[STATE_KEY] = state
         return _Session(state, self._async)
 
@@ -247,6 +259,20 @@ class _Session(PreviewSession):
             raise PreviewRollbackError(unsafe)
 
     def _rollback_hold(self, hold: Hold) -> BaseException | None:
+        if hold.engine.dialect.name in SERIAL_DIALECTS and not hold.unsafe:
+            # The backstop on MySQL and MariaDB: the savepoint the Preview opened its transaction with
+            # must still exist. Any commit, explicit or implicit, erases every savepoint, and with
+            # autocommit off MySQL then opens a new transaction by itself, so only a savepoint made at
+            # the start (never one made now) proves the Preview transaction is the one still open.
+            try:
+                hold.run("ROLLBACK TO SAVEPOINT " + SAVEPOINT)
+            except BaseException as error:  # noqa: BLE001 - 1305 "SAVEPOINT does not exist", or a lost connection
+                hold.unsafe = (
+                    "The Preview transaction was committed before its rollback (its savepoint is gone), "
+                    "so the Preview can't be confirmed."
+                )
+                if not isinstance(error, Exception):
+                    raise
         try:
             hold.proxy._tb_real.rollback()
         except BaseException as error:  # noqa: BLE001 - reported through PreviewRollbackError

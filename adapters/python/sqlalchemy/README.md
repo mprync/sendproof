@@ -50,6 +50,30 @@ Read these before advertising an operation for Preview.
   make Preview unavailable.
 - **Refused:** engines or connections in `AUTOCOMMIT` mode, because the driver commits each
   statement itself.
+- **Transaction-control SQL is refused before it is sent:** `COMMIT`, `ROLLBACK` (but not
+  `ROLLBACK TO SAVEPOINT`), `BEGIN`, `SET autocommit` in any form, `XA`, and the internal
+  `sendproof_preview` savepoint. On MySQL and MariaDB also every implicitly committing statement
+  (DDL other than `TEMPORARY` tables, `LOCK`/`UNLOCK TABLES`, `GRANT`, `REVOKE`, `ANALYZE`,
+  `CHECK`, `OPTIMIZE`, `REPAIR` and `CACHE INDEX` on tables, `SET PASSWORD`, replication control),
+  SQL-level `EXECUTE` of a prepared statement, executable comments (`/*! ... */`) that contain any
+  of these, and `CALL`. The Preview then answers 500 and rolls back.
+- **Stored procedures (MySQL and MariaDB):** a procedure can `COMMIT`, so `CALL` is refused unless
+  you declare the procedure safe by exact name:
+
+  ```python
+  SQLAlchemyPreview(engine, safe_procedures=["refresh_totals", "reports.rebuild_cache"])
+  ```
+
+  Names are exact (a schema-qualified call needs the qualified name) and, like MySQL,
+  case-insensitive; wildcards are rejected. This is your statement that the procedure never
+  commits: the binding trusts it.
+- **Backstop (MySQL and MariaDB):** the Preview opens its transaction with
+  `SAVEPOINT sendproof_preview` and, before rolling back, checks that savepoint still exists. Any
+  commit erases it, so if something committed anyway (a declared procedure that does commit, a
+  driver call around the engine), the Preview answers 500 without confirmation, whatever the
+  handler returned. The writes made before that commit are durable; the check only stops the
+  Preview from claiming otherwise. A deadlock, which makes MySQL roll back the whole transaction,
+  also fails the Preview this way.
 - **Outside the database:** caches, files, other services, other engines you did not register and
   work queued after the response are not rolled back. Sequences may advance.
 - **Connections the application holds across requests** are not enrolled.

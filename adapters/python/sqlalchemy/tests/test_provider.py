@@ -1,3 +1,6 @@
+import os
+import uuid
+
 import pytest
 from sqlalchemy import String, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -320,3 +323,93 @@ def test_mysql_previews_take_turns_and_other_dialects_do_not():
     waiter.join(5)
     assert len(second) == 1 and callable(second[0])
     second[0]()
+
+
+# ------------------------------------------------------------------ MySQL transaction escapes
+# These run against the compose MySQL (``docker compose -f tests/conformance/compose.yml up -d --wait mysql``),
+# or the server ``BENCH_MYSQL_URL`` names, each in a fresh database; they skip when no server answers.
+MYSQL_URL = os.environ.get("BENCH_MYSQL_URL", "mysql://root:bench_local@127.0.0.1:53306/mysql")
+
+
+@pytest.fixture
+def mysql_engine():
+    from sqlalchemy.engine import make_url
+
+    server = make_url(MYSQL_URL).set(drivername="mysql+pymysql")
+    admin = create_engine(server, connect_args={"connect_timeout": 2})
+    name = "sp_escape_" + uuid.uuid4().hex[:10]
+    try:
+        with admin.begin() as connection:
+            connection.execute(text(f"CREATE DATABASE {name}"))
+    except Exception as error:  # noqa: BLE001 - no server: skip, with the command that starts one
+        admin.dispose()
+        pytest.skip(f"MySQL is not running ({error.__class__.__name__}): docker compose -f tests/conformance/compose.yml up -d --wait mysql")
+    engine = create_engine(server.set(database=name))
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE items (id VARCHAR(40) PRIMARY KEY, name VARCHAR(80))"))
+        connection.execute(text("CREATE PROCEDURE commits() BEGIN COMMIT; END"))
+        connection.execute(text("CREATE PROCEDURE reads_only() BEGIN SELECT 1; END"))
+    yield engine
+    engine.dispose()
+    with admin.begin() as connection:
+        connection.execute(text(f"DROP DATABASE {name}"))
+    admin.dispose()
+
+
+def stored_ids(engine):
+    with engine.connect() as connection:
+        return sorted(connection.scalars(text("SELECT id FROM items")))
+
+
+def test_mysql_call_and_implicit_commits_are_refused_before_sending(mysql_engine):
+    """spec/data-stores.md, "Transaction-control statements from the handler": CALL is refused unless the
+    host declared the procedure safe by exact name, and DDL never reaches the server."""
+    provider = SQLAlchemyPreview(mysql_engine, safe_procedures=["reads_only"])
+    for statement in ("CALL commits()", "CREATE TABLE escape_probe (n INT)", "/*!50000 COMMIT */", "SET @@session.autocommit = 1"):
+        with Running(provider) as run:
+            try:
+                with Session(mysql_engine) as session:
+                    session.execute(text("INSERT INTO items VALUES ('a', 'A')"))
+                    session.execute(text("CALL reads_only()"))  # declared safe: allowed
+                    with pytest.raises(PreviewRollbackError):
+                        session.execute(text(statement))
+                with pytest.raises(PreviewRollbackError):
+                    run.session.rollback()
+            finally:
+                run.session.close()
+        assert stored_ids(mysql_engine) == [], statement
+    with mysql_engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM information_schema.tables "
+                                      "WHERE table_schema = DATABASE() AND table_name = 'escape_probe'")) == 0
+    with pytest.raises(ValueError):
+        SQLAlchemyPreview(mysql_engine, safe_procedures=["reads_*"])
+    provider.uninstall()
+
+
+def test_mysql_preview_answers_500_when_its_transaction_was_committed_anyway(mysql_engine):
+    """The backstop: something the guard can't see (here the driver's own commit) ended the Preview
+    transaction, so the rollback is never confirmed, whatever the handler returned."""
+    provider = SQLAlchemyPreview(mysql_engine)
+    with Running(provider) as run:
+        try:
+            held = mysql_engine.raw_connection()  # the Preview's held connection
+            cursor = held.cursor()
+            cursor.execute("INSERT INTO items VALUES ('escaped', 'E')")
+            held.dbapi_connection._tb_real.commit()  # around every guard
+            # autocommit is off, so MySQL opens a new transaction here: a SAVEPOINT made now would succeed.
+            cursor.execute("INSERT INTO items VALUES ('after', 'A')")
+            cursor.close()
+            held.close()
+            with pytest.raises(PreviewRollbackError, match="committed"):
+                run.session.rollback()
+        finally:
+            run.session.close()  # hands the connection and the MySQL turn back even when an assertion fails
+    assert stored_ids(mysql_engine) == ["escaped"]
+    with Running(provider) as run:  # an ordinary Preview still confirms its rollback
+        with Session(mysql_engine) as session:
+            session.execute(text("INSERT INTO items VALUES ('b', 'B')"))
+            session.commit()
+        run.session.rollback()
+        run.session.close()
+    assert stored_ids(mysql_engine) == ["escaped"]
+    provider.uninstall()

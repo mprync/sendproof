@@ -24,11 +24,25 @@ from sendproof_core import (
 from sendproof_core.jsonsafe import is_missing, snapshot
 from sendproof_core.redaction import describe_parameters, python_type_name
 from sendproof_core.scope import current_scope
-from sendproof_core.txguard import escapes_transaction
+from sendproof_core.txguard import escapes_transaction, normalize_procedures
 
 STATE_KEY = "django_orm"
 _UID = "sendproof_django"
 _connected = False
+
+#: The savepoint a MySQL Preview opens its transaction with. Django names its own savepoints
+#: ``s<thread>_x<n>``, so it never makes this one, and a handler's ``RELEASE`` or ``ROLLBACK TO`` of it
+#: is refused like a ``COMMIT``.
+SAVEPOINT = "sendproof_preview"
+
+
+def _raw(alias: str, statement: str) -> None:
+    """Run ``statement`` on the alias's DBAPI connection, past the execute wrappers and the SQL log."""
+    cursor = connections[alias].connection.cursor()
+    try:
+        cursor.execute(statement)
+    finally:
+        cursor.close()
 
 #: One lock per MySQL database alias; a preview holds it from its first transaction until rollback.
 _mysql_turns: dict[str, threading.Lock] = {}
@@ -85,9 +99,14 @@ def _json_value(value: Any) -> Any:
 class _State:
     """Per-request state: the open transactions, SQL wrappers and captured changes."""
 
-    def __init__(self, aliases: tuple[str, ...], rollback: bool) -> None:
+    def __init__(self, aliases: tuple[str, ...], rollback: bool,
+                 safe_procedures: frozenset[str] = frozenset()) -> None:
         self.aliases = aliases
         self.rollback = rollback
+        #: Procedures the host declared never commit; any other MySQL ``CALL`` is refused.
+        self.safe_procedures = safe_procedures
+        #: MySQL aliases whose Preview transaction opened with the ``SAVEPOINT`` the backstop checks.
+        self.marked: list[str] = []
         self.changes: list[PreviewChange] = []
         self.changes_truncated = False
         self.silent = 0  # >0 while Sendproof runs its own reads
@@ -125,7 +144,8 @@ class _State:
             # A raw COMMIT (or DDL that MySQL and Oracle commit implicitly) would make the
             # preview's writes durable before the rollback, so it never reaches the database.
             vendor = getattr(context.get("connection"), "vendor", "")
-            reason = escapes_transaction(sql if isinstance(sql, str) else str(sql), vendor)
+            reason = escapes_transaction(sql if isinstance(sql, str) else str(sql), vendor, SAVEPOINT,
+                                         self.safe_procedures)
             if reason is not None:
                 self.unsafe = reason
                 raise PreviewRollbackError(reason)
@@ -236,13 +256,21 @@ class DjangoOrmPreview(PreviewProvider):
 
     ``using`` lists the database aliases to enroll (default: ``("default",)``). ``database`` is a
     public label for the workbench; never put a connection string in it.
+
+    On MySQL and MariaDB a Preview refuses ``CALL``, because a stored procedure can commit the
+    Preview transaction. ``safe_procedures`` lists procedures the host declares never commit, by
+    exact name (optionally ``schema.name``; case-insensitive, like MySQL): a ``CALL`` of one of
+    them is allowed. The binding trusts the declaration; a listed procedure that does commit is
+    caught by the savepoint check before the rollback, which answers 500, but its writes stay.
     """
 
-    def __init__(self, using: Iterable[str] = ("default",), database: str | None = None) -> None:
+    def __init__(self, using: Iterable[str] = ("default",), database: str | None = None,
+                 safe_procedures: Iterable[str] = ()) -> None:
         self.aliases = tuple(using)
         if not self.aliases:
             raise ValueError("Pass at least one database alias.")
         self.database = database
+        self.safe_procedures = normalize_procedures(safe_procedures)
         install_signals()
 
     @property
@@ -254,7 +282,7 @@ class DjangoOrmPreview(PreviewProvider):
             return None
 
     def begin(self, scope: RequestScope) -> PreviewSession:
-        state = _State(self.aliases, rollback=True)
+        state = _State(self.aliases, rollback=True, safe_procedures=self.safe_procedures)
         scope.extensions[STATE_KEY] = state
         try:
             for alias in self.aliases:
@@ -264,6 +292,10 @@ class DjangoOrmPreview(PreviewProvider):
                 if connection.vendor == "mysql":
                     state.turns.append(_take_mysql_turn(alias))
                 state.atomics.append((alias, _enter_atomic(alias)))
+                if connection.vendor == "mysql":
+                    # The backstop's mark, made first thing in the Preview transaction (see ``rollback``).
+                    _raw(alias, "SAVEPOINT " + SAVEPOINT)
+                    state.marked.append(alias)
             state.install_wrappers()
         except BaseException:
             _Session(state).close()
@@ -312,6 +344,18 @@ class _Session(PreviewSession):
     def rollback(self) -> None:
         state = self._state
         errors: list[BaseException] = []
+        for alias in state.marked:
+            # The backstop on MySQL and MariaDB: the savepoint made when the Preview transaction opened
+            # must still exist. Any commit, explicit or implicit, erases every savepoint, and with
+            # autocommit off MySQL then opens a new transaction by itself, so a savepoint made now would
+            # prove nothing. Error 1305 (or a lost connection) means the rollback can't be confirmed.
+            try:
+                _raw(alias, "ROLLBACK TO SAVEPOINT " + SAVEPOINT)
+            except Exception:  # noqa: BLE001 - reported through ``unsafe``
+                state.unsafe = state.unsafe or (
+                    "The Preview transaction was committed before its rollback (its savepoint is gone), "
+                    "so the Preview can't be confirmed."
+                )
         while state.atomics:
             alias, atomic = state.atomics.pop()
             try:

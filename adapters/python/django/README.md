@@ -95,6 +95,22 @@ performs. The row before an update or delete is read from the database; that rea
 - **Not captured (but rolled back):** `QuerySet.update()`, `bulk_create()`, `bulk_update()`, raw SQL,
   triggers and cascades done by the database. Their SQL appears in the logs. Rows are never
   synthesized.
+- **Transaction-control SQL is refused before it is sent** and the Preview answers 500: `COMMIT`,
+  `ROLLBACK` (not `ROLLBACK TO SAVEPOINT`), `BEGIN`, `SET autocommit`, the internal
+  `sendproof_preview` savepoint, and on MySQL, MariaDB and Oracle the statements those databases
+  commit implicitly (DDL other than `TEMPORARY` tables, `LOCK TABLES`, `GRANT` and the rest of
+  MySQL's list). On MySQL and MariaDB `CALL` is refused too, because a procedure can commit,
+  unless you declare it safe by exact name (case-insensitive, no wildcards; the binding trusts the
+  declaration):
+
+  ```python
+  SENDPROOF = {"PROVIDER": lambda: DjangoOrmPreview(safe_procedures=["refresh_totals"]), ...}
+  ```
+
+- **Backstop on MySQL and MariaDB:** the Preview opens its transaction with
+  `SAVEPOINT sendproof_preview` and checks, before rolling back, that it still exists. Any commit
+  erases it, so a Preview whose transaction was committed anyway answers 500 without
+  confirmation (the writes before that commit stay).
 - Enrolled aliases share the request thread's connection. Work in other threads, other databases
   you did not list, caches, files and other services are not rolled back.
 - Synchronous views only. Async views and ASGI deployments are not tested.
