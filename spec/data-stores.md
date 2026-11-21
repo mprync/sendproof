@@ -248,7 +248,9 @@ The shared [raw COMMIT rule](conformance/fixture.md#shared-security-rules) appli
 
 `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO SAVEPOINT` stay allowed, because ORMs use them for nested transactions. A refused statement fails the Preview with 500 without confirmation, and the SQL transaction rolls back.
 
-As a backstop on MySQL and MariaDB, before rolling back the provider checks that the Preview transaction is still open. If it isn't, something committed it, and the Preview answers 500 without confirmation, whatever the handler returned. MySQL has no `@@in_transaction` variable (only MariaDB does), so the portable check is `SAVEPOINT sendproof_open` followed by `RELEASE SAVEPOINT sendproof_open`: both succeed inside a transaction, and outside one the `RELEASE` fails with error 1305 (`SAVEPOINT ... does not exist`). A failed check also answers 500; the rollback still runs.
+As a backstop on MySQL and MariaDB, the provider proves the Preview transaction was never committed. Right after opening the Preview transaction it runs `SAVEPOINT sendproof_preview`; before rolling back it runs `RELEASE SAVEPOINT sendproof_preview` (or `ROLLBACK TO SAVEPOINT sendproof_preview`). Any commit, explicit or implicit, erases every savepoint, so error 1305 (`SAVEPOINT ... does not exist`) means something committed the Preview transaction, and the Preview answers 500 without confirmation, whatever the handler returned. Any other failure of the check also answers 500; the rollback still runs. During a Preview the provider refuses a handler's `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO SAVEPOINT` naming `sendproof_preview`.
+
+The savepoint must be set at the start. `SELECT @@in_transaction` exists only on MariaDB, and a savepoint set and released only at the end can't tell: with `autocommit=0` (JDBC, Hibernate, Python DB-API drivers) MySQL opens a new transaction implicitly after a commit, so a fresh savepoint succeeds after the Preview transaction is gone. The start savepoint works on MySQL and MariaDB in either autocommit mode.
 
 ## Batch two stores
 
