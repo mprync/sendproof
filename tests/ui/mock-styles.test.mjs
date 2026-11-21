@@ -25,3 +25,12 @@ test('the mock page and the workbench load only the shared stylesheets', async (
   assert.deepEqual(stylesheets(await read('mocks/workbench.html')), ['styles.css', 'views.css']);
   assert.deepEqual(stylesheets(await read('ui/index.html')), ['styles.css', 'views.css', 'app.css']);
 });
+
+// An earlier crumb reserves min(--crumb-parent-min, its own width): a flat 5rem floor left a gap
+// before the chevron when the text was shorter (min() cannot take max-content, calc-size() can).
+test('an earlier crumb reserves at most its own width, with the flat floor as the fallback', async () => {
+  const css = await read('ui/app.css');
+  const floor = css.match(/\.ctx-bar \.crumbs li:not\(:last-child\) \{[^}]*min-inline-size: var\(--crumb-parent-min\)/);
+  assert.ok(floor, 'the flat floor stays as the fallback');
+  assert.match(css, /@supports \(min-inline-size: calc-size\(max-content, size\)\)\s*\{\s*\.ctx-bar \.crumbs li:not\(:last-child\) \{ min-inline-size: calc-size\(max-content, min\(size, var\(--crumb-parent-min\)\)\); \}/);
+});
