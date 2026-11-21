@@ -13,7 +13,10 @@ const publicPersona = person => ({ name: person.name, role: person.role, email: 
 const reply = (status, body = null, headers = {}) => ({ status, body, headers });
 
 export function sqliteStorage(filename) {
-  const db = new SQLiteDatabase(filename, { schema: 'CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL)' });
+  const db = new SQLiteDatabase(filename, {
+    schema: 'CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL);' +
+      'CREATE TABLE accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT NOT NULL)',
+  });
   const secret = () => db.get('SELECT :fixture_secret AS value', { fixture_secret: 'fixture-secret-value' });
   return { db, secret };
 }
@@ -27,11 +30,17 @@ function sqliteStore(filename) {
     insert: (id, name) => db.write('INSERT INTO items (id, name) VALUES (:id, :name)', { id, name }, tracked(id)),
     update: async (id, name) => (await db.write('UPDATE items SET name = :name WHERE id = :id', { id, name }, tracked(id))).changes,
     remove: async id => (await db.write('DELETE FROM items WHERE id = :id', { id }, tracked(id))).changes,
+    // Shared security rules (spec/conformance/fixture.md): an accounts table with a secret column,
+    // and a raw COMMIT on the handler's connection, which the provider refuses during a Preview.
+    insertAccount: (id, email, passwordHash) => db.write('INSERT INTO accounts (id, email, password_hash) VALUES (:id, :email, :password_hash)',
+      { id, email, password_hash: passwordHash }, { table: 'accounts', keys: [{ id }] }),
+    findAccount: id => db.get('SELECT id, email FROM accounts WHERE id = :id', { id }),
+    commit: () => db.write('COMMIT'),
   };
 }
 
 export function createFixture(filename, scenario, store = sqliteStore) {
-  const { provider, insert, find, update, remove, secret } = store(filename);
+  const { provider, insert, find, update, remove, secret, insertAccount, findAccount, commit } = store(filename);
   const sessions = new Map();
   const previewProvider = scenario === 'no-provider' ? undefined : {
     async preview(dispatch) {
@@ -116,6 +125,22 @@ export function createFixture(filename, scenario, store = sqliteStore) {
     }),
   ];
 
+  if (insertAccount) {
+    operations.push(
+      operation('POST', '/accounts', async ({ body }) => {
+        if (![body?.id, body?.email, body?.password].every(valid)) return reply(400);
+        await insertAccount(body.id, body.email, 'hashed:' + body.password);
+        return reply(201, { id: body.id, email: body.email });
+      }),
+      operation('POST', '/items/{id}/commit', async ({ params: { id }, body }) => {
+        if (!valid(body?.name)) return reply(400);
+        await insert(id, body.name);
+        await commit();
+        return reply(201, { id, name: body.name });
+      }),
+    );
+  }
+
   const ordinary = [
     { method: 'POST', path: '/auth/sign-in', handler: ({ body }) => signIn(body) },
     { method: 'GET', path: '/auth/personas', handler: list },
@@ -129,5 +154,12 @@ export function createFixture(filename, scenario, store = sqliteStore) {
       return reply(201, { id, name: 'Ordinary' });
     }),
   ];
-  return { session, previewProvider, operations, ordinary };
+  if (findAccount) {
+    ordinary.push({ method: 'GET', path: '/accounts/{id}', handler: access(async ({ params: { id } }) => {
+      const account = await findAccount(id);
+      return account ? reply(200, account) : reply(404);
+    }, false) });
+  }
+  // The data-store routes (fixture-stores.mjs) reuse these to share auth and the SQL item insert.
+  return { session, previewProvider, operations, ordinary, operation, reply, insert };
 }

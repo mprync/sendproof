@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import express from 'express';
 import { sendproof } from '@sendproof/express';
 import { authProviders, createFixture } from './fixture-service.mjs';
+import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const base = process.env.BENCH_PATH_BASE ?? '';
@@ -25,13 +26,17 @@ const stores = {
 const profile = process.argv[2] ?? 'express';
 if (!Object.hasOwn(stores, profile)) throw new Error('Unknown fixture store');
 const store = await stores[profile]();
-const { session, previewProvider, operations, ordinary } = createFixture(':memory:', scenario, store);
+const fixture = createFixture(':memory:', scenario, store);
+const { session, previewProvider, ordinary } = fixture;
+const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
+const operations = [...fixture.operations, ...storeRoutes.operations];
 const options = {
   apiName: 'Sendproof Conformance',
   environment: scenario === 'disabled' ? 'production' : 'development',
   database,
   authProviders,
   previewProvider,
+  dataStores: storeRoutes.dataStores,
   traceTtlMs: 5000,
 };
 
@@ -42,6 +47,7 @@ function registerExpress() {
   const bench = sendproof({ ...options, resolveIdentity: ({ headers }) => session(headers.cookie) });
   router.use(bench);
   for (const { method, path, handler } of operations) bench.operation(method, path, wrap(handler));
+  for (const { method, path, options: marked, handler } of storeRoutes.unavailable) bench.unavailable(method, path, marked, wrap(handler));
   for (const { method, path, handler } of ordinary) {
     router[method.toLowerCase()](path.replace(/\{(.*?)\}/g, ':$1'), wrap(handler));
   }
