@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { audit, runAccessibility } from './accessibility.mjs';
+import { checkCrumbsInEngines } from './crumb-engines.mjs';
 import { shortcutAria, shortcutParts } from '../ui/shortcuts.js';
 
 import { root, serveUiFromDirectory, startHost, stopHost } from './browser-host.mjs';
@@ -836,12 +837,6 @@ const clipProblems = (checkPageScroll = true) => {
     const readable = Math.min(text.scrollWidth, (here ? 5 : 3) * rem);
     if (text.clientWidth < readable - 0.5) problems.push(`crumb ${name(text)} shows only ${text.clientWidth}px of ${text.scrollWidth}px`);
     if (text.getAttribute('title') !== text.textContent.trim()) problems.push(`crumb ${name(text)} has no title with its full text`);
-    // A short earlier crumb sits tight against the next chevron: its box is no wider than its text
-    // (the 5 rem floor applies only to a crumb whose text is longer). Needs calc-size(), as in Chromium.
-    const gap = item.getBoundingClientRect().width - text.getBoundingClientRect().width;
-    if (!here && CSS.supports('min-inline-size', 'calc-size(max-content, size)') && text.scrollWidth < 4.5 * rem && gap > 1.5) {
-      problems.push(`crumb ${name(text)} leaves a ${gap.toFixed(1)}px gap before the chevron`);
-    }
   });
   // The sidebar's controls (the Operations | Models tabs, the signed-out notice's Sign in and seeded-account
   // buttons, the foot bar) keep their whole label, inside their own box and inside the sidebar.
@@ -1428,6 +1423,9 @@ try {
   assert.deepEqual(unexpected, [], `no JavaScript or unexpected console errors (failed responses: ${responses.join(', ')})`);
   await writeFile(join(artifacts, 'comparison.txt'), layoutFailures.length ? `${layoutFailures.join('\n')}\n` : 'All geometry, style and accessibility checks passed.\n');
   assert.deepEqual(layoutFailures, [], layoutFailures.join('\n'));
+  // Short earlier crumbs leave no gap before their chevron in every engine Playwright has installed.
+  const engines = await checkCrumbsInEngines(url);
+  console.log(`Crumb gap checked in ${engines.ran.join(', ')}${engines.skipped.length ? ` (not installed, skipped: ${engines.skipped.join(', ')})` : ''}`);
   await mock.close();
   await context.close();
   console.log('PASS: authentication, typed request, rollback, Send, 4xx, palette, theme, desktop and mobile mock layout');

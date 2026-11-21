@@ -31,11 +31,13 @@ import { bindToggletips } from './toggletip.js';
 import { backTarget, createHistory, followModel, formatRoute, parseRoute } from './router.js';
 import { findOperation, opKey } from './operations.js';
 import { contextBar } from './context-bar.js';
+import { watchCrumbs } from './crumb-fit.js';
 import { openSeededMenu } from './seeded-menu.js';
 import { resolvePersonaAccess } from './personas.js';
 import { carriedValues, replacements } from './deprecation.js';
 
 applySettings();
+watchCrumbs();
 const root = document.querySelector('#app');
 for (const node of root.querySelectorAll('[data-i18n]')) node.textContent = t(node.dataset.i18n);
 const loadingShell = root.firstElementChild.cloneNode(true);

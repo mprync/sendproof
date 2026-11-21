@@ -27,10 +27,10 @@ test('the mock page and the workbench load only the shared stylesheets', async (
 });
 
 // An earlier crumb reserves min(--crumb-parent-min, its own width): a flat 5rem floor left a gap
-// before the chevron when the text was shorter (min() cannot take max-content, calc-size() can).
-test('an earlier crumb reserves at most its own width, with the flat floor as the fallback', async () => {
+// before the chevron when the text was shorter. CSS cannot measure text (min() takes no
+// max-content and calc-size() is missing from Firefox and Safari), so ui/crumb-fit.js sets --nat.
+test('an earlier crumb reserves at most its measured natural width, with the flat stub until measured', async () => {
   const css = await read('ui/app.css');
-  const floor = css.match(/\.ctx-bar \.crumbs li:not\(:last-child\) \{[^}]*min-inline-size: var\(--crumb-parent-min\)/);
-  assert.ok(floor, 'the flat floor stays as the fallback');
-  assert.match(css, /@supports \(min-inline-size: calc-size\(max-content, size\)\)\s*\{\s*\.ctx-bar \.crumbs li:not\(:last-child\) \{ min-inline-size: calc-size\(max-content, min\(size, var\(--crumb-parent-min\)\)\); \}/);
+  assert.match(css, /\.ctx-bar \.crumbs li:not\(:last-child\) \{ flex: 0 1000 auto; min-inline-size: min\(var\(--crumb-parent-min\), var\(--nat, var\(--crumb-parent-min\)\)\); \}/);
+  assert.doesNotMatch(css, /calc-size/, 'one mechanism: the measurement, not a browser-specific path');
 });

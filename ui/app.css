@@ -327,8 +327,9 @@ button.link { border: 0; background: none; padding: 0; font: inherit; color: var
    squeezing the trail. The trail never gets less than --crumb-min for the page plus
    --crumb-parent-min for each earlier crumb (`--parents`, set by context-bar.js), so no crumb is
    cut below a readable stub. An earlier crumb whose text is shorter than that stub reserves only
-   its own width (min(--crumb-parent-min, natural width)), so a short crumb sits tight against the
-   chevron instead of leaving a gap; see the calc-size() rule below. Within the trail the earlier crumbs give way first (a far higher shrink
+   its own width, min(--crumb-parent-min, --nat), so a short crumb sits tight against the chevron
+   instead of leaving a gap. crumb-fit.js measures --nat (the label's natural width) onto each earlier
+   crumb, in every browser; until it has, the flat stub applies. Within the trail the earlier crumbs give way first (a far higher shrink
    weight), then the page title; each ends in an ellipsis and carries a title attribute with its full
    text. Logical properties only, so the same rules serve right-to-left. */
 .ctx-bar { --crumb-min: 7rem; --crumb-parent-min: 5rem; block-size: auto; min-block-size: calc(var(--tab-h) + 1px); flex-wrap: wrap; align-content: center; row-gap: 0; }
@@ -345,11 +346,7 @@ button.link { border: 0; background: none; padding: 0; font: inherit; color: var
   .ctx-bar .view-switch button { padding-inline: 0.5rem; }
   .ctx-bar .view-switch .i { display: none; }
 }
-.ctx-bar .crumbs li:not(:last-child) { flex: 0 1000 auto; min-inline-size: var(--crumb-parent-min); }
-/* min() cannot take an intrinsic keyword, so calc-size() expresses min(5rem, natural width). A browser
-   without calc-size() keeps the flat 5rem floor above (a short crumb then leaves a small gap). */
-@supports (min-inline-size: calc-size(max-content, size)) {
-  .ctx-bar .crumbs li:not(:last-child) { min-inline-size: calc-size(max-content, min(size, var(--crumb-parent-min))); }
+.ctx-bar .crumbs li:not(:last-child) { flex: 0 1000 auto; min-inline-size: min(var(--crumb-parent-min), var(--nat, var(--crumb-parent-min))); }
 }
 .ctx-bar .crumbs li:last-child { flex: 0 1 auto; min-inline-size: var(--crumb-min); }
 .ctx-bar .crumbs li:only-child { min-inline-size: min(var(--crumb-min), 100%); }
