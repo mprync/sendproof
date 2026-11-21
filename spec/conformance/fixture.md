@@ -18,7 +18,7 @@ Server-database fixtures create the `items` table in the supplied empty database
 ## Authentication
 
 - Advertise a `cookie` provider at `/auth/sign-in`. Accept `POST {"email":"admin@example.test","password":"bench-fixture"}` and set a same-origin session cookie. Incorrect credentials return 401. The admin identity displays `Fixture Admin` and has role `admin`.
-- Advertise `personas` at `/auth/personas`. An authenticated admin can GET the list, which includes `{ "email": "viewer@example.test", "name": "Fixture Viewer", "role": "viewer" }`. `POST /auth/personas/viewer%40example.test` sets a new session for that viewer. Anonymous clients may do neither.
+- Advertise `personas` at `/auth/personas`. An authenticated admin can GET the list, which includes `{ "email": "viewer@example.test", "name": "Fixture Viewer", "role": "viewer" }`. `POST /auth/personas/viewer%40example.test` sets a new session for that viewer. Anonymous clients may do neither, and a rejected sign-in or persona switch must leave the caller anonymous even if the response sets a cookie.
 - The admin can execute every operation. The viewer can read items. Writes from a viewer return 403, while anonymous API callers receive 401. The UI and discovery are public in the standard scenario. Trace retrieval requires the owner of the trace, identified by a stable authenticated subject.
 
 ## API operations
