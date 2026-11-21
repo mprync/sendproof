@@ -1,4 +1,4 @@
-// Test Bench conformance fixture schema for sqlite. The fixture creates the tables itself.
+// Sendproof conformance fixture schema for sqlite. The fixture creates the tables itself.
 // Generate with: npm run generate-prisma-fixture (see adapters/node/prisma/README.md).
 
 generator client {
@@ -9,10 +9,10 @@ generator client {
 }
 
 // Writes the primary-key metadata used for automatic change capture.
-generator testBench {
+generator sendproof {
   // Use the workspace build before npm has linked the package's executable.
   provider = "node ./prisma/dist/generator.js"
-  output   = "./generated/test-bench"
+  output   = "./generated/sendproof"
 }
 
 datasource db {

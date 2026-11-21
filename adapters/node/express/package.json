@@ -1,14 +1,14 @@
 {
-  "name": "@test-bench/express",
+  "name": "@sendproof/express",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench middleware for Express",
+  "description": "Sendproof middleware for Express",
   "license": "MIT",
   "keywords": [
     "express",
     "openapi",
     "swagger-ui",
     "api-testing",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -28,7 +28,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   },
   "peerDependencies": {
     "express": "^5.1.0"

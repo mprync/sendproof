@@ -1,13 +1,13 @@
-# @test-bench/hono
+# @sendproof/hono
 
-Mount Test Bench in a Node-hosted Hono application and explicitly register the operations that may run in a rollback preview. Each registered operation uses the same Hono handlers for normal requests and internal preview dispatch.
+Mount Sendproof in a Node-hosted Hono application and explicitly register the operations that may run in a rollback preview. Each registered operation uses the same Hono handlers for normal requests and internal preview dispatch.
 
 ```js
 import { Hono } from 'hono';
-import { testBench } from '@test-bench/hono';
+import { sendproof } from '@sendproof/hono';
 
 const app = new Hono();
-const bench = testBench({
+const bench = sendproof({
   environment: 'development',
   openApiUrl: '/openapi.json',
   previewProvider, // transaction provider for the database used by the handlers
@@ -18,7 +18,7 @@ bench.operation('POST', '/items', authenticate, createItem);
 app.route('/', bench);
 ```
 
-For a mount at `/tenant`, pass `basePath: '/tenant'` and mount with `app.route('/tenant', bench)`. Configure a preview provider that starts a transaction on the connection used by the handlers and resolves only after rollback; `@test-bench/sqlite` supplies one for SQLite. Authentication and authorization handlers must be included in each registered operation. Workbench access can be restricted with `authorize`; a stable identity `subject` and `scheme` enable owner-scoped observed-send traces. Test Bench is enabled only in development by default. See the shared protocol and core options for capture limits and other configuration.
+For a mount at `/tenant`, pass `basePath: '/tenant'` and mount with `app.route('/tenant', bench)`. Configure a preview provider that starts a transaction on the connection used by the handlers and resolves only after rollback; `@sendproof/sqlite` supplies one for SQLite. Authentication and authorization handlers must be included in each registered operation. Workbench access can be restricted with `authorize`; a stable identity `subject` and `scheme` enable owner-scoped observed-send traces. Sendproof is enabled only in development by default. See the shared protocol and core options for capture limits and other configuration.
 
 Preview dispatch stays inside the process and reads response streams only up to `maxResponseBytes`. Avoid handlers that rely on state set by parent middleware: register required middleware with the operation so it runs during both Send and Preview.
 

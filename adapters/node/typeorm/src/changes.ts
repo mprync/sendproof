@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { Change, CaptureRecorder } from '@test-bench/core';
+import type { Change, CaptureRecorder } from '@sendproof/core';
 import type { DataSource, EntityMetadata } from 'typeorm';
 
 /** Runs a read-only statement on the connection that executed the write, bypassing capture. */

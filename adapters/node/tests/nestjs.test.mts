@@ -9,8 +9,8 @@ import type { CanActivate, ExecutionContext, INestApplication, Type } from '@nes
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NextFunction, Request, Response } from 'express';
-import { TestBenchModule, TestBenchPreview } from '@test-bench/nestjs';
-import type { NestBenchOptions } from '@test-bench/nestjs';
+import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
+import type { NestBenchOptions } from '@sendproof/nestjs';
 
 /** A preview provider that adds no transaction: enough to exercise the module itself. */
 const passthrough = { async preview<T>(dispatch: () => Promise<T>): Promise<T> { return dispatch(); } };
@@ -57,30 +57,30 @@ function bind(name: keyof ItemsController, index: number, decorator: ParameterDe
   decorator(prototype, name, index);
 }
 
-action('find', Get, ':id', TestBenchPreview('GET', '/items/{id}'));
+action('find', Get, ':id', SendproofPreview('GET', '/items/{id}'));
 bind('find', 0, Param('id'));
-action('create', Post, '', UseGuards(RoleGuard), TestBenchPreview('POST', '/items'));
+action('create', Post, '', UseGuards(RoleGuard), SendproofPreview('POST', '/items'));
 bind('create', 0, Body());
-action('remove', Delete, ':id', UseGuards(RoleGuard), TestBenchPreview('DELETE', '/items/{id}'));
+action('remove', Delete, ':id', UseGuards(RoleGuard), SendproofPreview('DELETE', '/items/{id}'));
 bind('remove', 0, Res());
-action('stream', Get, 'stream/big', TestBenchPreview('GET', '/items/stream/big'));
+action('stream', Get, 'stream/big', SendproofPreview('GET', '/items/stream/big'));
 bind('stream', 0, Res());
-action('hidden', Get, 'hidden/value'); // not marked with TestBenchPreview, so never eligible
-action('whoami', Get, 'who/am-i', TestBenchPreview('GET', '/items/who/am-i'));
+action('hidden', Get, 'hidden/value'); // not marked with SendproofPreview, so never eligible
+action('whoami', Get, 'who/am-i', SendproofPreview('GET', '/items/who/am-i'));
 bind('whoami', 0, Req());
-action('broken', Get, 'broken/op', TestBenchPreview('GET', '/items/broken/op'));
+action('broken', Get, 'broken/op', SendproofPreview('GET', '/items/broken/op'));
 
 const apps: INestApplication[] = [];
 after(async () => { await Promise.all(apps.map(app => app.close())); });
 
 interface Started { app: INestApplication; url: string }
 
-/** Boot the controller behind `TestBenchModule` on an ephemeral loopback port. */
+/** Boot the controller behind `SendproofModule` on an ephemeral loopback port. */
 async function start(options: NestBenchOptions = {}, configure?: (app: INestApplication) => void): Promise<Started> {
   class AppModule {}
   Module({
     controllers: [ItemsController as Type],
-    imports: [TestBenchModule.forRoot({ environment: 'development', previewProvider: passthrough, ...options })],
+    imports: [SendproofModule.forRoot({ environment: 'development', previewProvider: passthrough, ...options })],
   })(AppModule);
   const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
   configure?.(app);
@@ -95,32 +95,32 @@ async function envelope(response: globalThis.Response) {
 
 test('discovered operations drive route matching and unmarked actions are refused', async () => {
   const { url } = await start();
-  const matched = await fetch(`${url}/bench/_preview/items/42`, { headers: rollback });
+  const matched = await fetch(`${url}/sendproof/_preview/items/42`, { headers: rollback });
   assert.equal(matched.status, 200);
   assert.equal(matched.headers.get('preference-applied'), 'tx=rollback');
   const preview = await envelope(matched);
   assert.deepEqual(preview.body, { id: '42' });
   assert.equal(preview.rolledBack, true);
 
-  assert.equal((await fetch(`${url}/bench/_preview/items/hidden/value`, { headers: rollback })).status, 409,
-    'a controller action without @TestBenchPreview is not eligible');
-  assert.equal((await fetch(`${url}/bench/_preview/nothing`, { headers: rollback })).status, 409);
-  assert.equal((await fetch(`${url}/bench/_preview/items/42`, { method: 'DELETE', headers: { ...rollback, 'X-Role': 'admin' } })).status, 200);
-  assert.equal((await fetch(`${url}/bench/_preview/items/42`, { method: 'PUT', headers: rollback })).status, 409,
+  assert.equal((await fetch(`${url}/sendproof/_preview/items/hidden/value`, { headers: rollback })).status, 409,
+    'a controller action without @SendproofPreview is not eligible');
+  assert.equal((await fetch(`${url}/sendproof/_preview/nothing`, { headers: rollback })).status, 409);
+  assert.equal((await fetch(`${url}/sendproof/_preview/items/42`, { method: 'DELETE', headers: { ...rollback, 'X-Role': 'admin' } })).status, 200);
+  assert.equal((await fetch(`${url}/sendproof/_preview/items/42`, { method: 'PUT', headers: rollback })).status, 409,
     'a method with no matching action is unavailable');
 });
 
-test('TestBenchPreview rejects malformed declarations', () => {
+test('SendproofPreview rejects malformed declarations', () => {
   for (const [method, path] of [['TRACE', '/items'], ['GET', 'items'], ['GET', '//items'], ['GET', '/items?x=1'], ['GET', '/items#x'], ['GET', '/a\\b']] as const) {
-    assert.throws(() => TestBenchPreview(method, path), /HTTP method and the workbench-relative/, `${method} ${path}`);
+    assert.throws(() => SendproofPreview(method, path), /HTTP method and the workbench-relative/, `${method} ${path}`);
   }
-  assert.doesNotThrow(() => TestBenchPreview('patch', '/items/{id}'));
+  assert.doesNotThrow(() => SendproofPreview('patch', '/items/{id}'));
 });
 
 test('native Nest guards decide Preview and run on the rewritten request', async () => {
   const { url } = await start();
   calls.create = 0;
-  const preview = (role?: string) => fetch(`${url}/bench/_preview/items`, {
+  const preview = (role?: string) => fetch(`${url}/sendproof/_preview/items`, {
     method: 'POST', body: JSON.stringify({ name: 'widget' }),
     headers: { ...jsonHeaders, ...rollback, ...(role ? { 'X-Role': role } : {}) },
   });
@@ -144,20 +144,20 @@ test('JSON request bodies reach the action in Preview and in an observed Send', 
   const body = JSON.stringify({ name: 'widget' });
   const headers = { ...jsonHeaders, 'X-Role': 'admin' };
 
-  const previewed = await envelope(await fetch(`${url}/bench/_preview/items`, { method: 'POST', body, headers: { ...headers, ...rollback } }));
+  const previewed = await envelope(await fetch(`${url}/sendproof/_preview/items`, { method: 'POST', body, headers: { ...headers, ...rollback } }));
   assert.equal(previewed.status, 201);
   assert.deepEqual(previewed.body, { created: 'widget' });
 
   const sent = await fetch(`${url}/items`, { method: 'POST', body, headers: { ...headers, Prefer: 'trace' } });
   assert.equal(sent.status, 201);
   assert.deepEqual(await sent.json(), { created: 'widget' });
-  const trace = sent.headers.get('x-testbench-trace');
+  const trace = sent.headers.get('x-sendproof-trace');
   assert(trace, 'an authenticated observed Send returns a trace id');
-  assert.equal((await fetch(`${url}/bench/_api/traces/${trace}`)).status, 200);
+  assert.equal((await fetch(`${url}/sendproof/_api/traces/${trace}`)).status, 200);
 
   const plain = await fetch(`${url}/items`, { method: 'POST', body, headers });
   assert.equal(plain.status, 201);
-  assert.equal(plain.headers.get('x-testbench-trace'), null, 'no trace without Prefer: trace');
+  assert.equal(plain.headers.get('x-sendproof-trace'), null, 'no trace without Prefer: trace');
 });
 
 test('application middleware runs again when Preview re-enters the pipeline', async () => {
@@ -175,17 +175,17 @@ test('application middleware runs again when Preview re-enters the pipeline', as
   assert.equal(runs, 1);
 
   runs = 0;
-  const previewed = await envelope(await fetch(`${url}/bench/_preview/items/who/am-i`, { headers: { ...rollback, 'X-Actor': 'alice' } }));
+  const previewed = await envelope(await fetch(`${url}/sendproof/_preview/items/who/am-i`, { headers: { ...rollback, 'X-Actor': 'alice' } }));
   assert.deepEqual(previewed.body, { actor: 'alice' }, 'middleware state reaches the previewed action');
   assert.equal(runs, 2, 'once for the workbench request and once for the in-process dispatch');
 });
 
 test('options control availability, discovery and validation', async () => {
   const disabled = await start({ environment: 'production' });
-  assert.equal((await fetch(`${disabled.url}/bench/`)).status, 404);
+  assert.equal((await fetch(`${disabled.url}/sendproof/`)).status, 404);
 
   const { url } = await start({ apiName: 'Unit API', database: 'Test DB' });
-  const capabilities = await (await fetch(`${url}/bench/_api/capabilities`)).json() as {
+  const capabilities = await (await fetch(`${url}/sendproof/_api/capabilities`)).json() as {
     apiName: string; database: string; openApiUrl: string; observedSend: boolean; previewOperations: { method: string; path: string }[];
   };
   assert.equal(capabilities.apiName, 'Unit API');
@@ -197,13 +197,13 @@ test('options control availability, discovery and validation', async () => {
   ]);
 
   const custom = await start({ openApiUrl: '/docs/openapi.json', previewProvider: undefined });
-  const quiet = await (await fetch(`${custom.url}/bench/_api/capabilities`)).json() as {
+  const quiet = await (await fetch(`${custom.url}/sendproof/_api/capabilities`)).json() as {
     openApiUrl: string; previewOperations: unknown[]; observedSend: boolean;
   };
   assert.equal(quiet.openApiUrl, '/docs/openapi.json');
   assert.deepEqual(quiet.previewOperations, []);
   assert.equal(quiet.observedSend, false);
-  assert.equal((await fetch(`${custom.url}/bench/_preview/items/1`, { headers: rollback })).status, 503);
+  assert.equal((await fetch(`${custom.url}/sendproof/_preview/items/1`, { headers: rollback })).status, 503);
 
   await assert.rejects(start({ openApiUrl: 'https://example.test/openapi.json' }), /same-origin/);
   await assert.rejects(start({ maxResponseBytes: 0 }), /positive integers/);
@@ -211,7 +211,7 @@ test('options control availability, discovery and validation', async () => {
 
 test('Preview insists on the rollback preference, the same origin and authorization', async () => {
   const { url } = await start({ authorize: ({ headers }) => headers['x-allowed'] === 'yes' });
-  const target = `${url}/bench/_preview/items/1`;
+  const target = `${url}/sendproof/_preview/items/1`;
   const allowed = { 'X-Allowed': 'yes' };
 
   assert.equal((await fetch(target, { headers: rollback })).status, 401, 'workbench access is denied');
@@ -219,7 +219,7 @@ test('Preview insists on the rollback preference, the same origin and authorizat
   assert.equal((await fetch(target, { headers: { ...allowed, ...rollback, Origin: 'http://evil.test' } })).status, 403);
   assert.equal((await fetch(target, { headers: { ...allowed, ...rollback, 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
   assert.equal((await fetch(target, { headers: { ...allowed, ...rollback } })).status, 200);
-  assert.equal((await fetch(`${url}/bench/_preview/bench/x`, { headers: { ...allowed, ...rollback } })).status, 400,
+  assert.equal((await fetch(`${url}/sendproof/_preview/sendproof/x`, { headers: { ...allowed, ...rollback } })).status, 400,
     'the workbench itself cannot be a preview target');
 });
 
@@ -227,18 +227,18 @@ test('a global prefix needs a matching basePath and prefixes every discovered UR
   const { url } = await start({ basePath: '/v1', openApiUrl: '/api-json', documents: [{ name: 'Guide', url: '/guide' }] },
     app => app.setGlobalPrefix('v1'));
 
-  const capabilities = await (await fetch(`${url}/v1/bench/_api/capabilities`)).json() as {
+  const capabilities = await (await fetch(`${url}/v1/sendproof/_api/capabilities`)).json() as {
     openApiUrl: string; documents: { url: string }[]; previewOperations: { path: string }[];
   };
   assert.equal(capabilities.openApiUrl, '/v1/api-json');
   assert.equal(capabilities.documents[0]?.url, '/v1/guide');
   assert(capabilities.previewOperations.some(({ path }) => path === '/items/{id}'), 'operation paths stay prefix-free');
-  assert.equal((await fetch(`${url}/v1/bench`, { redirect: 'manual' })).headers.get('location'), '/v1/bench/');
-  const index = await fetch(`${url}/v1/bench/`);
+  assert.equal((await fetch(`${url}/v1/sendproof`, { redirect: 'manual' })).headers.get('location'), '/v1/sendproof/');
+  const index = await fetch(`${url}/v1/sendproof/`);
   assert.equal(index.status, 200);
   assert.match(index.headers.get('content-type') ?? '', /text\/html/);
 
-  const previewed = await fetch(`${url}/v1/bench/_preview/items/9`, { headers: rollback });
+  const previewed = await fetch(`${url}/v1/sendproof/_preview/items/9`, { headers: rollback });
   assert.equal(previewed.status, 200);
   assert.deepEqual((await envelope(previewed)).body, { id: '9' });
 
@@ -249,14 +249,14 @@ test('a global prefix needs a matching basePath and prefixes every discovered UR
 
 test('responses over the capture limit are refused and a limit-sized response passes', async () => {
   const small = await start({ maxResponseBytes: 16 });
-  assert.equal((await fetch(`${small.url}/bench/_preview/items/stream/big`, { headers: rollback })).status, 413);
+  assert.equal((await fetch(`${small.url}/sendproof/_preview/items/stream/big`, { headers: rollback })).status, 413);
   const exact = await start({ maxResponseBytes: 32 });
-  assert.equal((await fetch(`${exact.url}/bench/_preview/items/stream/big`, { headers: rollback })).status, 200);
+  assert.equal((await fetch(`${exact.url}/sendproof/_preview/items/stream/big`, { headers: rollback })).status, 200);
 });
 
 test('action failures are reported without leaking details', async () => {
   const { url } = await start();
-  const broken = await fetch(`${url}/bench/_preview/items/broken/op`, { headers: rollback });
+  const broken = await fetch(`${url}/sendproof/_preview/items/broken/op`, { headers: rollback });
   assert.equal(broken.status, 500);
   assert(!(await broken.text()).includes('secret detail'));
 });

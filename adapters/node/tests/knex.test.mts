@@ -2,7 +2,7 @@ import { afterEach, before, after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { Knex } from 'knex';
-import { KnexPreview } from '@test-bench/knex';
+import { KnexPreview } from '@sendproof/knex';
 import { capturing, sqlEntries } from './support/capture.mts';
 import { resetSchema, targets } from './support/knex-databases.mts';
 import type { TestDatabase } from './support/knex-databases.mts';

@@ -1,35 +1,35 @@
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import plugin from 'fastify-plugin';
-import { createBench } from '@test-bench/core';
+import { createBench } from '@sendproof/core';
 import { requestContext, sendTransport } from './context.js';
 import { dispatching, dispatchInProcess, matchedResponses } from './dispatch.js';
 import { operationMethod, routePath, OPERATION_METHODS } from './paths.js';
-import type { FastifyBenchOptions, OperationRoute, TestBench } from './types.js';
+import type { FastifyBenchOptions, OperationRoute, Sendproof } from './types.js';
 
-export type { FastifyBenchOptions, OperationRoute, TestBench } from './types.js';
+export type { FastifyBenchOptions, OperationRoute, Sendproof } from './types.js';
 
 /** Route config key marking a route as a registered, preview-eligible operation. */
-const eligible = Symbol('testBenchEligible');
+const eligible = Symbol('sendproofEligible');
 
 type Bench = ReturnType<typeof createBench<FastifyRequest>>;
 type Observation = NonNullable<Awaited<ReturnType<Bench['observation']>>>;
 
 declare module 'fastify' {
   interface FastifyInstance {
-    /** Register preview- and trace-eligible operations; added by the `@test-bench/fastify` plugin. */
-    testBench: TestBench;
+    /** Register preview- and trace-eligible operations; added by the `@sendproof/fastify` plugin. */
+    sendproof: Sendproof;
   }
 }
 
-/** Whether Fastify matched a route that was registered through `app.testBench.operation`. */
+/** Whether Fastify matched a route that was registered through `app.sendproof.operation`. */
 function isEligible(request: FastifyRequest): boolean {
   const config = request.routeOptions.config as unknown as Record<symbol, unknown> | undefined;
   return config?.[eligible] === true;
 }
 
-/** Register Test Bench on a Fastify instance before registering its other routes. */
-function registerTestBench(app: FastifyInstance, options: FastifyBenchOptions): TestBench {
+/** Register Sendproof on a Fastify instance before registering its other routes. */
+function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): Sendproof {
   const basePath = app.prefix === '/' ? '' : app.prefix;
   const operations: { method: string; path: string }[] = [];
   const observations = new WeakMap<IncomingMessage, Observation>();
@@ -64,17 +64,17 @@ function registerTestBench(app: FastifyInstance, options: FastifyBenchOptions): 
     const observed = observations.get(request.raw);
     if (observed) {
       const trace = observed.complete(reply.statusCode);
-      if (trace) reply.header('X-TestBench-Trace', trace);
+      if (trace) reply.header('X-Sendproof-Trace', trace);
     }
     done(null, payload);
   });
 
   // These routes let Fastify route the workbench through the same hooks as application routes.
-  for (const url of ['/bench', '/bench/*']) {
+  for (const url of ['/sendproof', '/sendproof/*']) {
     app.route({ method: [...OPERATION_METHODS, 'HEAD'], url, handler: (_request, reply) => reply.code(404).send() });
   }
 
-  const api: TestBench = {
+  const api: Sendproof = {
     operation(method: string, template: string, route: OperationRoute) {
       const verb = operationMethod(method);
       const definition = typeof route === 'function' ? { handler: route } : route;
@@ -95,7 +95,7 @@ function registerTestBench(app: FastifyInstance, options: FastifyBenchOptions): 
   return api;
 }
 
-/** Fastify 5 plugin. Register before the routes that use `app.testBench`. */
-export const testBench = plugin<FastifyBenchOptions>(async (app, options) => {
-  app.decorate('testBench', registerTestBench(app, options));
-}, { name: 'test-bench', fastify: '5.x' });
+/** Fastify 5 plugin. Register before the routes that use `app.sendproof`. */
+export const sendproof = plugin<FastifyBenchOptions>(async (app, options) => {
+  app.decorate('sendproof', registerSendproof(app, options));
+}, { name: 'sendproof', fastify: '5.x' });

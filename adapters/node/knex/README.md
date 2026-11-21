@@ -1,9 +1,9 @@
-# @test-bench/knex
+# @sendproof/knex
 
 Use the Knex pool your application already owns. Pass a `KnexPreview` instance as the framework's preview provider and build queries from its `client`. Inserts, updates and deletes made through that client are captured with before and after rows, and nobody has to say which rows they touch. The package is strict TypeScript with generated declarations, verified against real SQLite, PostgreSQL, MySQL and SQL Server.
 
 ```ts
-import { KnexPreview } from '@test-bench/knex';
+import { KnexPreview } from '@sendproof/knex';
 
 const database = new KnexPreview(knex);
 

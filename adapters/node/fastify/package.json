@@ -1,14 +1,14 @@
 {
-  "name": "@test-bench/fastify",
+  "name": "@sendproof/fastify",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench plugin for Fastify",
+  "description": "Sendproof plugin for Fastify",
   "license": "MIT",
   "keywords": [
     "fastify",
     "openapi",
     "swagger-ui",
     "api-testing",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -28,7 +28,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1",
+    "@sendproof/core": "0.1.0-alpha.1",
     "fastify-plugin": "^5.1.0"
   },
   "peerDependencies": {

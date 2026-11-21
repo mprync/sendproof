@@ -5,8 +5,8 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PrismaPreview } from '@test-bench/prisma';
-import type { PrismaPreviewOptions } from '@test-bench/prisma';
+import { PrismaPreview } from '@sendproof/prisma';
+import type { PrismaPreviewOptions } from '@sendproof/prisma';
 import { capturing, sqlEntries } from './support/capture.mts';
 import { targets } from './support/prisma-databases.mts';
 import type { Client, TestDatabase } from './support/prisma-databases.mts';

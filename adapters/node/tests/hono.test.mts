@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
-import { testBench } from '@test-bench/hono';
-import type { TestBenchOptions } from '@test-bench/hono';
+import { sendproof } from '@sendproof/hono';
+import type { SendproofOptions } from '@sendproof/hono';
 
 /** A preview provider that adds no transaction: enough to exercise the router itself. */
 const passthrough = { async preview<T>(dispatch: () => Promise<T>): Promise<T> { return dispatch(); } };
 const rollback = { Prefer: 'tx=rollback' };
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
-function create(options: TestBenchOptions = {}) {
-  return testBench({ environment: 'development', previewProvider: passthrough, ...options });
+function create(options: SendproofOptions = {}) {
+  return sendproof({ environment: 'development', previewProvider: passthrough, ...options });
 }
 
 /** The JSON envelope the workbench returns for a Preview. */
@@ -25,23 +25,23 @@ test('route templates map to Hono patterns and unregistered previews are rejecte
   const bench = create();
   bench.operation('GET', '/items/{id}', c => c.json({ id: c.req.param('id') }));
 
-  const matched = await bench.request('http://localhost/bench/_preview/items/42', { headers: rollback });
+  const matched = await bench.request('http://localhost/sendproof/_preview/items/42', { headers: rollback });
   assert.equal(matched.status, 200);
   assert.equal(matched.headers.get('preference-applied'), 'tx=rollback');
   const preview = await envelope(matched);
   assert.deepEqual(preview.body, { id: '42' });
   assert.equal(preview.rolledBack, true);
 
-  const unknownPath = await bench.request('http://localhost/bench/_preview/missing', { headers: rollback });
+  const unknownPath = await bench.request('http://localhost/sendproof/_preview/missing', { headers: rollback });
   assert.equal(unknownPath.status, 409);
-  const wrongMethod = await bench.request('http://localhost/bench/_preview/items/42', { method: 'POST', headers: rollback });
+  const wrongMethod = await bench.request('http://localhost/sendproof/_preview/items/42', { method: 'POST', headers: rollback });
   assert.equal(wrongMethod.status, 409);
 });
 
 test('invalid or duplicate registrations are refused before any request', () => {
   const bench = create();
   const handler = (c: Context) => c.text('ok');
-  for (const template of ['items', '/items?x=1', '/a/../b', '/a/./b', '/items/{id', '/bench', '/Bench/x', '/items/', '//items']) {
+  for (const template of ['items', '/items?x=1', '/a/../b', '/a/./b', '/items/{id', '/sendproof', '/Sendproof/x', '/items/', '//items']) {
     assert.throws(() => bench.operation('GET', template, handler), /OpenAPI route template/, template);
   }
   assert.throws(() => bench.operation('TRACE', '/items', handler), /supported HTTP method/);
@@ -61,7 +61,7 @@ test('guards registered with an operation decide both Preview and Send', async (
   };
   const bench = create();
   bench.operation('DELETE', '/items/{id}', guard, c => { calls++; return c.body(null, 204); });
-  const preview = (role?: string) => bench.request('http://localhost/bench/_preview/items/1', {
+  const preview = (role?: string) => bench.request('http://localhost/sendproof/_preview/items/1', {
     method: 'DELETE', headers: { ...rollback, ...(role ? { 'X-Role': role } : {}) },
   });
 
@@ -88,7 +88,7 @@ test('JSON request bodies reach the handler in Preview and in an observed Send',
   });
   const init = { method: 'POST', body: JSON.stringify({ name: 'widget' }) };
 
-  const previewed = await bench.request('http://localhost/bench/_preview/items', {
+  const previewed = await bench.request('http://localhost/sendproof/_preview/items', {
     ...init, headers: { ...jsonHeaders, ...rollback },
   });
   const preview = await envelope(previewed);
@@ -98,19 +98,19 @@ test('JSON request bodies reach the handler in Preview and in an observed Send',
   const sent = await bench.request('http://localhost/items', { ...init, headers: { ...jsonHeaders, Prefer: 'trace' } });
   assert.equal(sent.status, 201);
   assert.deepEqual(await sent.json(), { created: 'widget' });
-  const trace = sent.headers.get('x-testbench-trace');
+  const trace = sent.headers.get('x-sendproof-trace');
   assert(trace, 'an authenticated observed Send returns a trace id');
-  const stored = await bench.request(`http://localhost/bench/_api/traces/${trace}`);
+  const stored = await bench.request(`http://localhost/sendproof/_api/traces/${trace}`);
   assert.equal(stored.status, 200);
 
   const plain = await bench.request('http://localhost/items', { ...init, headers: jsonHeaders });
   assert.equal(plain.status, 201);
-  assert.equal(plain.headers.get('x-testbench-trace'), null, 'no trace is recorded without Prefer: trace');
+  assert.equal(plain.headers.get('x-sendproof-trace'), null, 'no trace is recorded without Prefer: trace');
 });
 
 test('middleware registered with an operation runs for Send and Preview, parent state does not', async () => {
   const app = new Hono<{ Variables: { actor: string; parent: string } }>();
-  const bench = testBench<{ Variables: { actor: string; parent: string } }>({
+  const bench = sendproof<{ Variables: { actor: string; parent: string } }>({
     environment: 'development', previewProvider: passthrough,
   });
   app.use('*', async (c, next) => { c.set('parent', 'set'); await next(); });
@@ -122,17 +122,17 @@ test('middleware registered with an operation runs for Send and Preview, parent 
   const sent = await app.request('http://localhost/whoami');
   assert.deepEqual(await sent.json(), { actor: 'operation-middleware', parent: 'set' });
 
-  const previewed = await app.request('http://localhost/bench/_preview/whoami', { headers: rollback });
+  const previewed = await app.request('http://localhost/sendproof/_preview/whoami', { headers: rollback });
   assert.deepEqual((await envelope(previewed)).body, { actor: 'operation-middleware', parent: null });
 });
 
 test('options control availability, discovery and validation', async () => {
   const disabled = create({ environment: 'production' });
-  assert.equal((await disabled.request('http://localhost/bench/')).status, 404);
+  assert.equal((await disabled.request('http://localhost/sendproof/')).status, 404);
 
   const bench = create({ apiName: 'Unit API', openApiUrl: '/docs/openapi.json', database: 'Test DB' });
   bench.operation('POST', '/items', c => c.text('ok')).operation('GET', '/items/{id}', c => c.text('ok'));
-  const capabilities = await (await bench.request('http://localhost/bench/_api/capabilities')).json() as {
+  const capabilities = await (await bench.request('http://localhost/sendproof/_api/capabilities')).json() as {
     apiName: string; database: string; openApiUrl: string; observedSend: boolean; previewOperations: unknown[];
   };
   assert.equal(capabilities.apiName, 'Unit API');
@@ -143,10 +143,10 @@ test('options control availability, discovery and validation', async () => {
     { method: 'POST', path: '/items' }, { method: 'GET', path: '/items/{id}' },
   ]);
 
-  const withoutProvider = testBench({ environment: 'development' });
+  const withoutProvider = sendproof({ environment: 'development' });
   withoutProvider.operation('GET', '/items', c => c.text('ok'));
-  assert.equal((await withoutProvider.request('http://localhost/bench/_preview/items', { headers: rollback })).status, 503);
-  const quiet = await (await withoutProvider.request('http://localhost/bench/_api/capabilities')).json() as {
+  assert.equal((await withoutProvider.request('http://localhost/sendproof/_preview/items', { headers: rollback })).status, 503);
+  const quiet = await (await withoutProvider.request('http://localhost/sendproof/_api/capabilities')).json() as {
     previewOperations: unknown[]; observedSend: boolean;
   };
   assert.deepEqual(quiet.previewOperations, []);
@@ -160,7 +160,7 @@ test('options control availability, discovery and validation', async () => {
 test('Preview insists on the rollback preference, the same origin and authorization', async () => {
   const bench = create({ authorize: ({ headers }) => headers['x-allowed'] === 'yes' });
   bench.operation('GET', '/items', c => c.json([]));
-  const url = 'http://localhost/bench/_preview/items';
+  const url = 'http://localhost/sendproof/_preview/items';
 
   assert.equal((await bench.request(url, { headers: { Prefer: 'tx=rollback' } })).status, 401, 'workbench access is denied');
   const allowed = { 'X-Allowed': 'yes' };
@@ -168,7 +168,7 @@ test('Preview insists on the rollback preference, the same origin and authorizat
   assert.equal((await bench.request(url, { headers: { ...allowed, ...rollback, Origin: 'http://evil.test' } })).status, 403);
   assert.equal((await bench.request(url, { headers: { ...allowed, ...rollback, 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
   assert.equal((await bench.request(url, { headers: { ...allowed, ...rollback, Origin: 'http://localhost' } })).status, 200);
-  assert.equal((await bench.request('http://localhost/bench/_preview/bench/x', { headers: { ...allowed, ...rollback } })).status, 400,
+  assert.equal((await bench.request('http://localhost/sendproof/_preview/sendproof/x', { headers: { ...allowed, ...rollback } })).status, 400,
     'the workbench itself cannot be a preview target');
   assert.equal((await bench.request('http://localhost/items', { headers: { ...allowed, ...rollback } })).status, 400,
     'the preference is only honoured on the preview URL');
@@ -180,20 +180,20 @@ test('a router mounted under a base path prefixes discovery and resolves preview
   bench.operation('GET', '/items/{id}', c => c.json({ id: c.req.param('id') }));
   app.route('/tenant', bench);
 
-  const capabilities = await (await app.request('http://localhost/tenant/bench/_api/capabilities')).json() as {
+  const capabilities = await (await app.request('http://localhost/tenant/sendproof/_api/capabilities')).json() as {
     openApiUrl: string; documents: { url: string }[];
   };
   assert.equal(capabilities.openApiUrl, '/tenant/openapi.json');
   assert.equal(capabilities.documents[0]?.url, '/tenant/guide');
-  assert.equal((await app.request('http://localhost/tenant/bench', { redirect: 'manual' })).headers.get('location'), '/tenant/bench/');
-  const index = await app.request('http://localhost/tenant/bench/');
+  assert.equal((await app.request('http://localhost/tenant/sendproof', { redirect: 'manual' })).headers.get('location'), '/tenant/sendproof/');
+  const index = await app.request('http://localhost/tenant/sendproof/');
   assert.equal(index.status, 200);
   assert.match(index.headers.get('content-type') ?? '', /text\/html/);
 
-  const previewed = await app.request('http://localhost/tenant/bench/_preview/items/7', { headers: rollback });
+  const previewed = await app.request('http://localhost/tenant/sendproof/_preview/items/7', { headers: rollback });
   assert.equal(previewed.status, 200);
   assert.deepEqual((await envelope(previewed)).body, { id: '7' });
-  assert.equal((await app.request('http://localhost/bench/_api/capabilities')).status, 404, 'nothing is served outside the mount');
+  assert.equal((await app.request('http://localhost/sendproof/_api/capabilities')).status, 404, 'nothing is served outside the mount');
 
   for (const basePath of ['/tenant/', 'tenant', '/a/../b', '/a//b', '/te nant']) {
     assert.throws(() => create({ basePath }), /basePath must be an absolute path/, basePath);
@@ -212,7 +212,7 @@ test('preview cancels a response stream as soon as it exceeds the capture limit'
     cancel() { cancelled = true; },
   })));
 
-  const response = await bench.request('http://localhost/bench/_preview/stream', { headers: rollback });
+  const response = await bench.request('http://localhost/sendproof/_preview/stream', { headers: rollback });
   assert.equal(response.status, 413);
   assert.equal(response.headers.get('preference-applied'), null);
   assert.equal(cancelled, true);
@@ -223,8 +223,8 @@ test('a response exactly at the limit is returned and one byte over is refused',
   const bench = create({ maxResponseBytes: 16 });
   bench.operation('GET', '/exact', c => c.text('x'.repeat(16)));
   bench.operation('GET', '/over', c => c.text('x'.repeat(17)));
-  assert.equal((await bench.request('http://localhost/bench/_preview/exact', { headers: rollback })).status, 200);
-  assert.equal((await bench.request('http://localhost/bench/_preview/over', { headers: rollback })).status, 413);
+  assert.equal((await bench.request('http://localhost/sendproof/_preview/exact', { headers: rollback })).status, 200);
+  assert.equal((await bench.request('http://localhost/sendproof/_preview/over', { headers: rollback })).status, 413);
 });
 
 test('handler failures and bodiless responses are reported without leaking state', async () => {
@@ -232,10 +232,10 @@ test('handler failures and bodiless responses are reported without leaking state
   const bench = create();
   bench.operation('GET', '/broken', () => { throw new Error('secret detail'); });
   bench.operation('GET', '/empty', c => c.body(null, 204));
-  const broken = await bench.request('http://localhost/bench/_preview/broken', { headers: rollback });
+  const broken = await bench.request('http://localhost/sendproof/_preview/broken', { headers: rollback });
   assert.equal(broken.status, 500);
   assert(!(await broken.text()).includes('secret detail'));
-  const empty = await bench.request('http://localhost/bench/_preview/empty', { headers: rollback });
+  const empty = await bench.request('http://localhost/sendproof/_preview/empty', { headers: rollback });
   assert.equal(empty.status, 200);
   const preview = await envelope(empty);
   assert.equal(preview.status, 204);

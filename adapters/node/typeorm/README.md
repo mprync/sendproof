@@ -1,9 +1,9 @@
-# @test-bench/typeorm
+# @sendproof/typeorm
 
 Wrap the TypeORM `DataSource` your application already owns. Preview runs participating handlers on an enrolled `EntityManager` inside a transaction that is always rolled back; Send leaves the ordinary manager in use.
 
 ```ts
-import { TypeOrmPreview } from '@test-bench/typeorm';
+import { TypeOrmPreview } from '@sendproof/typeorm';
 
 const database = new TypeOrmPreview(dataSource);
 const item = await database.run(manager => manager.getRepository(Item).findOneBy({ id }));

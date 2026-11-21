@@ -1,6 +1,6 @@
-# @test-bench/drizzle
+# @sendproof/drizzle
 
-Test Bench Preview and row-change capture for Drizzle ORM 0.45 on PostgreSQL, MySQL and SQLite, on Node 22.16 or newer. Preview runs the real operation in a transaction that is always rolled back. Row changes are identified by the primary key in the Drizzle table definition, so callers never pass row keys.
+Sendproof Preview and row-change capture for Drizzle ORM 0.45 on PostgreSQL, MySQL and SQLite, on Node 22.16 or newer. Preview runs the real operation in a transaction that is always rolled back. Row changes are identified by the primary key in the Drizzle table definition, so callers never pass row keys.
 
 ## Setup
 
@@ -10,7 +10,7 @@ Pass the application's Drizzle database. Supported drivers are `pg` over a `Pool
 
 ```ts
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { drizzlePreview } from '@test-bench/drizzle';
+import { drizzlePreview } from '@sendproof/drizzle';
 
 const database = drizzlePreview(drizzle({ client: pool }));
 // Pass `database` as the framework adapter's previewProvider, and query through database.client.
@@ -21,10 +21,10 @@ Create the MySQL database as `drizzle(pool, { mode: 'default' })`. Drizzle 0.45 
 
 ### SQLite
 
-Pass a `@test-bench/sqlite` database. The provider creates a Drizzle client over the same connection.
+Pass a `@sendproof/sqlite` database. The provider creates a Drizzle client over the same connection.
 
 ```ts
-import { SQLiteDatabase } from '@test-bench/sqlite';
+import { SQLiteDatabase } from '@sendproof/sqlite';
 
 const database = drizzlePreview(new SQLiteDatabase('app.db'), { schema: { items } });
 ```
@@ -83,7 +83,7 @@ Statements are logged with their text, duration and rows affected. Drizzle sends
 
 | Database | Driver | Tests | Last result |
 | --- | --- | --- | --- |
-| SQLite | `@test-bench/sqlite` | 10 | passed |
+| SQLite | `@sendproof/sqlite` | 10 | passed |
 | PGlite | `@electric-sql/pglite` | 10 | passed |
 | PostgreSQL 17 | `pg` | 11 | passed |
 | PostgreSQL 17 | `postgres` | 10 | passed |

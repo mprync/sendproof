@@ -1,5 +1,5 @@
-import type { PreviewProvider } from '@test-bench/core';
-import type { SQLiteDatabase, TrackedRows } from '@test-bench/sqlite';
+import type { PreviewProvider } from '@sendproof/core';
+import type { SQLiteDatabase, TrackedRows } from '@sendproof/sqlite';
 import { sql } from 'drizzle-orm';
 import type { MySqlDatabase } from 'drizzle-orm/mysql-core';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
@@ -14,7 +14,7 @@ import type { Scope } from './scope.js';
 import { instrumentSession } from './statements.js';
 
 export type { DrizzleDialect } from './metadata.js';
-export type { TrackedRows } from '@test-bench/sqlite';
+export type { TrackedRows } from '@sendproof/sqlite';
 
 /** Settings shared by every dialect. */
 export interface DrizzlePreviewOptions {
@@ -25,7 +25,7 @@ export interface DrizzlePreviewOptions {
   trackedRowLimit?: number;
 }
 
-/** Settings for the SQLite client the provider creates over `@test-bench/sqlite`. */
+/** Settings for the SQLite client the provider creates over `@sendproof/sqlite`. */
 export interface SQLiteDrizzleOptions<Tables extends Record<string, unknown>> extends DrizzlePreviewOptions {
   /** Tables and relations for Drizzle's relational query API. */
   schema?: Tables;
@@ -66,7 +66,7 @@ export interface DrizzlePreview<Database> extends PreviewProvider {
  * Create a Preview provider for a Drizzle database.
  *
  * For PostgreSQL and MySQL, pass the application's Drizzle database: `node-postgres` over a `Pool`,
- * `postgres`, PGlite, or `mysql2` over a pool. For SQLite, pass a `@test-bench/sqlite` database;
+ * `postgres`, PGlite, or `mysql2` over a pool. For SQLite, pass a `@sendproof/sqlite` database;
  * the provider creates the Drizzle client over that connection.
  */
 export function drizzlePreview<Tables extends Record<string, unknown> = Record<string, never>>(
@@ -89,9 +89,9 @@ export function drizzlePreview(
 
   const dialect = dialectOf(database);
   if (dialect === 'sqlite') {
-    throw new TypeError('For SQLite, pass a @test-bench/sqlite SQLiteDatabase; drizzlePreview creates the Drizzle client over it.');
+    throw new TypeError('For SQLite, pass a @sendproof/sqlite SQLiteDatabase; drizzlePreview creates the Drizzle client over it.');
   }
-  if (!dialect) throw new TypeError('drizzlePreview accepts a Drizzle PostgreSQL or MySQL database or a @test-bench/sqlite SQLiteDatabase.');
+  if (!dialect) throw new TypeError('drizzlePreview accepts a Drizzle PostgreSQL or MySQL database or a @sendproof/sqlite SQLiteDatabase.');
   requireDedicatedConnections(dialect, database);
 
   const base = database as unknown as DatabaseLike;
@@ -193,8 +193,8 @@ async function preview<T>(state: ProviderState, dispatch: () => Promise<T>): Pro
 async function confirmOpen(transaction: DatabaseLike): Promise<void> {
   const execute = transaction['execute'] as (query: unknown) => Promise<unknown>;
   try {
-    await execute.call(transaction, sql`savepoint testbench_preview_open`);
-    await execute.call(transaction, sql`release savepoint testbench_preview_open`);
+    await execute.call(transaction, sql`savepoint sendproof_preview_open`);
+    await execute.call(transaction, sql`release savepoint sendproof_preview_open`);
   } catch (error) {
     if (sqlState(error) === '25P02') return;
     throw new Error('The operation ended the PostgreSQL transaction before Preview could roll it back.', { cause: error });

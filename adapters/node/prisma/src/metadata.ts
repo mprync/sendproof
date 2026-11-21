@@ -1,6 +1,6 @@
 /**
  * Model metadata used to identify changed rows. It is produced from Prisma's DMMF, either by
- * the bundled `test-bench-prisma-generator` or from a `Prisma.dmmf` document exported by the
+ * the bundled `sendproof-prisma-generator` or from a `Prisma.dmmf` document exported by the
  * `prisma-client-js` generator, so applications never list primary keys by hand.
  */
 
@@ -16,7 +16,7 @@ export interface PrismaModelKeys {
   relations: string[];
 }
 
-/** Metadata written by `test-bench-prisma-generator`. */
+/** Metadata written by `sendproof-prisma-generator`. */
 export interface PrismaModelMetadata {
   version: 1;
   models: Record<string, PrismaModelKeys>;
@@ -70,7 +70,7 @@ export function fromDmmf(models: readonly DmmfModel[]): PrismaModelMetadata {
 export function normalizeModels(models: PrismaModels): PrismaModelMetadata {
   if ('datamodel' in models) return fromDmmf(models.datamodel.models);
   if (models.version !== 1 || typeof models.models !== 'object' || models.models === null) {
-    throw new TypeError('Unsupported Prisma model metadata. Regenerate it with test-bench-prisma-generator.');
+    throw new TypeError('Unsupported Prisma model metadata. Regenerate it with sendproof-prisma-generator.');
   }
   for (const [name, model] of Object.entries(models.models)) {
     if (!Array.isArray(model.key) || !model.key.length || model.key.some(field => !(field in model.columns))) {

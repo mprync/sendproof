@@ -1,9 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { BenchRequest, TransportResponse } from '@test-bench/core';
+import type { BenchRequest, TransportResponse } from '@sendproof/core';
 
 /**
  * Describe a Fastify request for the protocol core. `pathname` has the plugin's prefix removed so
- * the core always sees `/bench/...`; `basePath` is that prefix, used to build discovery URLs.
+ * the core always sees `/sendproof/...`; `basePath` is that prefix, used to build discovery URLs.
  */
 export function requestContext(request: FastifyRequest, basePath: string): BenchRequest<FastifyRequest> {
   const url = request.raw.url ?? '/';

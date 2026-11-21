@@ -7,7 +7,7 @@
  * generated model metadata and reported with database table and column names.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { CaptureRecorder } from '@test-bench/core';
+import type { CaptureRecorder } from '@sendproof/core';
 import { delegateName, type PrismaModelKeys, type PrismaModelMetadata } from './metadata.js';
 
 type Row = Record<string, unknown>;

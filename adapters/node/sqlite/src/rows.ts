@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite';
-import { currentCapture } from '@test-bench/core';
+import { currentCapture } from '@sendproof/core';
 import { identifier } from './statements.js';
 
 /** A row primary key as column name and value pairs. Supply every column of a composite key. */

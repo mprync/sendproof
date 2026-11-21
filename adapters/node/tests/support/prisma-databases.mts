@@ -11,7 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SqlDriverAdapterFactory } from '@prisma/driver-adapter-utils';
-import type { PrismaModelMetadata } from '@test-bench/prisma';
+import type { PrismaModelMetadata } from '@sendproof/prisma';
 
 /** The generated client, typed loosely because each database has its own generated module. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,7 +60,7 @@ const tables = {
 async function generated(provider: TestDatabase['provider']) {
   const base = `../../examples/prisma/${provider}/generated/`;
   const { PrismaClient } = await import(base + 'client.ts') as { PrismaClient: new (options: object) => Client };
-  const { models } = await import(base + 'test-bench/index.js') as { models: PrismaModelMetadata };
+  const { models } = await import(base + 'sendproof/index.js') as { models: PrismaModelMetadata };
   return { PrismaClient, models };
 }
 
@@ -91,7 +91,7 @@ const sqlite: Target = {
   async open() {
     const modules = await generated('sqlite');
     const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
-    const directory = await mkdtemp(join(tmpdir(), 'test-bench-prisma-'));
+    const directory = await mkdtemp(join(tmpdir(), 'sendproof-prisma-'));
     let count = 0;
     // Each adapter gets its own file so a poisoned connection never affects another test.
     return database('SQLite', 'sqlite', modules,

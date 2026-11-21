@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { currentCapture, endsTransaction, splitStatements } from '@test-bench/core';
+import { currentCapture, endsTransaction, splitStatements } from '@sendproof/core';
 import { is, Placeholder } from 'drizzle-orm';
 import type { DrizzleDialect } from './metadata.js';
 import { endedMessage, isInternal, parameterNames } from './scope.js';

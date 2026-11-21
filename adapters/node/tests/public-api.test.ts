@@ -9,17 +9,17 @@ import type { MySql2Database } from 'drizzle-orm/mysql2';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { Knex } from 'knex';
 import type { DataSource, EntityManager } from 'typeorm';
-import { Capture, createBench, currentCapture } from '@test-bench/core';
-import type { CaptureRecorder, PreviewProvider } from '@test-bench/core';
-import { drizzlePreview } from '@test-bench/drizzle';
-import { testBench as expressBench } from '@test-bench/express';
-import { testBench as fastifyBench } from '@test-bench/fastify';
-import { testBench as honoBench } from '@test-bench/hono';
-import { KnexPreview } from '@test-bench/knex';
-import { TestBenchModule, TestBenchPreview } from '@test-bench/nestjs';
-import { PrismaPreview } from '@test-bench/prisma';
-import { SQLiteDatabase } from '@test-bench/sqlite';
-import { TypeOrmPreview } from '@test-bench/typeorm';
+import { Capture, createBench, currentCapture } from '@sendproof/core';
+import type { CaptureRecorder, PreviewProvider } from '@sendproof/core';
+import { drizzlePreview } from '@sendproof/drizzle';
+import { sendproof as expressBench } from '@sendproof/express';
+import { sendproof as fastifyBench } from '@sendproof/fastify';
+import { sendproof as honoBench } from '@sendproof/hono';
+import { KnexPreview } from '@sendproof/knex';
+import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
+import { PrismaPreview } from '@sendproof/prisma';
+import { SQLiteDatabase } from '@sendproof/sqlite';
+import { TypeOrmPreview } from '@sendproof/typeorm';
 
 declare const knex: Knex;
 declare const postgres: NodePgDatabase;
@@ -65,12 +65,12 @@ middleware.operation('POST', '/items', 123);
 
 const fastify = Fastify();
 await fastify.register(fastifyBench, { previewProvider: sqlite });
-fastify.testBench.operation('POST', '/items', { handler: async () => ({ id: 1 }) });
+fastify.sendproof.operation('POST', '/items', { handler: async () => ({ id: 1 }) });
 // @ts-expect-error OpenAPI paths are strings.
-fastify.testBench.operation('POST', 10, async () => ({}));
+fastify.sendproof.operation('POST', 10, async () => ({}));
 
 const hono = honoBench({ previewProvider: sqlite, basePath: '/tenant' });
 new Hono().route('/tenant', hono);
 hono.operation('POST', '/items', context => context.json({ id: 1 }));
-expectTypeOf(TestBenchModule.forRoot({ previewProvider: sqlite })).toEqualTypeOf<DynamicModule>();
-expectTypeOf(TestBenchPreview('POST', '/items')).toEqualTypeOf<MethodDecorator>();
+expectTypeOf(SendproofModule.forRoot({ previewProvider: sqlite })).toEqualTypeOf<DynamicModule>();
+expectTypeOf(SendproofPreview('POST', '/items')).toEqualTypeOf<MethodDecorator>();

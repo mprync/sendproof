@@ -6,7 +6,7 @@ import { pgTable, text } from 'drizzle-orm/pg-core';
 import { sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
 import mysql from 'mysql2/promise';
 import pg from 'pg';
-import { drizzlePreview } from '@test-bench/drizzle';
+import { drizzlePreview } from '@sendproof/drizzle';
 import { sqliteStorage } from './fixture-service.mjs';
 
 /**
@@ -25,7 +25,7 @@ const mysqlItems = mysqlTable('items', {
   name: varchar('name', { length: 255 }).notNull(),
 });
 
-/** The SQLite store over `@test-bench/sqlite`, created for the fixture's database file. */
+/** The SQLite store over `@sendproof/sqlite`, created for the fixture's database file. */
 export function drizzleStore(filename) {
   const { db: database, secret } = sqliteStorage(filename);
   const provider = drizzlePreview(database, { schema: { items: sqliteItems } });

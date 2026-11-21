@@ -1,15 +1,15 @@
 /**
  * Disposable databases and table definitions for the Drizzle provider suite.
  *
- * SQLite (through `@test-bench/sqlite`) and PGlite always run in memory. PostgreSQL runs over both
+ * SQLite (through `@sendproof/sqlite`) and PGlite always run in memory. PostgreSQL runs over both
  * `pg` and `postgres` when `BENCH_POSTGRES_URL` is set, and MySQL over `mysql2` when
  * `BENCH_MYSQL_URL` is set. Each server target creates a uniquely named database and drops it after.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
-import { drizzlePreview } from '@test-bench/drizzle';
-import type { DrizzlePreview, DrizzlePreviewOptions } from '@test-bench/drizzle';
-import { SQLiteDatabase } from '@test-bench/sqlite';
+import { drizzlePreview } from '@sendproof/drizzle';
+import type { DrizzlePreview, DrizzlePreviewOptions } from '@sendproof/drizzle';
+import { SQLiteDatabase } from '@sendproof/sqlite';
 import { int, mysqlTable, primaryKey as mysqlPrimaryKey, varchar } from 'drizzle-orm/mysql-core';
 import { drizzle as mysqlDrizzle } from 'drizzle-orm/mysql2';
 import { drizzle as pgDrizzle } from 'drizzle-orm/node-postgres';

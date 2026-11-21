@@ -1,7 +1,7 @@
 import { ServerResponse } from 'node:http';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import type { FastifyInstance } from 'fastify';
-import type { TransportResponse } from '@test-bench/core';
+import type { TransportResponse } from '@sendproof/core';
 
 type WriteCallback = (error?: Error | null) => void;
 
@@ -11,7 +11,7 @@ export type DispatchResult = TransportResponse | { unmatched: true };
 /** Requests being dispatched in-process, so the plugin hooks can tell them from real traffic. */
 export const dispatching = new WeakSet<IncomingMessage>();
 
-/** Responses whose route was a registered Test Bench operation. */
+/** Responses whose route was a registered Sendproof operation. */
 export const matchedResponses = new WeakSet<ServerResponse>();
 
 /**

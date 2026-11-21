@@ -8,7 +8,7 @@ const TEMPLATE = /^\/(?:[a-zA-Z0-9._~%-]+|\{[a-zA-Z_][a-zA-Z0-9_]*\})(?:\/(?:[a-
 /** HTTP methods an operation may be registered with, in lower case as Express names them. */
 export const OPERATION_VERBS = ['get', 'post', 'put', 'patch', 'delete', 'options'] as const;
 
-/** A lower-case Express router verb that Test Bench can exercise. */
+/** A lower-case Express router verb that Sendproof can exercise. */
 export type OperationVerb = (typeof OPERATION_VERBS)[number];
 
 /** Narrow a caller-supplied method name to a supported router verb, or `undefined`. */
@@ -21,12 +21,12 @@ export function operationVerb(method: string): OperationVerb | undefined {
  * Convert an OpenAPI template such as `/items/{id}` to an Express 5 path (`/items/:id`).
  *
  * @throws TypeError when the template is not a plain OpenAPI path, contains dot segments, or
- * targets the reserved `/bench` namespace.
+ * targets the reserved `/sendproof` namespace.
  */
 export function expressPath(template: string): string {
   if (!TEMPLATE.test(template) ||
     template.split('/').some(segment => segment === '.' || segment === '..') ||
-    /^\/bench(?:\/|$)/i.test(template)) {
+    /^\/sendproof(?:\/|$)/i.test(template)) {
     throw new TypeError('Use an OpenAPI route template such as /items/{id}.');
   }
   return template.replace(/\{([^{}]+)\}/g, ':$1');

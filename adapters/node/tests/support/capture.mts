@@ -1,6 +1,6 @@
-/** Test helper that runs a callback under a real Test Bench capture and returns what it recorded. */
-import { Capture } from '@test-bench/core';
-import type { CaptureLimits, CaptureSnapshot, SqlLog } from '@test-bench/core';
+/** Test helper that runs a callback under a real Sendproof capture and returns what it recorded. */
+import { Capture } from '@sendproof/core';
+import type { CaptureLimits, CaptureSnapshot, SqlLog } from '@sendproof/core';
 
 /** Run `callback` inside a capture and return its result with everything captured. */
 export async function capturing<T>(

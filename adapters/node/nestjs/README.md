@@ -1,22 +1,22 @@
-# @test-bench/nestjs
+# @sendproof/nestjs
 
 Import the dynamic module into a NestJS 11 application using the Express HTTP adapter. The default OpenAPI path is `/api-json`, the JSON route from `SwaggerModule.setup('api', …)`. Set `openApiUrl` if your application exposes a different document.
 
 ```ts
 import { Controller, Module, Post, UseGuards } from '@nestjs/common';
-import { TestBenchModule, TestBenchPreview } from '@test-bench/nestjs';
+import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
 
 @Controller('items')
 class ItemsController {
   @Post()
   @UseGuards(EditorGuard)
-  @TestBenchPreview('POST', '/items')
+  @SendproofPreview('POST', '/items')
   create() { return createItem(); }
 }
 
 @Module({
   controllers: [ItemsController],
-  imports: [TestBenchModule.forRoot({
+  imports: [SendproofModule.forRoot({
     environment: 'development',
     previewProvider: database,
     resolveIdentity: ({ raw: request }) => sessionIdentity(request),
@@ -25,7 +25,7 @@ class ItemsController {
 class AppModule {}
 ```
 
-Provide the same global prefix to the module's `basePath` option if your application uses `app.setGlobalPrefix`. Keep that prefix out of the OpenAPI operation template passed to `@TestBenchPreview`.
+Provide the same global prefix to the module's `basePath` option if your application uses `app.setGlobalPrefix`. Keep that prefix out of the OpenAPI operation template passed to `@SendproofPreview`.
 
 Preview re-enters the Express and Nest request pipelines in-process. Guards, pipes and interceptors run on the selected controller action. Use a provider that covers all writes and await work before sending the response. Choose buffered controller responses and suppress external effects using [the core recorder](../core).
 

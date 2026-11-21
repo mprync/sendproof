@@ -1,6 +1,6 @@
 // Compiled under strict settings by typeorm-types.test.mjs; never executed.
-import type { PreviewProvider } from '@test-bench/core';
-import { TypeOrmPreview, type TypeOrmPreviewOptions } from '@test-bench/typeorm';
+import type { PreviewProvider } from '@sendproof/core';
+import { TypeOrmPreview, type TypeOrmPreviewOptions } from '@sendproof/typeorm';
 import type { DataSource, EntityManager } from 'typeorm';
 
 declare const source: DataSource;

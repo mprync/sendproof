@@ -1,6 +1,6 @@
 {
   "openapi": "3.0.3",
-  "info": { "title": "Test Bench Conformance", "version": "1.0.0" },
+  "info": { "title": "Sendproof Conformance", "version": "1.0.0" },
   "paths": {
     "/items": {
       "post": {

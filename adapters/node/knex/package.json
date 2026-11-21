@@ -1,13 +1,13 @@
 {
-  "name": "@test-bench/knex",
+  "name": "@sendproof/knex",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench rollback and tracked row capture for Knex",
+  "description": "Sendproof rollback and tracked row capture for Knex",
   "license": "MIT",
   "keywords": [
     "knex",
     "sql",
     "rollback",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -27,7 +27,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   },
   "peerDependencies": {
     "knex": "^3.1.0"

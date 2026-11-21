@@ -1,7 +1,7 @@
 import { TransactionRollbackError } from 'drizzle-orm';
 import { instrumentMutation } from './capture.js';
 import type { DatabaseLike, ProviderState } from './capture.js';
-import { currentCapture } from '@test-bench/core';
+import { currentCapture } from '@sendproof/core';
 import { asCaller, asInternal, currentScope, endedMessage, inScope, report } from './scope.js';
 import type { Scope } from './scope.js';
 import { instrumentSession } from './statements.js';
@@ -79,7 +79,7 @@ async function transaction(
   const sqlite = state.sqlite;
   if (sqlite) {
     if (!sqlite.transaction) {
-      throw new Error('client.transaction() needs @test-bench/sqlite with SQLiteDatabase.transaction().');
+      throw new Error('client.transaction() needs @sendproof/sqlite with SQLiteDatabase.transaction().');
     }
     const scope: Scope = { target: state.base, preview: parent?.preview ?? false, open: true, changes: [] };
     const result = await sqlite.transaction(async () => {

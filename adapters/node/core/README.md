@@ -1,11 +1,11 @@
-# @test-bench/core
+# @sendproof/core
 
 Protocol and capture shared by the Node framework adapters. Install the framework package for your application. It depends on this package and serves the bundled assets.
 
 Use `deliverEffect` where the application sends an email, enqueues work or makes a similar external call. It records the effect and suppresses delivery during Preview. During ordinary Send it invokes the supplied callback and, when the request is observed, records successful delivery.
 
 ```js
-import { currentCapture, deliverEffect } from '@test-bench/core';
+import { currentCapture, deliverEffect } from '@sendproof/core';
 
 currentCapture()?.log({ level: 'Information', category: 'Items', message: 'Created an item' });
 await deliverEffect({ kind: 'email', description: 'Item created', data: { subject: 'Item created' } },

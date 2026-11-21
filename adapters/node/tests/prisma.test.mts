@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 import type { SqlDriverAdapterFactory, SqlQuery } from '@prisma/driver-adapter-utils';
 import {
   PrismaPreview, controlsTransaction, endsTransaction, fromDmmf, mayWrite, normalizeModels, splitStatements,
-} from '@test-bench/prisma';
-import type { DmmfModel, PrismaModelMetadata } from '@test-bench/prisma';
+} from '@sendproof/prisma';
+import type { DmmfModel, PrismaModelMetadata } from '@sendproof/prisma';
 import { capturing } from './support/capture.mts';
 
 const query = (sql: string): SqlQuery => ({ sql, args: [], argTypes: [] });
@@ -246,11 +246,11 @@ describe('Prisma model metadata', () => {
   });
 });
 
-describe('test-bench-prisma-generator', () => {
+describe('sendproof-prisma-generator', () => {
   it('answers getManifest and generate over Prisma\'s stdio JSON-RPC protocol', async () => {
-    const output = await mkdtemp(join(tmpdir(), 'test-bench-prisma-generator-'));
+    const output = await mkdtemp(join(tmpdir(), 'sendproof-prisma-generator-'));
     try {
-      const script = fileURLToPath(import.meta.resolve('@test-bench/prisma/generator'));
+      const script = fileURLToPath(import.meta.resolve('@sendproof/prisma/generator'));
       const child = spawn(process.execPath, [script], { env: { ...process.env, PRISMA_GENERATOR_INVOCATION: 'true' } });
       let stderr = '';
       child.stderr.on('data', chunk => { stderr += chunk; });
@@ -264,7 +264,7 @@ describe('test-bench-prisma-generator', () => {
       child.stdin.end();
       assert.equal(await exited, 0);
       const responses = stderr.trim().split('\n').map(line => JSON.parse(line));
-      assert.equal(responses.find(response => response.id === 1).result.manifest.prettyName, 'Test Bench model keys');
+      assert.equal(responses.find(response => response.id === 1).result.manifest.prettyName, 'Sendproof model keys');
       assert.equal(responses.find(response => response.id === 2).result, null);
       assert.equal(responses.find(response => response.id === 3).error.code, -32601);
       const { models } = await import(join(output, 'index.js')) as { models: PrismaModelMetadata };

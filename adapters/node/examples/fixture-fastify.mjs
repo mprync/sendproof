@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import Fastify from 'fastify';
-import { testBench } from '@test-bench/fastify';
+import { sendproof } from '@sendproof/fastify';
 import { authProviders, createFixture } from './fixture-service.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -11,13 +11,13 @@ const { session, previewProvider, operations, ordinary } = createFixture(':memor
 const app = Fastify();
 
 await app.register(async scope => {
-  await scope.register(testBench, {
-    apiName: 'Test Bench Conformance',
+  await scope.register(sendproof, {
+    apiName: 'Sendproof Conformance',
     environment: scenario === 'disabled' ? 'production' : 'development',
     database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
     resolveIdentity: ({ headers }) => session(headers.cookie),
   });
-  for (const { method, path, handler } of operations) scope.testBench.operation(method, path, wrap(handler));
+  for (const { method, path, handler } of operations) scope.sendproof.operation(method, path, wrap(handler));
   for (const { method, path, handler } of ordinary) {
     scope.route({ method, url: path.replace(/\{(.*?)\}/g, ':$1'), handler: wrap(handler) });
   }

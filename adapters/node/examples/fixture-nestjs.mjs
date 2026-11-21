@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Controller, Delete, ForbiddenException, Get, Module, Patch, Post,
   Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { TestBenchModule, TestBenchPreview } from '@test-bench/nestjs';
+import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
 import { authProviders, createFixture } from './fixture-service.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -53,14 +53,14 @@ for (const [index, operation] of [...operations, ...ordinary].entries()) {
   Req()(FixtureController.prototype, name, 0);
   Res()(FixtureController.prototype, name, 1);
   if (path.startsWith('/items')) UseGuards(FixturePolicy)(FixtureController.prototype, name, descriptor);
-  if (operations.includes(operation)) TestBenchPreview(method, path)(FixtureController.prototype, name, descriptor);
+  if (operations.includes(operation)) SendproofPreview(method, path)(FixtureController.prototype, name, descriptor);
 }
 
 class FixtureModule {}
 Module({
   controllers: [FixtureController],
-  imports: [TestBenchModule.forRoot({
-    apiName: 'Test Bench Conformance',
+  imports: [SendproofModule.forRoot({
+    apiName: 'Sendproof Conformance',
     environment: scenario === 'disabled' ? 'production' : 'development',
     basePath, database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
     resolveIdentity: ({ headers }) => session(headers.cookie),

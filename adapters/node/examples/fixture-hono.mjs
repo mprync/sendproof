@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { testBench } from '@test-bench/hono';
+import { sendproof } from '@sendproof/hono';
 import { authProviders, createFixture } from './fixture-service.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -13,9 +13,9 @@ const { session, previewProvider, operations, ordinary } = createFixture(':memor
 
 export const app = new Hono();
 const router = new Hono();
-const bench = testBench({
+const bench = sendproof({
   basePath: base,
-  apiName: 'Test Bench Conformance',
+  apiName: 'Sendproof Conformance',
   environment: scenario === 'disabled' ? 'production' : 'development',
   database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
   resolveIdentity: ({ headers }) => session(headers.cookie),

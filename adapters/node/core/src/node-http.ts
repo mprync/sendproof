@@ -112,7 +112,7 @@ export function observeResponse(res: ServerResponse, observation: Observation) {
   res.writeHead = function (this: ServerResponse, status: number, ...arguments_: unknown[]) {
     res.writeHead = writeHead;
     const trace = observation.complete(status);
-    if (trace) res.setHeader('X-TestBench-Trace', trace);
+    if (trace) res.setHeader('X-Sendproof-Trace', trace);
     return Reflect.apply(writeHead, this, [status, ...arguments_]);
   } as ServerResponse['writeHead'];
 }

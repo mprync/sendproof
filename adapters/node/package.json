@@ -1,5 +1,5 @@
 {
-  "name": "test-bench-node",
+  "name": "sendproof-node",
   "private": true,
   "type": "module",
   "engines": {
@@ -30,7 +30,7 @@
     "typescript": "5.9.3"
   },
   "scripts": {
-    "build": "tsc -b && npm run pack-ui --workspace @test-bench/core",
+    "build": "tsc -b && npm run pack-ui --workspace @sendproof/core",
     "test": "node --experimental-strip-types --test tests/*.test.mjs tests/*.test.mts",
     "build:ts": "tsc -b",
     "build:fixtures": "npm run build && npm run generate-prisma-fixture",

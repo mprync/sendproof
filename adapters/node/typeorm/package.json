@@ -1,13 +1,13 @@
 {
-  "name": "@test-bench/typeorm",
+  "name": "@sendproof/typeorm",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench rollback and automatic row capture for TypeORM",
+  "description": "Sendproof rollback and automatic row capture for TypeORM",
   "license": "MIT",
   "keywords": [
     "typeorm",
     "orm",
     "rollback",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -27,7 +27,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   },
   "peerDependencies": {
     "typeorm": "^0.3.28"

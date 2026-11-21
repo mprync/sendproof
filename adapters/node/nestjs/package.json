@@ -1,14 +1,14 @@
 {
-  "name": "@test-bench/nestjs",
+  "name": "@sendproof/nestjs",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench module for NestJS with the Express HTTP adapter",
+  "description": "Sendproof module for NestJS with the Express HTTP adapter",
   "license": "MIT",
   "keywords": [
     "nestjs",
     "openapi",
     "swagger-ui",
     "api-testing",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -28,7 +28,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.0.0",

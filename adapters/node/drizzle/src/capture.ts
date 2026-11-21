@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
-import { currentCapture } from '@test-bench/core';
-import type { CaptureRecorder } from '@test-bench/core';
-import type { TrackedRows } from '@test-bench/sqlite';
+import { currentCapture } from '@sendproof/core';
+import type { CaptureRecorder } from '@sendproof/core';
+import type { TrackedRows } from '@sendproof/sqlite';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Column, SQL, Table } from 'drizzle-orm';
 import { defaultEntry, isUnset, jsonRow, keyOf, keyText, suppliedValue, tableInfo } from './metadata.js';
@@ -11,11 +11,11 @@ import type { Scope } from './scope.js';
 import { instrumentSession } from './statements.js';
 import type { SessionLike } from './statements.js';
 
-/** The connection of `@test-bench/sqlite` the SQLite client runs on. */
+/** The connection of `@sendproof/sqlite` the SQLite client runs on. */
 export interface SQLiteConnection {
   queryRows(text: string, bindings: unknown[], method: 'all' | 'get' | 'values' | 'run', changes?: TrackedRows, captureSql?: boolean): Promise<unknown>;
   preview<T>(dispatch: () => Promise<T>): Promise<T>;
-  /** A transaction, or a savepoint inside one. Available from `@test-bench/sqlite` 0.1.0-alpha.2. */
+  /** A transaction, or a savepoint inside one. Available from `@sendproof/sqlite` 0.1.0-alpha.2. */
   transaction?<T>(callback: () => Promise<T>): Promise<T>;
   /** 0 outside a transaction. Available with {@link transaction}. */
   readonly depth?: number;
@@ -68,8 +68,8 @@ interface MutationConfig {
   limit?: unknown;
 }
 
-const busy = Symbol('testbench.capturing');
-const hiddenKey = '__testbench_key_';
+const busy = Symbol('sendproof.capturing');
+const hiddenKey = '__sendproof_key_';
 
 interface MutationBuilder {
   config: MutationConfig;

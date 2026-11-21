@@ -1,13 +1,13 @@
 {
-  "name": "@test-bench/sqlite",
+  "name": "@sendproof/sqlite",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench rollback and row change capture for Node SQLite",
+  "description": "Sendproof rollback and row change capture for Node SQLite",
   "license": "MIT",
   "keywords": [
     "sqlite",
     "node-sqlite",
     "rollback",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -27,6 +27,6 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   }
 }

@@ -1,6 +1,6 @@
 // Shared fixtures for the framework adapter tests: a real SQLite `items` table and two identities.
-import { SQLiteDatabase } from '@test-bench/sqlite';
-import type { BenchIdentity } from '@test-bench/core';
+import { SQLiteDatabase } from '@sendproof/sqlite';
+import type { BenchIdentity } from '@sendproof/core';
 
 /** A disposable in-memory database with the conformance `items` table. */
 export function createItems(): SQLiteDatabase {

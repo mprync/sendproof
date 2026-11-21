@@ -12,10 +12,10 @@ const hasDotSegment = (path: string): boolean => path.split('/').some(part => pa
 
 /**
  * Convert an OpenAPI template such as `/items/{id}` to a Hono pattern such as
- * `/items/:id`. The reserved `/bench` namespace cannot be registered.
+ * `/items/:id`. The reserved `/sendproof` namespace cannot be registered.
  */
 export function routePath(template: string): string {
-  if (!templatePattern.test(template) || hasDotSegment(template) || /^\/bench(?:\/|$)/i.test(template)) {
+  if (!templatePattern.test(template) || hasDotSegment(template) || /^\/sendproof(?:\/|$)/i.test(template)) {
     throw new TypeError('Use an OpenAPI route template such as /items/{id}.');
   }
   return template.replace(/\{([^{}]+)\}/g, ':$1');

@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { createBench } from '@test-bench/core';
-import { captureResponse, observeResponse, sendResponse } from '@test-bench/core/node-http';
+import { createBench } from '@sendproof/core';
+import { captureResponse, observeResponse, sendResponse } from '@sendproof/core/node-http';
 import { requestContext } from './context.js';
 import { expressPath, operationVerb } from './paths.js';
-import type { ExpressBenchOptions, TestBenchMiddleware } from './types.js';
+import type { ExpressBenchOptions, SendproofMiddleware } from './types.js';
 
-export type { ExpressBenchOptions, TestBenchMiddleware } from './types.js';
+export type { ExpressBenchOptions, SendproofMiddleware } from './types.js';
 
 /** Registered operation, as advertised in the capabilities document. */
 interface Operation {
@@ -17,11 +17,11 @@ interface Operation {
 /**
  * Mount the workbench and register the same route handlers for both Send and Preview.
  *
- * The returned middleware serves the UI and protocol under `/bench/`. Operations registered with
+ * The returned middleware serves the UI and protocol under `/sendproof/`. Operations registered with
  * `.operation()` live on an internal router that the middleware dispatches to directly for
  * Preview and that falls through to for ordinary (and observed) Send requests.
  */
-export function testBench(options: ExpressBenchOptions = {}): TestBenchMiddleware {
+export function sendproof(options: ExpressBenchOptions = {}): SendproofMiddleware {
   const router = Router({ caseSensitive: true, mergeParams: true, strict: true });
   const operations: Operation[] = [];
   // Responses created for an in-process preview dispatch; their routes must not start a second observation.
@@ -42,7 +42,7 @@ export function testBench(options: ExpressBenchOptions = {}): TestBenchMiddlewar
       return sendResponse(req, res, rendered);
     }
     return sendResponse(req, res, answer);
-  }) as TestBenchMiddleware;
+  }) as SendproofMiddleware;
 
   middleware.operation = (method, template, ...handlers) => {
     const verb = operationVerb(method);

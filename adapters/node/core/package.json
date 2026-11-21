@@ -1,7 +1,7 @@
 {
-  "name": "@test-bench/core",
+  "name": "@sendproof/core",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench workbench protocol and shared UI for Node",
+  "description": "Sendproof workbench protocol and shared UI for Node",
   "license": "MIT",
   "keywords": [
     "openapi",

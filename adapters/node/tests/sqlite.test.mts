@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { SQLiteDatabase } from '@test-bench/sqlite';
-import type { SQLiteOptions } from '@test-bench/sqlite';
+import { SQLiteDatabase } from '@sendproof/sqlite';
+import type { SQLiteOptions } from '@sendproof/sqlite';
 import { capturing, sqlEntries } from './support/capture.mts';
 
 const schema = 'CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL)';

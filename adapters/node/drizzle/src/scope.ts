@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Change } from '@test-bench/core';
+import type { Change } from '@sendproof/core';
 
 /** A transaction opened through the provider, alive while its callback runs. */
 export interface Scope {

@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import { currentCapture } from '@test-bench/core';
+import { currentCapture } from '@sendproof/core';
 
 /** Named bindings, for example `{ id: 'A1' }` for `:id`. */
 export type NamedBindings = Record<string, SQLInputValue>;

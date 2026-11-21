@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { currentCapture, endsTransaction, mayWrite } from '@test-bench/core';
-import type { PreviewProvider } from '@test-bench/core';
+import { currentCapture, endsTransaction, mayWrite } from '@sendproof/core';
+import type { PreviewProvider } from '@sendproof/core';
 import type { DataSource, EntityManager, EntityTarget, FindOptionsWhere, Logger, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { ChangeTracker } from './changes.js';
 import { ConnectionLease } from './lease.js';
@@ -12,7 +12,7 @@ const singleConnectionDrivers = new Set(['better-sqlite3', 'sqlite', 'sqljs', 'r
 const abortOnErrorDrivers = new Set(['postgres', 'cockroachdb', 'aurora-postgres']);
 
 /** Savepoint that fences one inspection read inside an enrolled transaction. */
-const inspectionSavepoint = 'test_bench_inspection';
+const inspectionSavepoint = 'sendproof_inspection';
 
 /** Default ceiling on the rows read from a table when diffing a write. */
 const defaultMaxTrackedRows = 5000;
@@ -42,7 +42,7 @@ const previewOwnsMessage = 'Preview owns the transaction and must roll it back. 
 const endedMessage = 'The TypeORM request scope has ended.';
 
 /**
- * Test Bench data provider for a host-owned TypeORM DataSource.
+ * Sendproof data provider for a host-owned TypeORM DataSource.
  *
  * Preview runs the request on a dedicated query runner inside a transaction that is always rolled
  * back, and Send leaves the ordinary manager in use. In both modes, row changes are derived from

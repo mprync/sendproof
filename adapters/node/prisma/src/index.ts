@@ -1,24 +1,24 @@
 /**
- * Test Bench Preview for Prisma 7 driver adapters.
+ * Sendproof Preview for Prisma 7 driver adapters.
  *
  * `PrismaPreview` wraps the application's driver adapter factory. A Preview runs the request
  * inside one interactive Prisma transaction and resolves only after the driver acknowledges
  * the physical rollback. Statements that would end that transaction early, or write through
  * another connection, withhold confirmation. Model writes are captured automatically when
- * model metadata from `test-bench-prisma-generator` (or a `Prisma.dmmf` document) is supplied.
+ * model metadata from `sendproof-prisma-generator` (or a `Prisma.dmmf` document) is supplied.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
-import { controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, type PreviewProvider } from '@test-bench/core';
+import { controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, type PreviewProvider } from '@sendproof/core';
 import type { SqlDriverAdapter, SqlDriverAdapterFactory, SqlQuery, Transaction } from '@prisma/driver-adapter-utils';
 import { ChangeCapture, isWrite, type ModelOperation } from './capture.js';
 import { normalizeModels, type PrismaModels } from './metadata.js';
 
 export { fromDmmf, normalizeModels, type DmmfDocument, type DmmfModel, type PrismaModelKeys,
   type PrismaModelMetadata, type PrismaModels } from './metadata.js';
-// The statement classifier lives in @test-bench/core so every provider applies the same rules.
-export { controlsTransaction, endsTransaction, mayWrite, splitStatements, type AdapterProvider } from '@test-bench/core';
+// The statement classifier lives in @sendproof/core so every provider applies the same rules.
+export { controlsTransaction, endsTransaction, mayWrite, splitStatements, type AdapterProvider } from '@sendproof/core';
 
 /** Options passed to the Preview `$transaction`. */
 export interface TransactionOptions {
@@ -31,7 +31,7 @@ export interface PrismaPreviewOptions {
   /** Options for the interactive transaction that hosts a Preview. */
   transactionOptions?: TransactionOptions;
   /**
-   * Generated model metadata (`test-bench-prisma-generator`) or a `Prisma.dmmf` document.
+   * Generated model metadata (`sendproof-prisma-generator`) or a `Prisma.dmmf` document.
    * When present, model writes record their changed rows without manual keys.
    */
   models?: PrismaModels;
@@ -123,7 +123,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       const extendable = client as unknown as { $extends?: (extension: object) => unknown };
       if (typeof extendable.$extends !== 'function') throw new TypeError('Automatic capture needs a Prisma client with $extends.');
       this.#client = extendable.$extends({
-        name: '@test-bench/prisma',
+        name: '@sendproof/prisma',
         query: { $allModels: { $allOperations: (operation: ModelOperation) => this.#intercept(operation) } },
       });
     } else {
@@ -181,7 +181,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     if (this.#scopes.getStore()) throw new Error('Nested Prisma previews are unavailable.');
     return this.#lease(async () => {
       const probe: Probe = { started: false, settled: false, rolledBack: false, committed: false };
-      const rollback = new Error('Test Bench requests rollback.');
+      const rollback = new Error('Sendproof requests rollback.');
       const client = this.#client as ClientWithTransaction<unknown>;
       let response: T | undefined;
       let failure: { error: unknown } | undefined;

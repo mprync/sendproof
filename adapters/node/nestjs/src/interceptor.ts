@@ -1,7 +1,7 @@
 import { HttpException, Inject } from '@nestjs/common';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { observeResponse } from '@test-bench/core/node-http';
+import { observeResponse } from '@sendproof/core/node-http';
 import { Observable, from, mergeMap } from 'rxjs';
 import { previewOperation } from './decorator.js';
 import { BenchRuntime } from './runtime.js';

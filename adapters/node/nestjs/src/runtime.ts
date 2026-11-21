@@ -2,9 +2,9 @@ import { Inject } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 import type { OnApplicationBootstrap } from '@nestjs/common';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { createBench } from '@test-bench/core';
-import type { BenchRequest } from '@test-bench/core';
-import { captureResponse, sendResponse } from '@test-bench/core/node-http';
+import { createBench } from '@sendproof/core';
+import type { BenchRequest } from '@sendproof/core';
+import { captureResponse, sendResponse } from '@sendproof/core/node-http';
 import { previewOperation } from './decorator.js';
 import type { PreviewOperation } from './decorator.js';
 import { optionsKey } from './options.js';
@@ -44,7 +44,7 @@ export class BenchRuntime implements OnApplicationBootstrap {
     this.bench = createBench<Request>({ openApiUrl: '/api-json', ...benchOptions }, () => this.operations);
   }
 
-  /** Collect every controller action decorated with `@TestBenchPreview`. */
+  /** Collect every controller action decorated with `@SendproofPreview`. */
   onApplicationBootstrap(): void {
     const operations = new Map<string, PreviewOperation>();
     for (const { instance } of this.discovery.getControllers()) {

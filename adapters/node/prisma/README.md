@@ -1,6 +1,6 @@
-# @test-bench/prisma
+# @sendproof/prisma
 
-Test Bench Preview for Prisma 7 driver adapters. A Preview runs the request in one interactive Prisma transaction. It resolves only after the driver acknowledges the rollback. Model writes record their changed rows automatically, using primary keys that Prisma's schema metadata supplies.
+Sendproof Preview for Prisma 7 driver adapters. A Preview runs the request in one interactive Prisma transaction. It resolves only after the driver acknowledges the rollback. Model writes record their changed rows automatically, using primary keys that Prisma's schema metadata supplies.
 
 ## Supported databases
 
@@ -14,7 +14,7 @@ The local suite also has 15 unit tests, for a total of 49 Prisma tests. All chec
 
 ## Setup
 
-Add the Test Bench generator next to the client generator in `schema.prisma`:
+Add the Sendproof generator next to the client generator in `schema.prisma`:
 
 ```prisma
 generator client {
@@ -22,21 +22,21 @@ generator client {
   output   = "./generated"
 }
 
-generator testBench {
-  provider = "test-bench-prisma-generator"
-  output   = "./generated/test-bench"
+generator sendproof {
+  provider = "sendproof-prisma-generator"
+  output   = "./generated/sendproof"
 }
 ```
 
-`prisma generate` now writes `generated/test-bench/index.js`. This file records each model's table, its key fields and the database names of its columns. The generator reads the key from Prisma's DMMF. It uses `@id` or `@@id` when present, and otherwise the first `@unique` or `@@unique` criterion. You don't list keys by hand.
+`prisma generate` now writes `generated/sendproof/index.js`. This file records each model's table, its key fields and the database names of its columns. The generator reads the key from Prisma's DMMF. It uses `@id` or `@@id` when present, and otherwise the first `@unique` or `@@unique` criterion. You don't list keys by hand.
 
 Wrap the driver adapter before you create the client. Then attach the client:
 
 ```ts
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaPreview } from '@test-bench/prisma';
+import { PrismaPreview } from '@sendproof/prisma';
 import { PrismaClient } from './generated/client.js';
-import { models } from './generated/test-bench/index.js';
+import { models } from './generated/sendproof/index.js';
 
 const preview = new PrismaPreview(new PrismaPg({ connectionString: process.env.DATABASE_URL }), { models });
 preview.attach(new PrismaClient({ adapter: preview.adapter }));
@@ -79,7 +79,7 @@ The provider confirms a Preview only when all of the following hold:
    Savepoints are allowed, so nested `$transaction` calls roll back with the Preview.
 4. On pooled databases (PostgreSQL, MySQL), nothing wrote through another connection or a separate transaction during the Preview. Reads through the root client are allowed. SQLite adapters share one connection, so their root-client statements run inside the Preview transaction.
 
-Test Bench blocks the statements in cases 3 and 4 before sending them to the driver. Even if the handler catches the error, that Preview fails and its earlier writes roll back. A missing or failed rollback acknowledgment retires the client until the process restarts. Use `preview.run` for request work so the provider can enroll it in the transaction.
+Sendproof blocks the statements in cases 3 and 4 before sending them to the driver. Even if the handler catches the error, that Preview fails and its earlier writes roll back. A missing or failed rollback acknowledgment retires the client until the process restarts. Use `preview.run` for request work so the provider can enroll it in the transaction.
 
 SQLite Previews and `run` calls are serialized, because the adapter has one connection. PostgreSQL and MySQL Previews run concurrently, each on its own pooled connection.
 

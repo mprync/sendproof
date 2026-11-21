@@ -8,16 +8,16 @@ import { BenchRuntime } from './runtime.js';
 import type { ExpressApplication } from './runtime.js';
 
 /** Nest module for the Express HTTP adapter. */
-export class TestBenchModule implements NestModule {
+export class SendproofModule implements NestModule {
   constructor(
     private readonly runtime: BenchRuntime,
     private readonly adapter: HttpAdapterHost,
   ) {}
 
-  /** Import this in the root module: `imports: [TestBenchModule.forRoot({ … })]`. */
+  /** Import this in the root module: `imports: [SendproofModule.forRoot({ … })]`. */
   static forRoot(options: NestBenchOptions = {}): DynamicModule {
     return {
-      module: TestBenchModule,
+      module: SendproofModule,
       imports: [DiscoveryModule],
       providers: [
         { provide: optionsKey, useValue: options },
@@ -29,11 +29,11 @@ export class TestBenchModule implements NestModule {
 
   configure(consumer: MiddlewareConsumer): void {
     const adapter = this.adapter.httpAdapter;
-    if (adapter?.getType() !== 'express') throw new Error('Use the NestJS Express HTTP adapter with Test Bench.');
+    if (adapter?.getType() !== 'express') throw new Error('Use the NestJS Express HTTP adapter with Sendproof.');
     consumer.apply(this.runtime.middleware(adapter.getInstance() as ExpressApplication))
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
   }
 }
-Inject(BenchRuntime)(TestBenchModule, undefined, 0);
-Inject(HttpAdapterHost)(TestBenchModule, undefined, 1);
-Module({})(TestBenchModule);
+Inject(BenchRuntime)(SendproofModule, undefined, 0);
+Inject(HttpAdapterHost)(SendproofModule, undefined, 1);
+Module({})(SendproofModule);

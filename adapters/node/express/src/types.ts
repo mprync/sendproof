@@ -1,11 +1,11 @@
 import type { Request, RequestHandler } from 'express';
-import type { BenchOptions } from '@test-bench/core';
+import type { BenchOptions } from '@sendproof/core';
 
-/** Options accepted by {@link testBench}; request callbacks receive the Express request as `raw`. */
+/** Options accepted by {@link sendproof}; request callbacks receive the Express request as `raw`. */
 export type ExpressBenchOptions = BenchOptions<Request>;
 
 /** Express middleware that also registers rollback-eligible operations. */
-export interface TestBenchMiddleware extends RequestHandler {
+export interface SendproofMiddleware extends RequestHandler {
   /**
    * Register a rollback-eligible operation on the workbench mount's Express router.
    *
@@ -13,5 +13,5 @@ export interface TestBenchMiddleware extends RequestHandler {
    * @param template An OpenAPI path template such as `/items/{id}`.
    * @param handlers The real route handler chain, run for both Send and Preview.
    */
-  operation(method: string, template: string, ...handlers: RequestHandler[]): TestBenchMiddleware;
+  operation(method: string, template: string, ...handlers: RequestHandler[]): SendproofMiddleware;
 }

@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
-import { endsTransaction } from '@test-bench/core';
-import type { AdapterProvider } from '@test-bench/core';
+import { endsTransaction } from '@sendproof/core';
+import type { AdapterProvider } from '@sendproof/core';
 
 /**
  * What the application told one query builder, captured from public builder calls so the provider

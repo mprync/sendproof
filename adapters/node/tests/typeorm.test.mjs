@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { DataSource, EntitySchema } from 'typeorm';
-import { TypeOrmPreview } from '@test-bench/typeorm';
+import { TypeOrmPreview } from '@sendproof/typeorm';
 import { Capture } from '../core/dist/capture.js';
 
 /**

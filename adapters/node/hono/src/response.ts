@@ -1,10 +1,10 @@
-import type { TransportResponse } from '@test-bench/core';
+import type { TransportResponse } from '@sendproof/core';
 
 /** Response statuses that must not carry a body. */
 const bodyless = new Set([204, 205, 304]);
 
 /** Marker header set by the internal router's not-found handler to tell "no such operation" from a handler's own 404. */
-export const unmatchedHeader = 'x-testbench-unmatched';
+export const unmatchedHeader = 'x-sendproof-unmatched';
 
 /** Convert a protocol response from the core into a fetch `Response`. */
 export function toResponse(answer: TransportResponse, method: string): Response {

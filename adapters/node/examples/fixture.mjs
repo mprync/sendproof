@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import express from 'express';
-import { testBench } from '@test-bench/express';
+import { sendproof } from '@sendproof/express';
 import { authProviders, createFixture } from './fixture-service.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -27,7 +27,7 @@ if (!Object.hasOwn(stores, profile)) throw new Error('Unknown fixture store');
 const store = await stores[profile]();
 const { session, previewProvider, operations, ordinary } = createFixture(':memory:', scenario, store);
 const options = {
-  apiName: 'Test Bench Conformance',
+  apiName: 'Sendproof Conformance',
   environment: scenario === 'disabled' ? 'production' : 'development',
   database,
   authProviders,
@@ -39,7 +39,7 @@ function registerExpress() {
   const app = express();
   const router = express.Router();
   router.use(express.json());
-  const bench = testBench({ ...options, resolveIdentity: ({ headers }) => session(headers.cookie) });
+  const bench = sendproof({ ...options, resolveIdentity: ({ headers }) => session(headers.cookie) });
   router.use(bench);
   for (const { method, path, handler } of operations) bench.operation(method, path, wrap(handler));
   for (const { method, path, handler } of ordinary) {

@@ -8,7 +8,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PrismaPreview } from '@test-bench/prisma';
+import { PrismaPreview } from '@sendproof/prisma';
 
 const dialects = {
   sqlite: {
@@ -16,7 +16,7 @@ const dialects = {
     secret: 'SELECT ? AS value',
     async adapter() {
       const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
-      const directory = process.env.BENCH_TMP_DIR ?? await mkdtemp(join(tmpdir(), 'test-bench-prisma-'));
+      const directory = process.env.BENCH_TMP_DIR ?? await mkdtemp(join(tmpdir(), 'sendproof-prisma-'));
       return new PrismaBetterSqlite3({ url: 'file:' + join(directory, 'fixture.db') });
     },
   },
@@ -51,7 +51,7 @@ export async function createPrismaStore(database = process.env.BENCH_DATABASE ??
   const url = process.env.BENCH_DATABASE_URL;
   if (database !== 'sqlite' && !url) throw new Error('BENCH_DATABASE_URL is required for ' + database);
   const { PrismaClient } = await import(`./prisma/${database}/generated/client.ts`);
-  const { models } = await import(`./prisma/${database}/generated/test-bench/index.js`);
+  const { models } = await import(`./prisma/${database}/generated/sendproof/index.js`);
 
   const provider = new PrismaPreview(await dialect.adapter(url), { models });
   provider.attach(new PrismaClient({ adapter: provider.adapter }));

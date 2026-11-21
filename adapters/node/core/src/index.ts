@@ -12,8 +12,8 @@ export { Capture, currentCapture, deliverEffect } from './capture.js';
 export { looksSecret, redacted, redactRow } from './secrets.js';
 export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
 
-const prefix = '/bench/_preview';
-const tracePrefix = '/bench/_api/traces/';
+const prefix = '/sendproof/_preview';
+const tracePrefix = '/sendproof/_api/traces/';
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 const noStore = { 'Cache-Control': 'no-store' };
 const privateHeaders = new Set([
@@ -125,25 +125,25 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
     const { pathname, query = '', basePath = '', method, headers } = context;
     const prefer = headers.prefer;
     const isPreview = under(pathname, prefix);
-    if (!isPreview && requestsRollback(prefer)) return problem(400, 'Use the Test Bench preview URL.');
-    if (!under(pathname, '/bench')) return null;
-    if (!enabled) return problem(404, 'Test Bench is unavailable.');
+    if (!isPreview && requestsRollback(prefer)) return problem(400, 'Use the Sendproof preview URL.');
+    if (!under(pathname, '/sendproof')) return null;
+    if (!enabled) return problem(404, 'Sendproof is unavailable.');
 
     const identity = await resolveIdentity(context);
     if (!await authorize(context, identity)) return problem(identity ? 403 : 401, 'Workbench access denied.');
     if (isPreview) {
-      if (!hasPreference(prefer, 'tx=rollback')) return problem(400, 'A Test Bench preview requires Prefer: tx=rollback.');
+      if (!hasPreference(prefer, 'tx=rollback')) return problem(400, 'A Sendproof preview requires Prefer: tx=rollback.');
       if (method === 'HEAD') return problem(405, 'A preview requires a response body.');
       if (!sameOrigin(context)) return problem(403, 'Preview is restricted to the application origin.');
       const target = pathname.slice(prefix.length);
-      if (!localPath(target) || under(decodeURIComponent(target).toLowerCase(), '/bench')) {
-        return problem(400, 'The Test Bench preview target is invalid.');
+      if (!localPath(target) || under(decodeURIComponent(target).toLowerCase(), '/sendproof')) {
+        return problem(400, 'The Sendproof preview target is invalid.');
       }
       if (!previewProvider) return problem(503, 'Preview requires an available provider.');
       return { target: target + query };
     }
     if (method !== 'GET' && method !== 'HEAD') return problem(405, 'Use GET for workbench discovery and assets.');
-    if (pathname === '/bench/_api/capabilities') {
+    if (pathname === '/sendproof/_api/capabilities') {
       const addBase = (url: string | null) => url === null ? null : basePath + requireLocalPath(url);
       const providers = [...authProviders, ...((await discoverAuth?.(context)) ?? [])];
       return json(200, {
@@ -162,8 +162,8 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
       const trace = store.get(pathname.slice(tracePrefix.length), traceOwner);
       return trace ? json(200, trace) : problem(404, 'Trace not found.');
     }
-    if (pathname === '/bench') return { status: 302, headers: { ...noStore, Location: basePath + '/bench/' + query }, body: Buffer.alloc(0) };
-    const asset = pathname.slice('/bench/'.length) || 'index.html';
+    if (pathname === '/sendproof') return { status: 302, headers: { ...noStore, Location: basePath + '/sendproof/' + query }, body: Buffer.alloc(0) };
+    const asset = pathname.slice('/sendproof/'.length) || 'index.html';
     manifest ??= JSON.parse(readFileSync(join(assets, 'manifest.json'), 'utf8')) as AssetManifest;
     const entry = Object.hasOwn(manifest.files, asset) && manifest.files[asset];
     if (!entry) return problem(404, 'Asset not found.');
@@ -177,7 +177,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
   }
 
   async function preview(context: BenchRequest<Raw>, dispatch: () => Promise<DispatchResponse>): Promise<TransportResponse> {
-    if (!enabled) return problem(404, 'Test Bench is unavailable.');
+    if (!enabled) return problem(404, 'Sendproof is unavailable.');
     if (!previewProvider) return problem(503, 'Preview requires an available provider.');
     const capture = new Capture('preview', captureLimits, includeSqlParameterValues);
     try {

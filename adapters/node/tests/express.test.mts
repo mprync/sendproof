@@ -7,17 +7,17 @@ import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import express from 'express';
 import type { Express, NextFunction, Request, RequestHandler, Response } from 'express';
-import { deliverEffect } from '@test-bench/core';
-import { testBench } from '@test-bench/express';
-import type { TestBenchMiddleware } from '@test-bench/express';
-import type { SQLiteDatabase } from '@test-bench/sqlite';
+import { deliverEffect } from '@sendproof/core';
+import { sendproof } from '@sendproof/express';
+import type { SendproofMiddleware } from '@sendproof/express';
+import type { SQLiteDatabase } from '@sendproof/sqlite';
 import { createItems, exists, identityFor } from './support/items.mts';
 import type { PreviewResult, Problem } from './support/items.mts';
 
 interface Harness {
   url: string;
   db: SQLiteDatabase;
-  bench: TestBenchMiddleware;
+  bench: SendproofMiddleware;
   errors: unknown[];
 }
 
@@ -40,12 +40,12 @@ async function listen(t: test.TestContext, app: Express): Promise<string> {
  * Build an app with the bench mounted at `mount` and the standard test operations registered.
  * `configure` can adjust bench options and register extra operations before the app starts.
  */
-async function start(t: test.TestContext, options: Parameters<typeof testBench>[0] = {}, mount = '',
-  configure: (bench: TestBenchMiddleware, db: SQLiteDatabase) => void = () => {}): Promise<Harness> {
+async function start(t: test.TestContext, options: Parameters<typeof sendproof>[0] = {}, mount = '',
+  configure: (bench: SendproofMiddleware, db: SQLiteDatabase) => void = () => {}): Promise<Harness> {
   const db = createItems();
   t.after(() => db.close());
   const errors: unknown[] = [];
-  const bench = testBench({
+  const bench = sendproof({
     environment: 'development',
     previewProvider: db,
     resolveIdentity: ({ raw }) => identityFor(raw.get('x-user')),
@@ -114,7 +114,7 @@ const rollback = { ...json, Prefer: 'tx=rollback' };
 
 async function preview(h: Harness, path: string, init: { method?: string; user?: string; body?: unknown;
   headers?: Record<string, string> } = {}): Promise<{ response: Response0; body: any }> {
-  const response = await fetch(`${h.url}/bench/_preview${path}`, {
+  const response = await fetch(`${h.url}/sendproof/_preview${path}`, {
     method: init.method ?? 'POST',
     headers: { ...rollback, ...(init.user ? { 'x-user': init.user } : {}), ...init.headers },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -173,30 +173,30 @@ test('an application route that is not registered as an operation is refused by 
   assert.equal(await exists(h.db, 'x'), true, 'the ordinary route still works for Send');
 });
 
-test('a mount path is reflected in discovery and Preview, and /bench outside the mount is not served', async t => {
+test('a mount path is reflected in discovery and Preview, and /sendproof outside the mount is not served', async t => {
   const h = await start(t, { documents: [{ name: 'Guide', url: '/guide.md' }] }, '/tenant');
-  const capabilities = await (await fetch(`${h.url}/bench/_api/capabilities`)).json() as Record<string, any>;
+  const capabilities = await (await fetch(`${h.url}/sendproof/_api/capabilities`)).json() as Record<string, any>;
   assert.equal(capabilities.openApiUrl, '/tenant/openapi.json');
   assert.deepEqual(capabilities.documents, [{ name: 'Guide', url: '/tenant/guide.md' }]);
   assert.deepEqual(capabilities.previewOperations.map((o: any) => `${o.method} ${o.path}`),
     ['POST /items', 'GET /items/{id}', 'PATCH /items/{id}', 'POST /items/{id}/fail']);
   assert.equal(capabilities.observedSend, true);
 
-  const redirect = await fetch(`${h.url}/bench?x=1`, { redirect: 'manual' });
+  const redirect = await fetch(`${h.url}/sendproof?x=1`, { redirect: 'manual' });
   assert.equal(redirect.status, 302);
-  assert.equal(redirect.headers.get('location'), '/tenant/bench/?x=1');
+  assert.equal(redirect.headers.get('location'), '/tenant/sendproof/?x=1');
 
   const { body } = await preview(h, '/items', { user: 'admin', body: { id: 'mounted', name: 'N' } });
   assert.equal((body as PreviewResult).status, 201);
-  assert.equal((await fetch(h.url.replace('/tenant', '') + '/bench/_api/capabilities')).status, 404);
+  assert.equal((await fetch(h.url.replace('/tenant', '') + '/sendproof/_api/capabilities')).status, 404);
 });
 
 test('authorization is enforced for the workbench, for Preview and by route middleware inside Preview', async t => {
   const h = await start(t, { authorize: (_request, identity) => identity !== null });
-  const anonymous = await fetch(`${h.url}/bench/_api/capabilities`);
+  const anonymous = await fetch(`${h.url}/sendproof/_api/capabilities`);
   assert.equal(anonymous.status, 401);
   assert.equal(((await anonymous.json()) as Problem).title, 'Workbench access denied.');
-  const signedIn = await fetch(`${h.url}/bench/_api/capabilities`, { headers: { 'x-user': 'viewer' } });
+  const signedIn = await fetch(`${h.url}/sendproof/_api/capabilities`, { headers: { 'x-user': 'viewer' } });
   assert.equal(signedIn.status, 200);
   assert.deepEqual(((await signedIn.json()) as any).identity, { name: 'Fixture Viewer', role: 'viewer' });
 
@@ -212,14 +212,14 @@ test('Preview requests are validated before any handler runs', async t => {
   const h = await start(t, {}, '', bench => { bench.operation('POST', '/probe', (_req, res) => { ran++; res.sendStatus(204); }); });
   const call = (path: string, init: RequestInit) => fetch(`${h.url}${path}`, init);
   const cases: [string, string, RequestInit, number, string][] = [
-    ['missing Prefer', '/bench/_preview/probe', { method: 'POST' }, 400, 'A Test Bench preview requires Prefer: tx=rollback.'],
-    ['rollback outside the preview URL', '/probe', { method: 'POST', headers: { Prefer: 'tx=rollback' } }, 400, 'Use the Test Bench preview URL.'],
-    ['cross-origin', '/bench/_preview/probe', { method: 'POST', headers: { ...rollback, Origin: 'http://evil.example' } }, 403, 'Preview is restricted to the application origin.'],
-    ['cross-site fetch metadata', '/bench/_preview/probe', { method: 'POST', headers: { ...rollback, 'Sec-Fetch-Site': 'cross-site' } }, 403, 'Preview is restricted to the application origin.'],
-    ['HEAD', '/bench/_preview/probe', { method: 'HEAD', headers: rollback }, 405, ''],
-    ['self target', '/bench/_preview/bench/_api/capabilities', { method: 'POST', headers: rollback }, 400, 'The Test Bench preview target is invalid.'],
-    ['empty target', '/bench/_preview', { method: 'POST', headers: rollback }, 400, 'The Test Bench preview target is invalid.'],
-    ['non-GET discovery', '/bench/_api/capabilities', { method: 'POST' }, 405, 'Use GET for workbench discovery and assets.'],
+    ['missing Prefer', '/sendproof/_preview/probe', { method: 'POST' }, 400, 'A Sendproof preview requires Prefer: tx=rollback.'],
+    ['rollback outside the preview URL', '/probe', { method: 'POST', headers: { Prefer: 'tx=rollback' } }, 400, 'Use the Sendproof preview URL.'],
+    ['cross-origin', '/sendproof/_preview/probe', { method: 'POST', headers: { ...rollback, Origin: 'http://evil.example' } }, 403, 'Preview is restricted to the application origin.'],
+    ['cross-site fetch metadata', '/sendproof/_preview/probe', { method: 'POST', headers: { ...rollback, 'Sec-Fetch-Site': 'cross-site' } }, 403, 'Preview is restricted to the application origin.'],
+    ['HEAD', '/sendproof/_preview/probe', { method: 'HEAD', headers: rollback }, 405, ''],
+    ['self target', '/sendproof/_preview/sendproof/_api/capabilities', { method: 'POST', headers: rollback }, 400, 'The Sendproof preview target is invalid.'],
+    ['empty target', '/sendproof/_preview', { method: 'POST', headers: rollback }, 400, 'The Sendproof preview target is invalid.'],
+    ['non-GET discovery', '/sendproof/_api/capabilities', { method: 'POST' }, 405, 'Use GET for workbench discovery and assets.'],
   ];
   for (const [label, path, init, status, title] of cases) {
     const response = await call(path, init);
@@ -227,10 +227,10 @@ test('Preview requests are validated before any handler runs', async t => {
     if (title) assert.equal(((await response.json()) as Problem).title, title, label);
   }
   // fetch() normalises dot segments, so send this one with a raw request line.
-  const dotted = await rawPost(h.url, '/bench/_preview/a/%2e%2e/probe');
+  const dotted = await rawPost(h.url, '/sendproof/_preview/a/%2e%2e/probe');
   assert.equal(dotted, 400, 'encoded dot segments');
   assert.equal(ran, 0, 'no rejected request reached the handler');
-  const ok = await call('/bench/_preview/probe', { method: 'POST', headers: rollback });
+  const ok = await call('/sendproof/_preview/probe', { method: 'POST', headers: rollback });
   assert.equal(ok.status, 200);
   assert.equal(ran, 1);
 });
@@ -238,7 +238,7 @@ test('Preview requests are validated before any handler runs', async t => {
 test('operation() rejects unsafe or duplicate registrations', async t => {
   const h = await start(t);
   const handler: RequestHandler = (_req, res) => { res.end(); };
-  for (const template of ['items', '/items/*', '/items/:id', '/items/{id}/{', '/a/../b', '/bench', '/Bench/x', '/items//x', '/items?x', '/items/(.*)']) {
+  for (const template of ['items', '/items/*', '/items/:id', '/items/{id}/{', '/a/../b', '/sendproof', '/Sendproof/x', '/items//x', '/items?x', '/items/(.*)']) {
     assert.throws(() => h.bench.operation('POST', template, handler), TypeError, template);
   }
   assert.throws(() => h.bench.operation('TRACE', '/x', handler), TypeError);
@@ -323,41 +323,41 @@ test('Send with Prefer: trace records an owner-bound trace that other subjects c
     method: 'POST', headers: { ...json, 'x-user': 'admin', Prefer: 'trace' }, body: JSON.stringify({ id: 'traced', name: 'T' }),
   });
   assert.equal(sent.status, 201);
-  const id = sent.headers.get('x-testbench-trace');
+  const id = sent.headers.get('x-sendproof-trace');
   assert.match(id ?? '', /^[0-9a-f]{32}$/);
   assert.equal(await exists(h.db, 'traced'), true, 'observed Send is a normal, committed request');
 
-  const trace = await fetch(`${h.url}/bench/_api/traces/${id}`, { headers: { 'x-user': 'admin' } });
+  const trace = await fetch(`${h.url}/sendproof/_api/traces/${id}`, { headers: { 'x-user': 'admin' } });
   assert.equal(trace.status, 200);
   const recorded = await trace.json() as PreviewResult & { timing: unknown };
   assert.deepEqual(recorded.changes?.map(c => c.operation), ['insert']);
   assert.deepEqual(recorded.effects, [{ kind: 'email', description: 'Created item', delivered: true }]);
   assert.equal(typeof recorded.timing, 'object');
 
-  assert.equal((await fetch(`${h.url}/bench/_api/traces/${id}`, { headers: { 'x-user': 'viewer' } })).status, 404);
-  assert.equal((await fetch(`${h.url}/bench/_api/traces/${id}`)).status, 404, 'anonymous callers cannot read it');
+  assert.equal((await fetch(`${h.url}/sendproof/_api/traces/${id}`, { headers: { 'x-user': 'viewer' } })).status, 404);
+  assert.equal((await fetch(`${h.url}/sendproof/_api/traces/${id}`)).status, 404, 'anonymous callers cannot read it');
 
   const untraced = await fetch(`${h.url}/items`, { method: 'POST', headers: { ...json, 'x-user': 'admin' }, body: JSON.stringify({ id: 'plain', name: 'P' }) });
-  assert.equal(untraced.headers.get('x-testbench-trace'), null);
+  assert.equal(untraced.headers.get('x-sendproof-trace'), null);
   const rejected = await fetch(`${h.url}/items`, { method: 'POST', headers: { ...json, 'x-user': 'viewer', Prefer: 'trace' }, body: JSON.stringify({ id: 'v', name: 'V' }) });
   assert.equal(rejected.status, 403);
-  assert.equal(rejected.headers.get('x-testbench-trace'), null, 'failed authorization is never traced');
+  assert.equal(rejected.headers.get('x-sendproof-trace'), null, 'failed authorization is never traced');
 });
 
 test('workbench assets are served with validators and the workbench is unavailable outside its environments', async t => {
   const h = await start(t);
-  const index = await fetch(`${h.url}/bench/`);
+  const index = await fetch(`${h.url}/sendproof/`);
   assert.equal(index.status, 200);
   assert.match(index.headers.get('content-type') ?? '', /text\/html/);
   assert.equal(index.headers.get('x-content-type-options'), 'nosniff');
-  const cached = await fetch(`${h.url}/bench/`, { headers: { 'If-None-Match': index.headers.get('etag') ?? '' } });
+  const cached = await fetch(`${h.url}/sendproof/`, { headers: { 'If-None-Match': index.headers.get('etag') ?? '' } });
   assert.equal(cached.status, 304);
-  assert.equal((await fetch(`${h.url}/bench/%2e%2e/package.json`)).status, 404);
+  assert.equal((await fetch(`${h.url}/sendproof/%2e%2e/package.json`)).status, 404);
 
   const production = await start(t, { environment: 'production' });
-  assert.equal((await fetch(`${production.url}/bench/_api/capabilities`)).status, 404);
+  assert.equal((await fetch(`${production.url}/sendproof/_api/capabilities`)).status, 404);
   assert.equal((await fetch(`${production.url}/openapi.json`)).status, 200, 'application routes are unaffected');
   const sent = await fetch(`${production.url}/items`, { method: 'POST', headers: { ...json, 'x-user': 'admin', Prefer: 'trace' }, body: JSON.stringify({ id: 'p', name: 'P' }) });
-  assert.equal(sent.headers.get('x-testbench-trace'), null, 'no tracing when disabled');
+  assert.equal(sent.headers.get('x-sendproof-trace'), null, 'no tracing when disabled');
 });
 

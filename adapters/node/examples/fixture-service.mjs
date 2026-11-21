@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { currentCapture, deliverEffect } from '@test-bench/core';
-import { SQLiteDatabase } from '@test-bench/sqlite';
+import { currentCapture, deliverEffect } from '@sendproof/core';
+import { SQLiteDatabase } from '@sendproof/sqlite';
 
 export const authProviders = [
   { kind: 'cookie', label: 'Fixture password', url: '/auth/sign-in' },

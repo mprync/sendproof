@@ -13,7 +13,7 @@ const packer = fileURLToPath(new URL('../../../tools/pack-ui.mjs', import.meta.u
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 test('the UI bundle is deterministic, verifiable and removes generated files that are no longer present', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'test-bench-assets-'));
+  const directory = await mkdtemp(join(tmpdir(), 'sendproof-assets-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const pack = () => execFile(process.execPath, [packer, '--out', directory, '--version', '3.2.1']);
   const path = join(directory, 'manifest.json');

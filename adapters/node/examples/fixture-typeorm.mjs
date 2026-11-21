@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { DataSource, EntitySchema } from 'typeorm';
-import { TypeOrmPreview } from '@test-bench/typeorm';
+import { TypeOrmPreview } from '@sendproof/typeorm';
 
 /**
- * The fixture's only table. The Entity declares its primary column, which is all Test Bench needs
+ * The fixture's only table. The Entity declares its primary column, which is all Sendproof needs
  * to report row changes: handlers below call plain TypeORM repository methods with no key lists.
  */
 export const Item = new EntitySchema({

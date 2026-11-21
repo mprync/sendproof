@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import type { BenchRequest } from '@test-bench/core';
+import type { BenchRequest } from '@sendproof/core';
 
 /**
  * Describe an Express request for the protocol core. `pathname` is relative to the router the

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import test from 'node:test';
-import { Capture, createBench, currentCapture, deliverEffect, endsTransaction, looksSecret, mayWrite } from '@test-bench/core';
+import { Capture, createBench, currentCapture, deliverEffect, endsTransaction, looksSecret, mayWrite } from '@sendproof/core';
 
 const origin = 'http://localhost:8000';
 const identity = { name: 'Robin', role: 'editor', subject: '42', scheme: 'cookie' };
@@ -10,8 +10,8 @@ const request = (pathname, options = {}) =>
   ({ pathname, method: 'GET', raw: null, origin, headers: {}, ...options });
 const protocol = (options = {}) =>
   createBench({ environment: 'Development', previewProvider: provider, ...options });
-const lookup = '/bench/_api/capabilities';
-const preview = request('/bench/_preview/items', { method: 'POST', headers: { prefer: 'tx=rollback' } });
+const lookup = '/sendproof/_api/capabilities';
+const preview = request('/sendproof/_preview/items', { method: 'POST', headers: { prefer: 'tx=rollback' } });
 const parse = response => JSON.parse(response.body);
 const transport = (body = '', headers = {}, status = 201) => ({ status, headers, body: Buffer.from(body) });
 
@@ -60,18 +60,18 @@ test('access policies distinguish anonymous and authenticated callers', async ()
 
 test('asset routing canonicalizes the mount and revalidates via ETag', async () => {
   const bench = protocol();
-  const redirect = await bench.lookup(request('/bench', { basePath: '/tenant', query: '?from=docs' }));
+  const redirect = await bench.lookup(request('/sendproof', { basePath: '/tenant', query: '?from=docs' }));
   assert.equal(redirect.status, 302);
-  assert.equal(redirect.headers.Location, '/tenant/bench/?from=docs');
-  const asset = await bench.lookup(request('/bench/index.html'));
+  assert.equal(redirect.headers.Location, '/tenant/sendproof/?from=docs');
+  const asset = await bench.lookup(request('/sendproof/index.html'));
   assert.equal(asset.status, 200);
-  assert.match(asset.body.toString(), /<title>.*Test Bench/i);
+  assert.match(asset.body.toString(), /<title>.*Sendproof/i);
   assert.equal(asset.headers['X-Content-Type-Options'], 'nosniff');
-  const cached = await bench.lookup(request('/bench/index.html', { headers: { 'if-none-match': asset.headers.ETag } }));
+  const cached = await bench.lookup(request('/sendproof/index.html', { headers: { 'if-none-match': asset.headers.ETag } }));
   assert.equal(cached.status, 304);
   assert.equal(cached.body.length, 0);
-  assert.equal((await bench.lookup(request('/bench/constructor'))).status, 404);
-  assert.equal(await bench.lookup(request('/bench-other')), null);
+  assert.equal((await bench.lookup(request('/sendproof/constructor'))).status, 404);
+  assert.equal(await bench.lookup(request('/sendproof-other')), null);
 });
 
 test('preview requires an exact preference, a local target and same-origin provenance', async () => {
@@ -86,8 +86,8 @@ test('preview requires an exact preference, a local target and same-origin prove
   ]) {
     assert.equal((await bench.lookup({ ...preview, headers: { ...preview.headers, ...headers } })).status, 403);
   }
-  for (const suffix of ['//items', '/%2fitems', '/%62ench', '/%2e%2e/items']) {
-    assert.equal((await bench.lookup({ ...preview, pathname: '/bench/_preview' + suffix })).status, 400);
+  for (const suffix of ['//items', '/%2fitems', '/%73endproof', '/%2e%2e/items']) {
+    assert.equal((await bench.lookup({ ...preview, pathname: '/sendproof/_preview' + suffix })).status, 400);
   }
   assert.equal((await bench.lookup({ ...preview, method: 'HEAD' })).status, 405);
   assert.equal((await bench.lookup({ ...preview, pathname: '/items', headers: { prefer: ['trace', 'tx=rollback'] } })).status, 400);
@@ -204,7 +204,7 @@ test('observations isolate workspaces, authentication schemes and trace expiry',
   const observed = await bench.observation(observe);
   observed.run(() => currentCapture().log({ level: 'Info', message: 'one request' }));
   const id = observed.complete(201);
-  const path = '/bench/_api/traces/' + id;
+  const path = '/sendproof/_api/traces/' + id;
   const target = request(path, { raw: identity, basePath: '/tenant' });
   assert.equal((await bench.lookup(target)).status, 200);
   assert.equal((await bench.lookup({ ...target, basePath: '/other' })).status, 404);
@@ -222,7 +222,7 @@ test('the trace store evicts entries per owner before enforcing the global cap',
   const trace = async raw => (await bench.observation(request('/items',
     { method: 'POST', headers: { prefer: 'trace' }, raw }))).complete(201);
   const owned = await Promise.all(Array.from({ length: 9 }, () => trace(identity)));
-  const read = (id, raw = identity) => bench.lookup(request('/bench/_api/traces/' + id, { raw }));
+  const read = (id, raw = identity) => bench.lookup(request('/sendproof/_api/traces/' + id, { raw }));
   assert.equal((await read(owned[0])).status, 404);
   assert.equal((await read(owned[1])).status, 200);
   for (let index = 0; index < 32; index++) await trace({ ...identity, subject: String(index) + 'new' });
@@ -311,7 +311,7 @@ test('trace ids carry 128 random bits and owners include the token issuer', asyn
   const issued = { ...identity, issuer: 'https://issuer-a.test' };
   const id = (await bench.observation(request('/items', { method: 'POST', headers: { prefer: 'trace' }, raw: issued }))).complete(201);
   assert.match(id, /^[0-9a-f]{32}$/);
-  const read = raw => bench.lookup(request('/bench/_api/traces/' + id, { raw }));
+  const read = raw => bench.lookup(request('/sendproof/_api/traces/' + id, { raw }));
   assert.equal((await read(issued)).status, 200);
   assert.equal((await read({ ...issued, issuer: 'https://issuer-b.test' })).status, 404);
   assert.equal((await read(identity)).status, 404);

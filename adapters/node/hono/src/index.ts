@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import type { Context, Env, Handler, MiddlewareHandler } from 'hono';
-import { createBench } from '@test-bench/core';
-import type { BenchOptions, BenchRequest } from '@test-bench/core';
+import { createBench } from '@sendproof/core';
+import type { BenchOptions, BenchRequest } from '@sendproof/core';
 import { assertBasePath, routePath } from './paths.js';
 import { captureResponse, toResponse, unmatchedHeader } from './response.js';
 
-export type TestBenchOptions<E extends Env = Env> = BenchOptions<Context<E>> & {
+export type SendproofOptions<E extends Env = Env> = BenchOptions<Context<E>> & {
   /** Path on the parent app where this router is mounted, without a trailing slash. */
   basePath?: string;
 };
@@ -13,9 +13,9 @@ export type TestBenchOptions<E extends Env = Env> = BenchOptions<Context<E>> & {
 /** A Hono route handler or middleware, as accepted by `app.get(path, …)`. */
 export type OperationHandler<E extends Env = Env> = Handler<E> | MiddlewareHandler<E>;
 
-export type TestBenchRouter<E extends Env = Env> = Hono<E> & {
+export type SendproofRouter<E extends Env = Env> = Hono<E> & {
   /** Register the same Hono handlers for Send and rollback Preview. */
-  operation(method: string, template: string, ...handlers: OperationHandler<E>[]): TestBenchRouter<E>;
+  operation(method: string, template: string, ...handlers: OperationHandler<E>[]): SendproofRouter<E>;
 };
 
 const operationMethods = new Set(['get', 'post', 'put', 'patch', 'delete', 'options']);
@@ -39,11 +39,11 @@ function describe<E extends Env>(c: Context<E>, basePath: string): BenchRequest<
  * registered previewable operations. Mount it on the application with
  * `app.route(basePath || '/', router)`.
  */
-export function testBench<E extends Env = Env>(options: TestBenchOptions<E> = {}): TestBenchRouter<E> {
+export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}): SendproofRouter<E> {
   const { basePath = '', ...benchOptions } = options;
   assertBasePath(basePath);
 
-  const app = new Hono<E>({ strict: true }) as TestBenchRouter<E>;
+  const app = new Hono<E>({ strict: true }) as SendproofRouter<E>;
   // Preview dispatches into this second router so a handler runs without the workbench gate in front of it.
   const internal = new Hono<E>({ strict: true });
   const operations: { method: string; path: string }[] = [];
@@ -82,7 +82,7 @@ export function testBench<E extends Env = Env>(options: TestBenchOptions<E> = {}
       if (!observed) return next();
       await observed.run(next);
       const trace = observed.complete(c.res.status);
-      if (trace) c.header('X-TestBench-Trace', trace);
+      if (trace) c.header('X-Sendproof-Trace', trace);
     };
     // The guard above guarantees at least one handler, as Hono's typings require.
     const [first, ...rest] = handlers as [OperationHandler<E>, ...OperationHandler<E>[]];

@@ -1,14 +1,14 @@
 {
-  "name": "@test-bench/hono",
+  "name": "@sendproof/hono",
   "version": "0.1.0-alpha.1",
-  "description": "Test Bench integration for Hono",
+  "description": "Sendproof integration for Hono",
   "license": "MIT",
   "keywords": [
     "hono",
     "openapi",
     "swagger-ui",
     "api-testing",
-    "test-bench"
+    "sendproof"
   ],
   "type": "module",
   "exports": {
@@ -28,7 +28,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@test-bench/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.1"
   },
   "peerDependencies": {
     "hono": "^4.0.0"

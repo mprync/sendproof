@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue, SQLOutputValue, StatementResultingChanges } from 'node:sqlite';
-import type { PreviewProvider } from '@test-bench/core';
+import type { PreviewProvider } from '@sendproof/core';
 import { defaultTrackedKeyLimit, trackRows } from './rows.js';
 import type { Row, RowKey, TrackedRows } from './rows.js';
 import { allowedRead, allowedWrite, execute } from './statements.js';

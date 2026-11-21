@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createBench, currentCapture, deliverEffect } from '@test-bench/core';
-import { SQLiteDatabase } from '@test-bench/sqlite';
+import { createBench, currentCapture, deliverEffect } from '@sendproof/core';
+import { SQLiteDatabase } from '@sendproof/sqlite';
 
 const request = (method, pathname, headers = {}) =>
   ({ pathname, method, origin: 'http://localhost:8000', headers });
 
 test('development discovery works without a provider and rejects unsafe route configuration', async () => {
   const bench = createBench({ environment: 'Development' });
-  const response = await bench.lookup(request('GET', '/bench/_api/capabilities'));
+  const response = await bench.lookup(request('GET', '/sendproof/_api/capabilities'));
   const capabilities = JSON.parse(response.body);
   assert.equal(capabilities.openApiUrl, '/openapi.json');
   assert.deepEqual(capabilities.previewOperations, []);
@@ -19,7 +19,7 @@ test('development discovery works without a provider and rejects unsafe route co
 });
 
 test('production only enables the workbench with an explicit environment opt-in', async () => {
-  const path = request('GET', '/bench/_api/capabilities');
+  const path = request('GET', '/sendproof/_api/capabilities');
   assert.equal((await createBench({ environment: 'production' }).lookup(path)).status, 404);
   assert.equal((await createBench({ environment: 'production', environments: ['production'] }).lookup(path)).status, 200);
 });
@@ -29,7 +29,7 @@ test('SQLite keeps overlapping ordinary writes outside the preview and closes in
   t.after(() => db.close());
   const write = id => db.write('INSERT INTO items VALUES (:id)', { id }, { table: 'items', keys: [{ id }] });
   const bench = createBench({ environment: 'development', previewProvider: db });
-  const previewRequest = request('POST', '/bench/_preview/items', { prefer: 'tx=rollback' });
+  const previewRequest = request('POST', '/sendproof/_preview/items', { prefer: 'tx=rollback' });
   let allowExit;
   let started;
   let stale;

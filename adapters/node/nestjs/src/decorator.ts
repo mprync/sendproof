@@ -6,8 +6,8 @@ export interface PreviewOperation {
   path: string;
 }
 
-/** Metadata key under which {@link TestBenchPreview} records its operation. */
-export const previewKey = Symbol('Test Bench preview operation');
+/** Metadata key under which {@link SendproofPreview} records its operation. */
+export const previewKey = Symbol('Sendproof preview operation');
 
 const ordinaryVerbs = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
@@ -17,7 +17,7 @@ const ordinaryVerbs = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS
  * `path` is the workbench-relative OpenAPI template (for example `/items/{id}`),
  * without the global prefix configured through `basePath`.
  */
-export function TestBenchPreview(method: string, path: string): MethodDecorator {
+export function SendproofPreview(method: string, path: string): MethodDecorator {
   const verb = method.toUpperCase();
   if (!ordinaryVerbs.has(verb) || !path.startsWith('/') || /[?#\\]/.test(path) || path.startsWith('//')) {
     throw new TypeError('Supply an HTTP method and the workbench-relative OpenAPI path template.');

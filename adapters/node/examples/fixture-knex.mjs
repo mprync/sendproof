@@ -1,5 +1,5 @@
 import knex from 'knex';
-import { KnexPreview } from '@test-bench/knex';
+import { KnexPreview } from '@sendproof/knex';
 
 /** Conformance database families, as the runner names them in BENCH_DATABASE. */
 const labels = { sqlite: 'SQLite', postgresql: 'PostgreSQL', mysql: 'MySQL', sqlserver: 'SQL Server' };
