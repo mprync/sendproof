@@ -1,0 +1,43 @@
+name: test-bench-conformance
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench_local
+      POSTGRES_DB: postgres
+    ports:
+      - '127.0.0.1:55432:5432'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'bench', '-d', 'postgres']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mysql:
+    image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+    environment:
+      MYSQL_ROOT_PASSWORD: bench_local
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - '127.0.0.1:53306:3306'
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-pbench_local', '--silent']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
+    platform: linux/amd64
+    mem_limit: 4g
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: 'BenchLocal_2026!'
+      MSSQL_MEMORY_LIMIT_MB: '2048'
+    ports:
+      - '127.0.0.1:51433:1433'
+    healthcheck:
+      test: ['CMD', '/opt/mssql-tools18/bin/sqlcmd', '-S', 'localhost', '-U', 'sa', '-P', 'BenchLocal_2026!', '-C', '-Q', 'SELECT 1', '-b']
+      interval: 3s
+      timeout: 5s
+      retries: 35

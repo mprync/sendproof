@@ -1,0 +1,599 @@
+{
+  "bindings": [
+    {
+      "id": "node-express",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5351,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "express"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "dotnet-aspnetcore",
+      "database": "sqlite",
+      "toolchain": "dotnet",
+      "port": 5371,
+      "readiness": "/ready",
+      "prepare": "dotnet build examples/DotnetConformance/DotnetConformance.csproj -c Release",
+      "start": [
+        "dotnet",
+        "examples/DotnetConformance/bin/Release/net10.0/DotnetConformance.dll"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "dotnet-treasury",
+      "database": "sqlite",
+      "profile": "treasury",
+      "toolchain": "dotnet",
+      "port": 5372,
+      "readiness": "/bench/_api/capabilities",
+      "prepare": "dotnet build examples/TreasuryApi/TreasuryApi.csproj -c Release",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "start": [
+        "bash",
+        "-c",
+        "exec dotnet examples/TreasuryApi/bin/Release/net10.0/TreasuryApi.dll --urls \"http://127.0.0.1:$PORT\" --DemoDatabasePath \"$BENCH_TMP_DIR/treasury.db\" --DemoKeyDirectory \"$BENCH_TMP_DIR/keys\""
+      ]
+    },
+    {
+      "id": "node-express-drizzle",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5356,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "drizzle"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-drizzle-postgresql",
+      "database": "postgresql",
+      "toolchain": "node",
+      "port": 5388,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "node --experimental-strip-types --test adapters/node/tests/drizzle.test.mts",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "drizzle"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-drizzle-mysql",
+      "database": "mysql",
+      "toolchain": "node",
+      "port": 5389,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "node --experimental-strip-types --test adapters/node/tests/drizzle.test.mts",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "drizzle"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-knex",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5357,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "knex"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-typeorm",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5358,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "typeorm"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-prisma",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5359,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "prisma"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-prisma-postgresql",
+      "database": "postgresql",
+      "toolchain": "node",
+      "port": 5386,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "prisma"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-prisma-mysql",
+      "database": "mysql",
+      "toolchain": "node",
+      "port": 5387,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "prisma"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-fastify",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5353,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture-fastify.mjs"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-hono",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5354,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture-hono.mjs"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-nestjs",
+      "database": "sqlite",
+      "toolchain": "node",
+      "port": 5355,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture-nestjs.mjs"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "python-fastapi",
+      "database": "sqlite",
+      "toolchain": "python",
+      "port": 5361,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "test": "adapters/python/.venv/bin/python -m pytest adapters/python -q",
+      "start": [
+        "adapters/python/.venv/bin/python",
+        "adapters/python/conformance/fixture_fastapi.py"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "python-django",
+      "database": "sqlite",
+      "toolchain": "python",
+      "port": 5362,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": ["adapters/python/.venv/bin/python", "adapters/python/conformance/fixture_django.py"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "python-flask",
+      "database": "sqlite",
+      "toolchain": "python",
+      "port": 5363,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": ["adapters/python/.venv/bin/python", "adapters/python/conformance/fixture_flask.py"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "java-spring",
+      "database": "h2",
+      "toolchain": "java",
+      "port": 5364,
+      "readiness": "/ready",
+      "prepare": "sh adapters/java/scripts/gradle.sh :spring-fixture:bootJar",
+      "test": "sh adapters/java/scripts/gradle.sh test",
+      "start": [
+        "sh",
+        "adapters/java/scripts/run-fixture.sh"
+      ],
+      "traceTtlMs": 5000,
+      "startupMs": 60000
+    },
+    {
+      "id": "kotlin-ktor",
+      "database": "h2",
+      "toolchain": "java",
+      "port": 5376,
+      "readiness": "/ready",
+      "prepare": "sh adapters/java/scripts/gradle.sh :ktor-fixture:installDist",
+      "start": ["sh", "adapters/java/scripts/run-ktor-fixture.sh"],
+      "traceTtlMs": 5000,
+      "startupMs": 60000
+    },
+    {
+      "id": "php-laravel",
+      "database": "sqlite",
+      "toolchain": "php",
+      "port": 5365,
+      "readiness": "/ready",
+      "prepare": "sh adapters/php/scripts/prepare.sh",
+      "test": "sh adapters/php/scripts/test.sh",
+      "start": [
+        "php",
+        "adapters/php/examples/laravel-fixture/serve.php"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "php-symfony",
+      "database": "sqlite",
+      "toolchain": "php",
+      "port": 5374,
+      "readiness": "/ready",
+      "prepare": "sh adapters/php/scripts/prepare.sh",
+      "test": "sh adapters/php/scripts/test.sh",
+      "start": ["php", "adapters/php/examples/symfony-fixture/serve.php"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "ruby-rails",
+      "database": "sqlite",
+      "toolchain": "ruby",
+      "port": 5352,
+      "readiness": "/ready",
+      "prepare": "bash adapters/ruby/bin/prepare",
+      "test": "bash adapters/ruby/bin/test",
+      "start": [
+        "bash",
+        "adapters/ruby/bin/fixture"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-net-http",
+      "database": "sqlite",
+      "toolchain": "go",
+      "port": 5366,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "test": "node --test tests/go/set-go-module-path.test.mjs && adapters/go/scripts/test.sh",
+      "start": [
+        "artifacts/go/fixture",
+        "nethttp",
+        "sql"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-chi",
+      "database": "sqlite",
+      "toolchain": "go",
+      "port": 5368,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": [
+        "artifacts/go/fixture",
+        "chi",
+        "sql"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gin",
+      "database": "sqlite",
+      "toolchain": "go",
+      "port": 5369,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": [
+        "artifacts/go/fixture",
+        "gin",
+        "sql"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-echo",
+      "database": "sqlite",
+      "toolchain": "go",
+      "port": 5370,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": [
+        "artifacts/go/fixture",
+        "echo",
+        "sql"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gorm",
+      "database": "sqlite",
+      "toolchain": "go",
+      "port": 5373,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": [
+        "artifacts/go/fixture",
+        "nethttp",
+        "gorm"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-net-http-postgresql",
+      "database": "postgresql",
+      "toolchain": "go",
+      "port": 5410,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "test": "adapters/go/scripts/test.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-net-http-mysql",
+      "database": "mysql",
+      "toolchain": "go",
+      "port": 5411,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "test": "adapters/go/scripts/test.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-net-http-sqlserver",
+      "database": "sqlserver",
+      "toolchain": "go",
+      "port": 5412,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "test": "adapters/go/scripts/test.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gorm-postgresql",
+      "database": "postgresql",
+      "toolchain": "go",
+      "port": 5413,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "gorm"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gorm-mysql",
+      "database": "mysql",
+      "toolchain": "go",
+      "port": 5414,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "gorm"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gorm-sqlserver",
+      "database": "sqlserver",
+      "toolchain": "go",
+      "port": 5415,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "gorm"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "rust-axum",
+      "database": "sqlite",
+      "toolchain": "rust",
+      "port": 5367,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "test": "CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo test --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml --workspace",
+      "start": ["adapters/rust/target/debug/rust-conformance"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-actix",
+      "database": "sqlite",
+      "toolchain": "rust",
+      "port": 5375,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance-actix",
+      "start": ["adapters/rust/target/debug/rust-conformance-actix"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-axum-postgresql",
+      "database": "postgresql",
+      "toolchain": "rust",
+      "port": 5393,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "test": "CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo test --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml --workspace",
+      "start": ["adapters/rust/target/debug/rust-conformance"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-axum-mysql",
+      "database": "mysql",
+      "toolchain": "rust",
+      "port": 5394,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "test": "CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo test --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml --workspace",
+      "start": ["adapters/rust/target/debug/rust-conformance"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-actix-postgresql",
+      "database": "postgresql",
+      "toolchain": "rust",
+      "port": 5395,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance-actix",
+      "start": ["adapters/rust/target/debug/rust-conformance-actix"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-actix-mysql",
+      "database": "mysql",
+      "toolchain": "rust",
+      "port": 5396,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance-actix",
+      "start": ["adapters/rust/target/debug/rust-conformance-actix"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "node-express-knex-postgresql",
+      "database": "postgresql",
+      "toolchain": "node",
+      "port": 5381,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "knex"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-knex-mysql",
+      "database": "mysql",
+      "toolchain": "node",
+      "port": 5382,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "knex"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-knex-sqlserver",
+      "database": "sqlserver",
+      "toolchain": "node",
+      "port": 5383,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "knex"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-typeorm-postgresql",
+      "database": "postgresql",
+      "toolchain": "node",
+      "port": 5384,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "typeorm"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-typeorm-mysql",
+      "database": "mysql",
+      "toolchain": "node",
+      "port": 5385,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "test": "npm test --prefix adapters/node",
+      "start": [
+        "node",
+        "adapters/node/examples/fixture.mjs",
+        "typeorm"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "python-flask-sqlalchemy",
+      "database": "sqlite",
+      "toolchain": "python",
+      "port": 5390,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": [
+        "adapters/python/.venv/bin/python",
+        "adapters/python/conformance/fixture_flask_sqlalchemy.py"
+      ],
+      "traceTtlMs": 5000,
+      "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q"
+    },
+    {
+      "id": "python-flask-sqlalchemy-postgresql",
+      "database": "postgresql",
+      "toolchain": "python",
+      "port": 5391,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": [
+        "adapters/python/.venv/bin/python",
+        "adapters/python/conformance/fixture_flask_sqlalchemy.py"
+      ],
+      "traceTtlMs": 5000,
+      "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q"
+    },
+    {
+      "id": "python-flask-sqlalchemy-mysql",
+      "database": "mysql",
+      "toolchain": "python",
+      "port": 5392,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": [
+        "adapters/python/.venv/bin/python",
+        "adapters/python/conformance/fixture_flask_sqlalchemy.py"
+      ],
+      "traceTtlMs": 5000,
+      "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q"
+    }
+  ]
+}
