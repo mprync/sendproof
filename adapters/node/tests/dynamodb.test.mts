@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CreateTableCommand, DeleteTableCommand, DynamoDBClient, ExecuteStatementCommand, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { dynamoStore } from '@sendproof/dynamodb';
+import { dynamoStore, sanitizePartiql } from '@sendproof/dynamodb';
 import { assertBlocked, dbEntries, fresh, handle, needs, services, startApp } from './support/stores.mts';
 
 const secret = 'benchDynamoSecret' + Math.random().toString(16).slice(2);
@@ -59,6 +59,11 @@ async function app(t: test.TestContext, hook = true) {
       const { Items } = await client.send(new ExecuteStatementCommand({ Statement: `/* read */ SELECT * FROM "${name}" WHERE id = ?`, Parameters: [{ S: req.params.id as string }] }));
       res.json({ count: Items?.length ?? 0 });
     }));
+    bench.operation('GET', '/orders/{id}/inline', handle(async (req, res) => {
+      // A value written into the statement instead of a parameter.
+      const { Items } = await client.send(new ExecuteStatementCommand({ Statement: `SELECT * FROM "${name}" WHERE id = '${req.params.id}' AND hits < 1000` }));
+      res.json({ count: Items?.length ?? 0 });
+    }));
   });
   return { ...harness, read };
 }
@@ -83,6 +88,11 @@ test('DynamoDB reads, including PartiQL SELECT, run in Preview and are logged', 
   const select = await confirmed('GET', '/orders/seeded/select');
   assert.deepEqual(select.body, { count: 1 });
   assert.match(dbEntries(select.logs, 'dynamodb', 'ExecuteStatement')[0].db.statement, /SELECT \* FROM/);
+  const inline = await confirmed('GET', '/orders/seeded/inline');
+  assert.deepEqual(inline.body, { count: 1 });
+  const [statement] = dbEntries(inline.logs, 'dynamodb', 'ExecuteStatement').map(item => item.db.statement);
+  assert.match(statement, /WHERE id = \? AND hits < \?$/);
+  assert(!JSON.stringify(inline.logs).includes("'seeded'"), 'An inline literal must never reach a Db entry');
 });
 
 test('DynamoDB writes from either client are refused before the request is sent', await needs('dynamodb'), async t => {
@@ -109,4 +119,11 @@ test('a DynamoDB client is hooked once', () => {
   assert.throws(() => dynamoStore(DynamoDBDocumentClient.from(client)), /already hooked/);
   assert.throws(() => dynamoStore({ middlewareStack: null }), TypeError);
   client.destroy();
+});
+
+test('PartiQL statements in Db entries never carry inline literals', () => {
+  assert.equal(sanitizePartiql(`UPDATE "orders2" SET "password" = 'it''s secret', hits = 42 WHERE id = ? AND n > -1.5e3`),
+    `UPDATE "orders2" SET "password" = ?, hits = ? WHERE id = ? AND n > -?`);
+  assert.equal(sanitizePartiql(`INSERT INTO "t" VALUE {'id': 'a', 'token': 'abc', 'n': 7}`), `INSERT INTO "t" VALUE {?: ?, ?: ?, ?: ?}`);
+  assert.equal(sanitizePartiql(`SELECT * FROM "t" WHERE id = 'unterminated`), `SELECT * FROM "t" WHERE id = ?`);
 });

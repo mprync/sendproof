@@ -49,11 +49,42 @@ function targetOf(input: Record<string, unknown>, statement: string | undefined)
   return statement ? /"([^"]+)"/.exec(statement)?.[1] : undefined;
 }
 
-/** The PartiQL text of a request. It uses `?` placeholders; other actions have no statement. */
+/**
+ * Replace every literal in PartiQL text with `?`: single-quoted strings (with `''` escapes) and
+ * numbers. Double-quoted identifiers (table and attribute names) are kept as written. A statement
+ * may inline values instead of using `?` parameters, and a value never appears in a `Db` entry.
+ */
+export function sanitizePartiql(text: string): string {
+  let out = '';
+  for (let index = 0; index < text.length;) {
+    const char = text[index]!;
+    if (char === '"') {
+      const end = text.indexOf('"', index + 1);
+      const stop = end < 0 ? text.length : end + 1;
+      out += text.slice(index, stop);
+      index = stop;
+    } else if (char === "'") {
+      let end = index + 1;
+      while (end < text.length && !(text[end] === "'" && text[end + 1] !== "'")) end += text[end] === "'" ? 2 : 1;
+      out += '?';
+      index = end + 1;
+    } else if (/[0-9]/.test(char) && !/[\w.]/.test(text[index - 1] ?? '')) {
+      const number = /^[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(text.slice(index))![0];
+      out += '?';
+      index += number.length;
+    } else {
+      out += char;
+      index++;
+    }
+  }
+  return out;
+}
+
+/** The PartiQL text of a request, with literals replaced by `?`; other actions have no statement. */
 function statementOf(input: Record<string, unknown>): string | undefined {
-  if (typeof input.Statement === 'string') return input.Statement;
+  if (typeof input.Statement === 'string') return sanitizePartiql(input.Statement);
   const list = (input.Statements ?? input.TransactStatements) as { Statement?: unknown }[] | undefined;
-  return Array.isArray(list) ? list.map(item => String(item?.Statement ?? '')).join('; ') : undefined;
+  return Array.isArray(list) ? list.map(item => sanitizePartiql(String(item?.Statement ?? ''))).join('; ') : undefined;
 }
 
 /** Items matched, returned or written, when the reply says so. */
