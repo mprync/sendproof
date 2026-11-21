@@ -75,6 +75,7 @@ catalog.client[:documents].insert_one(_id: "a", name: "A")   # in a Preview: run
 - During a Preview, every database and collection method that sends a command adds the Preview session to its options. A call that passes its own session is refused, and the Preview answers 500.
 - `client.start_session` and `client.with_session` hand out the Preview session. Its `start_transaction` and `with_transaction` run inside the Preview transaction; its `commit_transaction` and `abort_transaction` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`. A raw `{ commitTransaction: 1 }` or `{ abortTransaction: 1 }` through `database.command` is refused the same way.
 - A Preview may hold its transaction for `preview_timeout:` seconds, 50 by default (below MongoDB's 60-second transaction lifetime). A handler still running at the limit loses the transaction: its later commands fail, nothing commits, and the Preview answers 500.
+- Once a Preview has ended, for any reason, its guarded handles refuse every further call with `Sendproof::PreviewTransactionControl`, and the command monitor refuses any write that no longer belongs to an open Preview transaction before it is sent, so a thread the handler left behind can't write outside the transaction.
 
 ### How the MongoDB guard works
 

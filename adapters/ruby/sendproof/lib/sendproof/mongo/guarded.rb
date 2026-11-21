@@ -53,6 +53,7 @@ module Sendproof
           state = @engine.state
           return derive(name, @target.public_send(name, *args, **kwargs, &block)) unless state
 
+          @engine.refuse_if_ended(state)
           if name == :start_session
             return state.session
           elsif name == :with_session

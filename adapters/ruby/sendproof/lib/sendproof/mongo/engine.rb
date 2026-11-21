@@ -166,6 +166,22 @@ module Sendproof
         recorder&.store_state(self)&.then { |state| state.session ? state : nil }
       end
 
+      # Raises the Preview's refusal when its MongoDB transaction is gone: the Preview has ended (handler
+      # finished) or expired (time limit). Guarded handles call it first, so a late call from a thread the
+      # handler left behind fails with the Preview's own error instead of reaching the driver.
+      # @raise [PreviewTransactionControl]
+      def refuse_if_ended(state)
+        return unless state.finished || state.expired
+
+        message = if state.expired
+                    "The Preview ran longer than #{@timeout} s, so its MongoDB transaction was aborted."
+                  else
+                    "The Preview has ended, so its MongoDB session refuses every further call."
+                  end
+        preview = Capture.preview
+        raise(preview ? refuse(preview, message) : PreviewTransactionControl.new(message))
+      end
+
       # The Preview session for +client+ (any client sharing this engine's cluster), or nil. Mongoid asks
       # this for every operation so its writes carry the Preview's session.
       def preview_session_for(client)

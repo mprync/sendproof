@@ -299,6 +299,19 @@ class MongoHookTest < Minitest::Test
     assert_empty stored(_id: "later")
   end
 
+  # A thread the handler left behind: once the Preview has ended, every call on the guarded handles is refused
+  # with the Preview's own error, never sent on a session whose transaction is gone.
+  def test_a_call_made_once_the_preview_has_ended_is_refused_never_sent
+    recorder = preview([@store]) { |_| @client[:documents].insert_one(_id: "inside") }
+    Sendproof::Capture.with(recorder) do
+      assert_raises(Sendproof::PreviewTransactionControl) { @client[:documents].insert_one(_id: "late") }
+      assert_raises(Sendproof::PreviewTransactionControl) { @client[:documents].find(_id: "inside").first }
+      assert_raises(Sendproof::PreviewTransactionControl) { @client.start_session }
+    end
+    assert_empty stored(_id: "late")
+    assert_empty stored(_id: "inside")
+  end
+
   def test_a_preview_keeps_the_mode_it_began_in
     calls = 0
     hello = lambda do
