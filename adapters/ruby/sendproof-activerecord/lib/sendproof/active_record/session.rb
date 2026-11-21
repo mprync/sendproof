@@ -62,7 +62,16 @@ module Sendproof
 
         @closed = true
         begin
-          @enrollments.reverse_each { |enrollment| rollback_one(enrollment) } unless @rolled_back
+          unless @rolled_back
+            # Every connection is retried: one that fails again never leaves the others in a transaction.
+            failures = []
+            @enrollments.reverse_each do |enrollment|
+              rollback_one(enrollment)
+            rescue StandardError => error
+              failures << error
+            end
+            raise failures.first if failures.any?
+          end
         ensure
           @tracker.deactivate
           hand_back_turn

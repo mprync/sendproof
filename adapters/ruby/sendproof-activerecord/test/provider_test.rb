@@ -329,6 +329,19 @@ class ObservationTest < Minitest::Test
 
   # --- discovery --------------------------------------------------------------------------------
 
+  # Closing after a failed rollback retries every connection: one that fails again never skips the others.
+  def test_close_retries_every_connection_even_when_one_fails
+    session = Sendproof::ActiveRecord::Session.new(Sendproof::ActiveRecord::Tracker.new)
+    tried = []
+    session.instance_variable_set(:@enrollments, %i[first second])
+    session.define_singleton_method(:rollback_one) do |enrollment|
+      tried << enrollment
+      raise "rollback of #{enrollment} failed" if enrollment == :second
+    end
+    assert_raises(RuntimeError) { session.close }
+    assert_equal %i[second first], tried
+  end
+
   def test_the_provider_names_its_sql_system
     assert_equal(MYSQL ? "mysql" : "sqlite", Sendproof::ActiveRecord::Provider.new.database_system)
     assert_equal "mariadb", Sendproof::ActiveRecord::Provider.new(system: "mariadb").database_system
