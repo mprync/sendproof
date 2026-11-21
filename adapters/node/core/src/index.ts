@@ -17,7 +17,10 @@ export {
   unattributedWrite, writeReason,
 } from './stores/guard.js';
 export { dynamodbTable, mongodbTable, redisTable } from './stores/tables.js';
-export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
+export {
+  controlsTransaction, endsTransaction, isRollback, mayWrite, previewSavepoint, previewSavepointHeld, setPreviewSavepoint, refusedStatement, safeProcedureNames,
+  splitStatements, type AdapterProvider,
+} from './statements.js';
 
 const prefix = '/sendproof/_preview';
 const tracePrefix = '/sendproof/_api/traces/';
