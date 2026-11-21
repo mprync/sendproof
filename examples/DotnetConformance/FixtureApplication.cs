@@ -22,8 +22,14 @@ public static class FixtureApplication
         builder.WebHost.UseUrls($"http://127.0.0.1:{options.Port}");
 
         var databasePath = Path.Combine(Path.GetTempPath(), $"bench-conformance-{Guid.NewGuid():N}.db");
-        builder.Services.AddDbContext<FixtureDbContext>(db => db.UseSqlite(
-            new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString()));
+        // The runner picks the engine: SQLite (the default) uses a throwaway file; MySQL gets a fresh database to use.
+        var mysql = Environment.GetEnvironmentVariable("BENCH_DATABASE") == "mysql";
+        var mysqlConnection = mysql ? MySqlConnectionString(Environment.GetEnvironmentVariable("BENCH_DATABASE_URL")) : null;
+        builder.Services.AddDbContext<FixtureDbContext>(db =>
+        {
+            if (mysqlConnection is not null) db.UseMySQL(mysqlConnection);
+            else db.UseSqlite(new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString());
+        });
         builder.Services.AddSingleton<FixtureOutbox>();
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(cookie =>
@@ -52,6 +58,10 @@ public static class FixtureApplication
             sendproof.AddEntityFrameworkCore<FixtureDbContext>();
         }
 
+        // Data stores are hooked only when the runner passes their variables.
+        var stores = FixtureStores.FromEnvironment();
+        stores.Register(builder.Services, sendproof);
+
         if (options.Scenario == FixtureScenario.RollbackFailure)
         {
             DecorateProviderWithRollbackFailure(builder.Services);
@@ -64,7 +74,7 @@ public static class FixtureApplication
             database.EnsureCreated();
             // Write-ahead logging is stored in the database file, so connections opened later (the fixture does not pool)
             // use it. The default rollback journal makes concurrent writers poll for the lock and fsync twice per commit.
-            database.ExecuteSqlRaw("PRAGMA journal_mode=WAL");
+            if (!mysql) database.ExecuteSqlRaw("PRAGMA journal_mode=WAL");
         }
 
         app.Lifetime.ApplicationStopped.Register(() =>
@@ -95,8 +105,21 @@ public static class FixtureApplication
         app.MapOpenApi();
         app.MapAuthEndpoints();
         app.MapItemEndpoints();
+        app.MapSharedRuleEndpoints();
+        stores.Map(app);
         app.MapSendproof();
         return app;
+    }
+
+    /// <summary>Turns the runner's <c>mysql://user:password@host:port/database</c> URL into a MySQL connection string.</summary>
+    private static string MySqlConnectionString(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "mysql")
+            throw new InvalidOperationException("BENCH_DATABASE_URL must be a mysql:// URL when BENCH_DATABASE is mysql.");
+        var credentials = uri.UserInfo.Split(':', 2);
+        return $"server={uri.Host};port={uri.Port};user={Uri.UnescapeDataString(credentials[0])};" +
+            $"password={Uri.UnescapeDataString(credentials.ElementAtOrDefault(1) ?? "")};database={uri.AbsolutePath.TrimStart('/')};" +
+            "SslMode=Disabled;AllowPublicKeyRetrieval=True";
     }
 
     private static void DecorateProviderWithRollbackFailure(IServiceCollection services)

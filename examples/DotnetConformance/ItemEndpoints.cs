@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Sendproof.AspNetCore;
 
@@ -112,7 +111,12 @@ internal static class ItemEndpoints
         if (!await InsertAsync(db, id, name)) return Duplicate(id);
 
         // A bound parameter whose name looks secret: the adapter must redact its value in captured SQL.
-        await db.Database.ExecuteSqlRawAsync("SELECT @fixture_secret", new SqliteParameter("fixture_secret", "fixture-secret-value"));
+        // The parameter comes from the connection's own provider, so the same route runs on SQLite and MySQL.
+        using var command = db.Database.GetDbConnection().CreateCommand();
+        var secret = command.CreateParameter();
+        secret.ParameterName = "fixture_secret";
+        secret.Value = "fixture-secret-value";
+        await db.Database.ExecuteSqlRawAsync("SELECT @fixture_secret", secret);
         Notify(preview, outbox, "Created item", $"Item {id} was created.");
         logger.LogInformation("created:{ItemId}", id);
         return Results.Created($"{request.PathBase}/items/{Uri.EscapeDataString(id)}", new ItemResponse(id, name));

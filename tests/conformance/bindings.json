@@ -28,8 +28,23 @@
     {
       "id": "dotnet-aspnetcore",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "dotnet",
       "port": 5371,
+      "readiness": "/ready",
+      "prepare": "dotnet build examples/DotnetConformance/DotnetConformance.csproj -c Release",
+      "start": [
+        "dotnet",
+        "examples/DotnetConformance/bin/Release/net10.0/DotnetConformance.dll"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "dotnet-aspnetcore-mysql",
+      "database": "mysql",
+      "toolchain": "dotnet",
+      "port": 5377,
       "readiness": "/ready",
       "prepare": "dotnet build examples/DotnetConformance/DotnetConformance.csproj -c Release",
       "start": [
