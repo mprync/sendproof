@@ -5,12 +5,16 @@ import { Controller, Delete, ForbiddenException, Get, Module, Patch, Post,
 import { NestFactory } from '@nestjs/core';
 import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
 import { authProviders, createFixture } from './fixture-service.mjs';
+import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const basePath = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT ?? 5355);
 const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
-const { session, previewProvider, operations, ordinary } = createFixture(':memory:', scenario);
+const fixture = createFixture(':memory:', scenario);
+const { session, previewProvider, ordinary } = fixture;
+const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
+const operations = [...fixture.operations, ...storeRoutes.operations];
 
 class FixturePolicy {
   canActivate(context) {
@@ -31,7 +35,7 @@ Get('/ready')(FixtureController.prototype, 'ready', Object.getOwnPropertyDescrip
 Get('/api-json')(FixtureController.prototype, 'openApi', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'openApi'));
 
 const verbs = { DELETE: Delete, GET: Get, PATCH: Patch, POST: Post };
-for (const [index, operation] of [...operations, ...ordinary].entries()) {
+for (const [index, operation] of [...operations, ...storeRoutes.unavailable, ...ordinary].entries()) {
   const { method, path, handler } = operation;
   const name = 'operation' + index;
   Object.defineProperty(FixtureController.prototype, name, {
@@ -54,6 +58,9 @@ for (const [index, operation] of [...operations, ...ordinary].entries()) {
   Res()(FixtureController.prototype, name, 1);
   if (path.startsWith('/items')) UseGuards(FixturePolicy)(FixtureController.prototype, name, descriptor);
   if (operations.includes(operation)) SendproofPreview(method, path)(FixtureController.prototype, name, descriptor);
+  if (storeRoutes.unavailable.includes(operation)) {
+    SendproofPreview(method, path, { enabled: false, ...operation.options })(FixtureController.prototype, name, descriptor);
+  }
 }
 
 class FixtureModule {}
@@ -62,7 +69,7 @@ Module({
   imports: [SendproofModule.forRoot({
     apiName: 'Sendproof Conformance',
     environment: scenario === 'disabled' ? 'production' : 'development',
-    basePath, database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
+    basePath, database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
     resolveIdentity: ({ headers }) => session(headers.cookie),
   })],
 })(FixtureModule);

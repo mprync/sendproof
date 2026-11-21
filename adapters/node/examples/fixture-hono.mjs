@@ -4,12 +4,16 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { sendproof } from '@sendproof/hono';
 import { authProviders, createFixture } from './fixture-service.mjs';
+import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const base = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT ?? 5351);
 const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
-const { session, previewProvider, operations, ordinary } = createFixture(':memory:', scenario);
+const fixture = createFixture(':memory:', scenario);
+const { session, previewProvider, ordinary } = fixture;
+const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
+const operations = [...fixture.operations, ...storeRoutes.operations];
 
 export const app = new Hono();
 const router = new Hono();
@@ -17,7 +21,7 @@ const bench = sendproof({
   basePath: base,
   apiName: 'Sendproof Conformance',
   environment: scenario === 'disabled' ? 'production' : 'development',
-  database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
+  database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
   resolveIdentity: ({ headers }) => session(headers.cookie),
 });
 
@@ -38,6 +42,7 @@ function wrap(handler) {
 }
 
 for (const { method, path, handler } of operations) bench.operation(method, path, wrap(handler));
+for (const { method, path, options, handler } of storeRoutes.unavailable) bench.unavailable(method, path, options, wrap(handler));
 router.route('/', bench);
 for (const { method, path, handler } of ordinary) {
   router[method.toLowerCase()](path.replace(/\{(.*?)\}/g, ':$1'), wrap(handler));
