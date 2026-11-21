@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,37 @@ import { fileURLToPath } from 'node:url';
 import { withFixtureDatabase } from './database.mjs';
 
 export const root = fileURLToPath(new URL('../../', import.meta.url));
+const windows = process.platform === 'win32';
+
+/**
+ * Resolves a manifest command for this platform. On Windows, `bash` and `sh` mean Git for Windows'
+ * shells (never the WSL launcher in System32) and a virtual environment's `bin/` is `Scripts/`.
+ */
+export function platformCommand(command) {
+  if (!windows) return command;
+  if (command === 'bash' || command === 'sh') {
+    const git = [process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean)
+      .map(base => join(base, 'Git', 'bin', `${command}.exe`)).find(path => existsSync(path));
+    return git ?? command;
+  }
+  return command.replace(/(^|[\\/])\.venv[\\/]bin[\\/]/, '$1.venv/Scripts/');
+}
+
+/** Replaces ${PORT} and ${BENCH_TMP_DIR} in start arguments, so no shell is needed to pass them. */
+function expand(argument, values) {
+  return argument.replace(/\$\{(PORT|BENCH_TMP_DIR)\}/g, (_match, name) => values[name]);
+}
+
+/** Stops the fixture and its children: its process group on POSIX, its process tree on Windows. */
+function signalTree(pid, value) {
+  if (windows) {
+    spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    return;
+  }
+  try { process.kill(-pid, value); } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
 
 export function withFixture(binding, scenario, base, run) {
   return withFixtureDatabase(binding.database ?? 'sqlite', database =>
@@ -18,9 +50,12 @@ async function runFixture(binding, scenario, base, run, database) {
   const [command, ...args] = binding.start;
   const origin = `http://127.0.0.1:${binding.port}`;
   const workspace = await mkdtemp(join(tmpdir(), 'test-bench-conformance-'));
-  const host = spawn(command, args, {
+  const values = { PORT: String(binding.port), BENCH_TMP_DIR: workspace };
+  const host = spawn(platformCommand(command), args.map(argument => expand(argument, values)), {
     cwd: root,
-    detached: true,
+    // A process group lets POSIX stop the fixture's children too; Windows uses taskkill /T instead.
+    detached: !windows,
+    windowsHide: true,
     env: {
       ...process.env, ...binding.env, ...database.env, PORT: String(binding.port),
       BENCH_PATH_BASE: base, BENCH_SCENARIO: scenario, BENCH_TMP_DIR: workspace,
@@ -67,15 +102,12 @@ async function runFixture(binding, scenario, base, run, database) {
       throw new Error(`Fixture ${binding.id} did not start (${hostError?.message ?? host.exitCode ?? 'timed out'}).\n${output}`);
     }
 
-    return await run(request, database);
+    // The third argument lets the load harness (tests/load) sample the fixture's process group and talk to it directly.
+    return await run(request, database, { origin, pid: host.pid, base, output: () => output });
   } finally {
     try {
       if (host.pid) {
-        const signal = value => {
-          try { process.kill(-host.pid, value); } catch (error) {
-            if (error.code !== 'ESRCH') throw error;
-          }
-        };
+        const signal = value => signalTree(host.pid, value);
         signal('SIGTERM');
         const stopping = new AbortController();
         try {
@@ -89,7 +121,8 @@ async function runFixture(binding, scenario, base, run, database) {
         }
       }
     } finally {
-      await rm(workspace, { recursive: true, force: true });
+      // Windows keeps SQLite files locked briefly after the process tree exits.
+      await rm(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     }
   }
 }

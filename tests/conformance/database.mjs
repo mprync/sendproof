@@ -14,6 +14,8 @@ async function connect(engine, url) {
   if (engine === 'postgresql') {
     const { Client } = await import('pg');
     const client = new Client({ connectionString: url.href, connectionTimeoutMillis: 5000 });
+    // A reset after the query finished must not crash the runner; the next use reconnects.
+    client.on('error', () => {});
     await client.connect();
     return {
       query: async sql => (await client.query(sql)).rows,
@@ -61,8 +63,23 @@ async function connect(engine, url) {
   };
 }
 
+/**
+ * Connects, retrying a reset connection a few times. Docker Desktop's port proxy occasionally resets a new connection
+ * right after a container starts or under heavy connection churn; that is an environment hiccup, not a test failure.
+ */
+async function connectWithRetry(engine, url) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await connect(engine, url);
+    } catch (error) {
+      if (attempt >= 10 || !/terminated|ECONNRESET|EPIPE|EADDRNOTAVAIL/i.test(error.message)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+    }
+  }
+}
+
 async function useConnection(engine, url, run) {
-  const client = await connect(engine, url);
+  const client = await connectWithRetry(engine, url);
   try { return await run(client); } finally { await client.close(); }
 }
 

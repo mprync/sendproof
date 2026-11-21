@@ -1,6 +1,18 @@
 {
   "bindings": [
     {
+      "id": "data-stores-reference",
+      "database": "sqlite",
+      "profile": "data-stores",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "node",
+      "port": 5420,
+      "readiness": "/ready",
+      "start": ["node", "--disable-warning=ExperimentalWarning", "tests/conformance/fixtures/data-stores-reference/server.mjs"],
+      "traceTtlMs": 5000
+    },
+    {
       "id": "node-express",
       "database": "sqlite",
       "toolchain": "node",
@@ -36,9 +48,14 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "start": [
-        "bash",
-        "-c",
-        "exec dotnet examples/TreasuryApi/bin/Release/net10.0/TreasuryApi.dll --urls \"http://127.0.0.1:$PORT\" --DemoDatabasePath \"$BENCH_TMP_DIR/treasury.db\" --DemoKeyDirectory \"$BENCH_TMP_DIR/keys\""
+        "dotnet",
+        "examples/TreasuryApi/bin/Release/net10.0/TreasuryApi.dll",
+        "--urls",
+        "http://127.0.0.1:${PORT}",
+        "--DemoDatabasePath",
+        "${BENCH_TMP_DIR}/treasury.db",
+        "--DemoKeyDirectory",
+        "${BENCH_TMP_DIR}/keys"
       ]
     },
     {
