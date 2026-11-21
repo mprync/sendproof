@@ -198,8 +198,13 @@ class PreviewState:
     start_time: Any = None
     timer: Any = None
     lock: threading.RLock = field(default_factory=threading.RLock)
-    #: Guarded calls currently running (synchronous clients), so the time limit never aborts under one.
+    #: Guarded calls currently running, so neither the time limit nor the end of the Preview aborts
+    #: under one: the abort waits for the last of them to return (see ``release``).
     inflight: int = 0
+    #: Set once the Preview has ended (handler finished or time limit hit), before the abort runs.
+    #: Every later guarded call is refused, so a late write never runs on a session whose transaction
+    #: is gone, where the driver would autocommit it.
+    ending: bool = False
 
 
 #: Preview states by lsid, so a command is attributed to its Preview even where ``contextvars``
@@ -589,20 +594,30 @@ class MongoEngine:
             asyncio.ensure_future(self._aend(state))
 
     def acquire(self, state: PreviewState) -> None:
-        """Mark a guarded call as running. Refuses it when the Preview has expired."""
+        """Mark a guarded call as running. Refuses it once the Preview has expired or ended."""
         with state.lock:
             if state.expired:
                 error = PreviewTransactionControl("The Preview ran past its time limit, so its MongoDB transaction was aborted.")
-                state.scope.capture.refuse(error)
-                raise error
-            state.inflight += 1
+            elif state.ending or state.finished:
+                error = PreviewTransactionControl(
+                    "The Preview has ended, so its MongoDB session refuses every further call.")
+            else:
+                state.inflight += 1
+                return
+            state.scope.capture.refuse(error)
+            raise error
 
     def release(self, state: PreviewState) -> None:
-        """Mark a guarded call as finished; abort now if the limit passed while it ran."""
+        """Mark a guarded call as finished. If the Preview expired or ended while it ran, the last call
+        to return runs the abort the end deferred (see ``_end_steps``)."""
         with state.lock:
             state.inflight -= 1
-            if state.expired and state.inflight == 0 and not state.finished and not self.is_async:
+            if not ((state.expired or state.ending) and state.inflight == 0 and not state.finished):
+                return
+            if not self.is_async:
                 self._abort_now(state)
+                return
+        asyncio.ensure_future(self._aend(state))
 
     # -- guard
     def check(self, command: Mapping[str, Any], operation: Optional[str] = None, database: Optional[str] = None) -> None:
@@ -659,9 +674,19 @@ class MongoEngine:
     def _end_steps(self, state: PreviewState) -> Steps:
         """Abort the Preview transaction and end its session, once. The driver ignores abort errors, as the
         transactions specification requires; an unacknowledged abort still commits nothing, because no
-        ``commitTransaction`` is ever sent for the Preview session."""
+        ``commitTransaction`` is ever sent for the Preview session.
+
+        A guarded call still running when the Preview ends (a thread the handler left behind) holds the
+        abort until it returns, so it never runs on a session without a transaction; ``release`` then
+        aborts. The Preview can't list that call's write, so it answers 500."""
         with state.lock:  # the time limit and the end of the handler may race to abort
             if state.finished:
+                return
+            state.ending = True
+            if state.inflight > 0:
+                if not state.expired:
+                    state.scope.capture.refuse(PreviewTransactionControl(
+                        "A MongoDB call was still running when the Preview ended; the Preview can't be confirmed."))
                 return
             state.finished = True
             state.aborting = True

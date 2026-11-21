@@ -588,6 +588,97 @@ def test_a_preview_that_outlives_its_time_limit_is_aborted_and_never_confirmed(d
         mongo_store(new_mongo(), preview_timeout=0)
 
 
+def test_a_call_made_once_the_preview_has_ended_is_refused_never_sent(monkeypatch, hooked, reader):
+    """A late handler write (a thread that outlived the handler) is refused once the Preview has ended,
+    including in the window after the engine's abort and before its session ends, where the session has
+    no transaction and the driver would autocommit the write."""
+    import contextvars
+
+    from pymongo.client_session import ClientSession
+
+    store, documents, _ = hooked
+    outcomes, late = [], {}
+
+    def write(identifier):
+        try:
+            documents.insert_one({"_id": identifier})
+            outcomes.append((identifier, "sent"))
+        except PreviewTransactionControl:
+            outcomes.append((identifier, "refused"))
+        except Exception as error:  # noqa: BLE001 - any other failure is reported, not hidden
+            outcomes.append((identifier, type(error).__name__))
+
+    real_abort = ClientSession.abort_transaction
+
+    def abort_then_write(self):
+        real_abort(self)
+        if "context" in late and not late.get("done"):
+            late["done"] = True
+            thread = threading.Thread(target=late["context"].run, args=(write, "during-abort"))
+            thread.start()
+            thread.join()
+
+    monkeypatch.setattr(ClientSession, "abort_transaction", abort_then_write)
+
+    def handler(scope):
+        documents.insert_one({"_id": "inside"})
+        late["context"] = contextvars.copy_context()
+        return 201, {}
+
+    response = run_preview(sync_bench(store), handler)
+    late["context"].run(write, "after-end")
+    assert outcomes == [("during-abort", "refused"), ("after-end", "refused")]
+    assert response.status == 500
+    assert reader["documents"].count_documents({}) == 0
+
+
+def test_a_call_already_running_when_the_preview_ends_stays_inside_the_transaction(monkeypatch, hooked, reader):
+    """A call past the check when the handler returns holds the abort until it returns, so it never runs
+    on a session without a transaction, and the Preview answers 500 because it can't list that write."""
+    import contextvars
+
+    from pymongo.client_session import ClientSession
+
+    store, documents, _ = hooked
+    engine = store.engine
+    past_check, may_continue = threading.Event(), threading.Event()
+    writer: dict = {}
+    real_acquire, real_abort = engine.acquire, ClientSession.abort_transaction
+
+    def acquire_then_pause(state):
+        real_acquire(state)
+        if threading.current_thread() is writer.get("thread"):
+            past_check.set()
+            may_continue.wait(5)
+
+    def abort_lets_the_writer_go(self):
+        real_abort(self)
+        may_continue.set()
+        if threading.current_thread() is not writer["thread"]:
+            writer["thread"].join(5)
+
+    monkeypatch.setattr(engine, "acquire", acquire_then_pause)
+    monkeypatch.setattr(ClientSession, "abort_transaction", abort_lets_the_writer_go)
+
+    def write():
+        try:
+            documents.insert_one({"_id": "late"})
+        except Exception as error:  # noqa: BLE001 - recorded for the assertion
+            writer["error"] = error
+
+    def handler(scope):
+        writer["thread"] = threading.Thread(target=contextvars.copy_context().run, args=(write,))
+        writer["thread"].start()
+        assert past_check.wait(5)
+        return 201, {}
+
+    response = run_preview(sync_bench(store), handler)
+    may_continue.set()
+    writer["thread"].join(5)
+    assert response.status == 500
+    assert reader["documents"].count_documents({}) == 0
+
+
 def test_concurrent_previews_and_sends_never_share_a_session(hooked, reader):
     store, documents, _ = hooked
     results: dict[str, object] = {}
