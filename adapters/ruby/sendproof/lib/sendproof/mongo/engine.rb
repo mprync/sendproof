@@ -255,6 +255,9 @@ module Sendproof
             (Thread.current[:sendproof_mongo_refused] ||= Set.new) << event.request_id
             raise
           end
+        elsif classification.kind == :write
+          # Not this request's Preview: a write from outside any request fails every open Preview.
+          Attribution.report_write("mongodb", name)
         end
         return if classification.kind == :session || SENSITIVE.include?(lower)
 

@@ -23,6 +23,7 @@ module StoreHelpers
   # propagate. Stores begin before the block and finish after it, in the transport's order.
   def preview(store_hooks = [], &block)
     recorder = Sendproof::Recorder.new(rollback: true, include_sql_values: true)
+    Sendproof::Attribution.open(recorder)
     Sendproof::Capture.with(recorder) do
       store_hooks.each { |hook| hook.begin_preview(nil, recorder) }
       begin
@@ -36,6 +37,8 @@ module StoreHelpers
       end
     end
     recorder
+  ensure
+    Sendproof::Attribution.close(recorder) if recorder
   end
 
   # Runs the block as an observed send: capturing, but writes commit.

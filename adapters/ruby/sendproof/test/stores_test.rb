@@ -62,7 +62,7 @@ class StoresTest < Minitest::Test
     @config.use(@provider)
     @config.data_store(@store)
     @config.preview_operations = [%w[GET /read], %w[POST /write], %w[POST /swallow], %w[POST /crash], %w[POST /late],
-                                  %w[POST /interrupt]]
+                                  %w[POST /interrupt], %w[POST /spawn], %w[POST /spawn-detached]]
   end
 
   def app
@@ -85,6 +85,10 @@ class StoresTest < Minitest::Test
           [200, { "content-type" => "text/plain" }, ["swallowed"]]
         end
       when ["POST", "/crash"] then handled.call { store.send_command("INCR", "k"); raise "after the refusal" }
+      # A write from a thread the handler started carries no request attribution.
+      when ["POST", "/spawn"] then handled.call { Thread.new { store.send_command("INCR", "k") }.join; [200, {}, ["spawned"]] }
+      when ["POST", "/spawn-detached"]
+        handled.call { Thread.new { Sendproof.detached { store.send_command("INCR", "k") } }.join; [200, {}, ["detached"]] }
       when ["POST", "/interrupt"] then handled.call { store.send_command("GET", "k"); raise Interrupted, "request timed out" }
       else [404, {}, ["missing"]]
       end
@@ -234,6 +238,42 @@ class StoresTest < Minitest::Test
     assert_raises(Interrupted) { request.get("/sendproof/_preview/read", PREVIEW) }
     assert_equal [:begin, :finish], @store.events
     assert_equal [:rollback, :close], provider.sessions.last.log
+  end
+
+  # --- writes without request attribution -------------------------------------------------------
+
+  # The guard can't tell a write from a thread the handler started apart from background work: while a
+  # Preview is open, such a write fails it rather than let it confirm a rollback that didn't happen.
+  def test_an_unattributed_write_while_a_preview_is_open_fails_the_preview_with_500
+    preview("/spawn")
+    assert_equal 500, last_response.status, last_response.body
+    assert_nil last_response["preference-applied"]
+    assert_equal [["INCR", "k"]], @store.sent, "The write ran: the guard couldn't attribute it to the Preview"
+  end
+
+  def test_a_write_marked_detached_never_fails_a_preview
+    preview("/spawn-detached")
+    assert_equal 200, last_response.status, last_response.body
+  end
+
+  def test_an_unattributed_write_fails_every_open_preview_and_attributed_ones_fail_none
+    first = Sendproof::Recorder.new(rollback: true)
+    second = Sendproof::Recorder.new(rollback: true)
+    [first, second].each { |recorder| Sendproof::Attribution.open(recorder) }
+    Sendproof::Attribution.request { @store.send_command("INCR", "k") }
+    Sendproof::Capture.with(Sendproof::Recorder.new(rollback: false)) { @store.send_command("INCR", "k") }
+    assert_nil first.fault, "A write from a request Sendproof saw is attributed"
+    @store.send_command("INCR", "k")
+    refute_nil first.fault
+    refute_nil second.fault
+  ensure
+    [first, second].each { |recorder| Sendproof::Attribution.close(recorder) }
+  end
+
+  def test_an_unattributed_write_with_no_open_preview_fails_nothing
+    @store.send_command("INCR", "k")
+    preview("/read", method: :get)
+    assert_equal 200, last_response.status
   end
 
   def test_the_guard_never_blocks_outside_a_preview

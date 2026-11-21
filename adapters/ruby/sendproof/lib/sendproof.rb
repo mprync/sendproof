@@ -23,6 +23,7 @@ module Sendproof
   ENV_KEY = "sendproof.request"
 
   autoload :Assets, "sendproof/assets"
+  autoload :Attribution, "sendproof/attribution"
   autoload :Capture, "sendproof/capture"
   autoload :Clock, "sendproof/clock"
   autoload :Configuration, "sendproof/configuration"
@@ -58,6 +59,17 @@ module Sendproof
     def capturing?
       !Capture.current.nil?
     end
+
+    # Marks the block as background work that belongs to no request, such as a job worker or a scheduled
+    # task running in the server process, so its data-store writes never fail an open Preview. Without the
+    # mark, a write from outside any request fails every Preview open at that moment with 500, because it
+    # might come from a Preview handler's own thread. Never use it inside a handler: a write it sends
+    # escapes the Preview, like a client that was never hooked.
+    #
+    #   Sendproof.detached { redis.incr("jobs:processed") }
+    #
+    # @return the block's result
+    def detached(&) = Attribution.detached(&)
 
     # Records an intended side effect and tells the caller whether to skip it.
     #

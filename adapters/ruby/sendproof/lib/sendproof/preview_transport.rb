@@ -85,51 +85,57 @@ module Sendproof
       context = ProviderContext.new(env:, request:, config: @config)
       escaped = nil # an error that isn't a StandardError (a timeout, an interrupt): re-raised after cleanup
 
-      Capture.with(recorder) do
-        begin
-          preview.session = provider.begin_preview(context)
-          raise "The preview provider returned no session." unless preview.session
-
-          @config.data_stores.each { |store| store.begin_preview(context, recorder) if store.respond_to?(:begin_preview) }
-          response, handler_failure = dispatch(env, rewritten, preview)
-        rescue StandardError => error
-          failure = combine(failure, error)
-        rescue Exception => error # rubocop:disable Lint/RescueException -- stores and SQL must still be aborted
-          # rack-timeout, Timeout and Interrupt unwind with errors outside StandardError. Skipping the steps
-          # below would leave a store transaction open and the SQL connection (and its MySQL turn) held.
-          escaped = error
-          failure = combine(failure, error)
-        end
-
-        # Every store finishes before the SQL rollback, and one that fails, however it fails, never stops
-        # the others or the rollback.
-        @config.data_stores.each do |store|
-          store.finish_preview(recorder) if store.respond_to?(:finish_preview)
-        rescue StandardError => error
-          failure = combine(failure, error)
-        rescue Exception => error # rubocop:disable Lint/RescueException -- the rollback must still run
-          escaped ||= error
-          failure = combine(failure, error)
-        end
-
-        if (session = preview.session)
+      # While it is open, a store write that belongs to no request fails this Preview (see {Attribution}).
+      Attribution.open(recorder)
+      begin
+        Capture.with(recorder) do
           begin
-            session.rollback!
-            session.finalize_capture(recorder) if session.respond_to?(:finalize_capture)
-            if failure.nil? && handler_failure.nil? && preview.completed? && response && !recorder.fault && !recorder.blocked
-              envelope = [response, session, recorder.finish]
-            end
+            preview.session = provider.begin_preview(context)
+            raise "The preview provider returned no session." unless preview.session
+
+            @config.data_stores.each { |store| store.begin_preview(context, recorder) if store.respond_to?(:begin_preview) }
+            response, handler_failure = dispatch(env, rewritten, preview)
           rescue StandardError => error
             failure = combine(failure, error)
-          ensure
-            recorder.finish if recorder.active?
+          rescue Exception => error # rubocop:disable Lint/RescueException -- stores and SQL must still be aborted
+            # rack-timeout, Timeout and Interrupt unwind with errors outside StandardError. Skipping the steps
+            # below would leave a store transaction open and the SQL connection (and its MySQL turn) held.
+            escaped = error
+            failure = combine(failure, error)
+          end
+
+          # Every store finishes before the SQL rollback, and one that fails, however it fails, never stops
+          # the others or the rollback.
+          @config.data_stores.each do |store|
+            store.finish_preview(recorder) if store.respond_to?(:finish_preview)
+          rescue StandardError => error
+            failure = combine(failure, error)
+          rescue Exception => error # rubocop:disable Lint/RescueException -- the rollback must still run
+            escaped ||= error
+            failure = combine(failure, error)
+          end
+
+          if (session = preview.session)
             begin
-              session.close
+              session.rollback!
+              session.finalize_capture(recorder) if session.respond_to?(:finalize_capture)
+              if failure.nil? && handler_failure.nil? && preview.completed? && response && !recorder.fault && !recorder.blocked
+                envelope = [response, session, recorder.finish]
+              end
             rescue StandardError => error
               failure = combine(failure, error)
+            ensure
+              recorder.finish if recorder.active?
+              begin
+                session.close
+              rescue StandardError => error
+                failure = combine(failure, error)
+              end
             end
           end
         end
+      ensure
+        Attribution.close(recorder)
       end
       raise escaped if escaped
 

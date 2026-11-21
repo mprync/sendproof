@@ -21,6 +21,13 @@ module Sendproof
     def call(env)
       return @app.call(env) unless @config.enabled?
 
+      # Every request seen here is attributed: its store writes never fail another request's Preview.
+      Attribution.request { dispatch(env) }
+    end
+
+    private
+
+    def dispatch(env)
       request = Rack::Request.new(env)
       path = env["PATH_INFO"].to_s
       prefix = reserved_index(path)
@@ -33,8 +40,6 @@ module Sendproof
 
       call_observed(env, request)
     end
-
-    private
 
     # Index of +/sendproof/_preview+ when it is a whole path segment, comparing case-insensitively.
     def reserved_index(path)
