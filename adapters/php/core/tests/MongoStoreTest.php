@@ -203,6 +203,19 @@ final class MongoStoreTest extends TestCase
         $this->assertNull($this->documents()->findOne(['_id' => 'joined-two']));
     }
 
+    public function testARollbackOfTheHandlersJoinedTransactionCannotBeHonouredSoThePreviewFails(): void
+    {
+        [$recorder, $client, $store] = $this->hooked();
+        $result = $this->preview($recorder, [$store], function () use ($client): void {
+            $session = $client->startSession();
+            $session->startTransaction();
+            $client->selectCollection($this->database, 'documents')->insertOne(['_id' => 'discarded'], ['session' => $session]);
+            $session->abortTransaction();
+        });
+        $this->assertSame(500, $result->status, 'MongoDB has no savepoints, so a part of the Preview transaction cannot be undone.');
+        $this->assertNull($this->documents()->findOne(['_id' => 'discarded']));
+    }
+
     public function testBeforeImagesComeFromTheTransactionStartNotFromLaterCommitsByOthers(): void
     {
         [$recorder, $client, $store] = $this->hooked();

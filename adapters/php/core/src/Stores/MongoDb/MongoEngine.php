@@ -425,6 +425,14 @@ final class MongoEngine
             return;
         }
         $failure = null;
+        // MongoDB has no savepoints: a handler that aborted its own (joined) transaction asked to undo part
+        // of the Preview's work, which can't be done, so the Preview can't be confirmed.
+        foreach ($state->shells as $shell => $used) {
+            if ($used && $shell->getTransactionState() === Session::TRANSACTION_ABORTED) {
+                $recorder->refuse(new PreviewTransactionControlException("The handler rolled back its MongoDB transaction, which joined the Preview's; MongoDB can't undo part of a transaction, so the Preview can't be confirmed."));
+                break;
+            }
+        }
         try {
             if (hrtime(true) > $state->deadlineNs) {
                 $recorder->refuse(new PreviewTransactionControlException("The Preview ran longer than {$this->timeoutMs} ms, so its MongoDB transaction was aborted."));

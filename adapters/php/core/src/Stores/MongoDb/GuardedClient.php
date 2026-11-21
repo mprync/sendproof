@@ -147,7 +147,7 @@ final class GuardedClient extends Client
         $session = $this->inner->startSession($options);
         $state = $this->hook->engine->state();
         if ($state !== null) {
-            $state->shells[$session] = true;
+            $state->shells[$session] = false;
         }
 
         return $session;

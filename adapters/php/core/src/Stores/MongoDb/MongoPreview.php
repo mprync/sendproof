@@ -29,7 +29,7 @@ final class MongoPreview
     public array $candidates = [];
     /** @var list<array{namespace:string,collection:string,filter:mixed,via:?string}> Filters whose matches, before and inside the transaction, are candidates */
     public array $filters = [];
-    /** @var \WeakMap<Session,true> Sessions the handler created through the guarded client; their commands join this transaction */
+    /** @var \WeakMap<Session,bool> Sessions the handler created through the guarded client, and whether a command was moved off each; those commands join this transaction */
     public \WeakMap $shells;
 
     /**

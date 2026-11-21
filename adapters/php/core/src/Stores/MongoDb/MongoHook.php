@@ -76,6 +76,10 @@ final class MongoHook
             throw $guard->refuse('A MongoDB call passed its own session during a Preview; the Preview session must carry every command.')
                 ?? new PreviewTransactionControlException('A MongoDB call passed its own session during a Preview.');
         }
+        if ($given instanceof Session && isset($state->shells[$given])) {
+            // The handler's session is a shell: its command moves onto the Preview's transaction.
+            $state->shells[$given] = true;
+        }
         while (count($args) < $index) {
             $args[] = $rule[2] ?? [];
         }

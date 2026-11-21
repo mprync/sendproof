@@ -57,7 +57,9 @@ final class ChangeCollector
     /** @param 'insert'|'update'|'delete' $operation */
     public function record(string $operation, Model $model): void
     {
-        if (!$this->active) {
+        // A MongoDB model fires the same events, but its changes are read back by the MongoDB store, with
+        // whole nested documents. Recording them here too would list each change twice.
+        if (!$this->active || $model->getConnection()->getDriverName() === 'mongodb') {
             return;
         }
         if (count($this->changes) >= Limits::CHANGES) {
