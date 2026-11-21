@@ -24,11 +24,23 @@ val ktorCheck by configurations.creating {
     }
 }
 
+// Likewise for the data-store guards, which keep their Redis, MongoDB and AWS clients out of the Spring app.
+val storesCheck by configurations.creating {
+    isCanBeConsumed = false
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_API))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+    }
+}
+
 dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:@SPRING_BOOT@"))
     implementation("io.github.mprync:sendproof-spring-boot:@VERSION@")
     implementation("org.springframework.boot:spring-boot-starter-web")
     ktorCheck("io.github.mprync:sendproof-ktor:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-redis:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-mongodb:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-dynamodb:@VERSION@")
 }
 
 // Tells the Node script which JVM Gradle used, so the app runs on the same JDK 17+ on every platform.
@@ -36,10 +48,13 @@ val resolveConsumer by tasks.registering {
     val javaHome = layout.buildDirectory.file("consumer/java-home.txt")
     val ktorFiles = layout.buildDirectory.file("consumer/ktor-classpath.txt")
     val ktorClasspath = ktorCheck.incoming.files
-    outputs.files(javaHome, ktorFiles)
+    val storesFiles = layout.buildDirectory.file("consumer/stores-classpath.txt")
+    val storesClasspath = storesCheck.incoming.files
+    outputs.files(javaHome, ktorFiles, storesFiles)
     doLast {
         javaHome.get().asFile.apply { parentFile.mkdirs(); writeText(System.getProperty("java.home")) }
         ktorFiles.get().asFile.writeText(ktorClasspath.files.joinToString("\n") { it.name })
+        storesFiles.get().asFile.writeText(storesClasspath.files.joinToString("\n") { it.name })
     }
 }
 
