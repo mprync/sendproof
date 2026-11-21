@@ -17,7 +17,8 @@ final class CaptureStatement extends AbstractStatementMiddleware
     /** @var array<int|string,mixed> */
     private array $values = [];
 
-    public function __construct(StatementInterface $statement, private readonly string $sql, private readonly Recorder $recorder, private readonly bool $showValues)
+    /** @param (\Closure(\Throwable): void)|null $onError told about a failed execution before it is rethrown */
+    public function __construct(StatementInterface $statement, private readonly string $sql, private readonly Recorder $recorder, private readonly bool $showValues, private readonly ?\Closure $onError = null)
     {
         parent::__construct($statement);
     }
@@ -31,7 +32,15 @@ final class CaptureStatement extends AbstractStatementMiddleware
     public function execute(): Result
     {
         $started = hrtime(true);
-        $result = parent::execute();
+        try {
+            $result = parent::execute();
+        } catch (\Throwable $error) {
+            if ($this->onError !== null) {
+                ($this->onError)($error);
+            }
+
+            throw $error;
+        }
         if ($this->recorder->isCapturing() && !CaptureConnection::isSavepoint($this->sql)) {
             $bindings = [];
             foreach ($this->values as $param => $value) {

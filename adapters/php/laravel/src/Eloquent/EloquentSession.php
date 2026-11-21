@@ -23,9 +23,23 @@ final class EloquentSession implements PreviewSession
      * @param list<array{0:Connection,1:int,2?:bool}> $enrolled Connection, its level before the preview,
      *        and whether the Preview transaction opened with {@see EloquentPreviewProvider::SAVEPOINT}
      * @param list<PreviewTurn> $turns The MySQL turns this Preview holds, handed back once its transactions have ended
+     * @param list<\Closure(): void> $restore Put each connection's own statement class back once the Preview ends
      */
-    public function __construct(private readonly array $enrolled, private readonly ChangeCollector $collector, private readonly array $turns = [])
+    public function __construct(private readonly array $enrolled, private readonly ChangeCollector $collector, private readonly array $turns = [], private array $restore = [])
     {
+    }
+
+    private function restoreStatements(): void
+    {
+        $restore = $this->restore;
+        $this->restore = [];
+        foreach ($restore as $undo) {
+            try {
+                $undo();
+            } catch (\Throwable) {
+                // A lost connection keeps nothing to restore.
+            }
+        }
     }
 
     public function changes(): array
@@ -62,6 +76,7 @@ final class EloquentSession implements PreviewSession
         }
 
         // The transaction has ended, so the next Preview may start.
+        $this->restoreStatements();
         $this->releaseTurns();
         if ($failure !== null) {
             throw $failure;
@@ -84,6 +99,7 @@ final class EloquentSession implements PreviewSession
                 // Best effort. The preview was already withheld when rollback failed earlier.
             }
         }
+        $this->restoreStatements();
         $this->releaseTurns();
     }
 

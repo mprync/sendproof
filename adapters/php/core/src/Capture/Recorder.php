@@ -38,6 +38,8 @@ final class Recorder
     private ?array $blocked = null;
     /** A transaction-control refusal: the Preview answers 500 whatever the handler returns. */
     private ?\Throwable $fault = null;
+    /** @var array<string,string> Connections whose Preview transaction the server ended, with the reason */
+    private array $ended = [];
 
     /** True while a rollback-only preview is running in this request. */
     public function isPreview(): bool
@@ -78,6 +80,29 @@ final class Recorder
         if ($this->previewScope) {
             $this->fault ??= $fault;
         }
+    }
+
+    /**
+     * Records that the server itself ended the Preview transaction on one connection (a MySQL
+     * deadlock, or a lock wait timeout with `innodb_rollback_on_timeout`): every later statement on
+     * it would run outside the transaction, so the provider refuses them all, and the Preview
+     * answers 500 without confirmation.
+     *
+     * @param string $connection the provider's key for the connection
+     */
+    public function endTransaction(string $connection, string $reason): void
+    {
+        if (!$this->previewScope) {
+            return;
+        }
+        $this->ended[$connection] ??= $reason;
+        $this->refuse(new \Sendproof\Core\Stores\PreviewTransactionControlException("The Preview can't be confirmed: {$reason}."));
+    }
+
+    /** Why the server ended the Preview transaction on `$connection`, or null when it didn't. */
+    public function transactionEnded(string $connection): ?string
+    {
+        return $this->ended[$connection] ?? null;
     }
 
     /** @return array{store:string,operation:string,detail:string}|null */
@@ -370,6 +395,7 @@ final class Recorder
         $this->changes = [];
         $this->blocked = null;
         $this->fault = null;
+        $this->ended = [];
         $this->changesTruncated = false;
         $this->logsTruncated = $this->effectsTruncated = false;
         $this->logSize = $this->effectSize = $this->queries = 0;

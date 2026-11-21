@@ -151,6 +151,64 @@ final class MysqlEscapeTest extends TestCase
         $this->assertSame(['escaped'], $this->stored());
     }
 
+    /**
+     * A deadlock (1213) rolls back the whole Preview transaction, and PDO runs MySQL with autocommit on
+     * outside `BEGIN`, so a retry would commit for real. Every later statement in the Preview is refused
+     * before sending, and it answers 500; the handler still gets the original error.
+     */
+    /** @return array<string,array{bool}> */
+    public static function deadlockPaths(): array
+    {
+        return ['a prepared statement' => [false], 'an unprepared statement' => [true]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('deadlockPaths')]
+    public function testADeadlockRefusesEveryLaterStatementInThePreview(bool $unprepared): void
+    {
+        DB::connection('mysql')->insert("INSERT INTO items VALUES ('a'), ('b')");
+        $server = self::server();
+        $other = new \mysqli($server['host'], $server['user'], $server['password'], self::$database, $server['port']);
+        $other->begin_transaction();
+        // More locks than the Preview holds, so InnoDB picks the Preview as the deadlock victim.
+        $other->query("SELECT id FROM items WHERE id = 'b' FOR UPDATE")->free();
+        for ($n = 0; $n < 10; $n++) {
+            $other->query("INSERT INTO items VALUES ('f{$n}')");
+        }
+        $seen = new \ArrayObject();
+        Route::middleware([RequireUser::class])->post('/items/deadlock', function () use ($other, $seen, $unprepared) {
+            $mysql = DB::connection('mysql');
+            $mysql->select("SELECT id FROM items WHERE id = 'a' FOR UPDATE");
+            $other->query("SELECT id FROM items WHERE id = 'a' FOR UPDATE", MYSQLI_ASYNC); // waits on the Preview's row
+            usleep(300_000);
+            try {
+                $locking = "UPDATE items SET id = id WHERE id = 'b'";
+                $unprepared ? $mysql->unprepared($locking) : $mysql->update($locking);
+            } catch (\Illuminate\Database\QueryException $error) {
+                $seen['code'] = $error->errorInfo[1] ?? null; // the handler still gets the original error
+            }
+            $other->reap_async_query();
+            $other->commit();
+            try {
+                $mysql->insert("INSERT INTO items VALUES ('retry')"); // the handler's retry
+            } catch (PreviewTransactionControlException) {
+                $seen['refused'] = true;
+            }
+
+            return response()->json(['ok' => true]);
+        })->sendproofPreview();
+        $this->signIn();
+
+        try {
+            $response = $this->preview('/items/deadlock')->assertStatus(500);
+        } finally {
+            $other->close();
+        }
+        $this->assertNotTrue($response->json('rolledBack'));
+        $this->assertSame(1213, $seen['code'] ?? null);
+        $this->assertNotContains('retry', $this->stored());
+        $this->assertTrue($seen['refused'] ?? false, 'The retry must be refused before it is sent.');
+    }
+
     public function testASafeProcedureMustBeAnExactName(): void
     {
         $this->expectException(\InvalidArgumentException::class);

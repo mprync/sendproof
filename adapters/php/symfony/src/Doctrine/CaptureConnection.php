@@ -36,7 +36,35 @@ final class CaptureConnection extends AbstractConnectionMiddleware
     {
         $this->refuseTransactionControl($sql);
 
-        return new CaptureStatement(parent::prepare($sql), $sql, $this->recorder, $this->showValues);
+        return new CaptureStatement(parent::prepare($sql), $sql, $this->recorder, $this->showValues, $this->noticeServerRollback(...));
+    }
+
+    /**
+     * Records a MySQL deadlock (1213), or a lock wait timeout (1205) with `innodb_rollback_on_timeout`,
+     * which rolled back the whole Preview transaction: every later statement on this connection is
+     * then refused (see {@see refuseTransactionControl()}). The caller rethrows the error unchanged.
+     */
+    public function noticeServerRollback(\Throwable $error): void
+    {
+        if (!$this->mysql || !$this->recorder->isPreview() || $this->recorder->transactionEnded($this->key()) !== null) {
+            return;
+        }
+        $reason = Statements::serverEndedTransaction($error->getCode(), true, function (): bool {
+            try {
+                return (int) parent::query('SELECT @@innodb_rollback_on_timeout')->fetchOne() === 1;
+            } catch (\Throwable) {
+                return true; // unknown: assume the transaction is gone
+            }
+        });
+        if ($reason !== null) {
+            $this->recorder->endTransaction($this->key(), $reason);
+        }
+    }
+
+    /** This connection's key in the recorder's record of ended transactions. */
+    private function key(): string
+    {
+        return 'doctrine:' . spl_object_id($this);
     }
 
     public function commit(): void
@@ -52,7 +80,13 @@ final class CaptureConnection extends AbstractConnectionMiddleware
     {
         $this->refuseTransactionControl($sql);
         $started = hrtime(true);
-        $result = parent::query($sql);
+        try {
+            $result = parent::query($sql);
+        } catch (\Throwable $error) {
+            $this->noticeServerRollback($error);
+
+            throw $error;
+        }
         $this->record($sql, $started, null);
 
         return $result;
@@ -62,7 +96,13 @@ final class CaptureConnection extends AbstractConnectionMiddleware
     {
         $this->refuseTransactionControl($sql);
         $started = hrtime(true);
-        $affected = parent::exec($sql);
+        try {
+            $affected = parent::exec($sql);
+        } catch (\Throwable $error) {
+            $this->noticeServerRollback($error);
+
+            throw $error;
+        }
         $this->record($sql, $started, is_int($affected) ? $affected : null);
 
         return $affected;
@@ -70,6 +110,10 @@ final class CaptureConnection extends AbstractConnectionMiddleware
 
     private function refuseTransactionControl(string $sql): void
     {
+        if ($this->recorder->isPreview() && ($ended = $this->recorder->transactionEnded($this->key())) !== null) {
+            // The server already ended the Preview transaction: this statement would run outside it.
+            $this->refuse("A statement was refused during Preview: {$ended}, so it would run outside the Preview transaction.");
+        }
         if ($this->recorder->isPreview()
             && ($reason = Statements::reason($sql, $this->mysql, $this->safeProcedures, DoctrinePreviewProvider::SAVEPOINT)) !== null) {
             $this->refuse("A statement that would end the Preview transaction was refused during Preview: {$reason}.");

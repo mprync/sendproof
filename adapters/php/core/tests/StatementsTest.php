@@ -79,6 +79,18 @@ final class StatementsTest extends TestCase
         }
     }
 
+    public function testADeadlockOrARolledBackLockTimeoutEndsTheMysqlPreviewTransaction(): void
+    {
+        $on = static fn (): bool => true;
+        $off = static fn (): bool => false;
+        $this->assertNotNull(Statements::serverEndedTransaction(1213, true, $off));
+        $this->assertNotNull(Statements::serverEndedTransaction('1213', true, $off));
+        $this->assertNotNull(Statements::serverEndedTransaction(1205, true, $on));
+        $this->assertNull(Statements::serverEndedTransaction(1205, true, $off), 'only the statement rolled back');
+        $this->assertNull(Statements::serverEndedTransaction(1062, true, $on));
+        $this->assertNull(Statements::serverEndedTransaction(1213, false, $on), 'PostgreSQL refuses later statements itself');
+    }
+
     public function testTheReservedSavepointCannotBeReleasedOrRolledBackTo(): void
     {
         foreach (['RELEASE SAVEPOINT sendproof_preview', 'ROLLBACK TO SAVEPOINT `sendproof_preview`', 'SAVEPOINT SENDPROOF_PREVIEW'] as $sql) {

@@ -106,15 +106,90 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         $mysql = $this->takesTurns($connection);
         $recorder = $this->recorder;
         $safe = $this->safeProcedures;
-        $connection->beforeExecuting(static function (string $query) use ($mysql, $recorder, $safe): void {
+        $key = self::endedKey($connection);
+        $connection->beforeExecuting(static function (string $query) use ($mysql, $recorder, $safe, $connection, $key): void {
             $current = $recorder();
-            if ($current->isPreview() && ($reason = Statements::reason($query, $mysql, $safe, self::SAVEPOINT)) !== null) {
+            if (!$current->isPreview()) {
+                return;
+            }
+            // An `unprepared()` statement runs on the PDO itself; its error stays on the PDO until the next call.
+            $pdo = $connection->getRawPdo();
+            if ($mysql && $pdo instanceof \PDO) {
+                self::noticeServerRollback($current, $key, $pdo, $pdo->errorInfo()[1] ?? null);
+            }
+            if (($ended = $current->transactionEnded($key)) !== null) {
+                // The server already ended the Preview transaction: this statement would run outside it.
+                $error = new PreviewTransactionControlException("A statement was refused during Preview: {$ended}, so it would run outside the Preview transaction.");
+                $current->refuse($error);
+
+                throw $error;
+            }
+            if (($reason = Statements::reason($query, $mysql, $safe, self::SAVEPOINT)) !== null) {
                 $error = new PreviewTransactionControlException("A statement that would end the Preview transaction was refused during Preview: {$reason}.");
                 $current->refuse($error);
 
                 throw $error;
             }
         });
+    }
+
+    /** The recorder's key for a connection whose Preview transaction the server may end. */
+    private static function endedKey(Connection $connection): string
+    {
+        return 'eloquent:' . $connection->getName();
+    }
+
+    /**
+     * Records a MySQL deadlock (or a lock wait timeout with `innodb_rollback_on_timeout`) that ended the
+     * Preview transaction on `$pdo`, so every later statement in the Preview is refused.
+     */
+    private static function noticeServerRollback(Recorder $recorder, string $key, \PDO $pdo, int|string|null $code): void
+    {
+        if ($code === null || $recorder->transactionEnded($key) !== null) {
+            return;
+        }
+        $reason = Statements::serverEndedTransaction($code, true, static function () use ($pdo): bool {
+            try {
+                return (int) $pdo->query('SELECT @@innodb_rollback_on_timeout')->fetchColumn() === 1;
+            } catch (\Throwable) {
+                return true; // unknown: assume the transaction is gone
+            }
+        });
+        if ($reason !== null) {
+            $recorder->endTransaction($key, $reason);
+        }
+    }
+
+    /**
+     * Watches every prepared statement on a MySQL Preview connection for the errors that end the Preview
+     * transaction (see {@see WatchedStatement}), and answers the closure that puts the connection's own
+     * statement class back. A connection that already uses a custom statement class keeps it; there only
+     * the savepoint check before the rollback catches a deadlock, after a retry may already have committed.
+     *
+     * @return Closure(): void|null
+     */
+    private function watchStatements(Connection $connection): ?Closure
+    {
+        if ($this->recorder === null) {
+            return null;
+        }
+        $pdo = $connection->getPdo();
+        $previous = $pdo->getAttribute(\PDO::ATTR_STATEMENT_CLASS);
+        if (($previous[0] ?? \PDOStatement::class) !== \PDOStatement::class) {
+            return null;
+        }
+        $recorder = $this->recorder;
+        $key = self::endedKey($connection);
+        $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [WatchedStatement::class, [static function (\PDOException $error) use ($recorder, $key, $pdo): void {
+            $current = $recorder();
+            if ($current->isPreview()) {
+                self::noticeServerRollback($current, $key, $pdo, $error->errorInfo[1] ?? null);
+            }
+        }]]);
+
+        return static function () use ($pdo): void {
+            $pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        };
     }
 
     public function isAvailable(): bool
@@ -144,6 +219,7 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
     {
         $enrolled = [];
         $turns = [];
+        $restore = [];
         try {
             foreach ($this->connections as $name) {
                 $connection = $this->database->connection($name);
@@ -160,9 +236,15 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                     // The backstop's mark, made first thing in the Preview transaction, on the PDO itself
                     // so it neither passes the handler's guard nor shows in the SQL log.
                     $connection->getPdo()->exec('SAVEPOINT ' . self::SAVEPOINT);
+                    if (($undo = $this->watchStatements($connection)) !== null) {
+                        $restore[] = $undo;
+                    }
                 }
             }
         } catch (\Throwable $error) {
+            foreach ($restore as $undo) {
+                $undo();
+            }
             foreach ($turns as $turn) {
                 $turn->release();
             }
@@ -178,7 +260,7 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
 
         $this->collector->start();
 
-        return new EloquentSession($enrolled, $this->collector, $turns);
+        return new EloquentSession($enrolled, $this->collector, $turns, $restore);
     }
 
     /** Identifies the database a connection points at, for its turn lock. */

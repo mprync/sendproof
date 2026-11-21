@@ -132,6 +132,69 @@ final class DoctrineMysqlTest extends TestCase
         $this->assertSame(0, (int) self::admin()->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '" . self::$database . "' AND table_name = 'escape_probe'")->fetchColumn());
     }
 
+    /** @return array<string,array{bool}> */
+    public static function deadlockPaths(): array
+    {
+        return ['a prepared statement' => [false], 'an unprepared statement' => [true]];
+    }
+
+    /**
+     * A deadlock (1213) rolls back the whole Preview transaction, and PDO runs MySQL with autocommit on
+     * outside `BEGIN`, so a retry would commit for real. Every later statement in the Preview is refused
+     * before sending; the handler still gets the original error.
+     */
+    #[DataProvider('deadlockPaths')]
+    public function testADeadlockRefusesEveryLaterStatementInThePreview(bool $unprepared): void
+    {
+        $this->connection->executeStatement("INSERT INTO items VALUES ('a'), ('b')");
+        $server = self::server();
+        $other = new \mysqli($server['host'], $server['user'], $server['password'], self::$database, $server['port']);
+        $other->begin_transaction();
+        // More locks than the Preview holds, so InnoDB picks the Preview as the deadlock victim.
+        $other->query("SELECT id FROM items WHERE id = 'b' FOR UPDATE")->free();
+        for ($n = 0; $n < 10; $n++) {
+            $other->query("INSERT INTO items VALUES ('f{$n}')");
+        }
+        $session = $this->provider->begin(null);
+        $this->recorder->begin(true);
+        $code = null;
+        $refused = false;
+        try {
+            $this->connection->executeQuery("SELECT id FROM items WHERE id = 'a' FOR UPDATE")->free();
+            $other->query("SELECT id FROM items WHERE id = 'a' FOR UPDATE", MYSQLI_ASYNC); // waits on the Preview's row
+            usleep(300_000);
+            try {
+                // Without parameters DBAL runs the driver's exec(); with them, a prepared statement.
+                $unprepared
+                    ? $this->connection->executeStatement("UPDATE items SET id = id WHERE id = 'b'")
+                    : $this->connection->executeStatement('UPDATE items SET id = id WHERE id = ?', ['b']);
+            } catch (\Doctrine\DBAL\Exception\DeadlockException $error) {
+                $code = $error->getCode(); // the handler still gets the original error
+            }
+            $other->reap_async_query();
+            $other->commit();
+            try {
+                $this->connection->executeStatement("INSERT INTO items VALUES ('retry')"); // the handler's retry
+            } catch (PreviewTransactionControlException) {
+                $refused = true;
+            }
+            try {
+                $session->rollback();
+                $this->fail('The Preview must not be confirmed.');
+            } catch (\RuntimeException) {
+                $this->addToAssertionCount(1);
+            }
+        } finally {
+            $session->dispose();
+            $other->close();
+        }
+        $this->assertSame(1213, $code);
+        $this->assertNotContains('retry', $this->stored());
+        $this->assertTrue($refused, 'The retry must be refused before it is sent.');
+        $this->assertInstanceOf(PreviewTransactionControlException::class, $this->recorder->fault());
+        $this->recorder->finish();
+    }
+
     /**
      * With autocommit off, MySQL opens a new transaction by itself after a commit, so
      * `PDO::inTransaction()` and a savepoint made at the end both report the Preview transaction as

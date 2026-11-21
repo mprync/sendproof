@@ -116,6 +116,32 @@ final class Statements
         return array_keys($normalized);
     }
 
+    /**
+     * Why the server itself ended the Preview transaction with error `$code`, or null.
+     *
+     * On MySQL and MariaDB a deadlock (1213) rolls back the whole transaction, and so does a lock
+     * wait timeout (1205) when `innodb_rollback_on_timeout` is on; `$rollbackOnTimeout` reads that
+     * setting only when needed and should answer true when it can't. Every later statement would
+     * run outside the Preview transaction, and with autocommit on commit for real.
+     *
+     * @param \Closure(): bool $rollbackOnTimeout
+     */
+    public static function serverEndedTransaction(int|string|null $code, bool $mysql, \Closure $rollbackOnTimeout): ?string
+    {
+        if (!$mysql) {
+            return null;
+        }
+        $code = (int) $code;
+        if ($code === 1213) {
+            return 'a deadlock rolled back the Preview transaction';
+        }
+        if ($code === 1205 && $rollbackOnTimeout()) {
+            return 'a lock wait timeout rolled back the Preview transaction';
+        }
+
+        return null;
+    }
+
     /** `` `Shop` . `Rebuild` `` becomes `shop.rebuild`; a quoted name that isn't a plain name never matches. */
     private static function procedureKey(string $name): string
     {
