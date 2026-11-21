@@ -36,6 +36,17 @@ module Sendproof
       @fault = nil
       @changes = []
       @changes_truncated = false
+      @store_state = {}.compare_by_identity
+    end
+
+    # Per-preview state a data-store hook keeps on the recorder, keyed by the hook itself, so it lives
+    # exactly as long as the preview and a late write can still find it.
+    # @return [Object, nil]
+    def store_state(owner) = @mutex.synchronize { @store_state[owner] }
+
+    # @see #store_state
+    def set_store_state(owner, value)
+      @mutex.synchronize { @store_state[owner] = value }
     end
 
     def rollback? = @rollback
