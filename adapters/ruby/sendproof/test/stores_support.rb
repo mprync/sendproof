@@ -12,8 +12,12 @@ module StoreHelpers
   SERVERS = {
     redis: ENV.fetch("BENCH_REDIS_SERVER_URL", "redis://:bench_redis_local@127.0.0.1:56379"),
     mongodb: ENV.fetch("BENCH_MONGODB_SERVER_URL", "mongodb://127.0.0.1:57017/?directConnection=true"),
-    dynamodb: ENV.fetch("BENCH_DYNAMODB_SERVER_URL", "http://127.0.0.1:58000")
+    dynamodb: ENV.fetch("BENCH_DYNAMODB_SERVER_URL", "http://127.0.0.1:58000"),
+    opensearch: ENV.fetch("BENCH_OPENSEARCH_SERVER_URL", "http://127.0.0.1:59200")
   }.freeze
+
+  # OpenSearch comes from the compose heavy-stores profile, not the default services.
+  HEAVY_COMPOSE = "docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch"
 
   # A short, unique name per test, so tests never see each other's keys, documents or tables.
   def unique(prefix = "tb") = "#{prefix}_#{SecureRandom.hex(5)}"
@@ -81,7 +85,7 @@ module StoreHelpers
   def needs(store)
     return if (@@reachable ||= {}).fetch(store) { @@reachable[store] = probe(store) }
 
-    skip "#{store} is not answering; start it with: #{COMPOSE}"
+    skip "#{store} is not answering; start it with: #{store == :opensearch ? HEAVY_COMPOSE : COMPOSE}"
   end
 
   private
@@ -97,6 +101,10 @@ module StoreHelpers
     when :dynamodb
       Net::HTTP.start(URI(SERVERS[:dynamodb]).host, URI(SERVERS[:dynamodb]).port, open_timeout: 1, read_timeout: 1) { |http| http.get("/") }
       true
+    when :opensearch
+      # The cluster must answer a request and hold a shard, which a bare port doesn't prove.
+      uri = URI("#{SERVERS[:opensearch]}/_cluster/health?wait_for_status=yellow&timeout=2s")
+      Net::HTTP.start(uri.host, uri.port, open_timeout: 1, read_timeout: 4) { |http| http.get(uri.request_uri) }.is_a?(Net::HTTPSuccess)
     end
   rescue StandardError
     false

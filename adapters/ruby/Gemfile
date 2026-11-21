@@ -18,6 +18,11 @@ gem "mongo", "~> 2.21"
 gem "redis-client", ">= 0.22"
 gem "redis", "~> 5.0"
 gem "aws-sdk-dynamodb", "~> 1.100"
+# Batch two (guard only): the Elasticsearch and OpenSearch clients take the Faraday middleware, and
+# Firestore's generated gRPC client takes the interceptor. Cassandra and Cosmos DB have no Ruby client.
+gem "elasticsearch", "~> 8.0"
+gem "opensearch-ruby", "~> 3.0"
+gem "google-cloud-firestore", "~> 2.0"
 
 # MySQL: Trilogy needs no client library, so the MySQL conformance entry runs on a plain machine.
 gem "trilogy", "~> 2.9"
