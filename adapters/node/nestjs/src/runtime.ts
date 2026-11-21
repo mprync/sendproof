@@ -41,7 +41,10 @@ export class BenchRuntime implements OnApplicationBootstrap {
       throw new TypeError('Use a literal NestJS prefix for basePath.');
     }
     const { basePath: _basePath, ...benchOptions } = options;
-    this.bench = createBench<Request>({ openApiUrl: '/api-json', ...benchOptions }, () => this.operations);
+    this.bench = createBench<Request>({ openApiUrl: '/api-json', ...benchOptions }, () => this.operations.map(
+      ({ method, path, enabled, reason, stores }) => enabled === false
+        ? { method, path, preview: false as const, reason: reason!, ...(stores ? { stores } : {}) }
+        : { method, path }));
   }
 
   /** Collect every controller action decorated with `@SendproofPreview`. */

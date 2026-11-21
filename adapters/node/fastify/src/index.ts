@@ -1,7 +1,8 @@
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import plugin from 'fastify-plugin';
-import { createBench } from '@sendproof/core';
+import { createBench, unavailableOperation } from '@sendproof/core';
+import type { RegisteredOperation, UnavailableOptions } from '@sendproof/core';
 import { requestContext, sendTransport } from './context.js';
 import { dispatching, dispatchInProcess, matchedResponses } from './dispatch.js';
 import { operationMethod, routePath, OPERATION_METHODS } from './paths.js';
@@ -31,7 +32,7 @@ function isEligible(request: FastifyRequest): boolean {
 /** Register Sendproof on a Fastify instance before registering its other routes. */
 function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): Sendproof {
   const basePath = app.prefix === '/' ? '' : app.prefix;
-  const operations: { method: string; path: string }[] = [];
+  const operations: RegisteredOperation[] = [];
   const observations = new WeakMap<IncomingMessage, Observation>();
   const bench = createBench<FastifyRequest>(options, () => operations);
 
@@ -74,16 +75,30 @@ function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): 
     app.route({ method: [...OPERATION_METHODS, 'HEAD'], url, handler: (_request, reply) => reply.code(404).send() });
   }
 
+  /** Validate a registration and return its method and route definition. */
+  const register = (method: string, template: string, route: OperationRoute) => {
+    const verb = operationMethod(method);
+    const definition = typeof route === 'function' ? { handler: route } : route;
+    if (!verb || typeof definition?.handler !== 'function') {
+      throw new TypeError('Choose a supported HTTP method and supply the route handler.');
+    }
+    if (operations.some(entry => entry.method === verb && entry.path === template)) {
+      throw new TypeError('This operation is already registered.');
+    }
+    return { verb, definition };
+  };
+
   const api: Sendproof = {
+    unavailable(method: string, template: string, options: UnavailableOptions, route: OperationRoute) {
+      const { verb, definition } = register(method, template, route);
+      const entry = unavailableOperation(verb, template, options);
+      // Not marked eligible: Send runs it, and a Preview dispatch answers 404 without running it.
+      app.route({ ...definition, method: verb, url: routePath(template) } as RouteOptions);
+      operations.push({ ...entry, preview: false });
+      return api;
+    },
     operation(method: string, template: string, route: OperationRoute) {
-      const verb = operationMethod(method);
-      const definition = typeof route === 'function' ? { handler: route } : route;
-      if (!verb || typeof definition?.handler !== 'function') {
-        throw new TypeError('Choose a supported HTTP method and supply the route handler.');
-      }
-      if (operations.some(entry => entry.method === verb && entry.path === template)) {
-        throw new TypeError('This operation is already registered.');
-      }
+      const { verb, definition } = register(method, template, route);
       app.route({
         ...definition, method: verb, url: routePath(template),
         config: { ...definition.config, [eligible]: true },

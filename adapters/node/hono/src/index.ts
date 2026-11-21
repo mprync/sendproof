@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context, Env, Handler, MiddlewareHandler } from 'hono';
-import { createBench } from '@sendproof/core';
-import type { BenchOptions, BenchRequest } from '@sendproof/core';
+import { createBench, unavailableOperation } from '@sendproof/core';
+import type { BenchOptions, BenchRequest, RegisteredOperation, UnavailableOptions } from '@sendproof/core';
 import { assertBasePath, routePath } from './paths.js';
 import { captureResponse, toResponse, unmatchedHeader } from './response.js';
 
@@ -16,6 +16,12 @@ export type OperationHandler<E extends Env = Env> = Handler<E> | MiddlewareHandl
 export type SendproofRouter<E extends Env = Env> = Hono<E> & {
   /** Register the same Hono handlers for Send and rollback Preview. */
   operation(method: string, template: string, ...handlers: OperationHandler<E>[]): SendproofRouter<E>;
+  /**
+   * Register handlers for an operation marked `preview: false`, for one that writes to a guarded
+   * store such as Redis. Send runs them; capabilities list it in `previewUnavailable` with the
+   * reason, and a Preview of it answers 409 without running them.
+   */
+  unavailable(method: string, template: string, options: UnavailableOptions, ...handlers: OperationHandler<E>[]): SendproofRouter<E>;
 };
 
 const operationMethods = new Set(['get', 'post', 'put', 'patch', 'delete', 'options']);
@@ -46,7 +52,7 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   const app = new Hono<E>({ strict: true }) as SendproofRouter<E>;
   // Preview dispatches into this second router so a handler runs without the workbench gate in front of it.
   const internal = new Hono<E>({ strict: true });
-  const operations: { method: string; path: string }[] = [];
+  const operations: RegisteredOperation[] = [];
   const bench = createBench<Context<E>>(benchOptions, () => operations);
 
   app.use('*', async (c, next) => {
@@ -65,7 +71,8 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   });
   internal.notFound(() => new Response(null, { status: 404, headers: { [unmatchedHeader]: '1' } }));
 
-  app.operation = (method, template, ...handlers) => {
+  /** Validate a registration and return its upper-case method. */
+  const register = (method: string, template: string, handlers: unknown[]) => {
     const verb = method.toLowerCase();
     if (!operationMethods.has(verb) || !handlers.length) {
       throw new TypeError('Choose a supported HTTP method and supply the route handler.');
@@ -74,6 +81,21 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
     if (operations.some(entry => entry.method === upper && entry.path === template)) {
       throw new TypeError('This operation is already registered.');
     }
+    return upper;
+  };
+
+  app.unavailable = (method, template, options, ...handlers) => {
+    const upper = register(method, template, handlers);
+    const entry = unavailableOperation(upper, template, options);
+    // Only the public router gets the handlers, so a Preview dispatch finds no operation.
+    const [first, ...rest] = handlers as [OperationHandler<E>, ...OperationHandler<E>[]];
+    app.on(upper, routePath(template), first, ...rest);
+    operations.push({ ...entry, preview: false });
+    return app;
+  };
+
+  app.operation = (method, template, ...handlers) => {
+    const upper = register(method, template, handlers);
     const path = routePath(template);
     // The observation wrapper times and captures a real Send when the client asked for a trace.
     const observe: MiddlewareHandler<E> = async (c, next) => {

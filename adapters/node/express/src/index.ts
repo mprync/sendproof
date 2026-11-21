@@ -1,18 +1,13 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { createBench } from '@sendproof/core';
+import { createBench, unavailableOperation } from '@sendproof/core';
+import type { RegisteredOperation, UnavailableOptions } from '@sendproof/core';
 import { captureResponse, observeResponse, sendResponse } from '@sendproof/core/node-http';
 import { requestContext } from './context.js';
 import { expressPath, operationVerb } from './paths.js';
 import type { ExpressBenchOptions, SendproofMiddleware } from './types.js';
 
 export type { ExpressBenchOptions, SendproofMiddleware } from './types.js';
-
-/** Registered operation, as advertised in the capabilities document. */
-interface Operation {
-  method: string;
-  path: string;
-}
 
 /**
  * Mount the workbench and register the same route handlers for both Send and Preview.
@@ -23,7 +18,7 @@ interface Operation {
  */
 export function sendproof(options: ExpressBenchOptions = {}): SendproofMiddleware {
   const router = Router({ caseSensitive: true, mergeParams: true, strict: true });
-  const operations: Operation[] = [];
+  const operations: RegisteredOperation[] = [];
   // Responses created for an in-process preview dispatch; their routes must not start a second observation.
   const internal = new WeakSet<Response>();
   const bench = createBench<Request>(options, () => operations);
@@ -44,7 +39,8 @@ export function sendproof(options: ExpressBenchOptions = {}): SendproofMiddlewar
     return sendResponse(req, res, answer);
   }) as SendproofMiddleware;
 
-  middleware.operation = (method, template, ...handlers) => {
+  /** Validate a registration and return its router verb. */
+  const register = (method: string, template: string, handlers: unknown[]) => {
     const verb = operationVerb(method);
     if (!verb || !handlers.length) {
       throw new TypeError('Choose a supported HTTP method and supply the route handler.');
@@ -52,6 +48,24 @@ export function sendproof(options: ExpressBenchOptions = {}): SendproofMiddlewar
     if (operations.some(entry => entry.method === verb.toUpperCase() && entry.path === template)) {
       throw new TypeError('This operation is already registered.');
     }
+    return verb;
+  };
+
+  middleware.unavailable = (method, template, options: UnavailableOptions, ...handlers) => {
+    const verb = register(method, template, handlers);
+    const entry = unavailableOperation(verb.toUpperCase(), template, options);
+    // An ordinary route: Send runs it, and a Preview dispatch skips it, so the Preview finds no
+    // operation and answers 409 without running the handler.
+    router[verb](expressPath(template), (req: Request, res: Response, forward: NextFunction) => {
+      if (internal.has(res)) return forward('route');
+      return forward();
+    }, ...handlers);
+    operations.push({ ...entry, preview: false });
+    return middleware;
+  };
+
+  middleware.operation = (method, template, ...handlers) => {
+    const verb = register(method, template, handlers);
     router[verb](expressPath(template), async (req: Request, res: Response, forward: NextFunction) => {
       if (internal.has(res) || req.method !== verb.toUpperCase()) return forward();
       const observed = await bench.observation(requestContext(req));

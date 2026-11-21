@@ -19,7 +19,8 @@ export class BenchInterceptor implements NestInterceptor {
     const req = http.getRequest<Request>();
     const operation = previewOperation(execution.getHandler());
     const internal = this.runtime.internal.get(req);
-    const eligible = operation?.method === req.method;
+    // An action marked `enabled: false` is never eligible: Preview refuses it and Send isn't traced.
+    const eligible = operation?.method === req.method && operation.enabled !== false;
     if (internal) {
       if (!eligible) throw new HttpException('This operation is unavailable for preview.', 409);
       internal.entered = true;
