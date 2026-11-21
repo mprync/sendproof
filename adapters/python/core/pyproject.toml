@@ -28,6 +28,12 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+# Client libraries for the data-store hooks in sendproof_core.stores; the core imports each on first use.
+redis = ["redis>=5"]
+dynamodb = ["boto3>=1.28"]
+mongodb = ["pymongo>=4.9"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/sendproof_core"]
 # The UI bundle is generated from the shared packer and is not tracked by git.

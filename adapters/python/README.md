@@ -20,6 +20,20 @@ workbench UI from your application and add two ways to exercise real endpoints:
 Python 3.10 or newer. The adapters make no network calls and add nothing to your application
 unless you opt in.
 
+## Data stores
+
+Preview also covers MongoDB (rolled back in its own transaction), Redis and DynamoDB (writes are
+blocked), for PyMongo, `AsyncMongoClient`, Motor, redis-py, `redis.asyncio`, boto3 and aioboto3. See
+[Data stores in the Python binding](data-stores.md) for setup, `@preview(False, reason=...)` and the
+coverage warning: only hooked clients are covered.
+
+```python
+from sendproof_core.stores import mongo_store, redis_store
+
+Sendproof(app, provider=SQLAlchemyPreview(engine), data_stores=[
+    mongo_store(mongo_client, name="catalog"), redis_store(redis_client, name="cache")])
+```
+
 ## Opt in
 
 ```python

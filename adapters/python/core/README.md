@@ -24,6 +24,12 @@ if not record_email("Welcome", sender, [to], [], "Welcome", "Hello!"):
 shapes in the protocol. Ordinary `logging` records from loggers that propagate to the root logger
 are captured too (set the logger level to `INFO` or lower to see them).
 
+## Data stores
+
+`sendproof_core.stores` holds the write guard and the MongoDB, Redis and DynamoDB hooks that the
+framework packages accept as `data_stores`. Each hook imports its client library on first use, so
+the core still needs none of them. See [Data stores in the Python binding](../data-stores.md).
+
 ## Capture limits
 
 Logs 500, effects 100, changes 200, log properties 32, SQL parameters 64. Anything beyond a limit is
