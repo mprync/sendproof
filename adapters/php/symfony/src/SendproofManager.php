@@ -48,6 +48,40 @@ final class SendproofManager
         return $this->settings['enabled'] === true && in_array($this->environment, $this->settings['environments'], true);
     }
 
+    /** Why Preview is off in this worker, shown in capabilities and in the 409 a Preview request gets. */
+    public const CONCURRENT_WORKER_REASON = 'Preview unavailable: this worker runs requests concurrently (a Swoole or OpenSwoole runtime), '
+        . 'so a write could not be told apart from another request\'s and rolled back with the right Preview.';
+
+    /**
+     * The reason Previews are refused in this worker, or null when they may run.
+     *
+     * The PHP binding attributes every write in the process to the Preview that is open, because PHP
+     * normally runs one request per process at a time (php-fpm, `php -S`, RoadRunner and FrankenPHP
+     * workers). A Swoole or OpenSwoole runtime (`runtime/swoole`, or any code inside a coroutine) runs
+     * requests concurrently in one worker, so another request's write would be counted, guarded or
+     * rolled back as the Preview's. Previews are refused there. The `concurrent_workers` setting
+     * overrides the detection: true refuses, false allows (only for a server that runs one request per
+     * worker at a time).
+     */
+    public function concurrencyReason(): ?string
+    {
+        $configured = $this->settings['concurrent_workers'] ?? null;
+        if (is_bool($configured)) {
+            return $configured ? self::CONCURRENT_WORKER_REASON : null;
+        }
+        $runtime = (string) ($_SERVER['APP_RUNTIME'] ?? $_ENV['APP_RUNTIME'] ?? getenv('APP_RUNTIME') ?: '');
+        if (stripos($runtime, 'swoole') !== false) {
+            return self::CONCURRENT_WORKER_REASON;
+        }
+        foreach (['Swoole\\Coroutine', 'OpenSwoole\\Coroutine'] as $coroutine) {
+            if (class_exists($coroutine, false) && method_exists($coroutine, 'getCid') && $coroutine::getCid() > 0) {
+                return self::CONCURRENT_WORKER_REASON;
+            }
+        }
+
+        return null;
+    }
+
     public function setting(string $name): mixed
     {
         return $this->settings[$name] ?? null;

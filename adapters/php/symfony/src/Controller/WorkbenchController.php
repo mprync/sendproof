@@ -65,6 +65,13 @@ final class WorkbenchController
         $provider = $this->manager->previewProvider();
         $available = $provider !== null && $provider->isAvailable();
         $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
+        // Under a concurrent worker every opted-in operation is listed as unavailable, with the reason.
+        $concurrency = $this->manager->concurrencyReason();
+        $operations = $available && $concurrency === null ? $this->catalog->operations() : [];
+        $unavailable = $available ? $this->catalog->unavailable() : [];
+        if ($available && $concurrency !== null) {
+            $unavailable = [...array_map(static fn (array $operation): array => $operation + ['reason' => $concurrency], $this->catalog->operations()), ...$unavailable];
+        }
 
         $capabilities = Capabilities::build(
             (string) ($this->manager->setting('api_name') ?? 'API'),
@@ -77,10 +84,10 @@ final class WorkbenchController
             array_map(static fn (array $entry): array => [
                 'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => $entry['url'] === null ? null : $withBase((string) $entry['url']),
             ], $this->manager->setting('auth_providers')),
-            $available ? $this->catalog->operations() : [],
+            $operations,
             ['language' => 'php', 'framework' => 'Symfony'],
             array_map(static fn (\Sendproof\Core\Stores\DataStore $store): array => $store->describe(), $this->manager->dataStores()),
-            $available ? $this->catalog->unavailable() : [],
+            $unavailable,
             $provider instanceof DescribesDatabaseSystem ? $provider->databaseSystem() : null,
         );
 

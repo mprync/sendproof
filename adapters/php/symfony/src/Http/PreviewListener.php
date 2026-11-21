@@ -103,6 +103,10 @@ final class PreviewListener
         if (!$this->catalog->isMarked($parameters)) {
             return $this->problem(409, 'This operation is unavailable for preview.');
         }
+        if (($reason = $this->manager->concurrencyReason()) !== null) {
+            // Refused before the controller runs, so no write of this or any other request is touched.
+            return $this->problem(409, $reason);
+        }
         if (!$this->sameOrigin($request)) {
             return $this->problem(403, 'This preview is forbidden.');
         }
