@@ -4,6 +4,10 @@ on:
     branches: ['**']
     tags: ['v*']
   pull_request:
+  # The heavy-stores job (Cassandra, OpenSearch) runs weekly, on manual dispatch, and on pull
+  # requests labelled heavy-stores; the publish jobs only ever run for tag pushes.
+  schedule: [{ cron: '0 4 * * 1' }]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -89,10 +93,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
+      # Heavy stores (Cassandra, OpenSearch, Elasticsearch) are dropped from each entry's stores here
+      # and run in the heavy-stores job; the conformance job passes the rest as BENCH_STORES.
       - name: Read binding manifest
         id: manifest
         run: |
-          bindings=$(node tests/conformance/run.mjs --matrix)
+          bindings=$(node tests/conformance/run.mjs --matrix | jq -c '{include: [.include[] | .stores |= (split(",") - ["cassandra", "opensearch", "elasticsearch"] | join(","))]}')
           echo "bindings=$bindings" >> "$GITHUB_OUTPUT"
 
   # Every binding and database combination on Linux, with database services.
@@ -151,6 +157,8 @@ jobs:
       BENCH_MYSQL_URL: ${{ matrix.database == 'mysql' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
       BENCH_MARIADB_URL: ${{ matrix.database == 'mariadb' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
       BENCH_SQLSERVER_URL: ${{ matrix.database == 'sqlserver' && 'mssql://sa:BenchLocal_2026%21@127.0.0.1:1433/master?encrypt=false&trustServerCertificate=true' || '' }}
+      # The light stores only; the heavy-stores job checks the rest.
+      BENCH_STORES: ${{ matrix.stores }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -241,11 +249,111 @@ jobs:
       - name: Prove the data-store checks catch a missing guard
         if: matrix.id == 'data-stores-reference'
         run: |
-          node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs
+          node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs tests/conformance/fixtures/data-stores-reference/recordings.test.mjs
           node tests/conformance/fixtures/data-stores-reference/negative.mjs
       - name: Stop data stores
         if: always() && matrix.stores != ''
         run: docker compose -f tests/conformance/compose.yml down -v
+
+  # Batch-two stores that need large containers (spec/data-stores.md, "Batch two stores"): only the
+  # entries that list one, with every store they list, on a schedule, on manual dispatch, or on a
+  # pull request labelled heavy-stores (the label counts from the next push).
+  heavy-stores-matrix:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'heavy-stores')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      bindings: ${{ steps.matrix.outputs.bindings }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - id: matrix
+        run: |
+          bindings=$(node tests/conformance/run.mjs --matrix | jq -c '{include: [.include[] | select(.stores | test("cassandra|opensearch|elasticsearch"))]}')
+          echo "bindings=$bindings" >> "$GITHUB_OUTPUT"
+
+  heavy-stores:
+    name: Heavy stores / ${{ matrix.id }}
+    needs: heavy-stores-matrix
+    if: fromJSON(needs.heavy-stores-matrix.outputs.bindings).include[0] != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.heavy-stores-matrix.outputs.bindings) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - if: matrix.toolchain == 'dotnet'
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 10.0.x
+      - if: matrix.toolchain == 'python'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - if: matrix.toolchain == 'java'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - if: matrix.toolchain == 'go'
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: adapters/go/**/go.sum
+      - if: matrix.toolchain == 'php'
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          extensions: pdo_sqlite, sqlite3, mbstring, dom, pcntl
+      - if: matrix.toolchain == 'ruby'
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: '3.4'
+      - name: Select Rust stable
+        if: matrix.toolchain == 'rust'
+        run: rustup toolchain install stable --profile minimal
+      - run: npm ci --prefix tests/conformance
+      # Store entries live on each binding's SQLite (Java: H2) profile, which needs no database service.
+      - name: Check the entry needs no database service
+        env:
+          DATABASE: ${{ matrix.database }}
+        run: |
+          case "$DATABASE" in
+            sqlite|h2) ;;
+            *) echo "Heavy-store entries must use SQLite or H2; '$DATABASE' needs a service this job doesn't start" >&2; exit 1 ;;
+          esac
+      - name: Start heavy stores
+        env:
+          STORES: ${{ matrix.stores }}
+        run: |
+          IFS=, read -ra services <<< "$STORES"
+          docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait "${services[@]}"
+      - name: Prepare fixture
+        if: matrix.prepare != ''
+        env:
+          PREPARE: ${{ matrix.prepare }}
+        run: bash -euo pipefail -c "$PREPARE"
+      - name: Run shared HTTP checks
+        env:
+          BINDING: ${{ matrix.id }}
+        run: node tests/conformance/run.mjs "$BINDING"
+      - name: Prove the heavy-store checks catch a missing guard
+        if: matrix.id == 'data-stores-reference'
+        run: node tests/conformance/fixtures/data-stores-reference/negative.mjs
+      - name: Stop heavy stores
+        if: always()
+        run: docker compose -f tests/conformance/compose.yml --profile heavy-stores down -v
 
   # One job per registry and host OS. Each builds that registry's packages, installs them into a fresh
   # consumer application and serves the workbench (the release dry run: no upload), and on Windows and
