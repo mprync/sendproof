@@ -1,7 +1,7 @@
 # Kotlin Ktor conformance fixture
 
 A Ktor 3 (CIO) + plain JDBC (HikariCP, H2) application that implements the shared
-[conformance fixture](../../spec/conformance/fixture.md) with the Kotlin/Ktor binding (`testbench-ktor`).
+[conformance fixture](../../spec/conformance/fixture.md) with the Kotlin/Ktor binding (`sendproof-ktor`).
 
 ```sh
 sh adapters/java/scripts/gradle.sh :ktor-fixture:installDist         # build

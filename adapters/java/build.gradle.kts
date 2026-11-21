@@ -1,7 +1,7 @@
 // Shared conventions for the Java bindings. Individual modules declare only what is specific to them.
 subprojects {
-    group = "dev.testbench"
-    version = (findProperty("testbench.version") as String?) ?: "0.1.0-alpha.1"
+    group = "io.github.mprync"
+    version = (findProperty("sendproof.version") as String?) ?: "0.1.0-alpha.1"
 
     apply(plugin = "java-library")
 
@@ -36,12 +36,12 @@ subprojects {
         }
 
         // The repository URL is never stored in this build: the release tooling supplies it with
-        // -Ptestbench.repositoryUrl=https://<host>/<owner>/<repo>. It is only required when a POM is generated.
-        val repositoryUrl = providers.gradleProperty("testbench.repositoryUrl")
+        // -Psendproof.repositoryUrl=https://<host>/<owner>/<repo>. It is only required when a POM is generated.
+        val repositoryUrl = providers.gradleProperty("sendproof.repositoryUrl")
             .map { it.trim().trimEnd('/').removeSuffix(".git") }
         fun requireRepositoryUrl(): String = repositoryUrl.orNull?.takeIf { it.isNotEmpty() }
             ?: throw GradleException(
-                "Publishing needs -Ptestbench.repositoryUrl=https://<host>/<owner>/<repo>; the URL is not stored in the build.",
+                "Publishing needs -Psendproof.repositoryUrl=https://<host>/<owner>/<repo>; the URL is not stored in the build.",
             )
         fun developerConnection(url: String): String =
             Regex("^https://([^/]+)/(.+)$").matchEntire(url)?.let { "scm:git:ssh://git@${it.groupValues[1]}/${it.groupValues[2]}.git" }
@@ -68,8 +68,8 @@ subprojects {
                     }
                     developers {
                         developer {
-                            id.set("testbench")
-                            name.set("Test Bench contributors")
+                            id.set("sendproof")
+                            name.set("Sendproof contributors")
                         }
                     }
                     scm {
@@ -84,11 +84,11 @@ subprojects {
                 }
             }
             // `./gradlew publish` writes a Maven layout here so the artifacts can be inspected locally.
-            // The release tooling redirects it with -Ptestbench.repoDir=<dir>.
+            // The release tooling redirects it with -Psendproof.repoDir=<dir>.
             repositories {
                 maven {
                     name = "local"
-                    url = providers.gradleProperty("testbench.repoDir")
+                    url = providers.gradleProperty("sendproof.repoDir")
                         .map { uri(file(it)) }
                         .orElse(rootProject.layout.buildDirectory.dir("repo").map { it.asFile.toURI() })
                         .get()

@@ -40,7 +40,7 @@ pick_jdk() {
 }
 
 if ! JAVA_HOME="$(pick_jdk)"; then
-  echo "Test Bench Java binding needs JDK 17 or newer. Set JAVA_HOME to one." >&2
+  echo "Sendproof Java binding needs JDK 17 or newer. Set JAVA_HOME to one." >&2
   exit 1
 fi
 export JAVA_HOME

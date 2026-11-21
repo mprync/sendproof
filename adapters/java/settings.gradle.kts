@@ -1,6 +1,6 @@
-rootProject.name = "testbench-java"
+rootProject.name = "sendproof-java"
 
-include("testbench-core", "testbench-ui", "testbench-jdbc", "testbench-logback", "testbench-spring-boot", "testbench-jpa", "testbench-ktor", "spring-fixture", "ktor-fixture")
+include("sendproof-core", "sendproof-ui", "sendproof-jdbc", "sendproof-logback", "sendproof-spring-boot", "sendproof-jpa", "sendproof-ktor", "spring-fixture", "ktor-fixture")
 
 // The conformance fixture lives with the other examples but builds with the adapters.
 project(":spring-fixture").projectDir = file("../../examples/java-spring-fixture")

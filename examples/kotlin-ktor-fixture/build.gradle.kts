@@ -12,14 +12,14 @@ kotlin {
 }
 
 application {
-    mainClass.set("dev.testbench.fixture.MainKt")
+    mainClass.set("io.github.mprync.sendproof.fixture.MainKt")
     applicationName = "ktor-fixture"
 }
 
 dependencies {
     implementation(platform(libs.ktor.bom))
     implementation(platform(libs.jackson.bom))
-    implementation(project(":testbench-ktor"))
+    implementation(project(":sendproof-ktor"))
     implementation("io.ktor:ktor-server-cio")
     implementation("io.ktor:ktor-server-content-negotiation")
     implementation("io.ktor:ktor-serialization-jackson")

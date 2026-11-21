@@ -6,7 +6,7 @@ description = "Conformance fixture: a Spring Boot + JPA + H2 app that exercises 
 
 dependencies {
     implementation(platform(libs.spring.boot.bom))
-    implementation(project(":testbench-jpa"))
+    implementation(project(":sendproof-jpa"))
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-security")
@@ -16,5 +16,5 @@ dependencies {
 }
 
 tasks.bootJar {
-    archiveFileName.set("test-bench-java-fixture.jar")
+    archiveFileName.set("sendproof-java-fixture.jar")
 }

@@ -4,7 +4,7 @@
 set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/jdk.sh"
-jar="$here/../../../examples/java-spring-fixture/build/libs/test-bench-java-fixture.jar"
+jar="$here/../../../examples/java-spring-fixture/build/libs/sendproof-java-fixture.jar"
 if [ ! -f "$jar" ]; then
   echo "Fixture jar not found. Run: sh adapters/java/scripts/gradle.sh :spring-fixture:bootJar" >&2
   exit 1
