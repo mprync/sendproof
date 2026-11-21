@@ -95,6 +95,8 @@ fn writes_rows(rule: &str) -> bool {
 
 /// The capture of one MySQL connection.
 pub struct Capture {
+    /// The capture belongs to a rollback preview.
+    rollback: bool,
     /// The request's recorder, which counts raw statements that changed rows.
     recorder: Option<Arc<Recorder>>,
     log: ChangeLog,
@@ -188,7 +190,8 @@ async fn select_where(
     statement: &Statement,
 ) -> Result<Vec<Value>, DbError> {
     let alias = alias.map(|alias| format!(" AS {}", ident(alias))).unwrap_or_default();
-    let sql = format!("SELECT {} FROM {}{alias} {tail} FOR UPDATE", table.image_sql(), qualified(&table.name));
+    // `FOR UPDATE` goes on a line of its own: a `--` or `#` comment ending the tail would hide it.
+    let sql = format!("SELECT {} FROM {}{alias} {tail}\nFOR UPDATE", table.image_sql(), qualified(&table.name));
     let mut read = Statement::new(&sql, dialects::MYSQL);
     read.values = statement.values.clone();
     match run_plain::<MySql>(connection, &read, Fetch::All).await? {
@@ -511,8 +514,8 @@ impl Driver for MySql {
         })
     }
 
-    fn begin<'a>(_connection: &'a mut MySqlConnection, _rollback: bool) -> BoxFuture<'a, Result<Capture, BoxError>> {
-        Box::pin(async move { Ok(Capture { recorder: capture::current(), log: ChangeLog::default(), tables: Mutex::new(HashMap::new()) }) })
+    fn begin<'a>(_connection: &'a mut MySqlConnection, rollback: bool) -> BoxFuture<'a, Result<Capture, BoxError>> {
+        Box::pin(async move { Ok(Capture { rollback, recorder: capture::current(), log: ChangeLog::default(), tables: Mutex::new(HashMap::new()) }) })
     }
 
     fn finish<'a>(_connection: &'a mut MySqlConnection, capture: &'a Capture) -> BoxFuture<'a, Result<(), BoxError>> {
@@ -528,6 +531,10 @@ impl Driver for MySql {
 
     fn abandon<'a>(_connection: &'a mut MySqlConnection, _capture: &'a Capture) -> BoxFuture<'a, ()> {
         Box::pin(async {})
+    }
+
+    fn rolls_back(capture: &Capture) -> bool {
+        capture.rollback
     }
 
     fn changes(capture: &Capture) -> Changes {

@@ -67,6 +67,11 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// Whether a connection whose capture could not be removed must be closed rather than reused.
     const CLOSE_UNFINISHED: bool;
 
+    /// The statement that opens a preview's transaction. SQLite overrides it with `BEGIN IMMEDIATE`: a deferred
+    /// transaction takes only a read lock first, so two concurrent previews that read and then write both hold it
+    /// and one fails at once with `database is locked`. Taking the write lock up front makes them queue instead.
+    const PREVIEW_BEGIN: &'static str = "BEGIN";
+
     /// Binds one value.
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments>;
 
@@ -91,6 +96,9 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
 
     /// Removes the capture on a failure path, as far as possible.
     fn abandon<'a>(connection: &'a mut Self::Connection, capture: &'a Self::Capture) -> BoxFuture<'a, ()>;
+
+    /// Whether the capture belongs to a rollback preview (and not to an observed send).
+    fn rolls_back(capture: &Self::Capture) -> bool;
 
     /// The changes collected so far.
     fn changes(capture: &Self::Capture) -> Changes;

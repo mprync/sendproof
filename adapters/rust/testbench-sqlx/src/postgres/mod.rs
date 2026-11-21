@@ -12,6 +12,8 @@
 //!   removes them with everything else: nothing is ever committed, and other sessions never see
 //!   them. The cost is that creating them takes `SHARE ROW EXCLUSIVE` locks, so concurrent writers
 //!   to those tables wait until the preview ends.
+//! * A preview also installs a deferred constraint trigger that fails any `COMMIT` of the preview
+//!   transaction (see [`COMMIT_GUARD`]), so handler code cannot make the preview's writes permanent.
 //! * In an **observed send** the handler must commit normally, so the triggers are committed in a
 //!   short transaction before the handler runs and dropped after it. Other sessions keep writing
 //!   (the `WHEN` clause skips them, and their rows are never captured). Each trigger depends on the
@@ -68,6 +70,23 @@ BEGIN
 END
 $testbench$;
 DELETE FROM pg_temp.testbench_changes;
+"#;
+
+/// Makes the preview transaction impossible to commit. A deferred constraint trigger on a temporary
+/// table raises at `COMMIT`, which turns a handler's raw `COMMIT` (or `END`) into a failure that rolls
+/// everything back instead of making the preview's writes permanent. It is created inside the
+/// preview transaction, before the guard savepoint, so the final rollback removes it and a handler's
+/// `ROLLBACK TO SAVEPOINT` cannot.
+const COMMIT_GUARD: &str = r#"
+CREATE TEMP TABLE testbench_commit_guard (armed boolean NOT NULL) ON COMMIT DROP;
+CREATE OR REPLACE FUNCTION pg_temp.testbench_refuse_commit() RETURNS trigger LANGUAGE plpgsql AS $testbench$
+BEGIN
+    RAISE EXCEPTION 'Test Bench: a preview transaction cannot be committed' USING ERRCODE = '2D000';
+END
+$testbench$;
+CREATE CONSTRAINT TRIGGER testbench_refuse_commit AFTER INSERT ON pg_temp.testbench_commit_guard
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.testbench_refuse_commit();
+INSERT INTO pg_temp.testbench_commit_guard VALUES (true);
 "#;
 
 /// The tables of the `search_path` that can carry a capture trigger, with their primary key columns
@@ -210,7 +229,7 @@ async fn begin(connection: &mut PgConnection, rollback: bool) -> Result<Capture,
         let previous: String =
             sqlx::query_scalar("SELECT current_setting('lock_timeout')").persistent(false).fetch_one(&mut *connection).await?;
         let batch = format!(
-            "SELECT set_config('lock_timeout', {}, true);{SETUP}{ddl}SELECT set_config('lock_timeout', {}, true);\
+            "SELECT set_config('lock_timeout', {}, true);{SETUP}{COMMIT_GUARD}{ddl}SELECT set_config('lock_timeout', {}, true);\
              SELECT set_config('testbench.capture', {}, true);",
             literal(LOCK_TIMEOUT),
             literal(&previous),
@@ -374,6 +393,10 @@ impl Driver for Postgres {
         Box::pin(async move {
             let _ = capture.remove(connection).await;
         })
+    }
+
+    fn rolls_back(capture: &Capture) -> bool {
+        capture.rollback
     }
 
     fn changes(capture: &Capture) -> Changes {

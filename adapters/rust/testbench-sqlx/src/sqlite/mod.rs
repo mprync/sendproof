@@ -1,4 +1,7 @@
 //! SQLite: the pre-update hook records every row change and `sqlite3_trace_v2` every statement.
+//!
+//! In a preview a commit hook also turns every commit on the connection into a rollback, so neither
+//! a raw `COMMIT` nor a write after the handler ended the transaction can ever become permanent.
 
 mod changes;
 mod trace;
@@ -22,6 +25,12 @@ use self::trace::{Pending, SqlTrace};
 
 /// The capture installed on one SQLite connection.
 pub struct Capture {
+    /// The capture belongs to a rollback preview.
+    rollback: bool,
+    /// Alive as long as the capture. The preview's commit hook refuses commits only while it is, so a
+    /// hook left behind by an abandoned request (the connection went back to the pool without
+    /// [`Capture::remove`]) lets that connection commit again.
+    _armed: Arc<()>,
     log: Arc<ChangeLog>,
     sql: Option<Arc<SqlTrace>>,
     /// The hook and the trace callback are still installed.
@@ -33,7 +42,10 @@ impl Capture {
         if !self.installed.swap(false, Ordering::SeqCst) {
             return Ok(());
         }
-        let hook = changes::remove(connection).await;
+        let mut hook = changes::remove(connection).await;
+        if self.rollback && hook.is_ok() {
+            hook = connection.lock_handle().await.map(|mut handle| handle.remove_commit_hook());
+        }
         let sql = match &self.sql {
             Some(sql) => trace::remove(connection, sql).await,
             None => Ok(()),
@@ -56,6 +68,7 @@ impl Driver for Sqlite {
     const DIALECT: Dialect = dialects::SQLITE;
     // An in-memory database lives in its connections, so never close one to clean up.
     const CLOSE_UNFINISHED: bool = false;
+    const PREVIEW_BEGIN: &'static str = "BEGIN IMMEDIATE";
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {
         match value {
@@ -91,21 +104,35 @@ impl Driver for Sqlite {
         })
     }
 
-    fn begin<'a>(connection: &'a mut SqliteConnection, _rollback: bool) -> BoxFuture<'a, Result<Capture, BoxError>> {
+    fn begin<'a>(connection: &'a mut SqliteConnection, rollback: bool) -> BoxFuture<'a, Result<Capture, BoxError>> {
         Box::pin(async move {
+            let armed = Arc::new(());
+            if rollback {
+                let alive = Arc::downgrade(&armed);
+                // Returning `false` makes SQLite roll the commit back instead.
+                connection.lock_handle().await?.set_commit_hook(move || alive.strong_count() == 0);
+            }
             let log = Arc::new(ChangeLog::default());
-            changes::install(connection, log.clone()).await?;
+            if let Err(error) = changes::install(connection, log.clone()).await {
+                if rollback && let Ok(mut handle) = connection.lock_handle().await {
+                    handle.remove_commit_hook();
+                }
+                return Err(error.into());
+            }
             let sql = match capture::current() {
                 Some(recorder) => match trace::install(connection, recorder).await {
                     Ok(sql) => Some(sql),
                     Err(error) => {
                         let _ = changes::remove(connection).await;
+                        if rollback && let Ok(mut handle) = connection.lock_handle().await {
+                            handle.remove_commit_hook();
+                        }
                         return Err(error.into());
                     }
                 },
                 None => None,
             };
-            Ok(Capture { log, sql, installed: AtomicBool::new(true) })
+            Ok(Capture { rollback, _armed: armed, log, sql, installed: AtomicBool::new(true) })
         })
     }
 
@@ -117,6 +144,10 @@ impl Driver for Sqlite {
         Box::pin(async move {
             let _ = capture.remove(connection).await;
         })
+    }
+
+    fn rolls_back(capture: &Capture) -> bool {
+        capture.rollback
     }
 
     fn changes(capture: &Capture) -> Changes {

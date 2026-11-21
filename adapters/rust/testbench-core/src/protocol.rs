@@ -86,10 +86,12 @@ pub fn is_valid_target(target: &str) -> bool {
     if target.is_empty() || target.starts_with("//") {
         return false;
     }
-    if target == WORKBENCH_PREFIX || target.starts_with("/bench/") {
+    let decoded = percent_decode(target);
+    // A target inside the workbench (in any case or encoding) would nest a preview.
+    let lower = decoded.to_ascii_lowercase();
+    if lower == WORKBENCH_PREFIX || lower.starts_with("/bench/") {
         return false;
     }
-    let decoded = percent_decode(target);
     !decoded.starts_with("//")
         && !decoded.contains('\\')
         && !decoded.chars().any(char::is_control)
@@ -324,7 +326,7 @@ mod tests {
     #[test]
     fn validates_targets() {
         assert!(is_valid_target("/items/12"));
-        for bad in ["", "//evil", "/bench/x", "/%2e%2e/x", "/a/../b", "/a%5Cb", "/%2F/x"] {
+        for bad in ["", "//evil", "/bench/x", "/BENCH/_preview/x", "/%62ench/x", "/Bench", "/%2e%2e/x", "/a/../b", "/a%5Cb", "/%2F/x"] {
             assert!(!is_valid_target(bad), "{bad:?} must be rejected");
         }
     }

@@ -50,10 +50,23 @@ impl<B: Backend> SqlxProvider<B> {
     }
 
     /// The label shown for the database. Use a short name, never a path or connection string.
+    ///
+    /// A label that looks like a URL, connection string or file path (it contains `://`, `@`, `;`,
+    /// `=`, `/` or `\`) is not shown at all, so a mistakenly passed `DATABASE_URL` cannot leak.
     pub fn database(mut self, label: impl Into<String>) -> Self {
-        self.database = Some(label.into());
+        let label = label.into();
+        self.database = is_display_label(&label).then_some(label);
         self
     }
+}
+
+/// Whether `label` is a bare display name rather than a URL, connection string or path.
+fn is_display_label(label: &str) -> bool {
+    !label.trim().is_empty()
+        && label.chars().count() <= 128
+        && !label.contains("://")
+        && !label.contains(['@', ';', '=', '/', '\\'])
+        && !label.chars().any(char::is_control)
 }
 
 impl<B: Backend> PreviewProvider for SqlxProvider<B> {
@@ -68,7 +81,7 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
     fn begin_preview<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Box<dyn PreviewSession>, BoxError>> {
         Box::pin(async move {
             // On any error below, dropping the transaction rolls back whatever was installed.
-            let mut transaction = self.pool.begin().await?;
+            let mut transaction = self.pool.begin_with(B::PREVIEW_BEGIN).await?;
             let capture = Arc::new(B::begin(&mut transaction, true).await?);
             if let Err(error) = B::run_raw(&mut transaction, GUARD).await {
                 B::abandon(&mut transaction, &capture).await;
@@ -220,5 +233,20 @@ impl<B: Backend> Observation for Session<B> {
             }
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_display_label;
+
+    #[test]
+    fn database_labels_are_bare_names() {
+        for good in ["fixture.db", "fixture (PostgreSQL)", "inventory"] {
+            assert!(is_display_label(good), "{good}");
+        }
+        for bad in ["postgres://u:p@host/db", "Server=db;Password=x", "/var/data/app.db", "C:\\data\\app.db", "user@host", ""] {
+            assert!(!is_display_label(bad), "{bad}");
+        }
     }
 }

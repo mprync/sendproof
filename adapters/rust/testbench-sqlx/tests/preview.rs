@@ -78,6 +78,18 @@ async fn boom(db: Db) -> Result<StatusCode, DbError> {
     panic!("handler failure after writing");
 }
 
+/// Reads before it writes, the shape that fails at once with `database is locked` when a deferred transaction upgrades.
+async fn bump(db: Db, Json(body): Json<Value>) -> Result<StatusCode, DbError> {
+    let mut conn = db.acquire().await?;
+    let seen: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items").fetch_one(&mut *conn).await?;
+    sqlx::query("INSERT INTO items (id, name) VALUES (?1, ?2)")
+        .bind(body["id"].as_str().unwrap())
+        .bind(format!("seen {seen}"))
+        .execute(&mut *conn)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
 async fn ungated(db: Db) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
     sqlx::query("INSERT INTO items (id, name) VALUES ('ungated', 'x')").execute(&mut *conn).await?;
@@ -97,7 +109,7 @@ fn app(pool: SqlitePool, enabled: bool) -> Router {
                 ..Identity::default()
             })
         });
-    for path in ["/items", "/bulk", "/boom", "/ungated"] {
+    for path in ["/items", "/bulk", "/boom", "/bump", "/ungated"] {
         config = config.preview_operation("POST", path);
     }
     let bench = TestBench::new(config.build().unwrap());
@@ -105,6 +117,7 @@ fn app(pool: SqlitePool, enabled: bool) -> Router {
         .route("/items", post(create))
         .route("/bulk", post(bulk))
         .route("/boom", post(boom))
+        .route("/bump", post(bump))
         .bench_gate(&bench)
         // Declared for preview but deliberately not gated.
         .route("/ungated", post(ungated))
@@ -290,5 +303,163 @@ async fn named_parameters_are_captured_once_and_secrets_are_redacted() {
     );
     assert_eq!(sql[1]["sql"]["parameters"][0]["value"], "[REDACTED]");
     assert!(!envelope.to_string().contains("hunter2"));
+    assert_eq!(count(&pool, "items").await, 0);
+}
+
+/// One-route app over `pool` whose `/op` route is declared and gated.
+fn single(pool: SqlitePool, route: axum::routing::MethodRouter<State>, policy: bool) -> Router {
+    let mut config = Config::builder("Tests")
+        .environment("Development")
+        .enable_in(["Development"])
+        .provider(SqliteProvider::new(pool.clone()))
+        .preview_operation("POST", "/op")
+        .identity(|headers| async move {
+            headers.get("x-user").map(|user| Identity { name: Some(user.into()), subject: Some(user.into()), ..Identity::default() })
+        });
+    if policy {
+        config = config.workbench_policy(|identity| identity.and_then(|i| i.name.as_deref()) == Some("admin"));
+    }
+    let bench = TestBench::new(config.build().unwrap());
+    bench.wrap(Router::new().route("/op", route).bench_gate(&bench).with_state(State { pool }))
+}
+
+#[tokio::test]
+async fn a_raw_commit_inside_a_preview_never_persists_anything() {
+    async fn escape(db: Db) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        sqlx::query("INSERT INTO items (id, name) VALUES ('before', 'x')").execute(&mut *conn).await?;
+        // Ignore the refusal and keep writing, as careless handler code might.
+        let _ = sqlx::raw_sql("COMMIT").execute(&mut *conn).await;
+        let _ = sqlx::query("INSERT INTO items (id, name) VALUES ('after', 'x')").execute(&mut *conn).await;
+        Ok(StatusCode::OK)
+    }
+    let pool = pool().await;
+    let app = single(pool.clone(), post(escape), false);
+    let response = app.clone().oneshot(preview("/op", json!({}))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(response.headers().get("preference-applied").is_none());
+    assert_eq!(count(&pool, "items").await, 0, "the commit hook turned every commit into a rollback");
+    // The connection commits normally again once the preview is over.
+    sqlx::query("INSERT INTO items (id, name) VALUES ('later', 'x')").execute(&pool).await.unwrap();
+    assert_eq!(count(&pool, "items").await, 1);
+}
+
+#[tokio::test]
+async fn a_named_commit_is_refused_before_it_runs() {
+    async fn named_commit(db: Db) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        conn.query("INSERT INTO items (id, name) VALUES (:id, 'x')").bind("id", "a").execute().await?;
+        match conn.query("UPDATE items SET name = 'y'; COMMIT").execute().await {
+            Err(DbError::Query(message)) if message.contains("COMMIT") => Ok(StatusCode::OK),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+    let pool = pool().await;
+    let envelope = json_body(single(pool.clone(), post(named_commit), false).oneshot(preview("/op", json!({}))).await.unwrap()).await;
+    assert_eq!(envelope["rolledBack"], true, "{envelope}");
+    assert_eq!(envelope["status"], 200);
+    assert_eq!(count(&pool, "items").await, 0);
+}
+
+#[tokio::test]
+async fn the_workbench_policy_gates_previews() {
+    async fn write(db: Db) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        conn.query("INSERT INTO items (id, name) VALUES ('p', 'x')").execute().await?;
+        Ok(StatusCode::OK)
+    }
+    let pool = pool().await;
+    let app = single(pool.clone(), post(write), true);
+    let anonymous = app.clone().oneshot(preview("/op", json!({}))).await.unwrap();
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    let mut viewer = preview("/op", json!({}));
+    viewer.headers_mut().insert("x-user", "viewer".parse().unwrap());
+    assert_eq!(app.clone().oneshot(viewer).await.unwrap().status(), StatusCode::FORBIDDEN);
+    let mut admin = preview("/op", json!({}));
+    admin.headers_mut().insert("x-user", "admin".parse().unwrap());
+    assert_eq!(app.oneshot(admin).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(count(&pool, "items").await, 0);
+}
+
+#[tokio::test]
+async fn an_ungated_handler_reached_by_a_preview_cannot_deliver_effects() {
+    use std::sync::atomic::AtomicBool;
+    static DELIVERED: AtomicBool = AtomicBool::new(false);
+    async fn notify() -> StatusCode {
+        if !testbench_core::capture::record_effect("email", "Welcome", json!({"to": ["a@b"]})) {
+            DELIVERED.store(true, Ordering::SeqCst);
+        }
+        StatusCode::OK
+    }
+    let pool = pool().await;
+    let bench = TestBench::new(
+        Config::builder("Tests")
+            .environment("Development")
+            .enable_in(["Development"])
+            .provider(SqliteProvider::new(pool.clone()))
+            .preview_operation("POST", "/notify")
+            .build()
+            .unwrap(),
+    );
+    // Added after the gate, so the gate never sees it.
+    let app = bench.wrap(
+        Router::new()
+            .route("/other", post(|| async { StatusCode::OK }))
+            .bench_gate(&bench)
+            .route("/notify", post(notify))
+            .with_state(State { pool }),
+    );
+    let response = app.oneshot(preview("/notify", json!({}))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(!DELIVERED.load(Ordering::SeqCst), "a preview suppresses effects even when the handler was not enrolled");
+}
+
+#[tokio::test]
+async fn secret_columns_are_redacted_in_change_snapshots() {
+    async fn sign_up(db: Db) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        conn.query("INSERT INTO users (api_token, email, password_hash) VALUES (:token, :email, :hash)")
+            .bind("token", "tok-123")
+            .bind("email", "ann@example.test")
+            .bind("hash", "argon2-secret")
+            .execute()
+            .await?;
+        Ok(StatusCode::CREATED)
+    }
+    let pool = pool().await;
+    sqlx::query("CREATE TABLE users (api_token TEXT PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let envelope = json_body(single(pool.clone(), post(sign_up), false).oneshot(preview("/op", json!({}))).await.unwrap()).await;
+    let change = envelope["changes"].as_array().unwrap().iter().find(|c| c["table"] == "users").expect("a users change").clone();
+    assert_eq!(change["key"], json!({"api_token": "[REDACTED]"}));
+    assert_eq!(change["after"], json!({"api_token": "[REDACTED]", "email": "ann@example.test", "password_hash": "[REDACTED]"}));
+    let text = envelope.to_string();
+    assert!(!text.contains("argon2-secret") && !text.contains("tok-123"), "{text}");
+}
+
+/// Previews that read and then write share one SQLite file. A deferred `BEGIN` made almost all of them fail at once with
+/// `database is locked`; they must queue on the write lock instead, each roll back and leave the table empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_sqlite_previews_queue_for_the_write_lock_instead_of_failing() {
+    let pool = pool().await;
+    let router = app(pool.clone(), true);
+    let tasks: Vec<_> = (0..16)
+        .map(|index| {
+            let router = router.clone();
+            tokio::spawn(async move {
+                let response = router.oneshot(preview("/bump", json!({"id": format!("c{index}")}))).await.unwrap();
+                let status = response.status();
+                (status, json_body(response).await)
+            })
+        })
+        .collect();
+    for task in tasks {
+        let (status, envelope) = task.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{envelope}");
+        assert_eq!(envelope["status"], 201);
+        assert_eq!(envelope["rolledBack"], true);
+    }
     assert_eq!(count(&pool, "items").await, 0);
 }

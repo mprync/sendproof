@@ -39,6 +39,20 @@ pub fn credentials_ok(email: &str, password: &str) -> bool {
     email == ADMIN.email && password == "bench-fixture"
 }
 
+/// An unguessable 128-bit session token. Hosts copy fixtures, so even a loopback session must not be
+/// predictable from a counter or the process id. The standard library's SipHash keys are seeded from the
+/// operating system, which keeps the fixture free of a random-number dependency on every platform.
+fn session_token(sequence: u64) -> String {
+    use std::hash::{BuildHasher, Hasher, RandomState};
+    let [high, low]: [u64; 2] = std::array::from_fn(|lane| {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u64(sequence);
+        hasher.write_usize(lane);
+        hasher.finish()
+    });
+    format!("{high:016x}{low:016x}")
+}
+
 /// Server-side sessions for a loopback fixture.
 #[derive(Default)]
 pub struct Sessions {
@@ -49,11 +63,7 @@ pub struct Sessions {
 impl Sessions {
     /// Starts a session and returns the `Set-Cookie` value for it.
     pub fn start(&self, persona: Persona) -> String {
-        let token = format!(
-            "s{}-{}",
-            self.next.fetch_add(1, Ordering::SeqCst),
-            std::process::id()
-        );
+        let token = session_token(self.next.fetch_add(1, Ordering::SeqCst));
         self.by_token.lock().unwrap().insert(token.clone(), persona);
         format!("{COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax")
     }

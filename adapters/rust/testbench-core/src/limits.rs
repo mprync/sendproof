@@ -58,19 +58,59 @@ fn fits(value: &Value, depth: usize) -> bool {
         }
 }
 
+/// Whether `value` serializes to at most [`PAYLOAD_BYTES`], measured with a writer that stops at
+/// the limit, so an oversized value is never fully serialized. `None` when it cannot be serialized.
+pub fn fits_payload(value: &impl serde::Serialize) -> Option<bool> {
+    struct Bounded(usize);
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            if self.0 > PAYLOAD_BYTES { Err(std::io::Error::other("payload limit")) } else { Ok(bytes.len()) }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut writer = Bounded(0);
+    match serde_json::to_writer(&mut writer, value) {
+        Ok(()) => Some(true),
+        Err(_) if writer.0 > PAYLOAD_BYTES => Some(false),
+        Err(_) => None,
+    }
+}
+
+/// Replaces the values of secret-named members (`password_hash`, `api_key`, ...) of a row image
+/// with [`REDACTED`](crate::redact::REDACTED), using the same whole-word rules as SQL parameters.
+/// Change snapshots come straight from the database, so they would otherwise show stored secrets.
+pub fn redact_row(value: &mut Value) {
+    if let Value::Object(map) = value {
+        for (name, member) in map.iter_mut() {
+            if !member.is_null() && crate::redact::looks_secret(name) {
+                *member = Value::String(crate::redact::REDACTED.to_owned());
+            }
+        }
+    }
+}
+
 pub(crate) fn size(value: &Option<Value>) -> usize {
     value.as_ref().map_or(0, |value| value.to_string().len())
 }
 
-/// Applies the change-count, size and payload limits. Returns the changes and whether any were dropped.
+/// Applies the change-count, size and payload limits, and redacts secret-named columns.
+/// Returns the changes and whether any were dropped.
 pub fn snapshot_changes(changes: &[Change]) -> (Vec<Change>, bool) {
     let mut result = Vec::new();
     let mut truncated = changes.len() > CHANGES;
     let mut remaining = PAYLOAD_BUDGET as i64;
+    let redacted = |value: Value| {
+        let mut value = value;
+        redact_row(&mut value);
+        value
+    };
     for change in changes.iter().take(CHANGES) {
-        let key = change.key.as_ref().and_then(snapshot);
-        let before = change.before.as_ref().and_then(snapshot);
-        let after = change.after.as_ref().and_then(snapshot);
+        let key = change.key.as_ref().and_then(snapshot).map(redacted);
+        let before = change.before.as_ref().and_then(snapshot).map(redacted);
+        let after = change.after.as_ref().and_then(snapshot).map(redacted);
         let operation = clip(&change.operation, NAME);
         let table = clip(&change.table, NAME);
         remaining -= (size(&key) + size(&before) + size(&after) + operation.len() + table.len()) as i64;
@@ -109,6 +149,46 @@ mod tests {
         let wide = Value::Array(vec![json!(1); PARAMETERS + 1]);
         assert!(snapshot(&wide).is_none());
         assert!(snapshot(&json!({"a": [1, 2, 3]})).is_some());
+    }
+
+    #[test]
+    fn redacts_secret_columns_in_change_snapshots() {
+        let change = Change {
+            operation: "update".into(),
+            table: "users".into(),
+            key: Some(json!({"id": 1})),
+            before: Some(json!({"id": 1, "name": "Ann", "password_hash": "old", "ApiKey": null})),
+            after: Some(json!({"id": 1, "name": "Ann", "password_hash": "new", "api_key": "k", "monkey": "visible"})),
+        };
+        let (kept, _) = snapshot_changes(&[change]);
+        let after = kept[0].after.as_ref().unwrap();
+        assert_eq!(after["password_hash"], crate::redact::REDACTED);
+        assert_eq!(after["api_key"], crate::redact::REDACTED);
+        assert_eq!(after["name"], "Ann");
+        assert_eq!(after["monkey"], "visible");
+        assert_eq!(kept[0].before.as_ref().unwrap()["password_hash"], crate::redact::REDACTED);
+        assert_eq!(kept[0].key, Some(json!({"id": 1})));
+
+        // A secret-named primary key is hidden in the key as well as in the row images.
+        let keyed = Change {
+            operation: "delete".into(),
+            table: "sessions".into(),
+            key: Some(json!({"session_token": "t-1"})),
+            before: Some(json!({"session_token": "t-1", "password_digest": "d", "user": 7})),
+            after: None,
+        };
+        let (kept, _) = snapshot_changes(&[keyed]);
+        assert_eq!(kept[0].key, Some(json!({"session_token": crate::redact::REDACTED})));
+        assert_eq!(
+            kept[0].before,
+            Some(json!({"session_token": crate::redact::REDACTED, "password_digest": crate::redact::REDACTED, "user": 7}))
+        );
+    }
+
+    #[test]
+    fn measures_payloads_without_serializing_past_the_limit() {
+        assert_eq!(fits_payload(&json!({"a": 1})), Some(true));
+        assert_eq!(fits_payload(&"x".repeat(PAYLOAD_BYTES + 1)), Some(false));
     }
 
     #[test]

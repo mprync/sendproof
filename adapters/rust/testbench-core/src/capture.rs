@@ -168,6 +168,15 @@ impl Recorder {
         })
     }
 
+    /// Creates an inactive recorder for a rollback preview. Until [`begin`](Self::begin) it records
+    /// nothing, but already tells hosts to suppress effects: a preview never delivers one, even from
+    /// a handler that was reached without being enrolled.
+    pub fn new_preview(started: Instant, show_sql_values: bool) -> Arc<Self> {
+        let recorder = Self::new(started, show_sql_values);
+        recorder.lock().rollback = true;
+        recorder
+    }
+
     fn lock(&self) -> MutexGuard<'_, Inner> {
         // Capture must never take the application down: recover from a poisoned lock.
         self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -236,20 +245,37 @@ impl Recorder {
     /// Records an effect. Returns `true` when the host must suppress it.
     pub fn record_effect(&self, kind: &str, description: &str, data: impl Serialize) -> bool {
         let started = Instant::now();
-        let value = serde_json::to_value(data).ok().filter(|value| !value.is_null());
-        self.record_effect_value(kind, description, value, started)
+        {
+            let mut inner = self.lock();
+            if !inner.active {
+                return inner.rollback;
+            }
+            if inner.effects.len() == limits::EFFECTS || inner.effect_size >= limits::LOG_BUDGET {
+                inner.effects_truncated = true;
+                return inner.rollback;
+            }
+        }
+        // Measure the payload with a bounded writer first, so an oversized payload is never
+        // materialized as a JSON tree.
+        let (data, oversized) = match limits::fits_payload(&data) {
+            Some(true) => (serde_json::to_value(&data).ok().filter(|value| !value.is_null()), false),
+            Some(false) => (None, true),
+            None => (None, false),
+        };
+        self.record_effect_value(kind, description, data, oversized, started)
     }
 
-    fn record_effect_value(&self, kind: &str, description: &str, data: Option<Value>, started: Instant) -> bool {
+    fn record_effect_value(&self, kind: &str, description: &str, data: Option<Value>, oversized: bool, started: Instant) -> bool {
         let mut inner = self.lock();
         if !inner.active {
-            return false;
+            return inner.rollback;
         }
         let rollback = inner.rollback;
         if inner.effects.len() == limits::EFFECTS || inner.effect_size >= limits::LOG_BUDGET {
             inner.effects_truncated = true;
             return rollback;
         }
+        inner.effects_truncated |= oversized;
         let captured = data.as_ref().and_then(limits::snapshot);
         inner.serialize_ms += started.elapsed().as_secs_f64() * 1000.0;
         let kind_clipped = limits::clip(kind, limits::NAME);
@@ -397,6 +423,23 @@ mod tests {
         assert!(!recorder.record_effect("email", "x", json!({})));
         assert!(!recorder.record_log("Information", "x"));
         assert!(recorder.finish().logs.is_empty());
+    }
+
+    #[test]
+    fn an_unstarted_preview_recorder_suppresses_effects_without_recording_them() {
+        let recorder = Recorder::new_preview(Instant::now(), true);
+        assert!(recorder.record_effect("email", "Sent before enrollment", json!({"to": ["a@b"]})));
+        assert!(recorder.finish().effects.is_empty());
+    }
+
+    #[test]
+    fn an_oversized_effect_payload_is_dropped_before_it_is_built() {
+        let recorder = started();
+        let big = "x".repeat(limits::PAYLOAD_BYTES + 1);
+        assert!(recorder.record_effect("http", "Large", json!({ "body": big })));
+        let snapshot = recorder.finish();
+        assert_eq!(snapshot.effects[0].data, None);
+        assert!(snapshot.effects_truncated);
     }
 
     #[test]

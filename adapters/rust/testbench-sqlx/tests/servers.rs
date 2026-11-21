@@ -51,12 +51,16 @@ trait Server: Backend {
     const BULK: &'static str;
     /// A statement that ends the current transaction.
     const END_TRANSACTION: &'static str;
+    /// Whether the backend stops a raw [`Self::END_TRANSACTION`] from committing a preview.
+    const RAW_END_PREVENTED: bool;
 }
 
 impl Server for Postgres {
     const ENV: &'static str = "BENCH_POSTGRES_URL";
     const BULK: &'static str = "INSERT INTO items (id, name) SELECT 'b' || g, :name FROM generate_series(1, 5) AS g";
     const END_TRANSACTION: &'static str = "COMMIT";
+    // The preview's deferred constraint trigger fails the commit.
+    const RAW_END_PREVENTED: bool = true;
 
     fn open(url: String) -> BoxFuture<'static, (Pool<Self>, BoxFuture<'static, ()>)> {
         Box::pin(async move {
@@ -115,6 +119,8 @@ impl Server for MySql {
         "INSERT INTO items (id, name) VALUES ('b1', :name), ('b2', :name), ('b3', :name), ('b4', :name), ('b5', :name)";
     // DDL commits the transaction implicitly.
     const END_TRANSACTION: &'static str = "CREATE TABLE implicit_commit (x INT)";
+    // MySQL has no hook that can refuse an implicit commit made by raw SQL.
+    const RAW_END_PREVENTED: bool = false;
 
     fn open(url: String) -> BoxFuture<'static, (Pool<Self>, BoxFuture<'static, ()>)> {
         Box::pin(async move {
@@ -263,6 +269,18 @@ async fn end_transaction<B: Server>(db: Db<B>) -> Result<StatusCode, DbError> {
     Ok(StatusCode::OK)
 }
 
+/// Ends the transaction through a named query, which a preview refuses before it runs.
+async fn named_end<B: Server>(db: Db<B>) -> Result<StatusCode, DbError> {
+    let mut conn = db.acquire().await?;
+    insert(&mut conn, "kept", "Rolled back").await?;
+    match conn.query(B::END_TRANSACTION).execute().await {
+        Err(DbError::Query(message)) if message.contains("refused") => {}
+        other => panic!("expected a refusal, got {:?}", other.map(|_| ())),
+    }
+    insert(&mut conn, "still", "Rolled back").await?;
+    Ok(StatusCode::OK)
+}
+
 /// Writes, lets the test write from another connection, then writes again.
 async fn interleaved<B: Backend>(State(state): State<AppState<B>>, db: Db<B>) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
@@ -300,7 +318,8 @@ async fn boom<B: Backend>(db: Db<B>) -> Result<StatusCode, DbError> {
     panic!("handler failure after writing");
 }
 
-const ROUTES: [&str; 9] = ["/sequence", "/bulk", "/nested", "/duplicate", "/end", "/interleaved", "/overlapping", "/raw", "/boom"];
+const ROUTES: [&str; 10] =
+    ["/sequence", "/bulk", "/nested", "/duplicate", "/end", "/named-end", "/interleaved", "/overlapping", "/raw", "/boom"];
 
 fn app<B: Server>(pool: Pool<B>, signals: Arc<Signals>) -> Router {
     let mut config = Config::builder("Tests")
@@ -326,6 +345,7 @@ fn app<B: Server>(pool: Pool<B>, signals: Arc<Signals>) -> Router {
         .route("/nested", post(nested::<B>))
         .route("/duplicate", post(duplicate::<B>))
         .route("/end", post(end_transaction::<B>))
+        .route("/named-end", post(named_end::<B>))
         .route("/interleaved", post(interleaved::<B>))
         .route("/overlapping", post(overlapping::<B>))
         .route("/raw", post(raw_write::<B>))
@@ -423,9 +443,19 @@ async fn ending_the_transaction_inside_a_preview_is_unconfirmed<B: Server>(pool:
     let response = app.clone().oneshot(preview("/end")).await.unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(response.headers().get("preference-applied").is_none(), "no rollback is claimed");
+    if B::RAW_END_PREVENTED {
+        assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0, "the raw commit was refused");
+    }
     // The connection is still usable for the next preview.
     let next = json_body(app.oneshot(preview("/sequence")).await.unwrap()).await;
     assert_eq!(next["rolledBack"], true, "{next}");
+}
+
+async fn a_named_statement_that_ends_the_transaction_is_refused<B: Server>(pool: Pool<B>) {
+    let envelope = json_body(app(pool.clone(), Arc::default()).oneshot(preview("/named-end")).await.unwrap()).await;
+    assert_eq!(envelope["rolledBack"], true, "{envelope}");
+    assert_eq!(item_changes(&envelope), pairs(&[("insert", "kept"), ("insert", "still")]));
+    assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0);
 }
 
 async fn observed_send_ignores_concurrent_writers<B: Server>(pool: Pool<B>) {
@@ -509,6 +539,7 @@ server_tests!(Postgres, postgres:
     rolled_back_nested_transactions_drop_their_changes,
     a_failed_statement_does_not_break_the_preview,
     ending_the_transaction_inside_a_preview_is_unconfirmed,
+    a_named_statement_that_ends_the_transaction_is_refused,
     observed_send_ignores_concurrent_writers,
     concurrent_observed_sends_see_only_their_own_rows,
     sequential_requests_reuse_clean_connections,
@@ -521,6 +552,7 @@ server_tests!(MySql, mysql:
     rolled_back_nested_transactions_drop_their_changes,
     a_failed_statement_does_not_break_the_preview,
     ending_the_transaction_inside_a_preview_is_unconfirmed,
+    a_named_statement_that_ends_the_transaction_is_refused,
     observed_send_ignores_concurrent_writers,
     concurrent_observed_sends_see_only_their_own_rows,
     sequential_requests_reuse_clean_connections,

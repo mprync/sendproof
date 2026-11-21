@@ -117,7 +117,7 @@ impl BenchService {
     async fn preview(&self, mut request: Request, target: String) -> Response {
         let core = &self.bench.core;
         let started = Instant::now();
-        let rewritten = match core.check_preview(request.method().as_str(), &Headers::from(request.headers()), &target) {
+        let rewritten = match core.check_preview(request.method().as_str(), &Headers::from(request.headers()), &target).await {
             Ok(path) => path,
             Err(reply) => return respond(reply),
         };

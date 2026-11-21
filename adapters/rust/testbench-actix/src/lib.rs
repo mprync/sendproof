@@ -203,7 +203,7 @@ where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     B: MessageBody + 'static,
 {
-    let rewritten = match core.check_preview(method, headers, target) {
+    let rewritten = match core.check_preview(method, headers, target).await {
         Ok(path) => path,
         Err(reply) => return Ok(request.into_response(respond(reply))),
     };

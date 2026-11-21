@@ -160,8 +160,9 @@ impl Core {
     /// (the target under the mount), to which the adapter appends the original query.
     ///
     /// A preview can never reach a route that was not declared: the data layer would otherwise
-    /// commit for real. Unknown and undeclared targets look the same to the caller.
-    pub fn check_preview(&self, method: &str, headers: &Headers, target: &str) -> Result<String, Reply> {
+    /// commit for real. Unknown and undeclared targets look the same to the caller. The workbench
+    /// policy gates previews exactly as it gates the workbench and observed sends.
+    pub async fn check_preview(&self, method: &str, headers: &Headers, target: &str) -> Result<String, Reply> {
         if !self.config.enabled() {
             return Err(Reply::problem(404, "Test Bench previews are unavailable."));
         }
@@ -182,6 +183,15 @@ impl Core {
         }
         if !self.config.matches_operation(method, target) {
             return Err(Reply::problem(409, "This operation is unavailable for preview."));
+        }
+        if self.config.has_policy() {
+            let identity = self.config.identify(headers).await;
+            if !self.config.admits(identity.as_ref()) {
+                return Err(match identity {
+                    None => Reply::problem(401, "Sign in to use the workbench."),
+                    Some(_) => Reply::problem(403, "This account may not use the workbench."),
+                });
+            }
         }
         Ok(format!("{}{}", self.config.path_base(), target))
     }
@@ -380,7 +390,9 @@ pub const PREVIEW_REQUIRED: PreviewRequired = PreviewRequired { rollback: true }
 impl PreviewState {
     /// Creates the state for a preview that started at `started`.
     pub fn new(core: &Core, started: Instant) -> Arc<Self> {
-        let recorder = Recorder::new(started, core.config.show_sql_values());
+        // A preview recorder suppresses effects from the start, so a handler that is reached
+        // without the gate (and therefore never enrolled) still cannot deliver one.
+        let recorder = Recorder::new_preview(started, core.config.show_sql_values());
         Arc::new(Self { invoked: AtomicBool::new(false), completed: AtomicBool::new(false), session: Mutex::new(None), recorder })
     }
 
@@ -470,6 +482,14 @@ impl PreviewState {
                 Some(envelope) => self.confirmed(&envelope),
                 None if self.invoked() => Reply::problem(500, "The preview operation did not finish."),
                 None => {
+                    if (200..400).contains(&inner.status) {
+                        // The application answered without passing the gate: the route was added
+                        // after `bench_gate` (or lacks the gate), so its handler ran unenrolled.
+                        tracing::warn!(
+                            status = inner.status,
+                            "a Test Bench preview reached a handler that has no Test Bench gate; put the gate on every route"
+                        );
+                    }
                     let (status, title) = protocol::reject_unexecuted(inner.status);
                     let mut reply = Reply::problem(status, title);
                     if let Some(challenge) = inner.headers.get("www-authenticate") {

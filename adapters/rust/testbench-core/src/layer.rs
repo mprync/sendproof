@@ -68,7 +68,11 @@ impl<S: Subscriber> Layer<S> for TestBenchLayer {
                     .properties
                     .into_iter()
                     .take(limits::PROPERTIES)
-                    .map(|(name, value)| (limits::clip(&name, limits::NAME), limits::clip(&value, limits::TEXT)))
+                    .map(|(name, value)| {
+                        // A secret-named field (`password`, `api_key`, ...) never shows its value.
+                        let value = if redact::looks_secret(&name) { redact::REDACTED.to_owned() } else { value };
+                        (limits::clip(&name, limits::NAME), value)
+                    })
                     .collect(),
             );
         }
@@ -104,6 +108,30 @@ fn sql_entry(fields: &Fields) -> Option<LogEntry> {
     Some(entry)
 }
 
+/// Formats `args` into at most [`limits::TEXT`] characters, stopping the formatter there, so a
+/// huge field value is never formatted in full.
+fn bounded(args: fmt::Arguments<'_>) -> String {
+    struct Writer {
+        text: String,
+        room: usize,
+    }
+    impl fmt::Write for Writer {
+        fn write_str(&mut self, part: &str) -> fmt::Result {
+            for c in part.chars() {
+                if self.room == 0 {
+                    return Err(fmt::Error);
+                }
+                self.text.push(c);
+                self.room -= 1;
+            }
+            Ok(())
+        }
+    }
+    let mut writer = Writer { text: String::new(), room: limits::TEXT };
+    let _ = fmt::write(&mut writer, args);
+    writer.text
+}
+
 #[derive(Default)]
 struct Fields {
     message: String,
@@ -113,16 +141,17 @@ struct Fields {
 
 impl Visit for Fields {
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        self.store(field, format!("{value:?}"));
+        self.store(field, bounded(format_args!("{value:?}")));
     }
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.store(field, value.to_owned());
+        self.store(field, limits::clip(value, limits::TEXT));
     }
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        let text = bounded(format_args!("{value}"));
         if self.error.is_none() {
-            self.error = Some(value.to_string());
+            self.error = Some(text.clone());
         }
-        self.store(field, value.to_string());
+        self.store(field, text);
     }
 }
 
@@ -135,5 +164,33 @@ impl Fields {
                 self.properties.insert(name.to_owned(), value);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use tracing_subscriber::layer::SubscriberExt;
+
+    use super::*;
+    use crate::capture::Recorder;
+
+    #[tokio::test]
+    async fn redacts_secret_fields_and_bounds_their_values() {
+        let _subscriber = tracing::subscriber::set_default(tracing_subscriber::registry().with(TestBenchLayer::new()));
+        let recorder = Recorder::new(Instant::now(), true);
+        recorder.begin(false);
+        let huge = "x".repeat(limits::TEXT * 4);
+        capture::scope(recorder.clone(), async {
+            tracing::info!(password = "hunter2", refresh_token = %"abc", body = %huge, user = "ann", "signed in");
+        })
+        .await;
+        let logs = recorder.finish().logs;
+        let properties = logs[0].properties.as_ref().expect("properties");
+        assert_eq!(properties["password"], redact::REDACTED);
+        assert_eq!(properties["refresh_token"], redact::REDACTED);
+        assert_eq!(properties["user"], "ann");
+        assert_eq!(properties["body"].chars().count(), limits::TEXT);
     }
 }

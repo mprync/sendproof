@@ -99,6 +99,10 @@ pub struct Dialect {
     pub(crate) backslash_escapes: bool,
     /// Whether `$tag$ ... $tag$` quotes a string (PostgreSQL).
     pub(crate) dollar_quotes: bool,
+    /// Whether `#` starts a comment to the end of the line (MySQL).
+    pub(crate) hash_comments: bool,
+    /// Whether DDL and other statements commit the transaction implicitly (MySQL).
+    pub(crate) implicit_commits: bool,
 }
 
 /// A statement with its named parameters resolved for one database.
@@ -212,6 +216,15 @@ impl<'c, B: Backend> NamedQuery<'c, B> {
     async fn run(self, fetch: Fetch) -> Result<Output<B>, DbError> {
         // Fail before anything runs when a value is missing.
         self.statement.ordered_values()?;
+        // In a preview, a statement that ends the transaction would make the writes before it
+        // permanent. Refuse it before it reaches the database.
+        if self.capture.as_deref().is_some_and(B::rolls_back)
+            && let Some(verb) = preview_refusal(&self.statement.original, B::DIALECT)
+        {
+            return Err(DbError::Query(format!(
+                "Test Bench refused `{verb}` in a preview: it would end the preview transaction and make its writes permanent"
+            )));
+        }
         B::run(self.connection, self.capture.as_deref(), &self.statement, fetch).await
     }
 }
@@ -265,7 +278,7 @@ pub(crate) fn rewrite(sql: &str, dialect: Dialect) -> (String, Vec<String>) {
                     break;
                 }
             }
-        } else if c == '-' && chars.get(index + 1) == Some(&'-') {
+        } else if (c == '-' && chars.get(index + 1) == Some(&'-')) || (c == '#' && dialect.hash_comments) {
             while index < chars.len() && chars[index] != '\n' {
                 out.push(chars[index]);
                 index += 1;
@@ -340,16 +353,133 @@ fn dollar_tag(chars: &[char], index: usize) -> Option<Vec<char>> {
     (chars.get(end) == Some(&'$') && !first.is_some_and(char::is_ascii_digit)).then(|| chars[index..=end].to_vec())
 }
 
+/// The bare words of each top-level statement of `sql`, upper-cased. String literals, quoted
+/// identifiers, comments and dollar-quoted bodies are skipped, and `;` separates statements.
+fn statement_words(sql: &str, dialect: Dialect) -> Vec<Vec<String>> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut statements = vec![Vec::new()];
+    let mut index = 0;
+    while index < chars.len() {
+        let c = chars[index];
+        let closer = match c {
+            '\'' => Some('\''),
+            '"' => Some('"'),
+            '`' => Some('`'),
+            '[' if !dialect.dollar_quotes => Some(']'),
+            _ => None,
+        };
+        if let Some(closer) = closer {
+            index += 1;
+            while index < chars.len() {
+                let current = chars[index];
+                index += 1;
+                if dialect.backslash_escapes && current == '\\' && closer != '`' {
+                    index += 1;
+                } else if current == closer {
+                    if closer != ']' && chars.get(index) == Some(&closer) {
+                        index += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if (c == '-' && chars.get(index + 1) == Some(&'-')) || (c == '#' && dialect.hash_comments) {
+            while index < chars.len() && chars[index] != '\n' {
+                index += 1;
+            }
+        } else if c == '/' && chars.get(index + 1) == Some(&'*') {
+            index += 2;
+            while index < chars.len() && !(chars[index] == '*' && chars.get(index + 1) == Some(&'/')) {
+                index += 1;
+            }
+            index += 2;
+        } else if let Some(tag) = dialect.dollar_quotes.then(|| dollar_tag(&chars, index)).flatten() {
+            let body = index + tag.len();
+            index = (body..=chars.len().saturating_sub(tag.len()))
+                .find(|&at| chars[at..].starts_with(&tag))
+                .map_or(chars.len(), |at| at + tag.len());
+        } else if c == ';' {
+            statements.push(Vec::new());
+            index += 1;
+        } else if c.is_alphabetic() || c == '_' {
+            let start = index;
+            while index < chars.len() && (chars[index].is_alphanumeric() || chars[index] == '_' || chars[index] == '$') {
+                index += 1;
+            }
+            let word: String = chars[start..index].iter().collect();
+            statements.last_mut().expect("at least one statement").push(word.to_ascii_uppercase());
+        } else {
+            index += 1;
+        }
+    }
+    statements.retain(|words| !words.is_empty());
+    statements
+}
+
+/// The statement verb that a rollback preview must refuse in `sql`, if any.
+///
+/// Refused everywhere: statements that end the transaction (`COMMIT`, `END`, `ROLLBACK` other than
+/// `ROLLBACK TO`, `ABORT`, `BEGIN`, `START`, PostgreSQL two-phase commit). With
+/// [`Dialect::implicit_commits`] (MySQL) only the statements that keep the transaction open are
+/// allowed: reads and DML, `SET` (except `autocommit`), savepoints, and temporary tables. DDL, `LOCK`,
+/// `CALL` (a procedure may commit) and the rest commit implicitly or may do so.
+pub(crate) fn preview_refusal(sql: &str, dialect: Dialect) -> Option<String> {
+    for words in statement_words(sql, dialect) {
+        let verb = words[0].as_str();
+        let second = words.get(1).map(String::as_str);
+        let ends = match verb {
+            "COMMIT" | "END" | "ABORT" | "BEGIN" | "START" | "XA" => true,
+            "ROLLBACK" => !words.iter().any(|word| word == "TO"),
+            "PREPARE" => second == Some("TRANSACTION"),
+            _ => false,
+        };
+        let implicit = dialect.implicit_commits
+            && !match verb {
+                "SELECT" | "WITH" | "INSERT" | "UPDATE" | "DELETE" | "REPLACE" | "VALUES" | "TABLE" | "SHOW" | "DESCRIBE"
+                | "DESC" | "EXPLAIN" | "DO" | "SAVEPOINT" | "RELEASE" | "ROLLBACK" => true,
+                "SET" => !words.iter().any(|word| word == "AUTOCOMMIT"),
+                "CREATE" | "DROP" => second == Some("TEMPORARY"),
+                _ => false,
+            };
+        if ends || implicit {
+            return Some(match second {
+                Some(second) if matches!(verb, "PREPARE" | "CREATE" | "DROP" | "ALTER") => format!("{verb} {second}"),
+                _ => verb.to_owned(),
+            });
+        }
+    }
+    None
+}
+
 /// Placeholder spellings.
 #[cfg_attr(not(all(feature = "sqlite", feature = "postgres", feature = "mysql")), allow(dead_code))]
 pub(crate) mod dialects {
     use super::Dialect;
 
-    pub(crate) const SQLITE: Dialect =
-        Dialect { prefixes: &[':', '@', '$'], numbered: Some(|n| format!("?{n}")), backslash_escapes: false, dollar_quotes: false };
-    pub(crate) const POSTGRES: Dialect =
-        Dialect { prefixes: &[':', '@'], numbered: Some(|n| format!("${n}")), backslash_escapes: false, dollar_quotes: true };
-    pub(crate) const MYSQL: Dialect = Dialect { prefixes: &[':', '$'], numbered: None, backslash_escapes: true, dollar_quotes: false };
+    pub(crate) const SQLITE: Dialect = Dialect {
+        prefixes: &[':', '@', '$'],
+        numbered: Some(|n| format!("?{n}")),
+        backslash_escapes: false,
+        dollar_quotes: false,
+        hash_comments: false,
+        implicit_commits: false,
+    };
+    pub(crate) const POSTGRES: Dialect = Dialect {
+        prefixes: &[':', '@'],
+        numbered: Some(|n| format!("${n}")),
+        backslash_escapes: false,
+        dollar_quotes: true,
+        hash_comments: false,
+        implicit_commits: false,
+    };
+    pub(crate) const MYSQL: Dialect = Dialect {
+        prefixes: &[':', '$'],
+        numbered: None,
+        backslash_escapes: true,
+        dollar_quotes: false,
+        hash_comments: true,
+        implicit_commits: true,
+    };
 }
 
 /// Records a statement the data layer ran itself, with its parameters and the redaction rules.
@@ -390,6 +520,42 @@ mod tests {
         let (sql, names) = rewrite("UPDATE t SET a = :a, b = @b, c = @@sql_mode WHERE d = :a AND e = 'it\\'s :x'", MYSQL);
         assert_eq!(sql, "UPDATE t SET a = ?, b = @b, c = @@sql_mode WHERE d = ? AND e = 'it\\'s :x'");
         assert_eq!(names, ["a", "a"]);
+    }
+
+    #[test]
+    fn mysql_hash_comments_hide_placeholders_and_quotes() {
+        let (sql, names) = rewrite("DELETE FROM t WHERE id = :id # don't use :x\n AND k = :k", MYSQL);
+        assert_eq!(sql, "DELETE FROM t WHERE id = ? # don't use :x\n AND k = ?");
+        assert_eq!(names, ["id", "k"]);
+    }
+
+    #[test]
+    fn previews_refuse_statements_that_end_the_transaction() {
+        for dialect in [SQLITE, POSTGRES, MYSQL] {
+            for sql in ["COMMIT", "commit work", "END", "ROLLBACK", "begin", "START TRANSACTION", "/* x */ COMMIT", "UPDATE t SET a = 1; COMMIT"] {
+                assert!(preview_refusal(sql, dialect).is_some(), "{sql}");
+            }
+            for sql in ["UPDATE t SET a = ':x; COMMIT'", "ROLLBACK TO SAVEPOINT s", "SAVEPOINT s", "SELECT 1 -- COMMIT", "INSERT INTO t VALUES (1)"] {
+                assert_eq!(preview_refusal(sql, dialect), None, "{sql}");
+            }
+        }
+        assert_eq!(preview_refusal("PREPARE TRANSACTION 'x'", POSTGRES).as_deref(), Some("PREPARE TRANSACTION"));
+        assert_eq!(preview_refusal("SELECT $$ ; COMMIT $$", POSTGRES), None);
+        // PostgreSQL DDL is transactional, so it is rolled back with the preview.
+        assert_eq!(preview_refusal("CREATE TABLE t (x int)", POSTGRES), None);
+    }
+
+    #[test]
+    fn mysql_previews_refuse_implicit_commits() {
+        for sql in ["CREATE TABLE t (x INT)", "ALTER TABLE t ADD y INT", "TRUNCATE t", "DROP TABLE t", "LOCK TABLES t WRITE",
+            "SET autocommit = 1", "SET @@session.autocommit = 1", "CALL refresh()", "RENAME TABLE a TO b", "GRANT ALL ON *.* TO x",
+            "SELECT 1; CREATE INDEX i ON t (x)", "ANALYZE TABLE t"] {
+            assert!(preview_refusal(sql, MYSQL).is_some(), "{sql}");
+        }
+        for sql in ["SELECT 1", "INSERT INTO t SELECT * FROM u", "SET @x = 1", "CREATE TEMPORARY TABLE tmp (x INT)",
+            "DROP TEMPORARY TABLE tmp", "WITH c AS (SELECT 1) SELECT * FROM c", "REPLACE INTO t VALUES (1)", "SHOW TABLES"] {
+            assert_eq!(preview_refusal(sql, MYSQL), None, "{sql}");
+        }
     }
 
     #[test]
