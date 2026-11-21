@@ -13,13 +13,19 @@ The client reads one OpenAPI document and one capabilities response. A framework
   "openApiUrl": "/openapi/v1.json",
   "documents": [{ "name": "Inventory", "url": "/openapi/v1.json" }],
   "environment": "Development",
-  "database": "inventory_dev",
+  "database": { "name": "inventory_dev", "system": "postgresql" },
+  "binding": { "language": "node", "framework": "Express" },
   "identity": { "name": "Alex" },
   "authProviders": [{ "label": "Staff SSO", "kind": "oidc", "url": "/account/sign-in" }],
   "previewOperations": [{ "method": "POST", "path": "/items" }],
   "observedSend": true
 }
 ```
+
+Two optional fields tell the workbench about the host so it can show the right things:
+
+- `database` is a display name (a string, or null for none). A binding may send `{ "name": "inventory_dev", "system": "postgresql" }` instead. `system` is the SQL provider id, matching the workbench's store marks: `sqlite`, `postgresql`, `mysql`, `mariadb`, `mssql` (also written `sqlserver`), or another id the workbench has no mark for. The workbench then shows that provider's mark and name. Without `system` it guesses SQLite from a `.db`, `.sqlite` or `.sqlite3` file name and shows a generic SQL database otherwise.
+- `binding` is `{ "language", "framework" }`: `language` is one of `dotnet`, `node`, `python`, `java`, `kotlin`, `go`, `php`, `ruby` or `rust`, and `framework` is the web framework's name as the binding spells it (free text, such as "ASP.NET Core", "Express", "FastAPI", "Spring Boot", "Laravel"). The workbench writes its "mark this route `preview: false`" guidance in that language. Without `binding` it offers a small language switch instead.
 
 Clients reject unsupported major versions, ignore extra fields and refresh discovery after sign-in. A missing preview provider produces an empty operation list. Each entry uses the OpenAPI path template and HTTP verb. Advertising an operation gives the UI permission to offer the action. The server still authenticates, authorizes and checks preview capability on every request.
 

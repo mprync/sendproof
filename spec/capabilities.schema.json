@@ -9,7 +9,30 @@
     "environment": { "type": "string" },
     "openApiUrl": { "$ref": "#/$defs/localUrl" },
     "fieldModules": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/localUrl" } },
-    "database": { "type": ["string", "null"] },
+    "database": {
+      "description": "The SQL database, by display name, or null when there is none. A binding may send an object instead to also say which SQL provider it is.",
+      "oneOf": [
+        { "type": ["string", "null"] },
+        {
+          "type": "object", "required": ["name"],
+          "properties": {
+            "name": { "type": ["string", "null"], "description": "The display name: the database or file name." },
+            "system": {
+              "type": "string",
+              "description": "The SQL provider id, matching ui/store-marks.js: sqlite, postgresql, mysql, mariadb, mssql (also written sqlserver), and others the workbench has no mark for. The workbench shows that provider's mark and name instead of guessing from the database name."
+            }
+          }
+        }
+      ]
+    },
+    "binding": {
+      "type": "object", "required": ["language", "framework"],
+      "description": "The binding serving the workbench, so guidance such as the `preview: false` snippet is written in the host's own language.",
+      "properties": {
+        "language": { "enum": ["dotnet", "node", "python", "java", "kotlin", "go", "php", "ruby", "rust"] },
+        "framework": { "type": "string", "description": "The web framework, free text: \"ASP.NET Core\", \"Express\", \"FastAPI\", \"Spring Boot\", \"Laravel\"." }
+      }
+    },
     "identity": {
       "oneOf": [
         { "type": "null" },
