@@ -30,6 +30,15 @@
     },
     {
       "path": "./prisma"
+    },
+    {
+      "path": "./redis"
+    },
+    {
+      "path": "./dynamodb"
+    },
+    {
+      "path": "./mongodb"
     }
   ]
 }

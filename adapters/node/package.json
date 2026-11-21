@@ -15,7 +15,10 @@
     "drizzle",
     "knex",
     "typeorm",
-    "prisma"
+    "prisma",
+    "mongodb",
+    "redis",
+    "dynamodb"
   ],
   "devDependencies": {
     "@electric-sql/pglite": "0.4.3",
