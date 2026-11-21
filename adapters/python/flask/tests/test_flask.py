@@ -148,3 +148,14 @@ def test_trace_is_owner_scoped_and_expires(tmp_path):
     clock.now = 5
     assert http.get(f"/sendproof/_api/traces/{trace_id}").status_code == 404
     assert stored(engine) == ["t"]
+
+
+def test_observed_trace_is_published_when_the_body_completes_even_if_the_server_never_closes_it(tmp_path):
+    """Werkzeug's development server skips ``close`` when it fails while draining a connection the client reset."""
+    app, engine, _, _ = build(tmp_path)
+    http = signed_in(app)
+    sent = http.post("/items", json={"id": "t", "name": "T"}, headers={"Prefer": "trace"})  # not buffered, so not closed
+    assert b"".join(sent.response)  # the server iterates the whole body...
+    trace_id = sent.headers["X-Sendproof-Trace"]  # ...and never calls close()
+    found = http.get(f"/sendproof/_api/traces/{trace_id}")
+    assert found.status_code == 200 and found.get_json()["effects"][0]["delivered"] is True

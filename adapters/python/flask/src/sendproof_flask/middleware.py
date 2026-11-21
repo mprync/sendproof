@@ -209,7 +209,7 @@ class SendproofWsgi:
 
 
 class _ObservedBody:
-    """Publishes the trace once the server has consumed and closed the response."""
+    """Publishes the trace once the server has consumed the response body, or closed it, whichever comes first."""
 
     def __init__(self, body: Iterable[bytes], observed: Any, state: dict) -> None:
         self._body, self._observed, self._state, self._done = body, observed, state, False
@@ -220,6 +220,11 @@ class _ObservedBody:
         except BaseException:
             self._finish(False)
             raise
+        # The body is complete. Publish now rather than waiting for the server to call ``close``: a
+        # server that fails while it drains an abandoned connection (Werkzeug's development server,
+        # when the client resets the socket after cancelling the body) never reaches ``close``, and
+        # the trace would stay reserved until it expires.
+        self._finish(self._state["started"])
 
     def close(self) -> None:
         try:
