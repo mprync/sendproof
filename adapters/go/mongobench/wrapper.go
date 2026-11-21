@@ -85,6 +85,12 @@ func (s *Store) Client(client *mongo.Client) *Client {
 	return &Client{store: s, raw: client}
 }
 
+// Ping checks that the server answers. A ping never writes, so it is not guarded.
+func (c *Client) Ping(ctx context.Context) error { return c.raw.Ping(ctx, nil) }
+
+// Disconnect closes the client's connections, as mongo.Client.Disconnect does.
+func (c *Client) Disconnect(ctx context.Context) error { return c.raw.Disconnect(ctx) }
+
 // Database returns the guarded handle of one database.
 func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOptions]) *Database {
 	return &Database{store: c.store, raw: c.raw.Database(name, opts...)}

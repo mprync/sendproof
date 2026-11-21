@@ -142,6 +142,20 @@ func (s *Store) ClientOptions(opts *options.ClientOptions) *options.ClientOption
 	return opts.SetMonitor(s.monitor(opts.Monitor))
 }
 
+// Connect creates the store's client with its command monitor installed and
+// returns only the guarded handle, so handlers never see an unguarded client. It
+// is mongo.Connect(s.ClientOptions(opts)) followed by s.Client.
+func (s *Store) Connect(opts *options.ClientOptions) (*Client, error) {
+	if opts == nil {
+		opts = options.Client()
+	}
+	client, err := mongo.Connect(s.ClientOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	return s.Client(client), nil
+}
+
 // attach binds the store to the client behind a guarded handle.
 func (s *Store) attach(client *mongo.Client) {
 	s.mu.Lock()

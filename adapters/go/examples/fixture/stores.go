@@ -79,11 +79,11 @@ func (d *dataStores) openMongo(ctx context.Context, raw string) error {
 		return err
 	}
 	store := mongobench.New(mongobench.WithName("catalog"))
-	client, err := mongo.Connect(store.ClientOptions(options.Client().ApplyURI(raw)))
+	client, err := store.Connect(options.Client().ApplyURI(raw))
 	if err != nil {
 		return err
 	}
-	d.mongo = store.Database(client.Database(strings.TrimPrefix(parsed.Path, "/"))).Collection("documents")
+	d.mongo = client.Database(strings.TrimPrefix(parsed.Path, "/")).Collection("documents")
 	d.mongoDone = func() {
 		release, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

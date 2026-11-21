@@ -727,3 +727,45 @@ func TestRunCommandSendsTheDocumentTheGuardClassified(t *testing.T) {
 		t.Fatalf("a command classified as a read was sent as a write: %d %s", response.Code, response.Body)
 	}
 }
+
+// Connect installs the tripwire and returns only the guarded client, so the
+// application never holds an unguarded one.
+func TestConnectReturnsAGuardedClientWithItsTripwire(t *testing.T) {
+	_ = connect(t, nil) // skips when MongoDB is down
+	store := mongobench.New()
+	client, err := store.Connect(options.Client().ApplyURI(serverURL()).SetServerSelectionTimeout(2 * time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	if err := client.Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	random := make([]byte, 4)
+	_, _ = rand.Read(random)
+	database := "tb_" + hex.EncodeToString(random)
+	documents := client.Database(database).Collection("documents")
+	t.Cleanup(func() { _ = client.Database(database).Drop(context.Background()) })
+	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	bench.HandlePreview(mux, "POST /documents", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := documents.InsertOne(r.Context(), bson.D{{Key: "_id", Value: "connected"}}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(201)
+	}))
+	request := httptest.NewRequest("POST", "/sendproof/_preview/documents", strings.NewReader(`{}`))
+	request.Header.Set("Prefer", "tx=rollback")
+	response := httptest.NewRecorder()
+	bench.Middleware(mux).ServeHTTP(response, request)
+	if response.Code != 200 || len(changesOf(t, response)) != 1 {
+		t.Fatalf("a Preview through Connect: %d %s", response.Code, response.Body)
+	}
+	if count, _ := documents.CountDocuments(context.Background(), bson.D{}); count != 0 {
+		t.Error("the previewed insert was committed")
+	}
+}
