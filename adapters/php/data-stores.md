@@ -22,6 +22,8 @@ One case the driver makes visible: the MongoDB extension pools clients that have
 
 Each MongoDB hook proves its monitor is installed on its own client: its topology `hello` carries a unique comment, and the hook must see it. When it doesn't (the subscriber was removed, say), discovery shows the store in `guard` mode with the reason "Sendproof's command monitor doesn't see this MongoDB client's commands", and a Preview answers 500 rather than run without the tripwire.
 
+PHP serves one request at a time in each worker process, so every command a process sends while a Preview is open belongs to that Preview, and the Preview's scope lasts to the end of the request (terminating callbacks and `dispatchAfterResponse()` jobs included). There is no unattributed in-process write to fail on, and no detached marker to set. Work in another process (a queue worker, an Octane task worker) uses that process's clients: it is not part of the Preview and not covered. Fiber or event-loop servers that run several requests in one process (ReactPHP, AMPHP, Swoole coroutines) are not supported.
+
 ## Register the stores
 
 Hooks are installed only when Sendproof is enabled for the environment (`enabled` is true and the environment is listed). A disabled application never touches a client.
@@ -56,6 +58,10 @@ sendproof:
 ```
 
 Each id names a service. A Predis or DynamoDB service gets a service configurator that hooks it when the container builds it; a `MongoDB\Client` service is decorated under its own id, so everything that uses it gets the guarded client. An id that is not a service fails the container build. Sendproof builds every listed client at the start of a Preview, so the hooks are in place even for a handler that uses a client lazily.
+
+The Symfony bundle guards Predis only. A phpredis `\Redis`, `\RedisArray` or `\RedisCluster` service, including the one Symfony Cache builds from a `redis://` DSN, is not covered: guarding it means a subclass that overrides every one of the extension's several hundred command methods, with no single send path to hook as Laravel's connection offers. Use a Predis client (`class: Predis\Client`, or `RedisAdapter::createConnection($dsn, ['class' => \Predis\Client::class])`) for the Redis your handlers write to, and list that service.
+
+A Symfony kernel kept between requests (RoadRunner, FrankenPHP worker mode) resets the request's recorder through `kernel.reset` at the start of the next request, so a Preview's scope never reaches the next request's writes. The Laravel middleware does the same for Octane and other long-lived workers.
 
 ### Without a framework
 
