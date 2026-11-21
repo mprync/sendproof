@@ -386,6 +386,48 @@ def test_mysql_call_and_implicit_commits_are_refused_before_sending(mysql_engine
     provider.uninstall()
 
 
+def test_mysql_deadlock_refuses_every_later_statement_in_the_preview(mysql_engine):
+    """A deadlock (1213) rolls back the whole Preview transaction, so a retry would run outside it, and with
+    autocommit=1 commit for real. Every later statement is refused before sending; the Preview answers 500."""
+    import threading
+    import time
+
+    from sqlalchemy.exc import OperationalError
+
+    with mysql_engine.begin() as connection:
+        connection.execute(text("INSERT INTO items VALUES ('a', 'A'), ('b', 'B')"))
+    other = mysql_engine.raw_connection()  # outside the Preview: taken before its scope is active
+    other_cursor = other.cursor()
+    # The other transaction holds more locks, so InnoDB picks the Preview as the deadlock victim.
+    other_cursor.execute("UPDATE items SET name = 'O' WHERE id = 'b'")
+    other_cursor.executemany("INSERT INTO items VALUES (%s, 'filler')", [(f"f{n}",) for n in range(10)])
+    provider = SQLAlchemyPreview(mysql_engine)
+    with Running(provider) as run:
+        try:
+            with mysql_engine.connect() as connection:
+                connection.execute(text("UPDATE items SET name = 'P' WHERE id = 'a'"))
+                waiter = threading.Thread(target=lambda: other_cursor.execute("UPDATE items SET name = 'O' WHERE id = 'a'"))
+                waiter.start()
+                time.sleep(0.3)  # the other transaction now waits on the Preview's row
+                with pytest.raises(OperationalError) as deadlock:
+                    connection.execute(text("UPDATE items SET name = 'P' WHERE id = 'b'"))
+                assert deadlock.value.orig.args[0] == 1213  # the handler still gets the original error
+            waiter.join(5)
+            other.commit()
+            held = mysql_engine.raw_connection()  # still the Preview's held connection after the error
+            held.dbapi_connection._tb_real.autocommit(True)  # a driver at autocommit=1
+            with pytest.raises(PreviewRollbackError, match="deadlock"):
+                with mysql_engine.connect() as connection:  # the handler's retry
+                    connection.execute(text("INSERT INTO items VALUES ('retry', 'R')"))
+            with pytest.raises(PreviewRollbackError):
+                run.session.rollback()
+        finally:
+            run.session.close()
+            other.close()
+    assert "retry" not in stored_ids(mysql_engine)
+    provider.uninstall()
+
+
 def test_mysql_preview_answers_500_when_its_transaction_was_committed_anyway(mysql_engine):
     """The backstop: something the guard can't see (here the driver's own commit) ended the Preview
     transaction, so the rollback is never confirmed, whatever the handler returned."""

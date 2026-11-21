@@ -72,8 +72,12 @@ Read these before advertising an operation for Preview.
   commit erases it, so if something committed anyway (a declared procedure that does commit, a
   driver call around the engine), the Preview answers 500 without confirmation, whatever the
   handler returned. The writes made before that commit are durable; the check only stops the
-  Preview from claiming otherwise. A deadlock, which makes MySQL roll back the whole transaction,
-  also fails the Preview this way.
+  Preview from claiming otherwise.
+- **Deadlocks (MySQL and MariaDB):** a deadlock (1213), or a lock wait timeout (1205) with
+  `innodb_rollback_on_timeout` on, rolls back the whole Preview transaction. The handler still gets
+  the original error, but every later statement in that Preview is refused before it is sent (a
+  retry would run outside the transaction, and with autocommit on commit for real), and the
+  Preview answers 500 without confirmation.
 - **Outside the database:** caches, files, other services, other engines you did not register and
   work queued after the response are not rolled back. Sequences may advance.
 - **Connections the application holds across requests** are not enrolled.

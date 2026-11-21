@@ -28,7 +28,7 @@ from . import changes as change_capture
 from .connection import SAVEPOINT, Hold, ensure_supported
 from .turns import SERIAL_DIALECTS, take_turn
 from sendproof_core.redaction import describe_parameters, python_type_name
-from sendproof_core.txguard import escapes_transaction, normalize_procedures
+from sendproof_core.txguard import escapes_transaction, normalize_procedures, server_ended_transaction
 
 try:  # AsyncEngine support needs greenlet; synchronous use does not.
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -107,11 +107,36 @@ class _Instrumentation:
         engine.raw_connection = self._raw_connection  # type: ignore[method-assign]
         event.listen(engine, "before_cursor_execute", self._before)
         event.listen(engine, "after_cursor_execute", self._after)
+        event.listen(engine, "handle_error", self._error)
 
     def remove(self) -> None:
         event.remove(self.engine, "before_cursor_execute", self._before)
         event.remove(self.engine, "after_cursor_execute", self._after)
+        event.remove(self.engine, "handle_error", self._error)
         self.engine.__dict__.pop("raw_connection", None)
+
+    def _error(self, context: Any) -> None:
+        """Notice when the server ended the Preview transaction itself; the handler still gets the error."""
+        scope = current_scope()
+        state = scope.extensions.get(STATE_KEY) if scope else None
+        hold = state.holds.get(self.engine) if state is not None and state.rollback and not state.finished else None
+        if hold is None or hold.ended:
+            return
+
+        def rollback_on_timeout() -> bool:
+            try:
+                cursor = hold.proxy._tb_real.cursor()
+                try:
+                    cursor.execute("SELECT @@innodb_rollback_on_timeout")
+                    return bool(int(cursor.fetchone()[0]))
+                finally:
+                    cursor.close()
+            except Exception:  # noqa: BLE001 - unknown: assume the transaction is gone
+                return True
+
+        reason = server_ended_transaction(context.original_exception, self.engine.dialect.name, rollback_on_timeout)
+        if reason is not None:
+            hold.ended = hold.unsafe = reason
 
     def _raw_connection(self) -> Any:
         scope = current_scope()
@@ -126,6 +151,10 @@ class _Instrumentation:
             return
         state = scope.extensions.get(STATE_KEY)
         if state is not None and state.rollback and not state.finished:
+            hold = state.holds.get(self.engine)
+            if hold is not None and hold.ended:
+                # The server already ended the Preview transaction: this statement would run outside it.
+                raise PreviewRollbackError(hold.ended)
             if conn.get_execution_options().get("isolation_level") == "AUTOCOMMIT":
                 state.unsafe = "A statement ran in AUTOCOMMIT mode, which cannot be rolled back."
             # Refuse COMMIT, END, implicit-commit DDL and the like before they reach the driver:

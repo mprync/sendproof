@@ -27,7 +27,7 @@ dialect.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 _MYSQL = frozenset({"mysql", "mariadb"})
 
@@ -203,4 +203,35 @@ def escapes_transaction(sql: str, dialect: str, reserved: str | None = None,
     return None
 
 
-__all__ = ["escapes_transaction", "normalize_procedures"]
+def _error_code(error: BaseException | None) -> int | None:
+    """The server error number of a DB-API error, through SQLAlchemy and Django wrappers."""
+    seen = 0
+    while error is not None and seen < 5:
+        args = getattr(error, "args", ())
+        if args and isinstance(args[0], int):
+            return args[0]
+        error = getattr(error, "orig", None) or error.__cause__
+        seen += 1
+    return None
+
+
+def server_ended_transaction(error: BaseException, dialect: str, rollback_on_timeout: Callable[[], bool]) -> str | None:
+    """Why the server itself ended the Preview transaction with ``error``, or ``None``.
+
+    On MySQL and MariaDB a deadlock (1213) rolls back the whole transaction, and so does a lock wait
+    timeout (1205) when ``innodb_rollback_on_timeout`` is on; ``rollback_on_timeout`` reads that
+    setting only when needed and should answer True when it can't. Every later statement would run
+    outside the Preview transaction, and with autocommit=1 commit for real, so a provider refuses them
+    all (spec/data-stores.md, "Transaction-control statements from the handler").
+    """
+    if dialect.lower() not in _MYSQL:
+        return None
+    code = _error_code(error)
+    if code == 1213:
+        return "A deadlock rolled back the Preview transaction, so no later statement may run in this Preview."
+    if code == 1205 and rollback_on_timeout():
+        return "A lock wait timeout rolled back the Preview transaction, so no later statement may run in this Preview."
+    return None
+
+
+__all__ = ["escapes_transaction", "normalize_procedures", "server_ended_transaction"]

@@ -250,6 +250,26 @@ def test_transaction_guard_refuses_statements_that_end_the_preview():
     assert escapes("BEGIN NULL; END;", "oracle") is None
 
 
+def test_a_deadlock_or_rolled_back_lock_timeout_ends_the_mysql_preview_transaction():
+    from sendproof_core.txguard import server_ended_transaction as ended
+
+    class DriverError(Exception):
+        pass
+
+    class Wrapped(Exception):  # SQLAlchemy keeps the driver error on .orig, Django on __cause__
+        def __init__(self, orig):
+            super().__init__("wrapped")
+            self.orig = orig
+
+    on, off = (lambda: True), (lambda: False)
+    assert ended(DriverError(1213, "Deadlock found"), "mysql", off)
+    assert ended(Wrapped(DriverError(1213, "x")), "mariadb", off)
+    assert ended(DriverError(1205, "Lock wait timeout"), "mysql", on)
+    assert ended(DriverError(1205, "Lock wait timeout"), "mysql", off) is None  # only the statement rolled back
+    assert ended(DriverError(1062, "Duplicate"), "mysql", on) is None
+    assert ended(DriverError(1213, "x"), "postgresql", on) is None  # PostgreSQL refuses later statements itself
+
+
 def test_transaction_guard_refuses_every_mysql_escape_before_sending():
     """spec/data-stores.md, "Transaction-control statements from the handler", on MySQL and MariaDB."""
     from sendproof_core.txguard import escapes_transaction as escapes

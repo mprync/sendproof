@@ -85,6 +85,52 @@ def test_call_and_implicit_commits_are_refused_before_sending(mysql):
         DjangoOrmPreview(using=("mysql",), safe_procedures=["reads_*"])
 
 
+def test_a_deadlock_refuses_every_later_statement_in_the_preview(mysql):
+    """A deadlock (1213) rolls back the whole Preview transaction, so a retry would run outside it, and with
+    autocommit=1 commit for real. Every later statement is refused before sending; the Preview answers 500."""
+    import threading
+    import time
+
+    import pymysql
+    from django.db import OperationalError
+
+    with mysql.cursor() as cursor:
+        cursor.execute("INSERT INTO items VALUES ('a'), ('b')")
+    settings = mysql.settings_dict
+    other = pymysql.connect(host=settings["HOST"], port=int(settings["PORT"]), user=settings["USER"],
+                            password=settings["PASSWORD"], database=settings["NAME"])
+    other_cursor = other.cursor()
+    # The other transaction holds more locks, so InnoDB picks the Preview as the deadlock victim.
+    other_cursor.execute("UPDATE items SET id = id WHERE id = 'b'")
+    other_cursor.execute("SELECT id FROM items WHERE id = 'b' FOR UPDATE")
+    other_cursor.executemany("INSERT INTO items VALUES (%s)", [(f"f{n}",) for n in range(10)])
+    provider = DjangoOrmPreview(using=("mysql",))
+    outcome = {}
+
+    def body():
+        with mysql.cursor() as cursor:
+            cursor.execute("SELECT id FROM items WHERE id = 'a' FOR UPDATE")
+            waiter = threading.Thread(target=lambda: other_cursor.execute("SELECT id FROM items WHERE id = 'a' FOR UPDATE"))
+            waiter.start()
+            time.sleep(0.3)  # the other transaction now waits on the Preview's row
+            with pytest.raises(OperationalError) as deadlock:
+                cursor.execute("SELECT id FROM items WHERE id = 'b' FOR UPDATE")
+            outcome["code"] = deadlock.value.args[0]  # the handler still gets the original error
+            waiter.join(5)
+            other.commit()
+            mysql.connection.autocommit(True)  # a driver at autocommit=1
+            with pytest.raises(PreviewRollbackError, match="deadlock"):
+                cursor.execute("INSERT INTO items VALUES ('retry')")  # the handler's retry
+
+    try:
+        with pytest.raises(PreviewRollbackError):
+            preview(provider, body)
+    finally:
+        other.close()
+    assert outcome["code"] == 1213
+    assert "retry" not in stored(mysql)
+
+
 def test_a_preview_whose_transaction_was_committed_anyway_is_never_confirmed(mysql):
     """Django runs MySQL with autocommit off inside ``atomic``, so after a commit MySQL opens a new
     transaction by itself: only a savepoint made at the start shows the Preview's is gone."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
@@ -24,7 +25,7 @@ from sendproof_core import (
 from sendproof_core.jsonsafe import is_missing, snapshot
 from sendproof_core.redaction import describe_parameters, python_type_name
 from sendproof_core.scope import current_scope
-from sendproof_core.txguard import escapes_transaction, normalize_procedures
+from sendproof_core.txguard import escapes_transaction, normalize_procedures, server_ended_transaction
 
 STATE_KEY = "django_orm"
 _UID = "sendproof_django"
@@ -34,6 +35,9 @@ _connected = False
 #: ``s<thread>_x<n>``, so it never makes this one, and a handler's ``RELEASE`` or ``ROLLBACK TO`` of it
 #: is refused like a ``COMMIT``.
 SAVEPOINT = "sendproof_preview"
+
+#: Django's own savepoint statements, which may still run after the server ended the Preview transaction.
+_SAVEPOINT_CONTROL = re.compile(r"\s*(?:ROLLBACK\s+TO\s+SAVEPOINT|RELEASE\s+SAVEPOINT)\s+[`\"]?s\d+_x\d+[`\"]?\s*$", re.I)
 
 
 def _raw(alias: str, statement: str) -> None:
@@ -107,6 +111,8 @@ class _State:
         self.safe_procedures = safe_procedures
         #: MySQL aliases whose Preview transaction opened with the ``SAVEPOINT`` the backstop checks.
         self.marked: list[str] = []
+        #: Aliases whose Preview transaction the server itself ended (a deadlock), with the reason.
+        self.ended: dict[str, str] = {}
         self.changes: list[PreviewChange] = []
         self.changes_truncated = False
         self.silent = 0  # >0 while Sendproof runs its own reads
@@ -141,14 +147,50 @@ class _State:
 
     def _wrapper(self, execute: Any, sql: str, params: Any, many: bool, context: dict) -> Any:
         if self.rollback and not self.finished:
+            connection = context.get("connection")
+            alias = getattr(connection, "alias", "")
+            text = sql if isinstance(sql, str) else str(sql)
+            ended = self.ended.get(alias)
+            # Once the server ended the Preview transaction, a statement would run outside it. Django's own
+            # savepoint rollbacks still pass: they write nothing, and the handler keeps its original error.
+            if ended is not None and not _SAVEPOINT_CONTROL.match(text):
+                raise PreviewRollbackError(ended)
             # A raw COMMIT (or DDL that MySQL and Oracle commit implicitly) would make the
             # preview's writes durable before the rollback, so it never reaches the database.
-            vendor = getattr(context.get("connection"), "vendor", "")
-            reason = escapes_transaction(sql if isinstance(sql, str) else str(sql), vendor, SAVEPOINT,
-                                         self.safe_procedures)
+            vendor = getattr(connection, "vendor", "")
+            reason = escapes_transaction(text, vendor, SAVEPOINT, self.safe_procedures)
             if reason is not None:
                 self.unsafe = reason
                 raise PreviewRollbackError(reason)
+            try:
+                return self._capture(execute, sql, params, many, context)
+            except Exception as error:
+                self._notice_server_rollback(error, alias, vendor)
+                raise
+        return self._capture(execute, sql, params, many, context)
+
+    def _notice_server_rollback(self, error: BaseException, alias: str, vendor: str) -> None:
+        """Remember a MySQL deadlock (or rolled-back lock wait timeout) that ended the Preview transaction."""
+        if alias in self.ended:
+            return
+
+        def rollback_on_timeout() -> bool:
+            try:
+                cursor = connections[alias].connection.cursor()
+                try:
+                    cursor.execute("SELECT @@innodb_rollback_on_timeout")
+                    return bool(int(cursor.fetchone()[0]))
+                finally:
+                    cursor.close()
+            except Exception:  # noqa: BLE001 - unknown: assume the transaction is gone
+                return True
+
+        reason = server_ended_transaction(error, vendor, rollback_on_timeout)
+        if reason is not None:
+            self.ended[alias] = reason
+            self.unsafe = self.unsafe or reason
+
+    def _capture(self, execute: Any, sql: str, params: Any, many: bool, context: dict) -> Any:
         scope = current_scope()
         if scope is None or self.silent or not scope.capture.is_active:
             return execute(sql, params, many, context)

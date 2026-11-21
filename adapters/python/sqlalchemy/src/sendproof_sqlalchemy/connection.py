@@ -78,10 +78,14 @@ class RollbackOnlyConnection:
 
     def commit(self) -> None:
         """Keep the writes inside the preview transaction instead of committing them."""
+        if self._tb_hold.ended:
+            raise PreviewRollbackError(self._tb_hold.ended)
         self._tb_hold.run("RELEASE SAVEPOINT " + SAVEPOINT, "SAVEPOINT " + SAVEPOINT)
 
     def rollback(self) -> None:
-        """Undo the work since the last emulated commit."""
+        """Undo the work since the last emulated commit; nothing to undo once the server ended the transaction."""
+        if self._tb_hold.ended:
+            return
         self._tb_hold.run("ROLLBACK TO SAVEPOINT " + SAVEPOINT)
 
     def close(self) -> None:
@@ -113,6 +117,9 @@ class Hold:
         self.engine = engine
         self.fairy = fairy  # real pooled connection, checked out for the whole preview
         self.unsafe: str | None = None
+        #: Set when the server itself ended the Preview transaction (a MySQL deadlock, or a lock wait
+        #: timeout with innodb_rollback_on_timeout): every later statement is refused before sending.
+        self.ended: str | None = None
         # Hands back the engine's MySQL preview turn once the connection is released (see ``turns``).
         self.release_turn: Callable[[], None] | None = None
         self.proxy = RollbackOnlyConnection(fairy.dbapi_connection, self)
