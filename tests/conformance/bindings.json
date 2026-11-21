@@ -276,7 +276,7 @@
     {
       "id": "java-spring-mysql",
       "database": "mysql",
-      "sharedRules": ["secret-columns", "raw-commit"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "java",
       "port": 5440,
       "readiness": "/ready",

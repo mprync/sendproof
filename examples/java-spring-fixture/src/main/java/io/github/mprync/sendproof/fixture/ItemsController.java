@@ -35,6 +35,10 @@ public class ItemsController {
     public record RenameItem(@NotBlank String name) {
     }
 
+    /** {@code via} is {@code ddl} or {@code call}: see {@link ItemService#insertThenEscape}. */
+    public record EscapeItem(@NotBlank String name, @NotBlank String via) {
+    }
+
     private final ItemService items;
     private final ObjectProvider<StringRedisTemplate> redis;
     private final ObjectProvider<OrdersController> orders;
@@ -117,6 +121,17 @@ public class ItemsController {
     @PostMapping("/{id}/commit")
     public ResponseEntity<ItemResponse> commit(@PathVariable String id, @RequestBody RenameItem request) {
         Item item = items.insertThenCommit(id, request.name());
+        return ResponseEntity.status(HttpStatus.CREATED).body(new ItemResponse(item.getId(), item.getName()));
+    }
+
+    /**
+     * The shared mysql-escape rule (spec/conformance/fixture.md "MySQL and MariaDB: mysql-escape"): a handler that runs a
+     * statement MySQL commits implicitly, or a procedure that commits, after its insert.
+     */
+    @SendproofPreview
+    @PostMapping("/{id}/escape")
+    public ResponseEntity<ItemResponse> escape(@PathVariable String id, @Valid @RequestBody EscapeItem request) {
+        Item item = items.insertThenEscape(id, request.name(), request.via());
         return ResponseEntity.status(HttpStatus.CREATED).body(new ItemResponse(item.getId(), item.getName()));
     }
 

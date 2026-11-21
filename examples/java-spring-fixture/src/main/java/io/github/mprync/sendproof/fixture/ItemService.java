@@ -90,6 +90,28 @@ public class ItemService {
         return item;
     }
 
+    /**
+     * Inserts the item, then on the same connection runs, by {@code via}: {@code ddl}, a {@code CREATE TABLE} that MySQL
+     * commits implicitly; {@code call}, {@code CALL sendproof_commit_probe()}, a procedure that commits (see
+     * {@link MySqlProcedures}). A Preview must refuse either before it is sent.
+     */
+    @Transactional
+    public Item insertThenEscape(String id, String name, String via) {
+        if (!id.matches("[A-Za-z0-9_]{1,40}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The id must be letters, digits or underscores.");
+        }
+        String statement = switch (via) {
+            case "ddl" -> "CREATE TABLE sendproof_escape_" + id + " (n INT)";
+            case "call" -> "CALL sendproof_commit_probe()";
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "via must be ddl or call.");
+        };
+        Item item = new Item(id, name);
+        entities.persist(item);
+        entities.flush();
+        entities.createNativeQuery(statement).executeUpdate();
+        return item;
+    }
+
     /** Exceeds the default caps: 205 changes, 105 effects and 505 log lines in one request. */
     @Transactional
     public int capture(String prefix) {
