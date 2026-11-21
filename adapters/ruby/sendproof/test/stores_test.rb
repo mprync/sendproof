@@ -12,6 +12,10 @@ class StoresTest < Minitest::Test
 
   SPEC = File.expand_path("../../../../spec/data-stores", __dir__)
   PREVIEW = { "HTTP_PREFER" => "tx=rollback", "CONTENT_TYPE" => "application/json" }.freeze
+
+  # Stands in for rack-timeout's RequestTimeoutException, Timeout's ExitException and Interrupt: errors
+  # that unwind through the handler but aren't StandardErrors.
+  Interrupted = Class.new(Exception) # rubocop:disable Lint/InheritException
   Classify = Sendproof::Stores::Classify
 
   # A guarded store with no server behind it: its "client" calls the guard the way a real hook does,
@@ -57,7 +61,8 @@ class StoresTest < Minitest::Test
     @config = build_config(identity: ->(request) { (u = request.get_header("HTTP_X_USER")) && { name: u, role: "admin", subject: u } })
     @config.use(@provider)
     @config.data_store(@store)
-    @config.preview_operations = [%w[GET /read], %w[POST /write], %w[POST /swallow], %w[POST /crash], %w[POST /late]]
+    @config.preview_operations = [%w[GET /read], %w[POST /write], %w[POST /swallow], %w[POST /crash], %w[POST /late],
+                                  %w[POST /interrupt]]
   end
 
   def app
@@ -80,6 +85,7 @@ class StoresTest < Minitest::Test
           [200, { "content-type" => "text/plain" }, ["swallowed"]]
         end
       when ["POST", "/crash"] then handled.call { store.send_command("INCR", "k"); raise "after the refusal" }
+      when ["POST", "/interrupt"] then handled.call { store.send_command("GET", "k"); raise Interrupted, "request timed out" }
       else [404, {}, ["missing"]]
       end
     end
@@ -199,6 +205,15 @@ class StoresTest < Minitest::Test
     preview("/write")
     assert_equal [:rollback, :close], @provider.sessions.last.log
     assert_equal [:begin, :finish], @store.events
+  end
+
+  # A timeout that unwinds through the handler must still abort every store and roll SQL back, or the
+  # store transaction stays open and the SQL connection (and, on MySQL, the Previews' turn) is never
+  # handed back. The error then propagates as it would without Sendproof.
+  def test_an_error_that_is_not_a_standard_error_still_finishes_every_store_and_rolls_back
+    assert_raises(Interrupted) { preview("/interrupt") }
+    assert_equal [:begin, :finish], @store.events
+    assert_equal [:rollback, :close], @provider.sessions.last.log
   end
 
   def test_the_guard_never_blocks_outside_a_preview

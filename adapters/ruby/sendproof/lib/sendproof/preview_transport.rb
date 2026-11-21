@@ -83,6 +83,7 @@ module Sendproof
       response = nil
       envelope = nil
       context = ProviderContext.new(env:, request:, config: @config)
+      escaped = nil # an error that isn't a StandardError (a timeout, an interrupt): re-raised after cleanup
 
       Capture.with(recorder) do
         begin
@@ -92,6 +93,11 @@ module Sendproof
           @config.data_stores.each { |store| store.begin_preview(context, recorder) if store.respond_to?(:begin_preview) }
           response, handler_failure = dispatch(env, rewritten, preview)
         rescue StandardError => error
+          failure = combine(failure, error)
+        rescue Exception => error # rubocop:disable Lint/RescueException -- stores and SQL must still be aborted
+          # rack-timeout, Timeout and Interrupt unwind with errors outside StandardError. Skipping the steps
+          # below would leave a store transaction open and the SQL connection (and its MySQL turn) held.
+          escaped = error
           failure = combine(failure, error)
         end
 
@@ -121,6 +127,8 @@ module Sendproof
           end
         end
       end
+      raise escaped if escaped
+
       preview.clock.end_handler
       skip_session_commit(env)
 
