@@ -42,6 +42,7 @@ final class StatementsTest extends TestCase
             '/*M!100100 CREATE TABLE t (n INT) */', 'SET @@session.autocommit = 1', "SET sql_mode = '', autocommit = 1",
             'CREATE TABLE sendproof_escape_1 (n INT)', 'CHECK TABLE t', 'STOP SLAVE', "CHANGE MASTER TO MASTER_HOST='h'",
             "IMPORT TABLE FROM '/x.sdi'", 'SET DEFAULT ROLE ALL TO u', 'EXECUTE stmt', "XA START 'x'",
+            "PREPARE s FROM 'COMMIT'", 'PREPARE s FROM @sql', "EXECUTE IMMEDIATE 'COMMIT'", 'SELECT 1 /*! ; COMMIT */',
             // A quote inside a comment, a "#" comment, or a backslash-escaped quote never hides what follows.
             "SELECT 1 # it's\n; COMMIT; SELECT 'x'", 'SELECT "a\\" "; COMMIT; SELECT "b"', 'SELECT 1--1; COMMIT',
             'SELECT $a$; COMMIT; SELECT $a$',
@@ -90,6 +91,11 @@ final class StatementsTest extends TestCase
     {
         $this->assertTrue(Statements::endsTransaction("SELECT 'a\\'; COMMIT; --'"));
         $this->assertFalse(Statements::endsTransaction("SELECT E'a\\'; COMMIT; --'"));
+        $this->assertTrue(Statements::endsTransaction("SELECT E'a\\''; COMMIT"), 'the escaped quote ends nothing; the next one does');
+        $this->assertFalse(Statements::endsTransaction('SELECT $$ ; COMMIT $$'));
+        $this->assertTrue(Statements::endsTransaction('SELECT $body$ ; COMMIT $body$; COMMIT'));
+        $this->assertTrue(Statements::endsTransaction("SELECT 2 #- '{a}'; COMMIT"), '# is an operator outside MySQL');
+        $this->assertTrue(Statements::endsTransaction('SELECT "a\\"; COMMIT'), 'a PostgreSQL identifier has no backslash escapes');
         $this->assertFalse(Statements::endsTransaction('CALL p()'), 'CALL is refused on MySQL and MariaDB only');
     }
 }

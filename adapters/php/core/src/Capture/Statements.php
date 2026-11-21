@@ -11,8 +11,8 @@ namespace Sendproof\Core\Capture;
  * conservative: an unrecognised statement that might end the transaction is refused.
  *
  * On MySQL and MariaDB `CALL` is refused too, because a stored procedure can commit, unless the
- * host declared the procedure safe by exact name; so is SQL-level `EXECUTE`, which runs a
- * statement prepared from text the guard never saw.
+ * host declared the procedure safe by exact name; so are SQL-level `PREPARE` and `EXECUTE`, which
+ * run statement text the guard never saw.
  *
  * Quotes and comments are read the way each server reads them by default: on MySQL backslashes
  * escape inside every string, `#` starts a comment and `--` does only when a space follows;
@@ -34,8 +34,8 @@ final class Statements
     private const MYSQL_IMPLICIT_COMMIT = '/^(?:ALTER|CREATE|DROP|RENAME|TRUNCATE|GRANT|REVOKE|LOCK\s+TABLES?|UNLOCK\s+TABLES?|ANALYZE|OPTIMIZE|REPAIR|CHECK\s+TABLES?|FLUSH|INSTALL|UNINSTALL|LOAD\s+(?:INDEX|DATA|XML)|CACHE\s+INDEX|RESET|SET\s+PASSWORD|SET\s+DEFAULT\s+ROLE|START\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|STOP\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|CHANGE\s+(?:REPLICATION|MASTER)|IMPORT\s+TABLE|CLONE)\b/i';
     private const MYSQL_TEMPORARY_TABLE = '/^(?:CREATE|DROP)\s+TEMPORARY\s+TABLE\b/i';
 
-    /** The SQL-level `EXECUTE` of a prepared statement (also MariaDB's `EXECUTE IMMEDIATE`). */
-    private const MYSQL_EXECUTE = '/^EXECUTE\b/i';
+    /** SQL-level `PREPARE ... FROM` and `EXECUTE` (also MariaDB's `EXECUTE IMMEDIATE`): they run text the guard never sees. */
+    private const MYSQL_EXECUTE = '/^(?:PREPARE|EXECUTE)\b/i';
 
     /** `CALL name`, `CALL schema.name`, with or without backticks; the name is captured. */
     private const MYSQL_CALL = '/^CALL\s+((?:`(?:[^`]|``)+`|[\w$]+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|[\w$]+))?)/i';
@@ -84,7 +84,7 @@ final class Statements
                 return 'a CALL can commit the Preview transaction inside the procedure; declare the procedure safe by exact name if it never commits';
             }
             if (preg_match(self::MYSQL_EXECUTE, $statement) === 1) {
-                return "an EXECUTE runs a prepared statement the Preview can't check";
+                return "the handler's {$verb} runs a statement the Preview can't check";
             }
             if (preg_match(self::MYSQL_IMPLICIT_COMMIT, $statement) === 1 && preg_match(self::MYSQL_TEMPORARY_TABLE, $statement) !== 1) {
                 return "the handler's {$verb} commits implicitly on MySQL";
