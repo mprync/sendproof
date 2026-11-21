@@ -4,7 +4,7 @@
 // the head line and the bottom-bar line, or the run fails.
 //   node tools/shoot-mocks.mjs              every screen
 //   node tools/shoot-mocks.mjs 24 docs      only screens whose name contains "24" or "docs"
-// Desktop is 1440×900, mobile 390×844, both at deviceScaleFactor 2.
+// Desktop is 1440×900, mobile 390×844 (v6 phones 320×844), all at deviceScaleFactor 2.
 // Env: OUT=<dir> writes elsewhere, DSF=1 renders at 1x for quick checks.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -17,7 +17,12 @@ const dsf = Number(process.env.DSF || 2);
 // Exact name match with a leading '=' (node tools/shoot-mocks.mjs =76-v5-fields).
 mkdirSync(out, { recursive: true });
 
-// [name, page, query, mobile?]
+// v6 screens run on real operations from the snapshot (see mocks/v6-stores.js).
+const V6_APPROVE = 'v5=1&v6=1&opid=ApprovalsController.Approve';
+const V6_QUOTE = 'v5=1&v6=1&opid=FxController.Quote';
+const V6_BOOK = 'v5=1&v6=1&opid=FxController.Book';
+
+// [name, page, query, mobile?] where mobile is true (390 px) or a phone width in px.
 const shots = [
   ['01-request-default', 'workbench', 'state=filled&run=preview&rtab=database'],
   ['02-request-default-dark', 'workbench', 'state=filled&run=preview&rtab=database&theme=dark'],
@@ -158,6 +163,33 @@ const shots = [
   ['m23-v5-deprecated', 'workbench', 'v5=1&opid=BalancesController.LegacyBalance', true],
   ['m24-v5-lookup-130-dark', 'workbench', 'v5=1&opid=AccountsController.Get&pop=id&text=130&theme=dark', true],
   ['m25-v5-language-sheet', 'workbench', 'v5=1&opid=AccountsController.List&pop=lang&lsearch=he&lactive=he-IL', true],
+  // v6 (README "v6"): data stores. MongoDB document diffs, mixed stores, Db command logs,
+  // Preview unavailable before and during a run, store marks. Phones are 320 px at 130% text.
+  ['113-v6-doc-diff', 'workbench', `${V6_APPROVE}&nosql=changes&dscroll=payments`],
+  ['114-v6-doc-diff-dark', 'workbench', `${V6_APPROVE}&nosql=changes&dscroll=payments&theme=dark`],
+  ['115-v6-doc-kinds', 'stores', 'v6=1&set=documents'],
+  ['116-v6-doc-kinds-dark', 'stores', 'v6=1&set=documents&theme=dark'],
+  ['117-v6-mixed-stores', 'workbench', `${V6_APPROVE}&nosql=changes`],
+  ['118-v6-mixed-stores-dark', 'workbench', `${V6_APPROVE}&nosql=changes&theme=dark`],
+  ['119-v6-db-logs', 'workbench', `${V6_APPROVE}&nosql=logs&open=mongo&copied=cmd`],
+  ['120-v6-db-logs-dynamo-dark', 'workbench', `${V6_APPROVE}&nosql=logs&open=dynamo&theme=dark`],
+  ['121-v6-db-logs-redis', 'workbench', `${V6_APPROVE}&nosql=logs&open=redis`],
+  ['122-v6-preview-off', 'workbench', `${V6_QUOTE}&nosql=known`],
+  ['123-v6-preview-off-confirm-dark', 'workbench', `${V6_QUOTE}&nosql=known&confirm=1&theme=dark`],
+  ['124-v6-preview-blocked', 'workbench', `${V6_BOOK}&nosql=blocked`],
+  ['125-v6-preview-blocked-dark', 'workbench', `${V6_BOOK}&nosql=blocked&theme=dark`],
+  ['126-v6-store-icons', 'stores', 'v6=1&set=icons'],
+  ['127-v6-store-icons-dark', 'stores', 'v6=1&set=icons&theme=dark'],
+  ['128-v6-i18n-de-preview-off', 'workbench', `${V6_QUOTE}&nosql=known&lang=de`],
+  ['129-v6-i18n-de-preview-blocked', 'workbench', `${V6_BOOK}&nosql=blocked&lang=de`],
+  ['130-v6-rtl-ar-preview-off', 'workbench', `${V6_QUOTE}&nosql=known&lang=ar`],
+  ['131-v6-rtl-ar-preview-blocked', 'workbench', `${V6_BOOK}&nosql=blocked&lang=ar`],
+  ['m26-v6-doc-diff-130', 'workbench', `${V6_APPROVE}&nosql=changes&dscroll=payments&mview=result&text=130`, 320],
+  ['m27-v6-mixed-stores-130-dark', 'workbench', `${V6_APPROVE}&nosql=changes&mview=result&text=130&theme=dark`, 320],
+  ['m28-v6-db-logs-130', 'workbench', `${V6_APPROVE}&nosql=logs&open=mongo&mview=result&text=130`, 320],
+  ['m29-v6-preview-off-130', 'workbench', `${V6_QUOTE}&nosql=known&text=130`, 320],
+  ['m30-v6-preview-blocked-130', 'workbench', `${V6_BOOK}&nosql=blocked&mview=result&text=130`, 320],
+  ['m31-v6-preview-blocked-ar-130-dark', 'workbench', `${V6_BOOK}&nosql=blocked&mview=result&text=130&lang=ar&theme=dark`, 320],
 ];
 
 /**
@@ -197,7 +229,7 @@ let guides = '';
 try { guides = await measureShell(browser); } catch (error) { console.log('ERROR', error.message); failed++; }
 for (const [name, page, query, mobile] of shots) {
   if (filters.length && !filters.some(f => f.startsWith('=') ? name === f.slice(1) : name.includes(f))) continue;
-  const [width, height] = mobile ? [390, 844] : [1440, 900];
+  const [width, height] = mobile ? [typeof mobile === 'number' ? mobile : 390, 844] : [1440, 900];
   const tab = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: dsf, isMobile: !!mobile, hasTouch: !!mobile });
   const errors = [];
   tab.on('pageerror', e => errors.push(e.message));

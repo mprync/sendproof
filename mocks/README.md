@@ -4,9 +4,11 @@ These are the approved v3 mocks, the source of truth for the workbench UI in `ui
 
 v5 (below, [v5](#v5-reference-reading-form-controls-response-viewer-and-languages)) is the owner's review of the live v4 app: a Stripe-style reading experience for models and Docs, new selects and radio groups, one field anatomy, a deprecation notice that names the replacement, a one-line response toolbar with four real views, and 34 UI languages. Every v5 screen has `v5=1` in its query; without it the v3 and v4 screens render exactly as before. The plan is [`docs/plans/workbench-v5.md`](../docs/plans/workbench-v5.md).
 
+v6 (below, [v6](#v6-data-stores-mongodb-preview-guarded-stores-and-db-command-logs)) designs the UI that NoSQL data stores need, under the new product name Sendproof: nested MongoDB document diffs, one Preview across SQL and MongoDB grouped by store, database-command logs, and "Preview unavailable" before and during a run. Every v6 screen has `v5=1&v6=1` in its query (`stores.html` boards take `v6=1`); without it nothing v6 loads.
+
 v4 (below, [Navigation and reference](#navigation-and-reference-v4)) adds the owner's review of the live v3 app: a stable shell, one reference space for Docs and Models, a new model visualiser, a prominent signed-out notice, expanded JSON and aligned bottom bars. The mocks now render the real Treasury example: `mocks/spec.js` is a snapshot of its OpenAPI document and seeded responses.
 
-Open `workbench.html`, `board.html` or `flow.html` in a browser. Query parameters select each state. To regenerate the PNGs in `screens/`, run `node tools/shoot-mocks.mjs` (desktop 1440×900, mobile 390×844, both at 2×). Add a name filter to render a subset, for example `node tools/shoot-mocks.mjs docs m0`.
+Open `workbench.html`, `board.html`, `flow.html` or `stores.html` in a browser. Query parameters select each state. To regenerate the PNGs in `screens/`, run `node tools/shoot-mocks.mjs` (desktop 1440×900, mobile 390×844, v6 phones 320×844, all at 2×). Add a name filter to render a subset, for example `node tools/shoot-mocks.mjs docs m0`.
 
 ## Files
 
@@ -275,3 +277,73 @@ The v5 screens rely on extensions that `v5-spec.js` adds to the snapshot. At imp
 - **Popovers stop at the viewport.** The list inside gives up height; search and footer stay visible.
 - **The table's first column is the record's name**, sticky beside the row number, so a 15-column page stays readable while scrolling sideways.
 - **Key hints are hidden on touch**, where there are no keys.
+
+## v6: data stores (MongoDB Preview, guarded stores and Db command logs)
+
+v6 designs the workbench changes in [`docs/plans/data-stores.md`](../docs/plans/data-stores.md) ("Workbench UI changes") for the protocol in [`spec/data-stores.md`](../spec/data-stores.md). MongoDB gets a full Preview; Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore are guarded, so a write blocks the Preview with a 409. Visible branding reads Sendproof. v6 sits on top of v5 and lives in its own files, so earlier screens and `tests/ui/mock-styles.test.mjs` are untouched: `handles.js` writes the v6 scripts in only when the query has `v6=1`, and `v6-stores.js` writes `v6.css`.
+
+### Files (v6)
+
+| File | What it holds |
+| --- | --- |
+| `v6-icons.js` | Store marks as inline SVG on a 24 grid (`SP.logo(id, size)`), and each store's name, kind, mode and nouns (container, record, key) |
+| `v6-stores.js` | The builders (document diff card, SQL row card, store-grouped Database tab, Db command logs) and the four workbench scenes |
+| `v6.css` | Mark colours per theme, store groups, the tree diff, command logs, the docked Preview reason, the blocked state, boards, phones and RTL |
+| `stores.html`, `v6-board.js` | Boards: every store mark at its sizes, and the five document change kinds |
+
+### Parameters (v6)
+
+`v5=1&v6=1` plus `opid=<operationId>` and `nosql=changes|logs|known|blocked`:
+
+- `changes` with `opid=ApprovalsController.Approve`: one Preview that changed 2 SQLite rows and 5 MongoDB documents. `dscroll=payments` brings the payments document to the top.
+- `logs` with the same operation: the Logs tab. `open=mongo|redis|dynamo` expands an entry; `copied=cmd` shows the copy feedback.
+- `known` with `opid=FxController.Quote`, marked `preview: false`. `confirm=1` shows Send's confirmation.
+- `blocked` with `opid=FxController.Book`: a Preview stopped by the write guard at Redis `INCRBY`.
+
+Also `theme=dark`, `lang=de|ar`, `text=130` and `mview=result`. Boards: `stores.html?v6=1&set=icons|documents`.
+
+### Screens (v6)
+
+| PNG | Query (`v5=1&v6=1&` plus) | What it shows |
+| --- | --- | --- |
+| 113-v6-doc-diff | `opid=ApprovalsController.Approve&nosql=changes&dscroll=payments` | A MongoDB update as a nested diff with every object open: changed leaves tinted amber with old → new, added green, removed red, a 2 px edge bar on each change, indent guides, "2 changes" on every branch that holds some, typed badges for `ObjectId`, `Decimal128` and `Date`, and `redacted` for secret fields at any depth. The head reads collection, `_id` and counts, with Changes only and Diff · Before · After |
+| 114-v6-doc-diff-dark | same `&theme=dark` | The same in dark |
+| 115-v6-doc-kinds | `stores.html?v6=1&set=documents` | The five change kinds at the result pane's width: insert, update (arrays by index: a changed fee, an added fee, an added approval), upsert ("via upsert" on an insert), replace ("whole document replaced" on an update) and delete |
+| 116-v6-doc-kinds-dark | same `&theme=dark` | The same in dark |
+| 117-v6-mixed-stores | `opid=ApprovalsController.Approve&nosql=changes` | One Preview grouped by store under its mark: SQLite `treasury-demo.db` (Rolled back, 2 rows) and MongoDB `treasury` (Transaction aborted, 5 documents). A jump strip at the top, the stores that were only read, and a coverage note that unhooked stores and clients aren't covered |
+| 118-v6-mixed-stores-dark | same `&theme=dark` | The same in dark |
+| 119-v6-db-logs | `…&nosql=logs&open=mongo&copied=cmd` | Db entries in the log table: a `DB` level, the store mark and name as the source, operation and target in the message. Store chips beside the level filter (SQL, MongoDB, Redis, DynamoDB, with counts), sticky while the log scrolls. The Mongo command as highlighted JSON with `?` placeholder chips, Copy command (copied), and parameters with a redacted `signatureToken` |
+| 120-v6-db-logs-dynamo-dark | `…&nosql=logs&open=dynamo&theme=dark` | A DynamoDB `ExecuteStatement`: the PartiQL statement, its two parameters, Copy with values. `GetItem` beside it has no statement, as the spec says |
+| 121-v6-db-logs-redis | `…&nosql=logs&open=redis` | A Redis command line: the command, the key kept, every other argument hidden, and why |
+| 122-v6-preview-off | `opid=FxController.Quote&nosql=known` | Preview unavailable, known in advance: Preview keeps its place, disabled with a warn-dashed border; the reason is docked right above it, with a caret to the button. It holds the author's reason (English, as written), why Redis can't Preview, and "Marked by the API author · `preview: false`". Send is primary. The before-run state marks Preview's step unavailable; the sidebar marks the operation |
+| 123-v6-preview-off-confirm-dark | `…&confirm=1&theme=dark` | Send still asks first: "Send for real? This writes to Redis and can't be undone." with Cancel and Confirm send |
+| 124-v6-preview-blocked | `opid=FxController.Book&nosql=blocked` | Preview unavailable, caught mid-request (409): a designed state, not an error. What was blocked (Redis `INCRBY`), "Nothing was written" store by store (Redis refused and never sent, SQLite rolled back, side effects discarded), what to do next (Send for real; for the API author, the `preview: false` attribute to copy), and the problem+json body. The action bar remembers "Last Preview blocked · Redis write" |
+| 125-v6-preview-blocked-dark | same `&theme=dark` | The same in dark |
+| 126-v6-store-icons | `stores.html?v6=1&set=icons` | Every store mark at 14, 16, 20 and 28 px with its `system` id, kind, mode (Preview or Guard only) and nouns, then the marks in place |
+| 127-v6-store-icons-dark | same `&theme=dark` | Dark lifts the marks that would sink (SQLite, MySQL, Redis, Elasticsearch's dark band, MariaDB) |
+| 128-v6-i18n-de-preview-off | `…&nosql=known&lang=de` | German: the docked reason and the status line wrap and never clip; the author's reason stays English |
+| 129-v6-i18n-de-preview-blocked | `…&nosql=blocked&lang=de` | German blocked state |
+| 130-v6-rtl-ar-preview-off | `…&nosql=known&lang=ar` | Arabic: the dock mirrors, its caret still points down at Preview (now on the left); `preview: false` and the reason keep their direction |
+| 131-v6-rtl-ar-preview-blocked | `…&nosql=blocked&lang=ar` | Arabic blocked state; commands, store names and the JSON stay LTR |
+| m26-v6-doc-diff-130 | `…&nosql=changes&dscroll=payments&mview=result&text=130` (320 px) | The diff at 320 px and 130% text: values move under their keys, long ids wrap, the view switch takes its own row and nothing scrolls sideways |
+| m27-v6-mixed-stores-130-dark | `…&nosql=changes&mview=result&text=130&theme=dark` (320 px) | Store groups and row cards on a phone, dark |
+| m28-v6-db-logs-130 | `…&nosql=logs&open=mongo&mview=result&text=130` (320 px) | Log rows and the command detail on a phone; the filter block stops being sticky, the store chips wrap |
+| m29-v6-preview-off-130 | `…&nosql=known&text=130` (320 px) | The docked reason on a phone keeps the title and the author's reason; "Why?" opens the rest |
+| m30-v6-preview-blocked-130 | `…&nosql=blocked&mview=result&text=130` (320 px) | The blocked state on a phone |
+| m31-v6-preview-blocked-ar-130-dark | `…&nosql=blocked&mview=result&text=130&lang=ar&theme=dark` (320 px) | Arabic, dark, 130%, 320 px |
+
+### Design rules (new in v6)
+
+- **The store's own words.** SQL says table, row and column; MongoDB says collection, document and field; DynamoDB table and item; Redis key prefix and key. Each store group heads its changes with the mark, the store's name as text and its database, so no meaning depends on the logo.
+- **Documents open, changes loud.** Every object starts open (the owner's rule for JSON, models and sidebar groups). Unchanged values are plain; changed paths are tinted end to end with a marker in the gutter and a 2 px edge bar, and every branch says how many changes it holds. Inserts and deletes don't tint every line: the whole card is one operation, so only the gutter marks it.
+- **Typed values, honest secrets.** Extended JSON reads as a small type badge before the value (`ObjectId`, `Date`, `Decimal128`). `[REDACTED]` is its own dashed, muted pill with a lock, wherever it sits.
+- **Commands without values.** Mongo statements show `?` as quiet chips where literals were; Redis keeps the key and hides the rest; parameters list only non-secret names. Copy buttons copy what was captured, never more.
+- **Preview unavailable stands out where you'd press it.** Known in advance, the Preview button stays in place (no layout shift between operations), disabled, and the reason is docked directly above it in a warm band with the store's mark. Caught mid-request, the 409 is a designed result in amber, not a red error: what was blocked, that nothing was written, and what to do next.
+- **Phones wrap, never scroll sideways.** At 320 px and 130% text the diff stacks values under keys and old over new, chips and log metadata wrap, and the docked reason shortens to its title and reason.
+
+### Open design questions
+
+- **Vendor logos.** The marks are drawn after each official logo for review; the PostgreSQL, MariaDB and SQL Server ones are the roughest. At implementation, use each vendor's own SVG and check its trademark guidelines (the plan's decision "vendor logos versus neutral glyphs"). Redis uses the classic red stack, not the 2024 rebrand.
+- **Upsert and replace labels** need the binding to say so: the change record keeps `insert`/`update`, so "via upsert" and "whole document replaced" need an optional field (for example `via: "upsert" | "replace"`), or the UI reads them from the matching command log.
+- **Default view.** Updates open on Diff with every object open; Changes only is off. Confirm both defaults.
+- **The attribute name.** The snippet shows `[SendproofPreview(Enabled = false, …)]`, assuming the .NET attribute follows the rename.

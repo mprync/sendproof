@@ -1,5 +1,8 @@
 // Pane dividers, added after every pane is rendered (carried over from v2). They are focusable
 // separators; ?resizing=1 shows the size tip while the sidebar divider is dragged.
+// v6 (?v6=1): the data-store layer loads here, after every pane is built. It's written in only
+// with v6, so the v3, v4 and v5 screens load exactly the scripts they always did.
+if (/[?&]v6=/.test(location.search)) document.write('<script src="v6-icons.js"><\/script><script src="v6-stores.js"><\/script>');
 (function () {
   const ws = document.querySelector('.workspace');
   if (!ws || innerWidth <= 896) return;
