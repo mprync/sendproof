@@ -3,11 +3,12 @@
 Redis write guard for Sendproof (`guard` mode). Redis can't roll back, so a Preview reads Redis normally and is stopped **before the first write is sent**.
 
 ```rust
-let store = RedisStore::new().name("cache")?;             // register with Config::builder(..).data_store(store.clone())
+let connection = redis::Client::open(url)?.get_multiplexed_async_connection().await?;
+let store = RedisStore::new().connection(connection).name("cache")?; // register with Config::builder(..).data_store(store.clone())
 // state: RedisStore must be reachable from the handler (axum: `impl FromRef<AppState> for RedisStore`)
 
-async fn counter(redis: Redis, State(app): State<App>) -> Result<Json<i64>, StatusCode> {
-    let mut conn = redis.guard(app.redis.clone());        // any redis::aio::ConnectionLike
+async fn counter(redis: Redis) -> Result<Json<i64>, StatusCode> {
+    let mut conn = redis.connection();                    // the store's connection, guarded
     redis::cmd("INCR").arg("counter:a").query_async(&mut conn).await.map(Json).map_err(|_| StatusCode::CONFLICT)
 }
 ```
@@ -20,4 +21,6 @@ Features: `axum` (`Redis` extractor, `RedisStore: FromRef<State>`) and `actix` (
 * `AUTH`, `HELLO`, `PING`, `SELECT` and the other session commands are never guarded or logged.
 * `treat_as_read(["MYMODULE.GET"])` declares host reads, by exact name. It is your statement that the command never writes.
 
-**Coverage:** only connections passed through `Redis::guard` are covered. A connection used directly, a second client, a pub/sub connection or a raw socket is not guarded. See [the data-stores page](../data-stores.md).
+A connection the store doesn't own (one checked out of a pool) is guarded with `redis.guard(connection)`.
+
+**Coverage:** only connections from `Redis::connection` or passed through `Redis::guard` are covered, and Redis has no command monitoring to catch the rest. A connection used directly, a second client, a pub/sub connection or a raw socket is not guarded. See [the data-stores page](../data-stores.md).

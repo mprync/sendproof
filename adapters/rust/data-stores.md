@@ -14,7 +14,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the handles and interceptor below. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis pub/sub connection, a connection used without `Redis::guard`, a DynamoDB client built without the interceptor, and a raw socket. Hook every client your handlers use, at startup.
+> The binding covers a store only through the handles and interceptor below. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis pub/sub connection, a Redis connection used without `Redis::connection` or `Redis::guard`, a DynamoDB client built without the interceptor, and a raw socket. Hook every client your handlers use, at startup.
 >
 > The guard also finds the Preview through the request's task-local capture (DynamoDB and the MongoDB command monitor) or through the request's handle (Redis and MongoDB). A handle moved into a task your handler spawns with `tokio::spawn` keeps its Preview (a guarded Redis connection, a `Mongo` handle). A call that relies on the task-local capture does not: a DynamoDB call, or a write through `MongoStore::client()`, made from a spawned task is not seen by the DynamoDB guard or the MongoDB tripwire. Await those calls in the handler.
 
@@ -31,7 +31,7 @@ use sendproof_redis::RedisStore;
 let catalog = MongoStore::builder(mongodb::options::ClientOptions::parse(mongo_url).await?, "catalog")
     .name("catalog")?
     .build()?;                                   // installs command monitoring, then connects
-let cache = RedisStore::new().name("cache")?;
+let cache = RedisStore::new().connection(redis_connection).name("cache")?; // the store owns the connection
 let orders = DynamoStore::new().name("orders")?;
 
 let bench = Sendproof::new(
@@ -75,14 +75,16 @@ async fn create(mongo: Mongo, Json(item): Json<Item>) -> Result<StatusCode, Stat
 
 ### Redis
 
-`RedisStore::new()` is the store; the `Redis` extractor gives each request's handle (Axum: `FromRef<AppState>` for `RedisStore` and the `axum` feature; Actix: `web::Data::new(store)` and the `actix` feature). `Redis::guard(connection)` wraps any `redis::aio::ConnectionLike` connection (`MultiplexedConnection`, `ConnectionManager`, a pooled connection), and the wrapper is itself a `ConnectionLike`, so `AsyncCommands` and `redis::cmd(..).query_async` work unchanged.
+`RedisStore::new().connection(connection)` is the store, and it owns the connection: any cloneable `redis::aio::ConnectionLike` (`MultiplexedConnection`, `ConnectionManager`, a cluster connection). The `Redis` extractor gives each request's handle (Axum: `FromRef<AppState>` for `RedisStore` and the `axum` feature; Actix: `web::Data::new(store)` and the `actix` feature), and `redis.connection()` returns the store's connection guarded. The guarded connection is itself a `ConnectionLike`, so `AsyncCommands` and `redis::cmd(..).query_async` work unchanged.
 
 ```rust
-async fn counter(redis: Redis, State(app): State<App>) -> Json<i64> {
-    let mut conn = redis.guard(app.redis.clone());
+async fn counter(redis: Redis) -> Json<i64> {
+    let mut conn = redis.connection();
     Json(redis::cmd("INCR").arg("counter:a").query_async(&mut conn).await.unwrap_or(0))
 }
 ```
+
+Redis has no command monitoring, so there is no tripwire behind the guard: a write through a raw connection during a Preview is not seen, and the Preview is confirmed. Give the connection to the store rather than keeping it in application state. A connection the store doesn't own, such as one checked out of a deadpool or bb8 pool, is guarded with `redis.guard(connection)`.
 
 Pipelines, including `atomic()` ones, are classified as a whole before the first command is written, so a refused write sends no command of the batch and no `EXEC`. A write refused after a hand-sent `MULTI` is followed by `DISCARD`. Pub/sub connections are not covered.
 
@@ -146,4 +148,4 @@ Change records for MongoDB carry `store`, `namespace`, the collection as `table`
 
 ## Tests
 
-`cargo test --manifest-path adapters/rust/Cargo.toml --workspace` runs the store tests. The MongoDB tests use the compose replica set (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`) and skip, saying why, when it doesn't answer. The Redis and DynamoDB tests run against a recording fake connection and a recording HTTP client, so they need no service. The shared checks run with `node tests/conformance/run.mjs rust-axum rust-actix` and need `mongodb redis dynamodb` from the same compose file.
+`cargo test --manifest-path adapters/rust/Cargo.toml --workspace` runs the store tests. The MongoDB tests use the compose replica set (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`) and skip, saying why, when it doesn't answer. The Redis and DynamoDB unit tests run against a recording fake connection and a recording HTTP client; each crate also has a test against its compose service (`redis`, `dynamodb`) that reads the store back independently after every refused write path, and skips when the service doesn't answer. The shared checks run with `node tests/conformance/run.mjs rust-axum rust-actix` and need `mongodb redis dynamodb` from the same compose file.

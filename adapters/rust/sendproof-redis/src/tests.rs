@@ -132,6 +132,45 @@ async fn a_write_after_multi_discards_the_transaction() {
 }
 
 #[tokio::test]
+async fn a_refused_pipeline_after_multi_discards_the_transaction() {
+    let (wire, store, recorder) = (Wire::default(), RedisStore::new(), preview());
+    capture::scope(recorder.clone(), async {
+        let mut conn = guarded(&store, &wire);
+        redis::cmd("MULTI").exec_async(&mut conn).await.unwrap();
+        let mut pipe = redis::pipe();
+        pipe.cmd("GET").arg("a").cmd("SET").arg("a").arg("1");
+        assert!(pipe.exec_async(&mut conn).await.is_err());
+    })
+    .await;
+    assert_eq!(wire.sent(), ["MULTI", "DISCARD"], "EXEC must never follow a refused write");
+}
+
+#[tokio::test]
+async fn the_refusal_names_the_store_and_the_command() {
+    let (wire, store, recorder) = (Wire::default(), RedisStore::new(), preview());
+    let error =
+        capture::scope(recorder, async { redis::cmd("INCR").arg("counter:a").exec_async(&mut guarded(&store, &wire)).await.unwrap_err() })
+            .await;
+    let message = error.to_string();
+    assert!(message.contains("Redis") && message.contains("INCR"), "{message}");
+}
+
+#[tokio::test]
+async fn the_store_hands_each_request_a_guarded_connection() {
+    let (wire, recorder) = (Wire::default(), preview());
+    let store = RedisStore::new().connection(wire.clone());
+    capture::scope(recorder.clone(), async {
+        // The handler never holds the raw connection: the extractor's handle supplies a guarded one.
+        let mut conn = store.detached().connection();
+        redis::cmd("GET").arg("a").exec_async(&mut conn).await.unwrap();
+        assert!(redis::cmd("SET").arg("a").arg("1").exec_async(&mut conn).await.is_err());
+    })
+    .await;
+    assert_eq!(wire.sent(), ["GET"]);
+    assert_eq!(recorder.blocked().unwrap().operation, "SET");
+}
+
+#[tokio::test]
 async fn session_commands_are_never_guarded_or_logged() {
     let (wire, store, recorder) = (Wire::default(), RedisStore::new(), preview());
     capture::scope(recorder.clone(), async {
@@ -191,4 +230,68 @@ async fn the_checks_fail_when_the_connection_is_not_guarded() {
 fn a_label_that_looks_like_a_connection_string_is_refused() {
     assert!(RedisStore::new().name("cache").is_ok());
     assert!(RedisStore::new().name("redis://:password@host:6379").is_err());
+}
+
+/// The guard against the compose Redis (`docker compose -f tests/conformance/compose.yml up -d --wait
+/// redis`): every write path is refused before it reaches the server, proven by an independent read.
+/// Skips, saying why, when Redis doesn't answer.
+mod server {
+    use std::time::Duration;
+
+    use redis::{AsyncCommands, aio::MultiplexedConnection};
+
+    use super::*;
+
+    async fn connect() -> Option<MultiplexedConnection> {
+        let url = std::env::var("BENCH_REDIS_SERVER_URL").unwrap_or_else(|_| "redis://:bench_redis_local@127.0.0.1:56379/".into());
+        let attempt = async {
+            let mut connection = redis::Client::open(url).ok()?.get_multiplexed_async_connection().await.ok()?;
+            redis::cmd("PING").exec_async(&mut connection).await.ok()?;
+            Some(connection)
+        };
+        let connection = tokio::time::timeout(Duration::from_secs(3), attempt).await.ok().flatten();
+        if connection.is_none() {
+            eprintln!("skipped: Redis isn't running (docker compose -f tests/conformance/compose.yml up -d --wait redis)");
+        }
+        connection
+    }
+
+    #[tokio::test]
+    async fn no_write_path_reaches_the_server_during_a_preview() {
+        let Some(mut reader) = connect().await else { return };
+        let prefix = format!("sp_test_{}_{:?}:", std::process::id(), Instant::now());
+        let key = |name: &str| format!("{prefix}{name}");
+        reader.set::<_, _, ()>(key("seeded"), 1).await.unwrap();
+
+        let recorder = preview();
+        let store = RedisStore::new().connection(reader.clone());
+        capture::scope(recorder.clone(), async {
+            let mut conn = store.detached().connection();
+            // Reads run.
+            assert_eq!(conn.get::<_, i64>(key("seeded")).await.unwrap(), 1);
+            // A single write.
+            assert!(conn.incr::<_, _, i64>(key("seeded"), 1).await.is_err());
+            // A pipeline and an atomic pipeline that each hold one write.
+            assert!(redis::pipe().get(key("seeded")).set(key("piped"), 1).exec_async(&mut conn).await.is_err());
+            assert!(redis::pipe().atomic().get(key("seeded")).set(key("atomic"), 1).exec_async(&mut conn).await.is_err());
+            // A script that writes.
+            let script = "return redis.call('SET', KEYS[1], '1')";
+            assert!(redis::cmd("EVAL").arg(script).arg(1).arg(key("scripted")).exec_async(&mut conn).await.is_err());
+            // A hand-sent MULTI with a queued write: DISCARD, and EXEC has nothing to run.
+            redis::cmd("MULTI").exec_async(&mut conn).await.unwrap();
+            assert!(redis::cmd("SET").arg(key("queued")).arg(1).exec_async(&mut conn).await.is_err());
+            assert!(redis::cmd("EXEC").exec_async(&mut conn).await.is_err(), "no transaction is left open");
+            // Publishing can't be recalled.
+            assert!(conn.publish::<_, _, i64>(key("channel"), "message").await.is_err());
+        })
+        .await;
+        assert_eq!(recorder.blocked().unwrap().operation, "INCRBY", "the first write is the one reported");
+
+        // An independent read: nothing the Preview tried to write is there.
+        assert_eq!(reader.get::<_, i64>(key("seeded")).await.unwrap(), 1);
+        for name in ["piped", "atomic", "scripted", "queued"] {
+            assert!(!reader.exists::<_, bool>(key(name)).await.unwrap(), "{name} reached the server");
+        }
+        reader.del::<_, ()>(key("seeded")).await.unwrap();
+    }
 }

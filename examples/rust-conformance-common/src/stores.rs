@@ -14,7 +14,6 @@ use mongodb::{
     bson::{Bson, Document, doc},
     options::ClientOptions,
 };
-use redis::aio::MultiplexedConnection;
 use sendproof_core::{ConfigBuilder, capture};
 use sendproof_dynamodb::DynamoStore;
 use sendproof_mongodb::{Mongo, MongoStore};
@@ -23,10 +22,9 @@ use serde_json::{Value, json};
 
 use crate::items::Outcome;
 
-/// A hooked Redis and the connection handlers guard.
+/// A hooked Redis. The store owns the connection, so handlers only ever get a guarded one.
 pub struct RedisFixture {
     pub store: RedisStore,
-    pub connection: MultiplexedConnection,
 }
 
 /// A hooked DynamoDB client and the table the runner created.
@@ -67,7 +65,7 @@ impl Stores {
         }
         if let Some(url) = env("BENCH_REDIS_URL") {
             let connection = redis::Client::open(url)?.get_multiplexed_async_connection().await?;
-            stores.redis = Some(RedisFixture { store: RedisStore::new().name("cache")?, connection });
+            stores.redis = Some(RedisFixture { store: RedisStore::new().connection(connection).name("cache")? });
         }
         if let (Some(endpoint), Some(table)) = (env("BENCH_DYNAMODB_URL"), env("BENCH_DYNAMODB_TABLE")) {
             let store = DynamoStore::new().name("orders")?;
@@ -203,8 +201,8 @@ impl Stores {
 
     // ---- Redis ----
 
-    fn redis_connection(&self, redis: &Redis) -> sendproof_redis::GuardedConnection<MultiplexedConnection> {
-        redis.guard(self.redis.as_ref().expect("Redis routes exist only when Redis is hooked").connection.clone())
+    fn redis_connection(&self, redis: &Redis) -> sendproof_redis::GuardedConnection<sendproof_redis::SharedConnection> {
+        redis.connection()
     }
 
     fn counter_reply(key: &str, value: Option<i64>) -> Outcome {

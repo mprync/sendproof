@@ -19,23 +19,29 @@
 //!
 //! let client = redis::Client::open("redis://127.0.0.1/")?;
 //! let connection = client.get_multiplexed_async_connection().await?;
-//! let store = RedisStore::new().name("cache").expect("a display label");
+//! // The store owns the connection; keep only the store in application state.
+//! let store = RedisStore::new().connection(connection).name("cache").expect("a display label");
 //! // Register it: Config::builder("Inventory").data_store(store.clone())
 //!
-//! // In a handler, take the `Redis` extractor and guard the connection you already use:
-//! # fn handler(redis: Redis, connection: redis::aio::MultiplexedConnection) -> impl std::future::Future<Output = redis::RedisResult<i64>> {
+//! // In a handler, take the `Redis` extractor and use its guarded connection:
+//! # fn handler(redis: Redis) -> impl std::future::Future<Output = redis::RedisResult<i64>> {
 //! # async move {
-//! let mut conn = redis.guard(connection);
+//! let mut conn = redis.connection();
 //! redis::cmd("INCR").arg("counter:a").query_async(&mut conn).await
 //! # } }
 //! # Ok(()) }
 //! ```
 //!
+//! A connection the store doesn't own, such as one checked out of a deadpool or bb8 pool, is guarded
+//! with [`Redis::guard`].
+//!
 //! # Coverage
 //!
-//! Only connections passed through [`Redis::guard`] are covered. A connection used directly, a second
-//! client, a pub/sub connection, or a raw socket is not guarded and not logged: its writes are neither
-//! blocked nor rolled back. Anything a Lua script or function writes is guarded as a write (`EVAL`,
+//! Only connections handed out by [`Redis::connection`] or passed through [`Redis::guard`] are
+//! covered. Redis has no command monitoring to fall back on, so a raw connection used directly, a
+//! second client, a pub/sub connection, or a raw socket is not guarded and not logged: its writes are
+//! neither blocked nor rolled back, and the Preview is still confirmed. Keep the raw connection out
+//! of handler reach: give it to the store and use [`Redis::connection`]. Anything a Lua script or function writes is guarded as a write (`EVAL`,
 //! `EVALSHA` and `FCALL` are writes; their `_RO` forms are reads).
 
 #[cfg(feature = "actix")]
@@ -64,9 +70,46 @@ use sendproof_core::{
 /// The store id used in capabilities, `Db` entries and the blocked response.
 pub const SYSTEM: &str = "redis";
 
+#[derive(Clone, Default)]
 struct Settings {
     name: Option<String>,
     reads: HashSet<String>,
+    connection: Option<SharedConnection>,
+}
+
+/// A connection that can be cloned for each request and shared across threads.
+trait CloneConnection: ConnectionLike + Send + Sync {
+    fn clone_box(&self) -> Box<dyn CloneConnection>;
+}
+
+impl<C: ConnectionLike + Clone + Send + Sync + 'static> CloneConnection for C {
+    fn clone_box(&self) -> Box<dyn CloneConnection> {
+        Box::new(self.clone())
+    }
+}
+
+/// The connection a [`RedisStore`] owns (a `MultiplexedConnection`, a `ConnectionManager`, a cluster
+/// connection), cloned for each request. Only ever handed out guarded: see [`Redis::connection`].
+pub struct SharedConnection(Box<dyn CloneConnection>);
+
+impl Clone for SharedConnection {
+    fn clone(&self) -> Self {
+        Self(self.0.clone_box())
+    }
+}
+
+impl ConnectionLike for SharedConnection {
+    fn req_packed_command<'a>(&'a mut self, cmd: &'a Cmd) -> RedisFuture<'a, Value> {
+        self.0.req_packed_command(cmd)
+    }
+
+    fn req_packed_commands<'a>(&'a mut self, pipeline: &'a Pipeline, offset: usize, count: usize) -> RedisFuture<'a, Vec<Value>> {
+        self.0.req_packed_commands(pipeline, offset, count)
+    }
+
+    fn get_db(&self) -> i64 {
+        self.0.get_db()
+    }
 }
 
 /// A hooked Redis, ready for [`ConfigBuilder::data_store`](sendproof_core::ConfigBuilder::data_store).
@@ -84,16 +127,30 @@ impl Default for RedisStore {
 }
 
 impl RedisStore {
-    /// A Redis store with no display label and no host-declared reads.
+    /// A Redis store with no connection, no display label and no host-declared reads.
     pub fn new() -> Self {
-        Self { settings: Arc::new(Settings { name: None, reads: HashSet::new() }) }
+        Self { settings: Arc::new(Settings::default()) }
+    }
+
+    fn with(self, change: impl FnOnce(&mut Settings)) -> Self {
+        let mut settings = Settings::clone(&self.settings);
+        change(&mut settings);
+        Self { settings: Arc::new(settings) }
+    }
+
+    /// The connection [`Redis::connection`] hands to each request, guarded. Any cloneable async
+    /// connection works: a `MultiplexedConnection`, a `ConnectionManager` or a cluster connection.
+    /// Give the store the connection instead of keeping it in application state, so a handler can't
+    /// reach it unguarded.
+    pub fn connection<C: ConnectionLike + Clone + Send + Sync + 'static>(self, connection: C) -> Self {
+        self.with(|settings| settings.connection = Some(SharedConnection(Box::new(connection))))
     }
 
     /// The display label shown in capabilities, such as `cache`. A label that looks like a URL,
     /// host or connection string is refused: discovery is visible to anyone who can open the workbench.
     pub fn name(self, label: &str) -> Result<Self, ConfigError> {
         let name = store_label(label)?;
-        Ok(Self { settings: Arc::new(Settings { name: Some(name), reads: self.settings.reads.clone() }) })
+        Ok(self.with(|settings| settings.name = Some(name)))
     }
 
     /// Commands the host states never write, such as a custom module read `MYMODULE.GET`. Exact
@@ -107,7 +164,7 @@ impl RedisStore {
         S: AsRef<str>,
     {
         let reads = exact_names(names, str::to_ascii_uppercase)?;
-        Ok(Self { settings: Arc::new(Settings { name: self.settings.name.clone(), reads }) })
+        Ok(self.with(|settings| settings.reads = reads))
     }
 
     /// The handle for a request: [`Redis`] from the request's enrollment. `required` says the request
@@ -131,8 +188,8 @@ impl DataStore for RedisStore {
     }
 }
 
-/// The Redis handle of one request. Take it as a handler argument, then [`guard`](Self::guard) the
-/// connection you use.
+/// The Redis handle of one request. Take it as a handler argument, then use
+/// [`connection`](Self::connection), or [`guard`](Self::guard) a connection the store doesn't own.
 #[derive(Clone)]
 pub struct Redis {
     scope: StoreScope,
@@ -140,6 +197,17 @@ pub struct Redis {
 }
 
 impl Redis {
+    /// The store's connection, guarded for this request.
+    ///
+    /// # Panics
+    ///
+    /// When the store was built without [`RedisStore::connection`]: a setup mistake, found on the first
+    /// request that uses it.
+    pub fn connection(&self) -> GuardedConnection<SharedConnection> {
+        let connection = self.settings.connection.clone().expect("give the RedisStore a connection with `RedisStore::connection`");
+        self.guard(connection)
+    }
+
     /// Wraps a connection so every command is classified before it is sent. Outside a Preview the
     /// wrapper only logs; it never changes a reply.
     pub fn guard<C: ConnectionLike>(&self, connection: C) -> GuardedConnection<C> {
@@ -184,8 +252,8 @@ impl<C> GuardedConnection<C> {
     fn check(&self, command: &Command<'_>) -> Result<CommandKind, RedisError> {
         let kind = command.kind(&self.settings.reads);
         self.scope.guard(SYSTEM, &command.name, kind, None).map_err(|blocked| {
-            // The mark is recorded; the handler sees an ordinary client error.
-            RedisError::from((ErrorKind::Client, "Preview unavailable", blocked.detail))
+            // The mark is recorded; the handler sees an ordinary client error naming the store and command.
+            RedisError::from((ErrorKind::Client, "Preview unavailable", blocked.to_string()))
         })?;
         Ok(kind)
     }
@@ -250,7 +318,10 @@ impl<C: ConnectionLike + Send> ConnectionLike for GuardedConnection<C> {
             for command in &commands {
                 match self.check(command) {
                     Ok(kind) => kinds.push(kind),
-                    Err(refusal) => return Err(refusal),
+                    Err(refusal) => {
+                        self.discard_if_open().await;
+                        return Err(refusal);
+                    }
                 }
             }
             let started = Instant::now();
