@@ -7,7 +7,7 @@ using Sendproof.AspNetCore;
 namespace Sendproof.EntityFrameworkCore;
 
 internal sealed class SendproofCommandInterceptor(CaptureContext capture, SendproofOptions options,
-    IHostEnvironment? environment = null) : DbCommandInterceptor
+    IHostEnvironment? environment = null, SafeProcedures? safeProcedures = null) : DbCommandInterceptor
 {
     private const string Redacted = SecretNames.Redacted;
 
@@ -35,7 +35,8 @@ internal sealed class SendproofCommandInterceptor(CaptureContext capture, Sendpr
     private InterceptionResult<T> Guard<T>(DbCommand command, CommandEventData eventData, InterceptionResult<T> result)
     {
         if (capture.Current is { InPreview: true } &&
-            SqlStatements.EndsTransaction(command.CommandText, PreviewTurns.IsMySql(eventData.Context?.Database.ProviderName)))
+            SqlStatements.EndsTransaction(command.CommandType, command.CommandText,
+                PreviewTurns.IsMySql(eventData.Context?.Database.ProviderName), safeProcedures?.Names))
         {
             throw capture.RefuseInPreview("Preview owns the SQL transaction, so a statement that ends or replaces it cannot run during Preview.")!;
         }

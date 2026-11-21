@@ -4,7 +4,13 @@ using Sendproof.AspNetCore;
 
 namespace Sendproof.EntityFrameworkCore;
 
-internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContextTransaction transaction, IDisposable? turn = null) : IPreviewSession
+/// <summary>
+/// One Preview's EF Core transaction, always rolled back. On MySQL and MariaDB it keeps a <see cref="PreviewSavepoint"/>:
+/// if the savepoint is gone when the Preview ends, something committed the transaction and the rollback fails, so the
+/// Preview answers 500 without confirmation.
+/// </summary>
+internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContextTransaction transaction, IDisposable? turn = null,
+    PreviewSavepoint? savepoint = null) : IPreviewSession
 {
     private readonly EntityFrameworkChangeCapture _capture = new(context);
     private bool _rolledBack;
@@ -17,8 +23,22 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
     public async ValueTask RollbackAsync(CancellationToken cancellationToken)
     {
         if (_rolledBack) return;
+        PreviewTransactionEndedException? ended = null;
+        if (savepoint is not null)
+        {
+            try
+            {
+                await savepoint.VerifyAsync(cancellationToken);
+            }
+            catch (PreviewTransactionEndedException failure)
+            {
+                ended = failure;
+            }
+        }
+
         await SendproofCommitDiagnostics.RollingBackAsync(() => transaction.RollbackAsync(cancellationToken));
         _rolledBack = true;
+        if (ended is not null) throw ended;
     }
 
     public async ValueTask DisposeAsync()

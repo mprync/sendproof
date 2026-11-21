@@ -83,7 +83,22 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
         try
         {
             var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            return new EntityFrameworkPreviewSession(db, transaction, turn);
+            PreviewSavepoint? savepoint = null;
+            if (PreviewTurns.IsMySql(db.Database.ProviderName))
+            {
+                try
+                {
+                    // The backstop: a commit while the handler runs erases this savepoint.
+                    savepoint = await PreviewSavepoint.OpenAsync(db, cancellationToken);
+                }
+                catch
+                {
+                    await transaction.DisposeAsync();
+                    throw;
+                }
+            }
+
+            return new EntityFrameworkPreviewSession(db, transaction, turn, savepoint);
         }
         catch
         {
