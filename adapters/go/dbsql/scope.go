@@ -143,13 +143,12 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 }
 
 // neverCommitted is the backstop of spec/data-stores.md "Transaction-control
-// statements from the handler", on every dialect. It releases the savepoint
+// statements from the handler", on every dialect. It rolls back to the savepoint
 // open() set when the preview started: any commit, explicit or implicit, erases
 // every savepoint, so a failure means something the guard didn't see committed
 // the preview transaction, even under MySQL autocommit=0, where a new
-// transaction opens after a commit. SQL Server can't release a savepoint, so
-// @@TRANCOUNT must still count the preview transaction. A PostgreSQL transaction
-// a failed statement aborted is still the open preview transaction.
+// transaction opens after a commit. SQL Server can't check a savepoint this way,
+// so @@TRANCOUNT must still count the preview transaction.
 func (s *scope) neverCommitted(ctx context.Context) error {
 	if s.tx == nil {
 		return nil
@@ -164,7 +163,10 @@ func (s *scope) neverCommitted(ctx context.Context) error {
 		}
 		return nil
 	}
-	if _, err := s.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+previewSavepoint); err != nil && !(s.dialect == DialectPostgres && abortedTransaction(err)) {
+	// ROLLBACK TO, not RELEASE: it also succeeds on a PostgreSQL transaction an
+	// ordinary handler error aborted, and discards any savepoint the handler left
+	// open after it. The whole transaction rolls back next anyway.
+	if _, err := s.tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+previewSavepoint); err != nil {
 		return gone(err)
 	}
 	return nil

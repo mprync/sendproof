@@ -57,6 +57,28 @@ func TestACommitBelowTheGuardNeverConfirms(t *testing.T) {
 	})
 }
 
+// TestAHandlerConflictStillConfirms checks the backstop leaves ordinary handler
+// errors alone: a unique violation aborts a PostgreSQL transaction, and the
+// preview still answers with the handler's 409 and a confirmed rollback.
+func TestAHandlerConflictStillConfirms(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		db := newItems(t, e, pool)
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES ('dup', 'First')")
+			if _, err := db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES ('dup', 'Second')"); err == nil {
+				t.Error("the duplicate insert succeeded")
+			}
+			w.WriteHeader(409)
+		})
+		if status, envelope := preview(t, handler, "/run"); status != 200 || envelope["status"] != float64(409) || envelope["rolledBack"] != true {
+			t.Fatalf("a 409 after a unique violation: %d %v", status, envelope)
+		}
+		if count(t, pool, "items") != 0 {
+			t.Error("the preview left rows behind")
+		}
+	})
+}
+
 // commitBelow wraps a connector so its connections send belowGuard as COMMIT.
 type commitBelow struct{ driver.Connector }
 
