@@ -245,6 +245,9 @@ The shared [raw COMMIT rule](conformance/fixture.md#shared-security-rules) appli
 - `SET autocommit = 1` and other session settings that end the transaction.
 - On MySQL and MariaDB, statements that commit implicitly: `CREATE`, `ALTER`, `DROP`, `RENAME`, `TRUNCATE`, `LOCK TABLES`, `UNLOCK TABLES`, `GRANT`, `REVOKE` and the other statements MySQL lists under implicit commit.
 - On MySQL and MariaDB, `CALL`, because a stored procedure can run `COMMIT` or an implicitly committing statement inside the Preview transaction. A host may declare procedures that never commit, by exact name only (the same rule as host-declared reads); a declared procedure is allowed.
+- On MySQL and MariaDB, `PREPARE` and `EXECUTE` (and `EXECUTE IMMEDIATE` on MariaDB), because a prepared statement built from a string can be any of the statements above.
+
+The provider reads each statement as the server does, so comments (`--`, `#`, `/* */`, including MySQL's executable `/*! */` comments), quoted strings and identifiers, and multi-statement text can't hide a refused statement. When in doubt it refuses.
 
 `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO SAVEPOINT` stay allowed, because ORMs use them for nested transactions. A refused statement fails the Preview with 500 without confirmation, and the SQL transaction rolls back.
 
