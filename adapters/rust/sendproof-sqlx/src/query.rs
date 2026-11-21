@@ -577,7 +577,7 @@ fn refusal(words: &[String], text: &str, dialect: Dialect, safe: &HashSet<String
             | "EXPLAIN" | "DO" | "SAVEPOINT" | "RELEASE" | "ROLLBACK" => true,
             "SET" => !words.iter().any(|word| word == "AUTOCOMMIT"),
             "CREATE" | "DROP" => second == Some("TEMPORARY"),
-            "CALL" => called_procedure(text).is_some_and(|name| safe.contains(&name)),
+            "CALL" => called_procedure(text).is_some_and(|name| safe.contains(&name.to_lowercase())),
             _ => false,
         };
     if ends || implicit {
@@ -638,10 +638,11 @@ fn procedure_name(text: &str) -> Option<(String, &str)> {
 }
 
 /// Checks one procedure name a host declares never commits: an exact `name` or `schema.name`,
-/// optionally backtick-quoted, with nothing else, so no wildcards or argument lists.
+/// optionally backtick-quoted, with nothing else, so no wildcards or argument lists. The name is
+/// lower-cased, since MySQL routine names ignore case; calls are compared the same way.
 pub(crate) fn safe_procedure_name(name: &str) -> Option<String> {
     let (parsed, rest) = procedure_name(name.trim())?;
-    rest.trim().is_empty().then_some(parsed)
+    rest.trim().is_empty().then(|| parsed.to_lowercase())
 }
 
 /// Placeholder spellings.
@@ -789,7 +790,6 @@ mod tests {
         for sql in [
             "CALL p()",
             "CALL other.audit_read()",
-            "CALL AUDIT_READ()",
             "CALL audit_read_all()",
             "CALL lookup(1)",
             "/* x */ CALL audit_read()",
@@ -805,11 +805,18 @@ mod tests {
         ] {
             assert!(preview_refusal(sql, MYSQL, &safe).is_some(), "{sql}");
         }
+        // Routine names ignore case, as MySQL's do; a schema-qualified call matches only a declaration with that schema.
+        let audit: HashSet<String> = [safe_procedure_name("audit").unwrap()].into();
+        assert_eq!(preview_refusal("CALL AUDIT()", MYSQL, &audit), None);
+        assert!(preview_refusal("CALL other.audit()", MYSQL, &audit).is_some());
         for sql in [
             "CALL audit_read()",
             "CALL `audit_read`",
             "CALL app.lookup(1)",
             "CALL `app` . `lookup`()",
+            "CALL AUDIT_READ()",
+            "CALL `Audit_Read`()",
+            "CALL APP.LOOKUP(1)",
             "SET STATEMENT max_statement_time = 1 FOR SELECT 1",
             "SAVEPOINT sp1",
             "RELEASE SAVEPOINT sp1",

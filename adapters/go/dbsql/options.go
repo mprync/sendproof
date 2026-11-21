@@ -18,9 +18,10 @@ type config struct {
 
 // WithSafeProcedures declares MySQL and MariaDB stored procedures that never
 // commit, by exact name ("name" or "schema.name", optionally backtick-quoted, no
-// wildcards). During a preview every other CALL is refused, because a procedure
-// can run COMMIT or an implicitly committing statement inside the preview
-// transaction.
+// wildcards). The match ignores case, as MySQL routine names do, and a
+// schema-qualified call matches only a declaration with that schema. During a
+// preview every other CALL is refused, because a procedure can run COMMIT or an
+// implicitly committing statement inside the preview transaction.
 //
 // Warning: declaring a procedure is your statement that it never commits. One
 // that does would commit the handler's writes; the preview still fails, because

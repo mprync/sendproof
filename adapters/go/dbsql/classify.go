@@ -291,7 +291,8 @@ func checkStatement(text string, statement []token, dialect Dialect, safe map[st
 			return refuse(statement, "SET STATEMENT without FOR")
 		}
 		if words[0] == "CALL" {
-			if name, ok := calledProcedure(text, statement); ok && safe[name] {
+			// MySQL routine names ignore case, so the declared names and the call are compared lower-cased.
+			if name, ok := calledProcedure(text, statement); ok && safe[strings.ToLower(name)] {
 				return nil
 			}
 			return refuse(statement, "a procedure can commit the preview transaction; declare procedures that never commit with WithSafeProcedures")
@@ -374,7 +375,7 @@ func safeProcedureSet(names []string) (map[string]bool, error) {
 		if !ok || next != len(tokens) {
 			return nil, fmt.Errorf("dbsql: safe procedure names are exact names, such as \"name\" or \"schema.name\": %q", raw)
 		}
-		set[name] = true
+		set[strings.ToLower(name)] = true
 	}
 	return set, nil
 }

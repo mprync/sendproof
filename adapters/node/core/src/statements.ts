@@ -221,11 +221,12 @@ function calledProcedure(statement: string): string | undefined {
 /**
  * Checks and copies the stored procedures a host declares never commit, for MySQL and MariaDB `CALL`.
  *
- * Names are exact, as `name` or `schema.name`, optionally backtick-quoted, and compared case-sensitively with the name
- * a `CALL` uses: `CALL other.name()` is a different procedure from `name`. Wildcards, spaces and argument lists are
- * refused. Declaring a procedure is the host's statement that it never runs `COMMIT` or an implicitly committing
- * statement; one that does would end the Preview transaction (the `@@in_transaction` check then fails the Preview,
- * but the commit has already happened).
+ * Names are exact, as `name` or `schema.name`, optionally backtick-quoted. Backticks are removed and the match ignores
+ * case, as MySQL routine names do, so `CALL AUDIT()` is the declared `audit`; a schema-qualified call matches only a
+ * declaration with that schema, so `CALL other.name()` is a different procedure from `name`. Wildcards, spaces and
+ * argument lists are refused. Declaring a procedure is the host's statement that it never runs `COMMIT` or an
+ * implicitly committing statement; one that does would end the Preview transaction (the start-savepoint check then
+ * fails the Preview, but the commit has already happened).
  */
 export function safeProcedureNames(names: Iterable<string> = []): ReadonlySet<string> {
   const declared = new Set<string>();
@@ -234,7 +235,7 @@ export function safeProcedureNames(names: Iterable<string> = []): ReadonlySet<st
     if (!match || match[0] !== name.trim()) {
       throw new TypeError(`Safe procedure names are exact names, such as "name" or "schema.name": ${JSON.stringify(name)}`);
     }
-    declared.add(match[2] === undefined ? unquote(match[1]!) : unquote(match[1]!) + '.' + unquote(match[2]));
+    declared.add((match[2] === undefined ? unquote(match[1]!) : unquote(match[1]!) + '.' + unquote(match[2])).toLowerCase());
   }
   return declared;
 }
@@ -248,7 +249,7 @@ function refuses(statement: string, provider: AdapterProvider, safeProcedures: R
   if (inner !== undefined) return refuses(inner.trim(), provider, safeProcedures);
   if (mysqlCall.test(statement)) {
     const name = calledProcedure(statement);
-    return name === undefined || !safeProcedures.has(name);
+    return name === undefined || !safeProcedures.has(name.toLowerCase());
   }
   return mysqlPreparedSql.test(statement) || (mysqlImplicitCommit.test(statement) && !mysqlTemporaryTable.test(statement));
 }

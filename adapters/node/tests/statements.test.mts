@@ -17,7 +17,13 @@ describe('Transaction-control classifier', () => {
       assert.ok(!endsTransaction(sql, 'mysql', safe), sql);
     }
     // Exact names only: another schema, another case or a prefix is a different procedure.
-    for (const sql of ['CALL other.audit_read()', 'CALL lookup()', 'CALL AUDIT_READ()', 'CALL audit_read_all()', 'CALL p()']) {
+    // Routine names ignore case, as MySQL's do; a schema-qualified call matches only a declaration with that schema.
+    for (const sql of ['CALL AUDIT_READ()', 'CALL `Audit_Read`()', 'CALL APP.LOOKUP(1)']) {
+      assert.ok(!endsTransaction(sql, 'mysql', safe), sql);
+    }
+    assert.ok(!endsTransaction('CALL AUDIT()', 'mysql', safeProcedureNames(['audit'])));
+    assert.ok(endsTransaction('CALL other.audit()', 'mysql', safeProcedureNames(['audit'])));
+    for (const sql of ['CALL other.audit_read()', 'CALL lookup()', 'CALL audit_read_all()', 'CALL p()']) {
       assert.ok(endsTransaction(sql, 'mysql', safe), sql);
     }
     // CALL is MySQL's concern; PostgreSQL procedures can't commit a transaction they were called in.
@@ -104,6 +110,6 @@ describe('Transaction-control classifier', () => {
     for (const name of ['', ' ', 'p%', 'p*', 'a.b.c', 'p()', 'p q']) {
       assert.throws(() => safeProcedureNames([name]), TypeError, JSON.stringify(name));
     }
-    assert.deepEqual([...safeProcedureNames(['`app`.`p`', 'q'])], ['app.p', 'q']);
+    assert.deepEqual([...safeProcedureNames(['`App`.`p`', 'Q'])], ['app.p', 'q']);
   });
 });

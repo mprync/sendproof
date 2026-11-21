@@ -61,7 +61,8 @@ impl<B: Backend> SqlxProvider<B> {
     /// Declares a MySQL or MariaDB stored procedure that never commits, by exact name (`name` or
     /// `schema.name`, optionally backtick-quoted, no wildcards). During a preview every other `CALL`
     /// is refused, because a procedure can run `COMMIT` or an implicitly committing statement inside
-    /// the preview transaction. The name is compared as written in the `CALL`, case included.
+    /// the preview transaction. The match ignores case, as MySQL routine names do, and a
+    /// schema-qualified call matches only a declaration with that schema.
     ///
     /// **Warning:** declaring a procedure is your statement that it never commits. One that does
     /// commits the handler's writes; the preview still fails, because the savepoint it set at the

@@ -201,11 +201,13 @@ func TestMySQLEscapesAreRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused := []string{"CALL p()", "CALL other.audit_read()", "CALL AUDIT_READ()", "CALL audit_read_all()", "CALL lookup(1)", `CALL "audit_read"()`,
+	refused := []string{"CALL p()", "CALL other.audit_read()", "CALL audit_read_all()", "CALL lookup(1)", `CALL "audit_read"()`,
 		"PREPARE s FROM 'COMMIT'", "EXECUTE s", "SET STATEMENT max_statement_time = 1 FOR COMMIT",
 		"SET STATEMENT max_statement_time = 1 FOR CREATE TABLE t (n INT)", "SET sql_mode = '', autocommit = 1",
 		"SAVEPOINT sendproof_preview", "RELEASE SAVEPOINT sendproof_preview", "ROLLBACK TO SAVEPOINT `sendproof_preview`", "ROLLBACK WORK TO SENDPROOF_PREVIEW"}
+	// Routine names ignore case, as MySQL's do; a schema-qualified call matches only a declaration with that schema.
 	allowed := []string{"CALL audit_read()", "CALL `audit_read`", "CALL app.lookup(1)", "CALL `app` . `lookup`()",
+		"CALL AUDIT_READ()", "CALL `Audit_Read`()", "CALL APP.LOOKUP(1)",
 		"SET STATEMENT max_statement_time = 1 FOR SELECT 1", "DEALLOCATE PREPARE s", "SAVEPOINT sp1", "RELEASE SAVEPOINT sp1"}
 	for _, statement := range refused {
 		if err := previewSafeWith(statement, analyze(statement, DialectMySQL), DialectMySQL, safe); !errors.Is(err, ErrUnsafeStatement) {
@@ -216,6 +218,13 @@ func TestMySQLEscapesAreRefused(t *testing.T) {
 		if err := previewSafeWith(statement, analyze(statement, DialectMySQL), DialectMySQL, safe); err != nil {
 			t.Errorf("MySQL must allow %q: %v", statement, err)
 		}
+	}
+	audit, _ := safeProcedureSet([]string{"audit"})
+	if err := previewSafeWith("CALL AUDIT()", analyze("CALL AUDIT()", DialectMySQL), DialectMySQL, audit); err != nil {
+		t.Errorf("CALL AUDIT() must match the declared audit: %v", err)
+	}
+	if err := previewSafeWith("CALL other.audit()", analyze("CALL other.audit()", DialectMySQL), DialectMySQL, audit); !errors.Is(err, ErrUnsafeStatement) {
+		t.Errorf("CALL other.audit() must be refused, got %v", err)
 	}
 	for _, name := range []string{"", "p%", "p*", "a.b.c", "p()", "p q"} {
 		if _, err := safeProcedureSet([]string{name}); err == nil {
