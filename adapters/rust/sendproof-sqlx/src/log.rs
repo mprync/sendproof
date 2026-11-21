@@ -67,7 +67,7 @@ mod tests {
     use super::*;
 
     fn change(n: usize) -> Change {
-        Change { operation: "insert".into(), table: format!("t{n}"), key: None, before: None, after: None }
+        Change { operation: "insert".into(), table: format!("t{n}"), ..Change::default() }
     }
 
     #[test]

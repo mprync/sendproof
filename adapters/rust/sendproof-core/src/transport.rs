@@ -23,7 +23,8 @@ use crate::{
     limits,
     model::{ObservedTrace, PreviewEnvelope},
     protocol,
-    provider::{Observation, PreviewRequired, PreviewSession},
+    provider::{Changes, Observation, PreviewRequired, PreviewSession},
+    stores::CaptureScope,
     trace_store::{Reservation, TraceOwner, TraceStore},
 };
 
@@ -45,6 +46,16 @@ impl Reply {
     pub fn problem(status: u16, title: &str) -> Self {
         let (status, body) = protocol::problem(status, title);
         Self { status, headers: vec![("content-type", "application/problem+json".into()), ("cache-control", "no-store".into())], body }
+    }
+
+    /// The blocked-Preview response: 409 `application/problem+json`, never cached, without
+    /// `Preference-Applied`, so no client can mistake it for a confirmed rollback.
+    fn blocked(blocked: &crate::capture::Blocked) -> Self {
+        Self {
+            status: 409,
+            headers: vec![("content-type", "application/problem+json".into()), ("cache-control", "no-store".into())],
+            body: protocol::blocked_body(blocked),
+        }
     }
 
     fn json(status: u16, body: Vec<u8>) -> Self {
@@ -112,6 +123,8 @@ pub struct Enrollment(pub Arc<Extensions>);
 pub struct Core {
     config: Config,
     traces: TraceStore,
+    /// The adapter's web framework, such as `Axum`, advertised in capabilities. Empty when unknown.
+    framework: &'static str,
 }
 
 fn has_prefix(path: &str, prefix: &str) -> bool {
@@ -122,8 +135,14 @@ fn has_prefix(path: &str, prefix: &str) -> bool {
 impl Core {
     /// Creates the shared state.
     pub fn new(config: Config) -> Arc<Self> {
+        Self::for_framework(config, "")
+    }
+
+    /// Creates the shared state for an adapter of the web framework `framework` (`"Axum"`), which
+    /// capabilities report so the workbench shows guidance in the host's own language.
+    pub fn for_framework(config: Config, framework: &'static str) -> Arc<Self> {
         let traces = TraceStore::new(config.trace_retention());
-        Arc::new(Self { config, traces })
+        Arc::new(Self { config, traces, framework })
     }
 
     /// The configuration.
@@ -178,7 +197,7 @@ impl Core {
         if !protocol::is_same_origin(headers) {
             return Err(Reply::problem(403, "A preview must be requested from the same origin."));
         }
-        if self.config.available_provider().is_none() {
+        if !self.config.can_preview() {
             return Err(Reply::problem(503, "Preview requires one available preview provider."));
         }
         if !self.config.matches_operation(method, target) {
@@ -224,7 +243,8 @@ impl Core {
             }
             "/" | "/signin.html" => strip(self.asset("index.html")),
             "/_api/capabilities" => {
-                let document = protocol::capabilities(&self.config, identity.as_ref());
+                let stores = self.config.describe_stores().await;
+                let document = protocol::capabilities(&self.config, identity.as_ref(), &stores, self.framework);
                 strip(Reply::json(200, serde_json::to_vec(&document).unwrap_or_default()))
             }
             _ if tail.starts_with("/_api/traces/") => {
@@ -279,18 +299,25 @@ impl Core {
         if !self.config.admits(identity.as_ref()) {
             return None;
         }
-        let provider = self.config.available_provider()?.clone();
+        let provider = self.config.available_provider().cloned();
+        if provider.is_none() && self.config.data_stores().is_empty() {
+            return None;
+        }
         // The provider reads the current recorder while it begins, so scope it first.
         let recorder = Recorder::new(started, self.config.show_sql_values());
         let mut extensions = Extensions::new();
-        let began = capture::scope(recorder.clone(), provider.begin_observation(&mut extensions)).await;
-        let observation = match began {
-            Ok(Some(observation)) => observation,
-            Ok(None) => return None,
-            Err(error) => {
-                tracing::warn!(%error, "Sendproof could not start observing the send");
-                return None;
-            }
+        extensions.insert(CaptureScope(recorder.clone()));
+        // Without a SQL provider the send is still traced: the data stores log their commands.
+        let observation = match provider {
+            Some(provider) => match capture::scope(recorder.clone(), provider.begin_observation(&mut extensions)).await {
+                Ok(Some(observation)) => Some(observation),
+                Ok(None) => return None,
+                Err(error) => {
+                    tracing::warn!(%error, "Sendproof could not start observing the send");
+                    return None;
+                }
+            },
+            None => None,
         };
         let reservation = self.traces.reserve(owner);
         recorder.start_handler();
@@ -299,7 +326,7 @@ impl Core {
             core: self.clone(),
             recorder,
             reservation,
-            observation: Some(observation),
+            observation,
             enrollment: Enrollment(Arc::new(extensions)),
             armed: true,
         })
@@ -380,7 +407,8 @@ impl Drop for ObservedSend {
 pub struct PreviewState {
     invoked: AtomicBool,
     completed: AtomicBool,
-    session: Mutex<Option<Box<dyn PreviewSession>>>,
+    /// The SQL provider's session first, then each store's, in the order they began.
+    sessions: Mutex<Vec<Box<dyn PreviewSession>>>,
     recorder: Arc<Recorder>,
 }
 
@@ -393,7 +421,7 @@ impl PreviewState {
         // A preview recorder suppresses effects from the start, so a handler that is reached
         // without the gate (and therefore never enrolled) still cannot deliver one.
         let recorder = Recorder::new_preview(started, core.config.show_sql_values());
-        Arc::new(Self { invoked: AtomicBool::new(false), completed: AtomicBool::new(false), session: Mutex::new(None), recorder })
+        Arc::new(Self { invoked: AtomicBool::new(false), completed: AtomicBool::new(false), sessions: Mutex::new(Vec::new()), recorder })
     }
 
     /// The recorder to scope around the dispatch with [`capture::scope`].
@@ -420,64 +448,113 @@ impl PreviewState {
         if !protocol::is_same_origin(headers) {
             return Err(403);
         }
-        let Some(provider) = core.config.available_provider().cloned() else { return Err(503) };
+        let provider = core.config.available_provider().cloned();
+        if provider.is_none() && core.config.data_stores().is_empty() {
+            return Err(503);
+        }
         self.invoked.store(true, Ordering::SeqCst);
         self.recorder.start_handler();
         let mut extensions = Extensions::new();
-        match provider.begin_preview(&mut extensions).await {
-            Ok(session) => *self.session.lock().unwrap_or_else(|p| p.into_inner()) = Some(session),
-            Err(error) => {
-                tracing::error!(%error, "the preview provider could not begin a session");
-                return Err(500);
+        extensions.insert(CaptureScope(self.recorder.clone()));
+        let mut sessions: Vec<Box<dyn PreviewSession>> = Vec::new();
+        let mut failure = None;
+        if let Some(provider) = provider {
+            match provider.begin_preview(&mut extensions).await {
+                Ok(session) => sessions.push(session),
+                Err(error) => failure = Some(format!("the preview provider could not begin a session: {error}")),
             }
         }
+        for store in core.config.data_stores() {
+            if failure.is_some() {
+                break;
+            }
+            match store.begin_preview(&mut extensions).await {
+                Ok(Some(session)) => sessions.push(session),
+                Ok(None) => {}
+                Err(error) => failure = Some(format!("a data store could not begin a preview: {error}")),
+            }
+        }
+        if let Some(message) = failure {
+            tracing::error!(%message, "a Sendproof preview could not begin");
+            // Whatever began is rolled back and released before the handler can run.
+            for mut session in sessions.into_iter().rev() {
+                let _ = session.rollback().await;
+                let _ = session.close().await;
+            }
+            return Err(500);
+        }
+        *self.sessions.lock().unwrap_or_else(|p| p.into_inner()) = sessions;
         self.recorder.begin(true);
         Ok(Enrollment(Arc::new(extensions)))
     }
 
-    /// Rolls the preview back and builds the reply: the confirmed envelope, or a rejection.
+    /// Rolls the preview back and builds the reply, in the order of `spec/data-stores.md`:
     ///
-    /// The envelope is produced only when the handler ran to completion, nothing failed, and the
-    /// rollback succeeded. The session is always closed.
+    /// 1. every store session finishes (captures changes, aborts its transaction), then the SQL
+    ///    session rolls back;
+    /// 2. a failed rollback or abort, or a recorded fault, answers 500 without confirmation;
+    /// 3. otherwise a blocked write answers 409 with the problem body, whatever the handler returned;
+    /// 4. otherwise, if the handler ran to completion, the confirmed envelope.
+    ///
+    /// Every session is always closed.
     pub async fn finish(&self, result: Result<Inner, Failure>) -> Reply {
         self.recorder.end_handler();
-        let mut result = result;
-        let session = self.session.lock().unwrap_or_else(|p| p.into_inner()).take();
-        let mut envelope = None;
-        if let Some(mut session) = session {
-            match session.rollback().await {
-                Ok(()) => {
-                    if let (Ok(inner), true) = (&result, self.completed.load(Ordering::SeqCst)) {
-                        let snapshot = self.recorder.finish();
-                        let provider_changes = session.changes();
-                        let (changes, truncated) = limits::snapshot_changes(&provider_changes.changes);
-                        envelope = Some(protocol::build_envelope(
-                            inner.status,
-                            &inner.headers,
-                            &inner.body,
-                            (changes, truncated || provider_changes.truncated),
-                            snapshot.effects,
-                            snapshot.logs,
-                            snapshot.effects_truncated,
-                            snapshot.logs_truncated,
-                        ));
-                    }
-                }
-                Err(error) => result = Err(Failure::Error(format!("rollback failed: {error}"))),
-            }
-            self.recorder.finish();
-            if let Err(error) = session.close().await {
-                result = Err(Failure::Error(format!("closing the preview failed: {error}")));
+        let mut sessions = std::mem::take(&mut *self.sessions.lock().unwrap_or_else(|p| p.into_inner()));
+        // The first failure to roll back or release a session makes the preview unconfirmable.
+        let mut unsafe_to_confirm = false;
+        for session in sessions.iter_mut().rev() {
+            if let Err(error) = session.rollback().await {
+                tracing::error!(%error, "a Sendproof preview rollback failed");
+                unsafe_to_confirm = true;
             }
         }
+        let mut envelope = None;
+        if let (Ok(inner), true, false) = (&result, self.completed.load(Ordering::SeqCst), unsafe_to_confirm) {
+            let snapshot = self.recorder.finish();
+            let mut provider_changes = Changes::default();
+            for session in sessions.iter_mut() {
+                let changes = session.changes();
+                provider_changes.truncated |= changes.truncated;
+                provider_changes.changes.extend(changes.changes);
+            }
+            let (changes, truncated) = limits::snapshot_changes(&provider_changes.changes);
+            envelope = Some(protocol::build_envelope(
+                inner.status,
+                &inner.headers,
+                &inner.body,
+                (changes, truncated || provider_changes.truncated),
+                snapshot.effects,
+                snapshot.logs,
+                snapshot.effects_truncated,
+                snapshot.logs_truncated,
+            ));
+        }
         self.recorder.finish();
+        for session in sessions.into_iter().rev() {
+            if let Err(error) = session.close().await {
+                tracing::error!(%error, "closing a Sendproof preview failed");
+                unsafe_to_confirm = true;
+            }
+        }
 
+        if let Some(fault) = self.recorder.fault() {
+            tracing::error!(%fault, "a Sendproof preview was refused confirmation");
+            unsafe_to_confirm = true;
+        }
+        if unsafe_to_confirm || matches!(result, Err(Failure::Error(_)) if self.recorder.blocked().is_none()) {
+            if let Err(Failure::Error(message)) = &result {
+                tracing::error!(%message, "a Sendproof preview failed");
+            }
+            return Reply::problem(500, "The preview could not be completed safely.");
+        }
+        // The mark, not the handler's response, decides: a handler that swallowed the refusal and
+        // returned 200, or that panicked on it, still produces the blocked response.
+        if let Some(blocked) = self.recorder.blocked() {
+            return Reply::blocked(&blocked);
+        }
         match result {
             Err(Failure::TooLarge) => Reply::problem(413, "The preview response exceeds the 1 MiB limit."),
-            Err(Failure::Error(message)) => {
-                tracing::error!(%message, "a Sendproof preview failed");
-                Reply::problem(500, "The preview could not be completed safely.")
-            }
+            Err(Failure::Error(_)) => unreachable!("handled above"),
             Ok(inner) => match envelope {
                 Some(envelope) => self.confirmed(&envelope),
                 None if self.invoked() => Reply::problem(500, "The preview operation did not finish."),

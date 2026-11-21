@@ -26,7 +26,7 @@ pub struct Sendproof {
 impl Sendproof {
     /// Creates Sendproof from a validated configuration.
     pub fn new(config: Config) -> Self {
-        Self { core: Core::new(config) }
+        Self { core: Core::for_framework(config, "Axum") }
     }
 
     /// The configuration.

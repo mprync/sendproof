@@ -82,13 +82,21 @@ pub fn fits_payload(value: &impl serde::Serialize) -> Option<bool> {
 /// Replaces the values of secret-named members (`password_hash`, `api_key`, ...) of a row image
 /// with [`REDACTED`](crate::redact::REDACTED), using the same whole-word rules as SQL parameters.
 /// Change snapshots come straight from the database, so they would otherwise show stored secrets.
+///
+/// Document stores nest: a secret-named member is hidden at any depth, and arrays are searched too.
 pub fn redact_row(value: &mut Value) {
-    if let Value::Object(map) = value {
-        for (name, member) in map.iter_mut() {
-            if !member.is_null() && crate::redact::looks_secret(name) {
-                *member = Value::String(crate::redact::REDACTED.to_owned());
+    match value {
+        Value::Object(map) => {
+            for (name, member) in map.iter_mut() {
+                if !member.is_null() && crate::redact::looks_secret(name) {
+                    *member = Value::String(crate::redact::REDACTED.to_owned());
+                } else {
+                    redact_row(member);
+                }
             }
         }
+        Value::Array(items) => items.iter_mut().for_each(redact_row),
+        _ => {}
     }
 }
 
@@ -123,7 +131,16 @@ pub fn snapshot_changes(changes: &[Change]) -> (Vec<Change>, bool) {
             || (after.is_none() && change.after.is_some())
             || operation != change.operation
             || table != change.table;
-        result.push(Change { operation, table, key, before, after });
+        result.push(Change {
+            operation,
+            table,
+            key,
+            before,
+            after,
+            store: change.store.as_deref().map(|store| clip(store, NAME)),
+            namespace: change.namespace.as_deref().map(|namespace| clip(namespace, NAME)),
+            via: change.via.as_deref().map(|via| clip(via, NAME)),
+        });
     }
     (result, truncated)
 }
@@ -159,6 +176,7 @@ mod tests {
             key: Some(json!({"id": 1})),
             before: Some(json!({"id": 1, "name": "Ann", "password_hash": "old", "ApiKey": null})),
             after: Some(json!({"id": 1, "name": "Ann", "password_hash": "new", "api_key": "k", "monkey": "visible"})),
+            ..Change::default()
         };
         let (kept, _) = snapshot_changes(&[change]);
         let after = kept[0].after.as_ref().unwrap();
@@ -176,6 +194,7 @@ mod tests {
             key: Some(json!({"session_token": "t-1"})),
             before: Some(json!({"session_token": "t-1", "password_digest": "d", "user": 7})),
             after: None,
+            ..Change::default()
         };
         let (kept, _) = snapshot_changes(&[keyed]);
         assert_eq!(kept[0].key, Some(json!({"session_token": crate::redact::REDACTED})));
@@ -200,6 +219,7 @@ mod tests {
                 key: Some(json!({"id": i})),
                 before: None,
                 after: Some(json!({"id": i})),
+                ..Change::default()
             })
             .collect();
         let (kept, truncated) = snapshot_changes(&changes);

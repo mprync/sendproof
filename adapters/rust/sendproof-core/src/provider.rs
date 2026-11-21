@@ -31,6 +31,12 @@ pub trait PreviewProvider: Send + Sync + 'static {
         None
     }
 
+    /// The SQL provider id, such as `sqlite`, `postgresql` or `mysql`, so the workbench shows that
+    /// provider's mark instead of guessing from the database name.
+    fn system(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Whether previews can run right now. When `false`, no operations are advertised.
     fn is_available(&self) -> bool {
         true

@@ -89,6 +89,7 @@ fn describe(schema: &HashMap<String, Table>, event: &PreupdateHookResult<'_>) ->
         key: Some(key),
         before: before.map(Value::Object),
         after: after.map(Value::Object),
+        ..Change::default()
     })
 }
 

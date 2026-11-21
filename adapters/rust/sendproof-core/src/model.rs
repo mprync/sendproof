@@ -5,8 +5,11 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
-/// A row change reported by a preview provider.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// A row, document, item or key change reported by a preview provider or data store.
+///
+/// SQL providers fill the five original members. A data store also sets `store` (its `system`
+/// id), and MongoDB sets `namespace` (the database) and `via`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Change {
     /// `insert`, `update` or `delete`.
     pub operation: String,
@@ -18,6 +21,15 @@ pub struct Change {
     pub before: Option<Value>,
     /// Row after the change; `None` for a delete.
     pub after: Option<Value>,
+    /// The store's `system` id, such as `mongodb`. Absent for the SQL database.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
+    /// The database a collection lives in (MongoDB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// How the change was made when the operation alone hides it: `upsert` or `replace`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// A side effect recorded by the host: an email, HTTP call, job or message.
@@ -53,6 +65,36 @@ pub struct SqlCapture {
     pub rows_affected: Option<u64>,
 }
 
+/// A captured command to a data store (the `db` member of a `Db` log entry).
+///
+/// Follows the OpenTelemetry database conventions; the statement never carries a value.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbCapture {
+    /// The store id, such as `redis`.
+    pub system: String,
+    /// The command or action name.
+    pub operation: String,
+    /// The collection or table; for Redis, the first key argument.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// The MongoDB database or Redis database number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// The sanitized command text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statement: Option<String>,
+    /// Documents or items matched, modified or returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows_affected: Option<u64>,
+    /// `true` on the entry for a command the guard refused.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub blocked: bool,
+    /// The store's error code name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// The exception attached to a log entry.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CapturedException {
@@ -79,6 +121,9 @@ pub struct LogEntry {
     pub exception: Option<CapturedException>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sql: Option<SqlCapture>,
+    /// Set on `Db` entries, the commands sent to a data store.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db: Option<DbCapture>,
 }
 
 impl LogEntry {
@@ -93,6 +138,7 @@ impl LogEntry {
             properties: None,
             exception: None,
             sql: None,
+            db: None,
         }
     }
 
@@ -105,6 +151,14 @@ impl LogEntry {
             + self.sql.as_ref().map_or(0, |s| {
                 s.text.len()
                     + s.parameters.iter().map(|p| p.name.len() + p.value.as_ref().map_or(0, String::len) + p.db_type.len()).sum::<usize>()
+            })
+            + self.db.as_ref().map_or(0, |d| {
+                d.system.len()
+                    + d.operation.len()
+                    + d.target.as_ref().map_or(0, String::len)
+                    + d.namespace.as_ref().map_or(0, String::len)
+                    + d.statement.as_ref().map_or(0, String::len)
+                    + d.error.as_ref().map_or(0, String::len)
             })
     }
 }

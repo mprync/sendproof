@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use crate::{
     limits,
-    model::{Effect, LogEntry, SqlCapture, Timing},
+    model::{DbCapture, Effect, LogEntry, SqlCapture, Timing},
 };
 
 tokio::task_local! {
@@ -117,10 +117,41 @@ pub struct CaptureSnapshot {
     pub effects_truncated: bool,
 }
 
+/// The first write a data-store guard refused in a preview. It decides the preview's outcome, whatever
+/// the handler returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Blocked {
+    /// The store id, such as `redis`.
+    pub store: String,
+    /// The refused command or action name, never its arguments.
+    pub operation: String,
+    /// The sentence the workbench shows.
+    pub detail: String,
+}
+
+/// One command sent to a data store, for [`Recorder::record_db`].
+///
+/// Hooks pass sanitized statements only: a value never reaches this type.
+#[derive(Debug, Clone, Default)]
+pub struct DbEntry {
+    pub system: String,
+    pub operation: String,
+    pub target: Option<String>,
+    pub namespace: Option<String>,
+    pub statement: Option<String>,
+    pub rows_affected: Option<u64>,
+    /// The guard refused this command before it was sent.
+    pub blocked: bool,
+    pub error: Option<String>,
+    pub elapsed: Duration,
+}
+
 #[derive(Default)]
 struct Inner {
     active: bool,
     rollback: bool,
+    blocked: Option<Blocked>,
+    fault: Option<String>,
     effects: Vec<Effect>,
     logs: Vec<LogEntry>,
     logs_truncated: bool,
@@ -225,6 +256,45 @@ impl Recorder {
     pub fn is_preview(&self) -> bool {
         let inner = self.lock();
         inner.active && inner.rollback
+    }
+
+    /// Whether this recorder belongs to a rollback preview, whether or not it is recording yet or
+    /// any more. A data-store guard uses this, so a write sent before enrollment, or by a task that
+    /// outlives the handler, is still refused.
+    pub fn is_rollback_preview(&self) -> bool {
+        self.lock().rollback
+    }
+
+    /// Keeps the first refused write. It makes the preview answer 409 whatever the handler returns.
+    /// Only a rollback preview takes the mark.
+    pub fn block(&self, blocked: Blocked) {
+        let mut inner = self.lock();
+        if inner.rollback && inner.blocked.is_none() {
+            inner.blocked = Some(Blocked {
+                store: limits::clip(&blocked.store, limits::NAME),
+                operation: limits::clip(&blocked.operation, limits::NAME),
+                detail: limits::clip(&blocked.detail, limits::TEXT),
+            });
+        }
+    }
+
+    /// Keeps the first fault: something that ended or escaped the preview transaction. It makes the
+    /// preview answer 500 without confirmation, whatever the handler returns.
+    pub fn refuse(&self, message: &str) {
+        let mut inner = self.lock();
+        if inner.rollback && inner.fault.is_none() {
+            inner.fault = Some(limits::clip(message, limits::TEXT));
+        }
+    }
+
+    /// The first refused write, if any.
+    pub fn blocked(&self) -> Option<Blocked> {
+        self.lock().blocked.clone()
+    }
+
+    /// The first fault, if any.
+    pub fn fault(&self) -> Option<String> {
+        self.lock().fault.clone()
     }
 
     /// Whether any capture is recording.
@@ -336,6 +406,45 @@ impl Recorder {
         entry.elapsed_ms = Some(millis);
         entry.sql = Some(sql);
         push_log(&mut inner, entry);
+    }
+
+    /// Records one data-store command as a `Db` log entry. The message is the OpenTelemetry span name,
+    /// `{operation} {target}`. A refused command is logged but does not count towards `db` timing.
+    pub fn record_db(&self, entry: DbEntry) {
+        let mut inner = self.lock();
+        if !inner.active {
+            return;
+        }
+        let millis = entry.elapsed.as_secs_f64() * 1000.0;
+        if !entry.blocked {
+            inner.db_ms += millis;
+            inner.queries = inner.queries.saturating_add(1);
+        }
+        if !has_room(&mut inner) {
+            return;
+        }
+        let clip_name = |value: &str| limits::clip(value, limits::NAME);
+        let statement = entry.statement.as_deref().map(|statement| limits::clip(statement, limits::TEXT));
+        inner.logs_truncated |= entry.statement.as_ref().zip(statement.as_ref()).is_some_and(|(full, clipped)| full.len() != clipped.len());
+        let db = DbCapture {
+            system: clip_name(&entry.system),
+            operation: clip_name(&entry.operation),
+            target: entry.target.as_deref().map(clip_name),
+            namespace: entry.namespace.as_deref().map(clip_name),
+            statement,
+            rows_affected: entry.rows_affected,
+            blocked: entry.blocked,
+            error: entry.error.as_deref().map(clip_name),
+        };
+        let message = match &db.target {
+            Some(target) => format!("{} {target}", db.operation),
+            None => db.operation.clone(),
+        };
+        let mut log = LogEntry::new("Db", message);
+        log.offset_ms = Some((self.offset_ms() - millis).max(0.0));
+        log.elapsed_ms = Some(millis);
+        log.db = Some(db);
+        push_log(&mut inner, log);
     }
 
     /// The timing so far, with `extra_serialize_ms` added to the serialization metric.

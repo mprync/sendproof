@@ -173,7 +173,7 @@ impl Table {
 
     fn change(&self, operation: &str, before: Option<Value>, after: Option<Value>) -> Change {
         let image = after.as_ref().or(before.as_ref()).cloned().unwrap_or(Value::Null);
-        Change { operation: operation.into(), table: self.name.name.clone(), key: Some(self.key_json(&image)), before, after }
+        Change { operation: operation.into(), table: self.name.name.clone(), key: Some(self.key_json(&image)), before, after, ..Change::default() }
     }
 }
 
@@ -469,6 +469,7 @@ impl Driver for MySql {
     const DIALECT: Dialect = dialects::MYSQL;
     // Nothing is installed on the connection.
     const CLOSE_UNFINISHED: bool = false;
+    const SYSTEM: &'static str = "mysql";
     const SERIAL_PREVIEWS: bool = true;
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {

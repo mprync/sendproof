@@ -68,6 +68,7 @@ impl Driver for Sqlite {
     const DIALECT: Dialect = dialects::SQLITE;
     // An in-memory database lives in its connections, so never close one to clean up.
     const CLOSE_UNFINISHED: bool = false;
+    const SYSTEM: &'static str = "sqlite";
     const PREVIEW_BEGIN: &'static str = "BEGIN IMMEDIATE";
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {

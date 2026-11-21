@@ -5,6 +5,7 @@ use std::{fmt, sync::Arc, time::Duration};
 use crate::{
     headers::Headers,
     provider::{BoxFuture, PreviewProvider},
+    stores::{DataStore, StoreDescription},
     trace_store::DEFAULT_RETENTION,
 };
 
@@ -46,6 +47,20 @@ pub struct Operation {
     pub path: String,
 }
 
+/// An operation its author marked `preview: false`: it runs normally but a Preview of it never
+/// runs the handler. Listed in capabilities `previewUnavailable` with its reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnavailableOperation {
+    /// Upper-case HTTP verb.
+    pub method: String,
+    /// Path relative to the mount, using the framework's template syntax.
+    pub path: String,
+    /// The sentence the workbench shows before the user tries.
+    pub reason: String,
+    /// The stores the operation writes, as store ids such as `redis`.
+    pub stores: Vec<String>,
+}
+
 /// Resolves the caller from the headers of a request.
 pub type IdentityResolver = Arc<dyn Fn(Headers) -> BoxFuture<'static, Option<Identity>> + Send + Sync>;
 /// Decides whether a caller may use the workbench, previews and observed sends.
@@ -80,7 +95,9 @@ pub struct Config {
     pub(crate) path_base: String,
     pub(crate) trace_retention: Duration,
     pub(crate) operations: Vec<Operation>,
+    pub(crate) unavailable: Vec<UnavailableOperation>,
     pub(crate) provider: Option<Arc<dyn PreviewProvider>>,
+    pub(crate) stores: Vec<Arc<dyn DataStore>>,
     pub(crate) identity: Option<IdentityResolver>,
     pub(crate) policy: Option<WorkbenchPolicy>,
 }
@@ -100,7 +117,9 @@ impl Config {
             path_base: String::new(),
             trace_retention: DEFAULT_RETENTION,
             operations: Vec::new(),
+            unavailable: Vec::new(),
             provider: None,
+            stores: Vec::new(),
             identity: None,
             policy: None,
         })
@@ -124,6 +143,31 @@ impl Config {
     /// The registered provider, when it can run previews right now.
     pub fn available_provider(&self) -> Option<&Arc<dyn PreviewProvider>> {
         self.provider.as_ref().filter(|provider| provider.is_available())
+    }
+
+    /// The operations marked `preview: false`.
+    pub fn unavailable_operations(&self) -> &[UnavailableOperation] {
+        &self.unavailable
+    }
+
+    /// The registered data stores.
+    pub fn data_stores(&self) -> &[Arc<dyn DataStore>] {
+        &self.stores
+    }
+
+    /// Describes every registered store, for capabilities.
+    pub async fn describe_stores(&self) -> Vec<StoreDescription> {
+        let mut described = Vec::with_capacity(self.stores.len());
+        for store in &self.stores {
+            described.push(store.describe().await);
+        }
+        described
+    }
+
+    /// Whether a preview can run: an available SQL provider, or at least one data store. A preview
+    /// needs no SQL provider when the application's only stores are hooked data stores.
+    pub fn can_preview(&self) -> bool {
+        self.available_provider().is_some() || !self.stores.is_empty()
     }
 
     /// Whether `method` and the matched route template (relative to the mount) are declared for preview.
@@ -241,6 +285,37 @@ impl ConfigBuilder {
         self
     }
 
+    /// Marks an operation `preview: false`: a Preview of it is refused before its handler runs, and
+    /// the workbench shows `reason` beside the disabled button. The route itself is served normally.
+    ///
+    /// Nothing infers this mark: it only saves the user a round trip, because the write guard stops
+    /// the Preview at run time either way.
+    pub fn preview_unavailable(self, method: &str, path: impl Into<String>, reason: impl Into<String>) -> Self {
+        self.preview_unavailable_for(method, path, reason, std::iter::empty::<&str>())
+    }
+
+    /// Like [`preview_unavailable`](Self::preview_unavailable), also naming the stores the operation
+    /// writes (store ids such as `redis`), so the workbench can show their marks.
+    pub fn preview_unavailable_for<I, S>(mut self, method: &str, path: impl Into<String>, reason: impl Into<String>, stores: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.0.unavailable.push(UnavailableOperation {
+            method: method.to_ascii_uppercase(),
+            path: path.into(),
+            reason: reason.into(),
+            stores: stores.into_iter().map(Into::into).collect(),
+        });
+        self
+    }
+
+    /// Registers a hooked data store: MongoDB, Redis or DynamoDB. Only hooked clients are covered.
+    pub fn data_store(mut self, store: impl DataStore) -> Self {
+        self.0.stores.push(Arc::new(store));
+        self
+    }
+
     /// Registers the single preview provider.
     pub fn provider(mut self, provider: impl PreviewProvider) -> Self {
         self.0.provider = Some(Arc::new(provider));
@@ -277,6 +352,24 @@ impl ConfigBuilder {
         for url in urls {
             if !is_local_url(url) {
                 return Err(ConfigError(format!("`{url}` must be an application-relative, same-origin path")));
+            }
+        }
+        for operation in &config.unavailable {
+            let known = |store: &String| store.starts_with(|c: char| c.is_ascii_lowercase()) && store.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+            if operation.reason.trim().is_empty() || operation.reason.chars().count() > 512 {
+                return Err(ConfigError(format!(
+                    "the reason for {} {} must be a sentence of at most 512 characters",
+                    operation.method, operation.path
+                )));
+            }
+            if !operation.stores.iter().all(known) {
+                return Err(ConfigError(format!("list the stores {} {} writes as ids such as `redis`", operation.method, operation.path)));
+            }
+            if !operation.path.starts_with('/') || config.operations.iter().any(|op| op.method == operation.method && op.path == operation.path) {
+                return Err(ConfigError(format!(
+                    "{} {} is both a preview operation and marked unavailable, or is not a path",
+                    operation.method, operation.path
+                )));
             }
         }
         Ok(config)

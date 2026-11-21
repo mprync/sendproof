@@ -77,6 +77,10 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
         self.database.clone()
     }
 
+    fn system(&self) -> Option<&'static str> {
+        Some(B::SYSTEM)
+    }
+
     fn is_available(&self) -> bool {
         !self.pool.is_closed()
     }

@@ -67,6 +67,9 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// Whether a connection whose capture could not be removed must be closed rather than reused.
     const CLOSE_UNFINISHED: bool;
 
+    /// The SQL provider id the workbench shows a mark for (capabilities `database.system`).
+    const SYSTEM: &'static str;
+
     /// The statement that opens a preview's transaction. SQLite overrides it with `BEGIN IMMEDIATE`: a deferred
     /// transaction takes only a read lock first, so two concurrent previews that read and then write both hold it
     /// and one fails at once with `database is locked`. Taking the write lock up front makes them queue instead.

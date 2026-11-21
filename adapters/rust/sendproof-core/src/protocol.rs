@@ -5,10 +5,12 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::{
+    capture::Blocked,
     config::{Config, Identity},
     headers::Headers,
     limits,
     model::{Change, Effect, LogEntry, PreviewEnvelope},
+    stores::StoreDescription,
 };
 
 /// The reserved path prefix of previews, relative to the mount.
@@ -133,7 +135,11 @@ pub fn openapi_path(template: &str) -> String {
 }
 
 /// Builds the capabilities document for the current request.
-pub fn capabilities(config: &Config, identity: Option<&Identity>) -> Value {
+///
+/// `stores` are the registered data stores, already described (see [`Config::describe_stores`]);
+/// `framework` names the web framework of the adapter, such as `Axum`, for the workbench's
+/// `preview: false` snippet.
+pub fn capabilities(config: &Config, identity: Option<&Identity>, stores: &[StoreDescription], framework: &str) -> Value {
     let base = config.path_base();
     let provider = config.available_provider();
     let open_api_url = with_path_base(base, &config.open_api_url);
@@ -142,11 +148,10 @@ pub fn capabilities(config: &Config, identity: Option<&Identity>) -> Value {
     if !documents.iter().any(|d| d["url"] == open_api_url) {
         documents.insert(0, json!({ "name": config.api_name(), "url": open_api_url }));
     }
-    let mut operations: Vec<(String, String)> = match provider {
-        Some(_) => {
-            config.operations.iter().filter(|op| op.method != "HEAD").map(|op| (openapi_path(&op.path), op.method.clone())).collect()
-        }
-        None => Vec::new(),
+    let mut operations: Vec<(String, String)> = if config.can_preview() {
+        config.operations.iter().filter(|op| op.method != "HEAD").map(|op| (openapi_path(&op.path), op.method.clone())).collect()
+    } else {
+        Vec::new()
     };
     operations.sort();
     operations.dedup();
@@ -163,19 +168,78 @@ pub fn capabilities(config: &Config, identity: Option<&Identity>) -> Value {
         }
         value
     });
-    json!({
+    let database = provider.and_then(|provider| {
+        let (name, system) = (provider.database(), provider.system());
+        (name.is_some() || system.is_some()).then(|| {
+            let mut value = json!({ "name": name });
+            if let Some(system) = system {
+                value["system"] = json!(system);
+            }
+            value
+        })
+    });
+    let mut document = json!({
         "protocolVersion": 1,
         "openApiUrl": open_api_url,
         "fieldModules": config.field_modules.iter().map(|u| with_path_base(base, u)).collect::<Vec<_>>(),
         "apiName": config.api_name(),
         "environment": config.environment,
-        "database": provider.and_then(|p| p.database()),
+        "database": database,
         "identity": identity,
         "authProviders": auth,
         "previewOperations": preview_operations,
         "observedSend": !operations.is_empty(),
         "documents": documents,
-    })
+    });
+    if !framework.is_empty() {
+        document["binding"] = json!({ "language": "rust", "framework": framework });
+    }
+    if !stores.is_empty() {
+        document["dataStores"] = stores
+            .iter()
+            .map(|store| {
+                let mut entry = json!({ "system": store.system, "mode": store.mode.as_str() });
+                if let Some(name) = &store.name {
+                    entry["name"] = json!(name);
+                }
+                if let Some(reason) = &store.reason {
+                    entry["reason"] = json!(reason);
+                }
+                entry
+            })
+            .collect();
+    }
+    if config.can_preview() && !config.unavailable.is_empty() {
+        let mut unavailable: Vec<_> = config.unavailable.iter().collect();
+        unavailable.sort_by(|a, b| (&a.path, &a.method).cmp(&(&b.path, &b.method)));
+        document["previewUnavailable"] = unavailable
+            .into_iter()
+            .map(|op| {
+                let mut entry = json!({ "method": op.method, "path": openapi_path(&op.path), "reason": op.reason });
+                if !op.stores.is_empty() {
+                    entry["stores"] = json!(op.stores);
+                }
+                entry
+            })
+            .collect();
+    }
+    document
+}
+
+/// The body of the blocked-Preview response (`spec/data-stores.md`): a problem document that names
+/// the refused command, never its arguments, and says nothing was previewed.
+pub fn blocked_body(blocked: &Blocked) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "type": "about:blank",
+        "title": "Preview unavailable",
+        "status": 409,
+        "code": "preview_unavailable",
+        "detail": blocked.detail,
+        "store": blocked.store,
+        "operation": blocked.operation,
+        "rolledBack": false,
+    }))
+    .unwrap_or_default()
 }
 
 /// A problem-details body: `(status, JSON bytes)`.

@@ -273,6 +273,7 @@ impl Capture {
             key,
             before,
             after,
+            ..Change::default()
         })
     }
 
@@ -321,6 +322,7 @@ impl Driver for Postgres {
 
     const DIALECT: Dialect = dialects::POSTGRES;
     const CLOSE_UNFINISHED: bool = true;
+    const SYSTEM: &'static str = "postgresql";
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {
         match value {
