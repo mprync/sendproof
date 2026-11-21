@@ -268,6 +268,7 @@ The Ruby review found that a MySQL `CALL` can commit the Preview transaction; `s
 - checks the whole refused list (explicit and implicit commits, `CALL`) is enforced before sending, with the backstop;
 - adds a shared conformance route and check (for example `POST /items/{id}/ddl`, running `CREATE TABLE` after the insert) that every MySQL entry passes;
 - checks review findings 4-6 above in Go and Rust, which were reviewed before those findings were written (Node has been checked);
+- checks in every language a finding from the Java review: once a Preview has ended for any reason (including the 50 s limit), its MongoDB session and guarded handles refuse every further call, so a late handler write can't run outside the transaction. Go kept a "tiny window" here; close it;
 - PHP: checks Laravel Octane on Swoole/OpenSwoole, where one worker runs requests concurrently in coroutines, so "every write in the process belongs to the Preview" doesn't hold; either attribute writes per coroutine or refuse Preview under concurrent workers, with a test;
 - makes sure CI gives every new MySQL entry (`ruby-rails-mysql`, `php-laravel-mysql`, `java-spring-mysql`, the .NET one) the `BENCH_MYSQL_URL` and database it needs.
 
