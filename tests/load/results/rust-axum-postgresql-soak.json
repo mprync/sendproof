@@ -1,0 +1,596 @@
+{
+  "binding": "rust-axum-postgresql",
+  "profile": "soak",
+  "database": "postgresql",
+  "toolchain": "rust",
+  "start": [
+    "adapters/rust/target/release/rust-conformance"
+  ],
+  "startedAt": "2026-11-21T15:04:16.096Z",
+  "phases": [
+    "concurrency",
+    "contention"
+  ],
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "cores": 16,
+    "memoryGiB": 48,
+    "os": "Darwin 25.5.0 arm64",
+    "node": "v24.5.0",
+    "gitCommit": "7c30999a"
+  },
+  "concurrency": {
+    "concurrency": 32,
+    "checks": {
+      "previewDistinctIds": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 241,
+        "latencyMs": {
+          "mean": 131.02,
+          "p50": 130.36,
+          "p95": 150.62,
+          "p99": 164.91,
+          "max": 203.39
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameId": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 205.3,
+        "latencyMs": {
+          "mean": 153.56,
+          "p50": 131.54,
+          "p95": 264.43,
+          "p99": 552.22,
+          "max": 572.56
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameRow": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 201.2,
+        "latencyMs": {
+          "mean": 156.97,
+          "p50": 141.22,
+          "p95": 245.42,
+          "p99": 376.58,
+          "max": 412.65
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "rowAfter": "Initial",
+        "leftBehind": 0
+      },
+      "observedSend": {
+        "requests": 500,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 557.7,
+        "latencyMs": {
+          "mean": 55.63,
+          "p50": 51.92,
+          "p95": 82.79,
+          "p99": 104.2,
+          "max": 110.05
+        },
+        "statuses": {
+          "201": 500
+        },
+        "failureSamples": [],
+        "committed": 500,
+        "missing": 0,
+        "tracesIssued": 500,
+        "tracesRetained": 8,
+        "tracesMisattributed": 0
+      }
+    },
+    "failures": [],
+    "passed": true
+  },
+  "contention": {
+    "conditions": {
+      "baseline": {
+        "previewKind": null,
+        "previewConcurrency": 0,
+        "elapsedS": 15.01,
+        "hotUpdate": {
+          "requests": 36914,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 2460.1,
+          "latencyMs": {
+            "mean": 3.25,
+            "p50": 3.05,
+            "p95": 4.5,
+            "p99": 6.24,
+            "max": 18.4
+          },
+          "statuses": {
+            "200": 36914
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 37228,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 2481.4,
+          "latencyMs": {
+            "mean": 3.22,
+            "p50": 3.03,
+            "p95": 4.45,
+            "p99": 6.22,
+            "max": 18.53
+          },
+          "statuses": {
+            "201": 37228
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 37138,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 2474.6,
+          "latencyMs": {
+            "mean": 3.23,
+            "p50": 3.04,
+            "p95": 4.46,
+            "p99": 6.19,
+            "max": 18.56
+          },
+          "statuses": {
+            "200": 37138
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 296,
+          "maxWaiting": 1,
+          "meanWaiting": 0.01,
+          "sampledAtLeastOneWaiter": 3
+        }
+      },
+      "disjointRows@4": {
+        "previewKind": "insert",
+        "previewConcurrency": 4,
+        "elapsedS": 15.036,
+        "hotUpdate": {
+          "requests": 6110,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 407.2,
+          "latencyMs": {
+            "mean": 19.63,
+            "p50": 12.82,
+            "p95": 38.85,
+            "p99": 193.14,
+            "max": 1070.19
+          },
+          "statuses": {
+            "200": 6110
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 6208,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 413.7,
+          "latencyMs": {
+            "mean": 19.32,
+            "p50": 12.43,
+            "p95": 38.66,
+            "p99": 201.73,
+            "max": 1090.28
+          },
+          "statuses": {
+            "201": 6208
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 6381,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 425.3,
+          "latencyMs": {
+            "mean": 18.8,
+            "p50": 12,
+            "p95": 36.64,
+            "p99": 177.31,
+            "max": 1038.77
+          },
+          "statuses": {
+            "200": 6381
+          },
+          "failureSamples": []
+        },
+        "previews": {
+          "requests": 1501,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 99.9,
+          "latencyMs": {
+            "mean": 40,
+            "p50": 25.17,
+            "p95": 67.85,
+            "p99": 489.19,
+            "max": 1424.06
+          },
+          "statuses": {
+            "200": 1501
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 250,
+          "maxWaiting": 7,
+          "meanWaiting": 3.56,
+          "sampledAtLeastOneWaiter": 150
+        }
+      },
+      "hotRow@4": {
+        "previewKind": "hotRow",
+        "previewConcurrency": 4,
+        "elapsedS": 15.02,
+        "hotUpdate": {
+          "requests": 9458,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 630.4,
+          "latencyMs": {
+            "mean": 12.68,
+            "p50": 11.6,
+            "p95": 24.67,
+            "p99": 32.54,
+            "max": 109.51
+          },
+          "statuses": {
+            "200": 9458
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 9613,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 640.7,
+          "latencyMs": {
+            "mean": 12.48,
+            "p50": 11.31,
+            "p95": 24.38,
+            "p99": 32.4,
+            "max": 108.85
+          },
+          "statuses": {
+            "201": 9613
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 9882,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 658.6,
+          "latencyMs": {
+            "mean": 12.14,
+            "p50": 10.21,
+            "p95": 22.66,
+            "p99": 29.86,
+            "max": 107.44
+          },
+          "statuses": {
+            "200": 9882
+          },
+          "failureSamples": []
+        },
+        "previews": {
+          "requests": 2306,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 153.5,
+          "latencyMs": {
+            "mean": 26.03,
+            "p50": 24.51,
+            "p95": 37.07,
+            "p99": 47.57,
+            "max": 120.72
+          },
+          "statuses": {
+            "200": 2306
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 294,
+          "maxWaiting": 7,
+          "meanWaiting": 3.68,
+          "sampledAtLeastOneWaiter": 189
+        }
+      },
+      "longPreviews@4": {
+        "previewKind": "capture",
+        "previewConcurrency": 4,
+        "elapsedS": 15.347,
+        "hotUpdate": {
+          "requests": 556,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 36.5,
+          "latencyMs": {
+            "mean": 218.35,
+            "p50": 138.22,
+            "p95": 521.16,
+            "p99": 572.98,
+            "max": 653.17
+          },
+          "statuses": {
+            "200": 556
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 570,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 37.4,
+          "latencyMs": {
+            "mean": 213.87,
+            "p50": 114.45,
+            "p95": 527.13,
+            "p99": 649.57,
+            "max": 653.18
+          },
+          "statuses": {
+            "201": 570
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 585,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 38.4,
+          "latencyMs": {
+            "mean": 207.53,
+            "p50": 129.47,
+            "p95": 519.82,
+            "p99": 647.32,
+            "max": 652.89
+          },
+          "statuses": {
+            "200": 585
+          },
+          "failureSamples": []
+        },
+        "previews": {
+          "requests": 129,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 8.4,
+          "latencyMs": {
+            "mean": 470.98,
+            "p50": 464.21,
+            "p95": 654.57,
+            "p99": 781.47,
+            "max": 805.09
+          },
+          "statuses": {
+            "200": 129
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 298,
+          "maxWaiting": 7,
+          "meanWaiting": 6.73,
+          "sampledAtLeastOneWaiter": 289
+        }
+      },
+      "hotRow@16": {
+        "previewKind": "hotRow",
+        "previewConcurrency": 16,
+        "elapsedS": 15.077,
+        "hotUpdate": {
+          "requests": 1090,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 72.3,
+          "latencyMs": {
+            "mean": 110.6,
+            "p50": 79.57,
+            "p95": 408.23,
+            "p99": 650.41,
+            "max": 1019.79
+          },
+          "statuses": {
+            "200": 1090
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 1090,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 72.3,
+          "latencyMs": {
+            "mean": 110.6,
+            "p50": 79.77,
+            "p95": 408.07,
+            "p99": 650.93,
+            "max": 1010.29
+          },
+          "statuses": {
+            "201": 1090
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 1219,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 80.9,
+          "latencyMs": {
+            "mean": 98.91,
+            "p50": 74.71,
+            "p95": 346.7,
+            "p99": 618.3,
+            "max": 695.49
+          },
+          "statuses": {
+            "200": 1219
+          },
+          "failureSamples": []
+        },
+        "previews": {
+          "requests": 2069,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 137.2,
+          "latencyMs": {
+            "mean": 116.29,
+            "p50": 83.74,
+            "p95": 355.63,
+            "p99": 771.28,
+            "max": 1020.01
+          },
+          "statuses": {
+            "200": 2069
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 270,
+          "maxWaiting": 7,
+          "meanWaiting": 5.12,
+          "sampledAtLeastOneWaiter": 242
+        }
+      },
+      "longPreviews@16": {
+        "previewKind": "capture",
+        "previewConcurrency": 16,
+        "elapsedS": 16.764,
+        "hotUpdate": {
+          "requests": 80,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 4.8,
+          "latencyMs": {
+            "mean": 1660.99,
+            "p50": 1828.65,
+            "p95": 1975.27,
+            "p99": 1975.79,
+            "max": 1975.79
+          },
+          "statuses": {
+            "200": 80
+          },
+          "failureSamples": []
+        },
+        "insert": {
+          "requests": 80,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 4.8,
+          "latencyMs": {
+            "mean": 1661.04,
+            "p50": 1828.6,
+            "p95": 1974.85,
+            "p99": 1975.4,
+            "max": 1975.4
+          },
+          "statuses": {
+            "201": 80
+          },
+          "failureSamples": []
+        },
+        "read": {
+          "requests": 80,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 4.8,
+          "latencyMs": {
+            "mean": 1661.15,
+            "p50": 1828.82,
+            "p95": 1974.17,
+            "p99": 1974.9,
+            "max": 1974.9
+          },
+          "statuses": {
+            "200": 80
+          },
+          "failureSamples": []
+        },
+        "previews": {
+          "requests": 145,
+          "errors": 0,
+          "errorRate": 0,
+          "rps": 8.6,
+          "latencyMs": {
+            "mean": 1752.99,
+            "p50": 1819.92,
+            "p95": 2252.97,
+            "p99": 2541.48,
+            "max": 2653.16
+          },
+          "statuses": {
+            "200": 145
+          },
+          "failureSamples": []
+        },
+        "locks": {
+          "samples": 320,
+          "maxWaiting": 7,
+          "meanWaiting": 6.82,
+          "sampledAtLeastOneWaiter": 314
+        }
+      },
+      "sameKey": {
+        "ordinaryInsertWithRacingPreviewMs": {
+          "requests": 200,
+          "p50": 34.89,
+          "p95": 301.57,
+          "p99": 871.69,
+          "max": 915.64
+        },
+        "ordinaryInsertAloneMs": {
+          "requests": 200,
+          "p50": 1.94,
+          "p95": 2.47,
+          "p99": 9.88,
+          "max": 9.94
+        },
+        "failures": [],
+        "failureCount": 0,
+        "locks": {
+          "samples": 67,
+          "maxWaiting": 7,
+          "meanWaiting": 3.21,
+          "sampledAtLeastOneWaiter": 54
+        }
+      }
+    },
+    "errorsUnderPreviewLoad": {},
+    "failures": [],
+    "passed": true,
+    "finalHotName": "Normal-126790"
+  },
+  "passed": true
+}

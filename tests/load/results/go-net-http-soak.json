@@ -1,0 +1,774 @@
+{
+  "binding": "go-net-http",
+  "profile": "soak",
+  "database": "sqlite",
+  "toolchain": "go",
+  "start": [
+    "artifacts/go/fixture",
+    "nethttp",
+    "sql"
+  ],
+  "startedAt": "2026-11-21T16:17:18.311Z",
+  "phases": [
+    "idle",
+    "concurrency",
+    "soak"
+  ],
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "cores": 16,
+    "memoryGiB": 48,
+    "os": "Darwin 25.5.0 arm64",
+    "node": "v24.5.0",
+    "gitCommit": "7c30999a"
+  },
+  "idle": {
+    "bursts": 8,
+    "burstMs": 1500,
+    "comparison": {
+      "ready@1": {
+        "disabled": {
+          "rps": 24354.9,
+          "p50": 0.04,
+          "p95": 0.07,
+          "p99": 0.11,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.15
+        },
+        "enabled": {
+          "rps": 23997.5,
+          "p50": 0.04,
+          "p95": 0.07,
+          "p99": 0.11,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.44
+        },
+        "throughputRatio": 0.985
+      },
+      "ready@16": {
+        "disabled": {
+          "rps": 62066.4,
+          "p50": 0.23,
+          "p95": 0.46,
+          "p99": 0.51,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.07
+        },
+        "enabled": {
+          "rps": 62227.8,
+          "p50": 0.23,
+          "p95": 0.46,
+          "p99": 0.52,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.07
+        },
+        "throughputRatio": 1.003
+      },
+      "read@1": {
+        "disabled": {
+          "rps": 18059.8,
+          "p50": 0.05,
+          "p95": 0.09,
+          "p99": 0.15,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.1
+        },
+        "enabled": {
+          "rps": 17905.8,
+          "p50": 0.05,
+          "p95": 0.09,
+          "p99": 0.14,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.08
+        },
+        "throughputRatio": 0.991
+      },
+      "read@16": {
+        "disabled": {
+          "rps": 38387.9,
+          "p50": 0.25,
+          "p95": 1.26,
+          "p99": 1.66,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.04
+        },
+        "enabled": {
+          "rps": 39276.4,
+          "p50": 0.25,
+          "p95": 1.23,
+          "p99": 1.63,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.07
+        },
+        "throughputRatio": 1.023
+      },
+      "write@1": {
+        "disabled": {
+          "rps": 11287.7,
+          "p50": 0.07,
+          "p95": 0.14,
+          "p99": 0.22,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.27
+        },
+        "enabled": {
+          "rps": 10488.8,
+          "p50": 0.09,
+          "p95": 0.17,
+          "p99": 0.29,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.74
+        },
+        "throughputRatio": 0.929
+      },
+      "write@16": {
+        "disabled": {
+          "rps": 12363.2,
+          "p50": 0.07,
+          "p95": 3.11,
+          "p99": 33.17,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.54
+        },
+        "enabled": {
+          "rps": 12390.2,
+          "p50": 0.07,
+          "p95": 3.12,
+          "p99": 33.16,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.16
+        },
+        "throughputRatio": 1.002
+      },
+      "send@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 9064.6,
+          "p50": 0.1,
+          "p95": 0.16,
+          "p99": 0.27,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.2
+        },
+        "throughputRatio": null
+      },
+      "send@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 8185.3,
+          "p50": 0.1,
+          "p95": 3.21,
+          "p99": 33.32,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.27
+        },
+        "throughputRatio": null
+      },
+      "observedSend@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 5732.4,
+          "p50": 0.15,
+          "p95": 0.47,
+          "p99": 1.28,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.28
+        },
+        "throughputRatio": null
+      },
+      "observedSend@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 7592.9,
+          "p50": 0.13,
+          "p95": 8.17,
+          "p99": 53.3,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.36
+        },
+        "throughputRatio": null
+      },
+      "preview@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 8693.6,
+          "p50": 0.1,
+          "p95": 0.21,
+          "p99": 0.33,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.53
+        },
+        "throughputRatio": null
+      },
+      "preview@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 12422,
+          "p50": 0.1,
+          "p95": 3.2,
+          "p99": 33.19,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.12
+        },
+        "throughputRatio": null
+      }
+    }
+  },
+  "hostLoad": {
+    "idle": {
+      "before": 25.1,
+      "after": 20.6
+    },
+    "concurrency": {
+      "before": 20.6,
+      "after": 20.6
+    },
+    "soak": {
+      "before": 20.6,
+      "after": 17.4
+    }
+  },
+  "concurrency": {
+    "concurrency": 32,
+    "checks": {
+      "previewDistinctIds": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 2237.7,
+        "latencyMs": {
+          "mean": 4.07,
+          "p50": 0.16,
+          "p95": 18.17,
+          "p99": 78.94,
+          "max": 446.18
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameId": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 7876.6,
+        "latencyMs": {
+          "mean": 2.59,
+          "p50": 0.12,
+          "p95": 8.5,
+          "p99": 55.29,
+          "max": 105.53
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameRow": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 9160.2,
+        "latencyMs": {
+          "mean": 2.07,
+          "p50": 0.1,
+          "p95": 8.26,
+          "p99": 53.42,
+          "max": 108.89
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "rowAfter": "Initial",
+        "leftBehind": 0
+      },
+      "observedSend": {
+        "requests": 500,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 914,
+        "latencyMs": {
+          "mean": 7.71,
+          "p50": 0.17,
+          "p95": 33.36,
+          "p99": 135.93,
+          "max": 546.77
+        },
+        "statuses": {
+          "201": 500
+        },
+        "failureSamples": [],
+        "committed": 500,
+        "missing": 0,
+        "tracesIssued": 500,
+        "tracesRetained": 8,
+        "tracesMisattributed": 0
+      }
+    },
+    "failures": [],
+    "passed": true
+  },
+  "soak": {
+    "concurrency": 24,
+    "durationS": 300,
+    "bodyBytes": 92000,
+    "load": {
+      "requests": 1024945,
+      "errors": 0,
+      "errorRate": 0,
+      "rps": 3415.5,
+      "latencyMs": {
+        "mean": 7.01,
+        "p50": 0.28,
+        "p95": 21.06,
+        "p99": 113.83,
+        "max": 6705.93
+      },
+      "statuses": {
+        "200": 717475,
+        "201": 256393,
+        "413": 51077
+      },
+      "failureSamples": []
+    },
+    "windowS": 25,
+    "requestsPerWindow": [
+      99155,
+      93181,
+      96535,
+      95435,
+      93201,
+      76490,
+      82533,
+      76327,
+      95994,
+      71200,
+      71632,
+      73231
+    ],
+    "hostLoadPerWindow": [
+      25,
+      28.2,
+      26.4,
+      26.3,
+      23.2,
+      23.8,
+      19.6,
+      17.5,
+      19.5,
+      22.5,
+      18.1,
+      20.3
+    ],
+    "meanMsPerWindowByKind": {
+      "read": [
+        0.14,
+        0.15,
+        0.15,
+        0.14,
+        0.14,
+        0.14,
+        0.14,
+        0.14,
+        0.14,
+        0.15,
+        0.17,
+        0.16
+      ],
+      "preview": [
+        6.89,
+        7.78,
+        7.38,
+        7.22,
+        7.94,
+        8.71,
+        9.17,
+        9.31,
+        7.29,
+        10.69,
+        10.08,
+        9.36
+      ],
+      "send": [
+        7.19,
+        7.62,
+        7.37,
+        7.47,
+        7.47,
+        9.98,
+        8.25,
+        8.36,
+        7.49,
+        9.83,
+        10.55,
+        9.71
+      ],
+      "previewBody": [
+        10.81,
+        10.74,
+        10.86,
+        12.07,
+        11.9,
+        14.81,
+        13.13,
+        13.08,
+        11.72,
+        12.08,
+        13.25,
+        13.58
+      ],
+      "sendBody": [
+        10.03,
+        10.98,
+        10.12,
+        10.42,
+        10.74,
+        13.87,
+        12.39,
+        14.11,
+        10.3,
+        14.81,
+        14.11,
+        15.88
+      ],
+      "large": [
+        8.31,
+        8.1,
+        8.6,
+        7.17,
+        7.39,
+        10.73,
+        7.91,
+        10.18,
+        7.51,
+        8.35,
+        9.24,
+        9.7
+      ],
+      "capture": [
+        10.48,
+        9.69,
+        9.73,
+        10.25,
+        10.63,
+        12.04,
+        9.65,
+        14.03,
+        11.08,
+        12.56,
+        13.73,
+        12.79
+      ]
+    },
+    "memory": {
+      "bounded": true,
+      "midMedianMiB": 55.9,
+      "finalMedianMiB": 56.9,
+      "growthMiB": 1,
+      "slopeMiBPerMin": -0.92,
+      "peakMiB": 57,
+      "startMiB": 52.5,
+      "idleAfterSettleMiB": 53.3,
+      "settledS": 15.995
+    },
+    "samples": [
+      [
+        0,
+        52.5
+      ],
+      [
+        5,
+        53.3
+      ],
+      [
+        10,
+        53.6
+      ],
+      [
+        15.1,
+        53.8
+      ],
+      [
+        20.1,
+        54.2
+      ],
+      [
+        25.1,
+        54.5
+      ],
+      [
+        30.1,
+        54.7
+      ],
+      [
+        35.1,
+        54.9
+      ],
+      [
+        40.2,
+        55.1
+      ],
+      [
+        45.2,
+        55.2
+      ],
+      [
+        50.2,
+        55.2
+      ],
+      [
+        55.2,
+        55.4
+      ],
+      [
+        60.2,
+        55.5
+      ],
+      [
+        65.2,
+        55.6
+      ],
+      [
+        70.3,
+        55.6
+      ],
+      [
+        75.3,
+        55.7
+      ],
+      [
+        80.3,
+        55.8
+      ],
+      [
+        85.3,
+        55.8
+      ],
+      [
+        90.3,
+        55.8
+      ],
+      [
+        95.3,
+        55.9
+      ],
+      [
+        100.3,
+        55.9
+      ],
+      [
+        105.4,
+        55.9
+      ],
+      [
+        110.4,
+        56
+      ],
+      [
+        115.4,
+        56.5
+      ],
+      [
+        120.4,
+        56.6
+      ],
+      [
+        125.4,
+        56.6
+      ],
+      [
+        130.4,
+        56.7
+      ],
+      [
+        135.5,
+        56.6
+      ],
+      [
+        140.5,
+        56.6
+      ],
+      [
+        145.5,
+        56.6
+      ],
+      [
+        150.5,
+        56.6
+      ],
+      [
+        155.5,
+        56.7
+      ],
+      [
+        160.5,
+        56.7
+      ],
+      [
+        165.6,
+        56.7
+      ],
+      [
+        170.6,
+        56.7
+      ],
+      [
+        175.6,
+        56.7
+      ],
+      [
+        180.6,
+        56.7
+      ],
+      [
+        185.6,
+        56.7
+      ],
+      [
+        190.6,
+        56.8
+      ],
+      [
+        195.7,
+        56.8
+      ],
+      [
+        200.7,
+        56.8
+      ],
+      [
+        205.7,
+        56.8
+      ],
+      [
+        210.7,
+        56.8
+      ],
+      [
+        215.7,
+        56.8
+      ],
+      [
+        220.8,
+        56.8
+      ],
+      [
+        225.8,
+        56.8
+      ],
+      [
+        230.8,
+        56.8
+      ],
+      [
+        235.8,
+        56.8
+      ],
+      [
+        240.9,
+        56.9
+      ],
+      [
+        245.9,
+        56.9
+      ],
+      [
+        250.9,
+        56.9
+      ],
+      [
+        255.9,
+        56.9
+      ],
+      [
+        260.9,
+        56.9
+      ],
+      [
+        265.9,
+        57
+      ],
+      [
+        271,
+        57
+      ],
+      [
+        276,
+        57
+      ],
+      [
+        281,
+        57
+      ],
+      [
+        286,
+        52.9
+      ],
+      [
+        291,
+        53.1
+      ],
+      [
+        296,
+        53.1
+      ],
+      [
+        301.1,
+        53.3
+      ],
+      [
+        306.1,
+        53.3
+      ],
+      [
+        311.1,
+        53.3
+      ],
+      [
+        316.1,
+        53.3
+      ]
+    ]
+  },
+  "passed": true
+}

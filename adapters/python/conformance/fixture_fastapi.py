@@ -19,7 +19,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, create_engine, text
+from sqlalchemy import String, create_engine, event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from starlette.applications import Starlette
@@ -40,6 +40,15 @@ log = logging.getLogger("fixture")
 # ----------------------------------------------------------------------------- database
 _directory = Path(tempfile.mkdtemp(prefix="testbench-fixture-"))
 engine = create_engine(f"sqlite:///{_directory / 'items.db'}")
+
+
+@event.listens_for(engine, "connect")
+def _use_write_ahead_log(connection, _record) -> None:
+    """Readers no longer block the single writer, as a service that serves concurrent traffic from SQLite configures it.
+
+    The default rollback journal made ordinary writes fail with "database is locked" under sustained concurrent load.
+    """
+    connection.execute("PRAGMA journal_mode=WAL")
 
 
 class Base(DeclarativeBase):

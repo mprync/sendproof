@@ -55,8 +55,14 @@ impl Database {
                     .create_if_missing(true)
                     .journal_mode(SqliteJournalMode::Wal)
                     .busy_timeout(Duration::from_secs(5));
+                // SQLite has one writer at a time. Extra connections only wait on its lock by polling with sleeps,
+                // so load tests may set `BENCH_SQLITE_CONNECTIONS=1` to queue writers fairly in the pool instead.
+                let connections = std::env::var("BENCH_SQLITE_CONNECTIONS")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(8);
                 let pool = SqlitePoolOptions::new()
-                    .max_connections(8)
+                    .max_connections(connections)
                     .connect_with(options)
                     .await?;
                 sqlx::query(

@@ -60,7 +60,11 @@ public static class FixtureApplication
         var app = builder.Build();
         using (var scope = app.Services.CreateScope())
         {
-            scope.ServiceProvider.GetRequiredService<FixtureDbContext>().Database.EnsureCreated();
+            var database = scope.ServiceProvider.GetRequiredService<FixtureDbContext>().Database;
+            database.EnsureCreated();
+            // Write-ahead logging is stored in the database file, so connections opened later (the fixture does not pool)
+            // use it. The default rollback journal makes concurrent writers poll for the lock and fsync twice per commit.
+            database.ExecuteSqlRaw("PRAGMA journal_mode=WAL");
         }
 
         app.Lifetime.ApplicationStopped.Register(() =>

@@ -22,7 +22,7 @@ The [conformance manifest](../../tests/conformance/bindings.json) identifies the
 3. Connect the binding to the app's authenticated identity and sign-in routes. Supply a stable identity subject to enable observed Send.
 4. Set up the transaction provider and mark buffered operations whose writes all participate in that transaction. Suppress external effects at their dispatch boundary. Other operations still support ordinary Send.
 
-See the [configuration mapping](options.md) and [verified database combinations](databases.md). For a new ecosystem, follow the [binding implementation checklist](adding.md).
+For overhead, load behaviour and recommended limits, see [performance](../performance.md). See the [configuration mapping](options.md) and [verified database combinations](databases.md). For a new ecosystem, follow the [binding implementation checklist](adding.md).
 
 ## Run the same checks locally
 

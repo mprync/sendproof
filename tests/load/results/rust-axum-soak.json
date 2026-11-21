@@ -1,0 +1,740 @@
+{
+  "binding": "rust-axum",
+  "profile": "soak",
+  "database": "sqlite",
+  "toolchain": "rust",
+  "start": [
+    "adapters/rust/target/release/rust-conformance"
+  ],
+  "startedAt": "2026-11-21T13:57:08.523Z",
+  "phases": [
+    "idle",
+    "concurrency",
+    "soak"
+  ],
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "cores": 16,
+    "memoryGiB": 48,
+    "os": "Darwin 25.5.0 arm64",
+    "node": "v24.5.0",
+    "gitCommit": "7c30999a"
+  },
+  "idle": {
+    "bursts": 8,
+    "burstMs": 1500,
+    "comparison": {
+      "ready@1": {
+        "disabled": {
+          "rps": 31153.2,
+          "p50": 0.03,
+          "p95": 0.05,
+          "p99": 0.08,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.15
+        },
+        "enabled": {
+          "rps": 31155,
+          "p50": 0.03,
+          "p95": 0.05,
+          "p99": 0.08,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.24
+        },
+        "throughputRatio": 1
+      },
+      "ready@16": {
+        "disabled": {
+          "rps": 60210.3,
+          "p50": 0.24,
+          "p95": 0.48,
+          "p99": 0.55,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.35
+        },
+        "enabled": {
+          "rps": 58021.8,
+          "p50": 0.25,
+          "p95": 0.49,
+          "p99": 0.64,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.22
+        },
+        "throughputRatio": 0.964
+      },
+      "read@1": {
+        "disabled": {
+          "rps": 16055,
+          "p50": 0.05,
+          "p95": 0.1,
+          "p99": 0.16,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.69
+        },
+        "enabled": {
+          "rps": 14911.9,
+          "p50": 0.06,
+          "p95": 0.11,
+          "p99": 0.17,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.44
+        },
+        "throughputRatio": 0.929
+      },
+      "read@16": {
+        "disabled": {
+          "rps": 53953.4,
+          "p50": 0.25,
+          "p95": 0.49,
+          "p99": 0.62,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.1
+        },
+        "enabled": {
+          "rps": 51682.3,
+          "p50": 0.27,
+          "p95": 0.51,
+          "p99": 0.9,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.21
+        },
+        "throughputRatio": 0.958
+      },
+      "write@1": {
+        "disabled": {
+          "rps": 8551.8,
+          "p50": 0.09,
+          "p95": 0.16,
+          "p99": 0.22,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.05
+        },
+        "enabled": {
+          "rps": 9078.8,
+          "p50": 0.1,
+          "p95": 0.16,
+          "p99": 0.22,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1
+        },
+        "throughputRatio": 1.062
+      },
+      "write@16": {
+        "disabled": {
+          "rps": 10589.3,
+          "p50": 0.68,
+          "p95": 1,
+          "p99": 7.9,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.27
+        },
+        "enabled": {
+          "rps": 12117.2,
+          "p50": 0.64,
+          "p95": 1.16,
+          "p99": 12.27,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.12
+        },
+        "throughputRatio": 1.144
+      },
+      "send@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 4260.5,
+          "p50": 0.18,
+          "p95": 6.72,
+          "p99": 7.03,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.77
+        },
+        "throughputRatio": null
+      },
+      "send@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 8986.3,
+          "p50": 0.92,
+          "p95": 2.29,
+          "p99": 14.52,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.78
+        },
+        "throughputRatio": null
+      },
+      "observedSend@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 4535.7,
+          "p50": 0.17,
+          "p95": 0.3,
+          "p99": 0.5,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1
+        },
+        "throughputRatio": null
+      },
+      "observedSend@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 8686.7,
+          "p50": 1.29,
+          "p95": 14.52,
+          "p99": 48.71,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.95
+        },
+        "throughputRatio": null
+      },
+      "preview@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 5115,
+          "p50": 0.18,
+          "p95": 0.28,
+          "p99": 0.38,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.13
+        },
+        "throughputRatio": null
+      },
+      "preview@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 4985.1,
+          "p50": 1.65,
+          "p95": 2.16,
+          "p99": 2.62,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.14
+        },
+        "throughputRatio": null
+      }
+    }
+  },
+  "concurrency": {
+    "concurrency": 32,
+    "checks": {
+      "previewDistinctIds": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 4440.7,
+        "latencyMs": {
+          "mean": 5.98,
+          "p50": 4.48,
+          "p95": 5.23,
+          "p99": 26.79,
+          "max": 224.97
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameId": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 3666.6,
+        "latencyMs": {
+          "mean": 5.94,
+          "p50": 4.45,
+          "p95": 5,
+          "p99": 15.28,
+          "max": 272.6
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameRow": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 4685.3,
+        "latencyMs": {
+          "mean": 5.2,
+          "p50": 3.98,
+          "p95": 4.6,
+          "p99": 12.2,
+          "max": 213.32
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "rowAfter": "Initial",
+        "leftBehind": 0
+      },
+      "observedSend": {
+        "requests": 500,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 3728.7,
+        "latencyMs": {
+          "mean": 5.19,
+          "p50": 4.09,
+          "p95": 6.37,
+          "p99": 44.06,
+          "max": 133.94
+        },
+        "statuses": {
+          "201": 500
+        },
+        "failureSamples": [],
+        "committed": 500,
+        "missing": 0,
+        "tracesIssued": 500,
+        "tracesRetained": 8,
+        "tracesMisattributed": 0
+      }
+    },
+    "failures": [],
+    "passed": true
+  },
+  "soak": {
+    "concurrency": 24,
+    "durationS": 300,
+    "bodyBytes": 92000,
+    "load": {
+      "requests": 647560,
+      "errors": 0,
+      "errorRate": 0,
+      "rps": 2157.4,
+      "latencyMs": {
+        "mean": 11.1,
+        "p50": 6.08,
+        "p95": 24.26,
+        "p99": 97.92,
+        "max": 4082.66
+      },
+      "statuses": {
+        "200": 453301,
+        "201": 161874,
+        "413": 32385
+      },
+      "failureSamples": []
+    },
+    "windowS": 25,
+    "requestsPerWindow": [
+      60586,
+      62520,
+      40611,
+      66125,
+      59359,
+      57134,
+      60315,
+      60234,
+      50589,
+      20739,
+      52168,
+      57059
+    ],
+    "hostLoadPerWindow": [
+      7.1,
+      9.7,
+      9.9,
+      9.3,
+      9.8,
+      9.9,
+      9,
+      8.4,
+      7.9,
+      18.3,
+      17.4,
+      15.1
+    ],
+    "meanMsPerWindowByKind": {
+      "read": [
+        6.78,
+        6.41,
+        10.2,
+        6.19,
+        6.84,
+        7.04,
+        6.74,
+        6.71,
+        7.89,
+        19.6,
+        7.64,
+        7.08
+      ],
+      "preview": [
+        9.95,
+        9.3,
+        14.53,
+        8.91,
+        10.11,
+        10.67,
+        9.92,
+        10,
+        12.15,
+        29.01,
+        11.53,
+        11.11
+      ],
+      "sendBody": [
+        12.88,
+        12.88,
+        17.75,
+        10.95,
+        12.79,
+        13.67,
+        13.14,
+        12.8,
+        15,
+        37.04,
+        14.37,
+        13.16
+      ],
+      "large": [
+        9.81,
+        10.22,
+        16.16,
+        10.59,
+        10.98,
+        10.17,
+        10.31,
+        10.25,
+        11.65,
+        31.04,
+        11.18,
+        10.8
+      ],
+      "previewBody": [
+        8.78,
+        9.91,
+        16.04,
+        9.25,
+        10.37,
+        10.44,
+        9.18,
+        10.65,
+        11.47,
+        28.74,
+        13.04,
+        11.59
+      ],
+      "send": [
+        11.41,
+        11.55,
+        18.1,
+        10.97,
+        11.99,
+        12.26,
+        11.94,
+        11.97,
+        13.71,
+        36.91,
+        13.73,
+        11.58
+      ],
+      "capture": [
+        14.65,
+        13.94,
+        21.17,
+        12.83,
+        14.11,
+        15.1,
+        13.83,
+        13.36,
+        16.92,
+        33.84,
+        15.44,
+        13.92
+      ]
+    },
+    "memory": {
+      "bounded": true,
+      "midMedianMiB": 32.3,
+      "finalMedianMiB": 30.6,
+      "growthMiB": -1.7,
+      "slopeMiBPerMin": -1.72,
+      "peakMiB": 35.1,
+      "startMiB": 31.2,
+      "idleAfterSettleMiB": 31.2,
+      "settledS": 15.914
+    },
+    "samples": [
+      [
+        0,
+        31.2
+      ],
+      [
+        5,
+        31.4
+      ],
+      [
+        10,
+        31.5
+      ],
+      [
+        15,
+        32.1
+      ],
+      [
+        20.1,
+        32.1
+      ],
+      [
+        25.1,
+        32.2
+      ],
+      [
+        30.1,
+        32.5
+      ],
+      [
+        35.1,
+        32.7
+      ],
+      [
+        40.1,
+        32.8
+      ],
+      [
+        45.1,
+        34.7
+      ],
+      [
+        50.2,
+        28
+      ],
+      [
+        55.2,
+        29.9
+      ],
+      [
+        60.2,
+        30
+      ],
+      [
+        65.2,
+        30.8
+      ],
+      [
+        70.3,
+        31
+      ],
+      [
+        75.3,
+        31.2
+      ],
+      [
+        80.3,
+        31.3
+      ],
+      [
+        85.3,
+        31.5
+      ],
+      [
+        90.3,
+        31.6
+      ],
+      [
+        95.3,
+        31.7
+      ],
+      [
+        100.3,
+        31.8
+      ],
+      [
+        105.4,
+        34.3
+      ],
+      [
+        110.4,
+        34.7
+      ],
+      [
+        115.4,
+        34.9
+      ],
+      [
+        120.4,
+        35.1
+      ],
+      [
+        125.4,
+        33.3
+      ],
+      [
+        130.5,
+        32.3
+      ],
+      [
+        135.5,
+        32.5
+      ],
+      [
+        140.5,
+        32.6
+      ],
+      [
+        145.5,
+        32.8
+      ],
+      [
+        150.5,
+        32.2
+      ],
+      [
+        155.5,
+        32.7
+      ],
+      [
+        160.6,
+        32.9
+      ],
+      [
+        165.6,
+        33
+      ],
+      [
+        170.6,
+        33.2
+      ],
+      [
+        175.6,
+        33.3
+      ],
+      [
+        180.6,
+        33.5
+      ],
+      [
+        185.7,
+        33.6
+      ],
+      [
+        190.7,
+        33.8
+      ],
+      [
+        195.7,
+        34
+      ],
+      [
+        200.7,
+        34.2
+      ],
+      [
+        205.7,
+        34.3
+      ],
+      [
+        210.7,
+        34.5
+      ],
+      [
+        215.8,
+        34.7
+      ],
+      [
+        220.8,
+        34.9
+      ],
+      [
+        225.8,
+        34.9
+      ],
+      [
+        230.8,
+        35
+      ],
+      [
+        235.9,
+        32.4
+      ],
+      [
+        240.9,
+        30.6
+      ],
+      [
+        245.9,
+        29.9
+      ],
+      [
+        250.9,
+        29.6
+      ],
+      [
+        255.9,
+        29.7
+      ],
+      [
+        260.9,
+        29.9
+      ],
+      [
+        266,
+        30.1
+      ],
+      [
+        271,
+        30.2
+      ],
+      [
+        276,
+        30.4
+      ],
+      [
+        281,
+        30.6
+      ],
+      [
+        286,
+        30.7
+      ],
+      [
+        291,
+        30.8
+      ],
+      [
+        296.1,
+        31
+      ],
+      [
+        301.1,
+        31.2
+      ],
+      [
+        306.1,
+        31.2
+      ],
+      [
+        311.1,
+        31.2
+      ],
+      [
+        316.1,
+        31.2
+      ]
+    ]
+  },
+  "passed": true
+}

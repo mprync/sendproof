@@ -1,0 +1,233 @@
+{
+  "binding": "dotnet-aspnetcore",
+  "profile": "quick",
+  "database": "sqlite",
+  "toolchain": "dotnet",
+  "start": [
+    "dotnet",
+    "examples/DotnetConformance/bin/Release/net10.0/DotnetConformance.dll"
+  ],
+  "startedAt": "2026-11-21T15:08:52.846Z",
+  "phases": [
+    "idle"
+  ],
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "cores": 16,
+    "memoryGiB": 48,
+    "os": "Darwin 25.5.0 arm64",
+    "node": "v24.5.0",
+    "gitCommit": "7c30999a"
+  },
+  "idle": {
+    "bursts": 6,
+    "burstMs": 1000,
+    "comparison": {
+      "ready@1": {
+        "disabled": {
+          "rps": 19781.9,
+          "p50": 0.05,
+          "p95": 0.07,
+          "p99": 0.11,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.42
+        },
+        "enabled": {
+          "rps": 19707.9,
+          "p50": 0.05,
+          "p95": 0.07,
+          "p99": 0.11,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.21
+        },
+        "throughputRatio": 0.996
+      },
+      "ready@16": {
+        "disabled": {
+          "rps": 58265,
+          "p50": 0.38,
+          "p95": 0.78,
+          "p99": 1.01,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.01
+        },
+        "enabled": {
+          "rps": 51543.2,
+          "p50": 0.34,
+          "p95": 0.75,
+          "p99": 1.02,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.06
+        },
+        "throughputRatio": 0.885
+      },
+      "read@1": {
+        "disabled": {
+          "rps": 1747.6,
+          "p50": 0.54,
+          "p95": 0.79,
+          "p99": 1.14,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.88
+        },
+        "enabled": {
+          "rps": 1358.3,
+          "p50": 0.66,
+          "p95": 1.12,
+          "p99": 4.65,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.13
+        },
+        "throughputRatio": 0.777
+      },
+      "read@16": {
+        "disabled": {
+          "rps": 8053.6,
+          "p50": 1.29,
+          "p95": 2.23,
+          "p99": 6.21,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.21
+        },
+        "enabled": {
+          "rps": 8407.6,
+          "p50": 1.33,
+          "p95": 2.1,
+          "p99": 5.89,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.14
+        },
+        "throughputRatio": 1.044
+      },
+      "write@1": {
+        "disabled": {
+          "rps": 550.7,
+          "p50": 1.35,
+          "p95": 5.57,
+          "p99": 7.74,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.97
+        },
+        "enabled": {
+          "rps": 506.7,
+          "p50": 1.51,
+          "p95": 6.13,
+          "p99": 10.45,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.86
+        },
+        "throughputRatio": 0.92
+      },
+      "write@16": {
+        "disabled": {
+          "rps": 2505.8,
+          "p50": 0.38,
+          "p95": 0.69,
+          "p99": 302.74,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.85
+        },
+        "enabled": {
+          "rps": 1768.1,
+          "p50": 0.5,
+          "p95": 6.5,
+          "p99": 762.7,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.42
+        },
+        "throughputRatio": 0.706
+      },
+      "send@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 383.8,
+          "p50": 1.88,
+          "p95": 7.68,
+          "p99": 10.63,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 1.54
+        },
+        "throughputRatio": null
+      },
+      "send@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 2208.3,
+          "p50": 0.47,
+          "p95": 1.19,
+          "p99": 154.97,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.68
+        },
+        "throughputRatio": null
+      },
+      "observedSend@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 150.9,
+          "p50": 7.33,
+          "p95": 8.19,
+          "p99": 16.02,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 3.77
+        },
+        "throughputRatio": null
+      },
+      "observedSend@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 2270,
+          "p50": 0.5,
+          "p95": 1.4,
+          "p99": 152.4,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.11
+        },
+        "throughputRatio": null
+      },
+      "preview@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 1432,
+          "p50": 0.64,
+          "p95": 1.03,
+          "p99": 1.84,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.11
+        },
+        "throughputRatio": null
+      },
+      "preview@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 1686.3,
+          "p50": 0.32,
+          "p95": 0.52,
+          "p99": 151.71,
+          "errors": 0,
+          "failureSamples": [],
+          "spread": 0.48
+        },
+        "throughputRatio": null
+      }
+    }
+  },
+  "passed": true
+}

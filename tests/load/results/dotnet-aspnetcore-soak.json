@@ -1,0 +1,773 @@
+{
+  "binding": "dotnet-aspnetcore",
+  "profile": "soak",
+  "database": "sqlite",
+  "toolchain": "dotnet",
+  "start": [
+    "dotnet",
+    "examples/DotnetConformance/bin/Release/net10.0/DotnetConformance.dll"
+  ],
+  "startedAt": "2026-11-21T16:34:22.841Z",
+  "phases": [
+    "idle",
+    "concurrency",
+    "soak"
+  ],
+  "machine": {
+    "cpu": "Apple M4 Max",
+    "cores": 16,
+    "memoryGiB": 48,
+    "os": "Darwin 25.5.0 arm64",
+    "node": "v24.5.0",
+    "gitCommit": "7c30999a"
+  },
+  "idle": {
+    "bursts": 8,
+    "burstMs": 1500,
+    "comparison": {
+      "ready@1": {
+        "disabled": {
+          "rps": 17808.9,
+          "p50": 0.05,
+          "p95": 0.1,
+          "p99": 0.19,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.09
+        },
+        "enabled": {
+          "rps": 17923.4,
+          "p50": 0.05,
+          "p95": 0.09,
+          "p99": 0.18,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.04
+        },
+        "throughputRatio": 1.006
+      },
+      "ready@16": {
+        "disabled": {
+          "rps": 56682.4,
+          "p50": 0.24,
+          "p95": 0.49,
+          "p99": 0.57,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.01
+        },
+        "enabled": {
+          "rps": 57135.3,
+          "p50": 0.24,
+          "p95": 0.49,
+          "p99": 0.55,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.01
+        },
+        "throughputRatio": 1.008
+      },
+      "read@1": {
+        "disabled": {
+          "rps": 2329.3,
+          "p50": 0.4,
+          "p95": 0.55,
+          "p99": 0.86,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.11
+        },
+        "enabled": {
+          "rps": 2338.1,
+          "p50": 0.4,
+          "p95": 0.55,
+          "p99": 0.86,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.18
+        },
+        "throughputRatio": 1.004
+      },
+      "read@16": {
+        "disabled": {
+          "rps": 9505.5,
+          "p50": 1.17,
+          "p95": 1.97,
+          "p99": 3.07,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.05
+        },
+        "enabled": {
+          "rps": 9489.5,
+          "p50": 1.15,
+          "p95": 1.96,
+          "p99": 3.13,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.05
+        },
+        "throughputRatio": 0.998
+      },
+      "write@1": {
+        "disabled": {
+          "rps": 1039.6,
+          "p50": 0.9,
+          "p95": 1.24,
+          "p99": 1.6,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.14
+        },
+        "enabled": {
+          "rps": 1062.9,
+          "p50": 0.89,
+          "p95": 1.23,
+          "p99": 1.46,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.66
+        },
+        "throughputRatio": 1.022
+      },
+      "write@16": {
+        "disabled": {
+          "rps": 3573.9,
+          "p50": 0.32,
+          "p95": 0.5,
+          "p99": 151.81,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.55
+        },
+        "enabled": {
+          "rps": 3713.4,
+          "p50": 0.32,
+          "p95": 0.5,
+          "p99": 151.29,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.48
+        },
+        "throughputRatio": 1.039
+      },
+      "send@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 672.6,
+          "p50": 1.23,
+          "p95": 4.35,
+          "p99": 6.9,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.82
+        },
+        "throughputRatio": null
+      },
+      "send@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 3048.4,
+          "p50": 0.46,
+          "p95": 6.92,
+          "p99": 303.52,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.11
+        },
+        "throughputRatio": null
+      },
+      "observedSend@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 687.3,
+          "p50": 1.29,
+          "p95": 7.4,
+          "p99": 7.88,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.88
+        },
+        "throughputRatio": null
+      },
+      "observedSend@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 2795.7,
+          "p50": 0.49,
+          "p95": 5.01,
+          "p99": 154.83,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 1.13
+        },
+        "throughputRatio": null
+      },
+      "preview@1": {
+        "disabled": null,
+        "enabled": {
+          "rps": 1814.3,
+          "p50": 0.51,
+          "p95": 0.7,
+          "p99": 1.09,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.58
+        },
+        "throughputRatio": null
+      },
+      "preview@16": {
+        "disabled": null,
+        "enabled": {
+          "rps": 2645.9,
+          "p50": 0.29,
+          "p95": 0.39,
+          "p99": 151.93,
+          "errors": 0,
+          "errorRate": 0,
+          "failureSamples": [],
+          "spread": 0.3
+        },
+        "throughputRatio": null
+      }
+    }
+  },
+  "hostLoad": {
+    "idle": {
+      "before": 17,
+      "after": 16.6
+    },
+    "concurrency": {
+      "before": 16.6,
+      "after": 18.9
+    },
+    "soak": {
+      "before": 18.9,
+      "after": 23
+    }
+  },
+  "concurrency": {
+    "concurrency": 32,
+    "checks": {
+      "previewDistinctIds": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 467.3,
+        "latencyMs": {
+          "mean": 36.07,
+          "p50": 10.62,
+          "p95": 79.67,
+          "p99": 624.1,
+          "max": 1988.44
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameId": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 507.8,
+        "latencyMs": {
+          "mean": 44.16,
+          "p50": 7.93,
+          "p95": 14.75,
+          "p99": 1064.5,
+          "max": 1667.75
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "leftBehind": 0
+      },
+      "previewSameRow": {
+        "requests": 1000,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 599.4,
+        "latencyMs": {
+          "mean": 20.63,
+          "p50": 5.34,
+          "p95": 10.01,
+          "p99": 606.93,
+          "max": 1520.8
+        },
+        "statuses": {
+          "200": 1000
+        },
+        "failureSamples": [],
+        "rowAfter": "Initial",
+        "leftBehind": 0
+      },
+      "observedSend": {
+        "requests": 500,
+        "errors": 0,
+        "errorRate": 0,
+        "rps": 463.3,
+        "latencyMs": {
+          "mean": 28.26,
+          "p50": 0.53,
+          "p95": 161.59,
+          "p99": 462.66,
+          "max": 1079.01
+        },
+        "statuses": {
+          "201": 500
+        },
+        "failureSamples": [],
+        "committed": 500,
+        "missing": 0,
+        "tracesIssued": 500,
+        "tracesRetained": 8,
+        "tracesMisattributed": 0
+      }
+    },
+    "failures": [],
+    "passed": true
+  },
+  "soak": {
+    "concurrency": 24,
+    "durationS": 300,
+    "bodyBytes": 92000,
+    "load": {
+      "requests": 586758,
+      "errors": 0,
+      "errorRate": 0,
+      "rps": 1953.7,
+      "latencyMs": {
+        "mean": 12.26,
+        "p50": 0.5,
+        "p95": 5.95,
+        "p99": 304.33,
+        "max": 2869.97
+      },
+      "statuses": {
+        "200": 410556,
+        "201": 146952,
+        "413": 29250
+      },
+      "failureSamples": []
+    },
+    "windowS": 25,
+    "requestsPerWindow": [
+      50323,
+      50294,
+      50368,
+      48090,
+      49022,
+      49205,
+      50363,
+      48023,
+      44323,
+      48824,
+      48854,
+      49041
+    ],
+    "hostLoadPerWindow": [
+      15.8,
+      18.4,
+      17.7,
+      17.5,
+      16.8,
+      17.4,
+      18.1,
+      15.2,
+      14.9,
+      20.7,
+      20.6,
+      19.7
+    ],
+    "meanMsPerWindowByKind": {
+      "read": [
+        0.67,
+        0.68,
+        0.55,
+        0.26,
+        0.44,
+        0.52,
+        0.68,
+        0.45,
+        0.41,
+        0.65,
+        0.56,
+        0.6
+      ],
+      "preview": [
+        14.99,
+        15.53,
+        14.78,
+        16.98,
+        15.63,
+        15.89,
+        14.6,
+        16.1,
+        17.73,
+        15.35,
+        16.32,
+        15.94
+      ],
+      "send": [
+        14.58,
+        14.67,
+        16.21,
+        14.88,
+        15.82,
+        16.65,
+        16.36,
+        15.76,
+        17.63,
+        16.89,
+        15.63,
+        14.47
+      ],
+      "capture": [
+        18.09,
+        19.76,
+        18.48,
+        19.85,
+        18.19,
+        18.64,
+        18.57,
+        20.72,
+        18.5,
+        17.35,
+        21.09,
+        18.02
+      ],
+      "previewBody": [
+        11.74,
+        12.82,
+        10.35,
+        11.87,
+        13.1,
+        11.11,
+        11.35,
+        12.44,
+        16.87,
+        12.5,
+        9.18,
+        11.67
+      ],
+      "sendBody": [
+        19.6,
+        17.35,
+        20.18,
+        19.45,
+        19.07,
+        18.13,
+        17.94,
+        19.63,
+        20.28,
+        19.6,
+        20.05,
+        20.69
+      ],
+      "large": [
+        16.34,
+        15.1,
+        13.79,
+        14.31,
+        15.41,
+        15.01,
+        17.05,
+        15.87,
+        16.05,
+        14.38,
+        13.27,
+        13.72
+      ]
+    },
+    "memory": {
+      "bounded": true,
+      "midMedianMiB": 417.2,
+      "finalMedianMiB": 437.1,
+      "growthMiB": 19.9,
+      "slopeMiBPerMin": 4.16,
+      "peakMiB": 473.6,
+      "startMiB": 386.3,
+      "idleAfterSettleMiB": 422.6,
+      "settledS": 15.54
+    },
+    "samples": [
+      [
+        0,
+        386.3
+      ],
+      [
+        5,
+        403.7
+      ],
+      [
+        10,
+        400.1
+      ],
+      [
+        15,
+        392.6
+      ],
+      [
+        20.1,
+        398.5
+      ],
+      [
+        25.1,
+        402.8
+      ],
+      [
+        30.1,
+        406
+      ],
+      [
+        35.1,
+        408.9
+      ],
+      [
+        40.1,
+        438.1
+      ],
+      [
+        45.1,
+        416.8
+      ],
+      [
+        50.1,
+        449.5
+      ],
+      [
+        55.1,
+        403.7
+      ],
+      [
+        60.2,
+        404.7
+      ],
+      [
+        65.2,
+        392.1
+      ],
+      [
+        70.2,
+        403.1
+      ],
+      [
+        75.2,
+        434.2
+      ],
+      [
+        80.2,
+        417.2
+      ],
+      [
+        85.2,
+        416.5
+      ],
+      [
+        90.2,
+        419.6
+      ],
+      [
+        95.3,
+        398
+      ],
+      [
+        100.3,
+        466.6
+      ],
+      [
+        105.3,
+        453.7
+      ],
+      [
+        110.3,
+        412.8
+      ],
+      [
+        115.3,
+        414.3
+      ],
+      [
+        120.3,
+        431.5
+      ],
+      [
+        125.3,
+        402.7
+      ],
+      [
+        130.4,
+        443.2
+      ],
+      [
+        135.4,
+        409.9
+      ],
+      [
+        140.4,
+        423.4
+      ],
+      [
+        145.4,
+        420.3
+      ],
+      [
+        150.4,
+        420.3
+      ],
+      [
+        155.4,
+        434.8
+      ],
+      [
+        160.4,
+        440.8
+      ],
+      [
+        165.4,
+        461.5
+      ],
+      [
+        170.5,
+        437.1
+      ],
+      [
+        175.5,
+        404.5
+      ],
+      [
+        180.5,
+        419.7
+      ],
+      [
+        185.5,
+        415.3
+      ],
+      [
+        190.5,
+        452.4
+      ],
+      [
+        195.5,
+        446.6
+      ],
+      [
+        200.5,
+        422.1
+      ],
+      [
+        205.5,
+        450.3
+      ],
+      [
+        210.6,
+        443.7
+      ],
+      [
+        215.6,
+        432.7
+      ],
+      [
+        220.6,
+        418.5
+      ],
+      [
+        225.6,
+        413.3
+      ],
+      [
+        230.6,
+        465.8
+      ],
+      [
+        235.6,
+        441.3
+      ],
+      [
+        240.6,
+        409.6
+      ],
+      [
+        245.7,
+        454
+      ],
+      [
+        250.7,
+        441.8
+      ],
+      [
+        255.7,
+        469.7
+      ],
+      [
+        260.7,
+        422
+      ],
+      [
+        265.7,
+        446.6
+      ],
+      [
+        270.7,
+        437.6
+      ],
+      [
+        275.7,
+        432.9
+      ],
+      [
+        280.8,
+        460.7
+      ],
+      [
+        285.8,
+        437.1
+      ],
+      [
+        290.8,
+        473.6
+      ],
+      [
+        295.8,
+        429.2
+      ],
+      [
+        300.8,
+        422.6
+      ],
+      [
+        305.8,
+        422.6
+      ],
+      [
+        310.9,
+        422.6
+      ],
+      [
+        315.9,
+        422.6
+      ]
+    ]
+  },
+  "passed": true
+}

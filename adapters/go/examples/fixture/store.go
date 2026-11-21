@@ -118,6 +118,12 @@ func openStore(kind string, database Database) (store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if name != "sqlite" {
+		// A bounded pool that keeps its connections, as a production service configures it. database/sql keeps only two
+		// idle connections by default, so concurrent requests would otherwise reconnect almost every time.
+		pool.SetMaxOpenConns(24)
+		pool.SetMaxIdleConns(24)
+	}
 	if _, err := pool.Exec(spec.createTable); err != nil {
 		return nil, errors.Join(err, pool.Close())
 	}

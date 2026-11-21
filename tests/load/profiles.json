@@ -1,0 +1,30 @@
+{
+  "plans": {
+    "quick": {
+      "idle": { "bursts": 6, "burstMs": 1000, "warmupMs": 1000, "concurrencies": [1, 16] },
+      "concurrency": { "concurrency": 24, "previews": 300, "sends": 200 },
+      "soak": { "concurrency": 24, "durationMs": 40000, "warmupMs": 5000, "sampleMs": 1000, "settleMs": 5000, "bodyBytes": 92000 },
+      "contention": { "durationMs": 5000, "normalConcurrency": 8, "previewConcurrencies": [4, 16], "keyPairs": 64 }
+    },
+    "soak": {
+      "idle": { "bursts": 8, "burstMs": 1500, "warmupMs": 1500, "concurrencies": [1, 16] },
+      "concurrency": { "concurrency": 32, "previews": 1000, "sends": 500 },
+      "soak": { "concurrency": 24, "durationMs": 300000, "warmupMs": 10000, "sampleMs": 5000, "settleMs": 15000, "bodyBytes": 92000 },
+      "contention": { "durationMs": 15000, "normalConcurrency": 8, "previewConcurrencies": [4, 16], "keyPairs": 200 }
+    }
+  },
+  "overrides": {
+    "_comment": "Load runs measure optimized builds. The conformance manifest starts debug or size-tuned builds for some bindings, so these entries replace only prepare and start.",
+    "rust-axum": {
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --release --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "start": ["adapters/rust/target/release/rust-conformance"]
+    },
+    "rust-axum-postgresql": {
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --release --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "start": ["adapters/rust/target/release/rust-conformance"]
+    },
+    "java-spring": {
+      "start": ["sh", "-c", ". adapters/java/scripts/jdk.sh && exec java $BENCH_JAVA_OPTS -jar examples/java-spring-fixture/build/libs/test-bench-java-fixture.jar"]
+    }
+  }
+}
