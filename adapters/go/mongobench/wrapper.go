@@ -25,46 +25,68 @@ func command(name, collection string) stores.Doc {
 	return stores.Doc{{Key: name, Value: collection}}
 }
 
+// noRelease is the release of a call that does not carry the Preview's session.
+func noRelease() {}
+
 // guardCall classifies a command before the driver builds it and returns the
-// context to call the driver with. During a Preview in preview mode the
-// Preview's session is added, so the command carries its lsid, txnNumber and
-// autocommit: false; in guard mode every write is refused. Outside a Preview the
-// context is returned unchanged.
-func (s *Store) guardCall(ctx context.Context, database string, document stores.Doc) (context.Context, error) {
+// context to call the driver with, and a release the caller must call once the
+// driver call returns. During a Preview in preview mode the Preview's session is
+// added, so the command carries its lsid, txnNumber and autocommit: false; in
+// guard mode every write is refused. Outside a Preview the context is returned
+// unchanged.
+//
+// A call that carries the session holds the Preview's in-flight lock until it is
+// released, and the Preview's end waits for that lock before it aborts. So a call
+// either passes the ended check and runs inside the transaction, or is refused:
+// none can reach the server after the abort, when the session has no transaction
+// and the command would commit on its own.
+func (s *Store) guardCall(ctx context.Context, database string, document stores.Doc) (context.Context, func(), error) {
 	if !sendproof.IsPreview(ctx) {
-		return ctx, nil
+		return ctx, noRelease, nil
 	}
 	name := ""
 	if len(document) > 0 {
 		name = document[0].Key
 	}
 	if endsTransaction(lower(name)) {
-		return nil, sendproof.RefusePreview(ctx, "Preview owns the MongoDB transaction, so the handler's "+name+" cannot run during Preview.")
+		return nil, noRelease, sendproof.RefusePreview(ctx, "Preview owns the MongoDB transaction, so the handler's "+name+" cannot run during Preview.")
 	}
 	state := s.previewOf(ctx)
 	classified := stores.ClassifyMongo(document, s.reads)
 	if state != nil && state.session != nil {
 		// Preview mode: commands run in the Preview's transaction.
 		if foreign := mongo.SessionFromContext(ctx); foreign != nil && foreign != state.session {
-			return nil, sendproof.RefusePreview(ctx, "A MongoDB "+name+" was sent with a session other than the Preview's.")
+			return nil, noRelease, sendproof.RefusePreview(ctx, "A MongoDB "+name+" was sent with a session other than the Preview's.")
 		}
 		if state.ended() {
-			return nil, sendproof.RefusePreview(ctx, "The Preview's MongoDB transaction has ended.")
+			return nil, noRelease, sendproof.RefusePreview(ctx, endedReason)
 		}
 		if !systemDatabase(database) {
 			if classified.Refused != "" {
-				return nil, sendproof.Guard(ctx, system, name, true, refusedReason(classified.Refused))
+				return nil, noRelease, sendproof.Guard(ctx, system, name, true, refusedReason(classified.Refused))
 			}
-			return mongo.NewSessionContext(ctx, state.session), nil
+			state.inflight.RLock()
+			// Checked again under the lock: the Preview may have ended while this call waited for it.
+			if state.ended() {
+				state.inflight.RUnlock()
+				return nil, noRelease, sendproof.RefusePreview(ctx, endedReason)
+			}
+			if hook := windowHooks.afterCheck; hook != nil {
+				hook()
+			}
+			return mongo.NewSessionContext(ctx, state.session), state.inflight.RUnlock, nil
 		}
 	}
 	// Guard mode, a handler that was never marked, or a system database: reads run
 	// and every write is refused.
 	if err := sendproof.Guard(ctx, system, name, classified.Kind == stores.Write, ""); err != nil {
-		return nil, err
+		return nil, noRelease, err
 	}
-	return ctx, nil
+	return ctx, noRelease, nil
 }
+
+// endedReason refuses a call from a Preview whose transaction is over.
+const endedReason = "The Preview's MongoDB transaction has ended, so its handles refuse every further call."
 
 // failedResult is a SingleResult that carries err, for methods that return one.
 func failedResult(err error) *mongo.SingleResult {
@@ -98,10 +120,11 @@ func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOp
 
 // BulkWrite runs a client-level bulk write across namespaces.
 func (c *Client) BulkWrite(ctx context.Context, writes []mongo.ClientBulkWrite, opts ...options.Lister[options.ClientBulkWriteOptions]) (*mongo.ClientBulkWriteResult, error) {
-	ctx, err := c.store.guardCall(ctx, "", command("bulkWrite", "admin"))
+	ctx, release, err := c.store.guardCall(ctx, "", command("bulkWrite", "admin"))
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.BulkWrite(ctx, writes, opts...)
 }
 
@@ -227,19 +250,21 @@ func (d *Database) RunCommand(ctx context.Context, runCommand any, opts ...optio
 	if err != nil {
 		return failedResult(err)
 	}
-	ctx, err = d.store.guardCall(ctx, d.raw.Name(), rawToDoc(raw))
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), rawToDoc(raw))
 	if err != nil {
 		return failedResult(err)
 	}
+	defer release()
 	return d.raw.RunCommand(ctx, raw, opts...)
 }
 
 // Aggregate runs a database-level aggregation.
 func (d *Database) Aggregate(ctx context.Context, pipeline any, opts ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
-	ctx, err := d.store.guardCall(ctx, d.raw.Name(), pipelineDoc("1", pipeline))
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), pipelineDoc("1", pipeline))
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return d.raw.Aggregate(ctx, pipeline, opts...)
 }
 
@@ -247,28 +272,31 @@ func (d *Database) Aggregate(ctx context.Context, pipeline any, opts ...options.
 // transaction, so a Preview is blocked with the reason; insert into the collection
 // instead, which creates it and rolls back.
 func (d *Database) CreateCollection(ctx context.Context, name string, opts ...options.Lister[options.CreateCollectionOptions]) error {
-	ctx, err := d.store.guardCall(ctx, d.raw.Name(), command("create", name))
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), command("create", name))
 	if err != nil {
 		return err
 	}
+	defer release()
 	return d.raw.CreateCollection(ctx, name, opts...)
 }
 
 // Drop drops the database.
 func (d *Database) Drop(ctx context.Context) error {
-	ctx, err := d.store.guardCall(ctx, d.raw.Name(), command("dropDatabase", "1"))
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), command("dropDatabase", "1"))
 	if err != nil {
 		return err
 	}
+	defer release()
 	return d.raw.Drop(ctx)
 }
 
 // ListCollectionNames lists the collection names.
 func (d *Database) ListCollectionNames(ctx context.Context, filter any, opts ...options.Lister[options.ListCollectionsOptions]) ([]string, error) {
-	ctx, err := d.store.guardCall(ctx, d.raw.Name(), command("listCollections", "1"))
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), command("listCollections", "1"))
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return d.raw.ListCollectionNames(ctx, filter, opts...)
 }
 
@@ -284,209 +312,231 @@ type Collection struct {
 // Name returns the collection name.
 func (c *Collection) Name() string { return c.raw.Name() }
 
-// guard classifies one method's command.
-func (c *Collection) guard(ctx context.Context, name string) (context.Context, error) {
+// guard classifies one method's command. The caller defers the release it returns.
+func (c *Collection) guard(ctx context.Context, name string) (context.Context, func(), error) {
 	return c.store.guardCall(ctx, c.database, command(name, c.raw.Name()))
 }
 
 // InsertOne inserts a document.
 func (c *Collection) InsertOne(ctx context.Context, document any, opts ...options.Lister[options.InsertOneOptions]) (*mongo.InsertOneResult, error) {
-	ctx, err := c.guard(ctx, "insert")
+	ctx, release, err := c.guard(ctx, "insert")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.InsertOne(ctx, document, opts...)
 }
 
 // InsertMany inserts documents.
 func (c *Collection) InsertMany(ctx context.Context, documents any, opts ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error) {
-	ctx, err := c.guard(ctx, "insert")
+	ctx, release, err := c.guard(ctx, "insert")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.InsertMany(ctx, documents, opts...)
 }
 
 // DeleteOne deletes one document.
 func (c *Collection) DeleteOne(ctx context.Context, filter any, opts ...options.Lister[options.DeleteOneOptions]) (*mongo.DeleteResult, error) {
-	ctx, err := c.guard(ctx, "delete")
+	ctx, release, err := c.guard(ctx, "delete")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.DeleteOne(ctx, filter, opts...)
 }
 
 // DeleteMany deletes the matching documents.
 func (c *Collection) DeleteMany(ctx context.Context, filter any, opts ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {
-	ctx, err := c.guard(ctx, "delete")
+	ctx, release, err := c.guard(ctx, "delete")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.DeleteMany(ctx, filter, opts...)
 }
 
 // UpdateOne updates one document.
 func (c *Collection) UpdateOne(ctx context.Context, filter, update any, opts ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error) {
-	ctx, err := c.guard(ctx, "update")
+	ctx, release, err := c.guard(ctx, "update")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.UpdateOne(ctx, filter, update, opts...)
 }
 
 // UpdateMany updates the matching documents.
 func (c *Collection) UpdateMany(ctx context.Context, filter, update any, opts ...options.Lister[options.UpdateManyOptions]) (*mongo.UpdateResult, error) {
-	ctx, err := c.guard(ctx, "update")
+	ctx, release, err := c.guard(ctx, "update")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.UpdateMany(ctx, filter, update, opts...)
 }
 
 // UpdateByID updates the document with the given _id.
 func (c *Collection) UpdateByID(ctx context.Context, id, update any, opts ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error) {
-	ctx, err := c.guard(ctx, "update")
+	ctx, release, err := c.guard(ctx, "update")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.UpdateByID(ctx, id, update, opts...)
 }
 
 // ReplaceOne replaces one document.
 func (c *Collection) ReplaceOne(ctx context.Context, filter, replacement any, opts ...options.Lister[options.ReplaceOptions]) (*mongo.UpdateResult, error) {
-	ctx, err := c.guard(ctx, "update")
+	ctx, release, err := c.guard(ctx, "update")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.ReplaceOne(ctx, filter, replacement, opts...)
 }
 
 // BulkWrite runs a bulk write on the collection.
 func (c *Collection) BulkWrite(ctx context.Context, models []mongo.WriteModel, opts ...options.Lister[options.BulkWriteOptions]) (*mongo.BulkWriteResult, error) {
-	ctx, err := c.guard(ctx, "bulkWrite")
+	ctx, release, err := c.guard(ctx, "bulkWrite")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.BulkWrite(ctx, models, opts...)
 }
 
 // Aggregate runs an aggregation. The whole pipeline, at any depth, is checked for
 // $out and $merge before anything is sent.
 func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
-	ctx, err := c.store.guardCall(ctx, c.database, pipelineDoc(c.raw.Name(), pipeline))
+	ctx, release, err := c.store.guardCall(ctx, c.database, pipelineDoc(c.raw.Name(), pipeline))
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.Aggregate(ctx, pipeline, opts...)
 }
 
 // CountDocuments counts the matching documents with an aggregation, which a transaction allows.
 func (c *Collection) CountDocuments(ctx context.Context, filter any, opts ...options.Lister[options.CountOptions]) (int64, error) {
-	ctx, err := c.guard(ctx, "aggregate")
+	ctx, release, err := c.guard(ctx, "aggregate")
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 	return c.raw.CountDocuments(ctx, filter, opts...)
 }
 
 // EstimatedDocumentCount uses the count command, which MongoDB refuses inside a
 // transaction: a Preview is blocked with the reason. Use CountDocuments.
 func (c *Collection) EstimatedDocumentCount(ctx context.Context, opts ...options.Lister[options.EstimatedDocumentCountOptions]) (int64, error) {
-	ctx, err := c.guard(ctx, "count")
+	ctx, release, err := c.guard(ctx, "count")
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 	return c.raw.EstimatedDocumentCount(ctx, opts...)
 }
 
 // Distinct returns the distinct values of a field. Unlike the driver it also
 // returns the error of a refused call, because a DistinctResult cannot carry one.
 func (c *Collection) Distinct(ctx context.Context, fieldName string, filter any, opts ...options.Lister[options.DistinctOptions]) (*mongo.DistinctResult, error) {
-	ctx, err := c.guard(ctx, "distinct")
+	ctx, release, err := c.guard(ctx, "distinct")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.Distinct(ctx, fieldName, filter, opts...), nil
 }
 
 // Find finds the matching documents.
 func (c *Collection) Find(ctx context.Context, filter any, opts ...options.Lister[options.FindOptions]) (*mongo.Cursor, error) {
-	ctx, err := c.guard(ctx, "find")
+	ctx, release, err := c.guard(ctx, "find")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.Find(ctx, filter, opts...)
 }
 
 // FindOne finds one document.
 func (c *Collection) FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult {
-	ctx, err := c.guard(ctx, "find")
+	ctx, release, err := c.guard(ctx, "find")
 	if err != nil {
 		return failedResult(err)
 	}
+	defer release()
 	return c.raw.FindOne(ctx, filter, opts...)
 }
 
 // FindOneAndDelete finds and deletes one document. It is always a write.
 func (c *Collection) FindOneAndDelete(ctx context.Context, filter any, opts ...options.Lister[options.FindOneAndDeleteOptions]) *mongo.SingleResult {
-	ctx, err := c.guard(ctx, "findAndModify")
+	ctx, release, err := c.guard(ctx, "findAndModify")
 	if err != nil {
 		return failedResult(err)
 	}
+	defer release()
 	return c.raw.FindOneAndDelete(ctx, filter, opts...)
 }
 
 // FindOneAndReplace finds and replaces one document. It is always a write.
 func (c *Collection) FindOneAndReplace(ctx context.Context, filter, replacement any, opts ...options.Lister[options.FindOneAndReplaceOptions]) *mongo.SingleResult {
-	ctx, err := c.guard(ctx, "findAndModify")
+	ctx, release, err := c.guard(ctx, "findAndModify")
 	if err != nil {
 		return failedResult(err)
 	}
+	defer release()
 	return c.raw.FindOneAndReplace(ctx, filter, replacement, opts...)
 }
 
 // FindOneAndUpdate finds and updates one document. It is always a write.
 func (c *Collection) FindOneAndUpdate(ctx context.Context, filter, update any, opts ...options.Lister[options.FindOneAndUpdateOptions]) *mongo.SingleResult {
-	ctx, err := c.guard(ctx, "findAndModify")
+	ctx, release, err := c.guard(ctx, "findAndModify")
 	if err != nil {
 		return failedResult(err)
 	}
+	defer release()
 	return c.raw.FindOneAndUpdate(ctx, filter, update, opts...)
 }
 
 // Drop drops the collection.
 func (c *Collection) Drop(ctx context.Context, opts ...options.Lister[options.DropCollectionOptions]) error {
-	ctx, err := c.guard(ctx, "drop")
+	ctx, release, err := c.guard(ctx, "drop")
 	if err != nil {
 		return err
 	}
+	defer release()
 	return c.raw.Drop(ctx, opts...)
 }
 
 // CreateIndex creates one index. It is a write, and refused inside a transaction on
 // an existing collection.
 func (c *Collection) CreateIndex(ctx context.Context, model mongo.IndexModel, opts ...options.Lister[options.CreateIndexesOptions]) (string, error) {
-	ctx, err := c.guard(ctx, "createIndexes")
+	ctx, release, err := c.guard(ctx, "createIndexes")
 	if err != nil {
 		return "", err
 	}
+	defer release()
 	return c.raw.Indexes().CreateOne(ctx, model, opts...)
 }
 
 // DropIndex drops one index by name.
 func (c *Collection) DropIndex(ctx context.Context, name string, opts ...options.Lister[options.DropIndexesOptions]) error {
-	ctx, err := c.guard(ctx, "dropIndexes")
+	ctx, release, err := c.guard(ctx, "dropIndexes")
 	if err != nil {
 		return err
 	}
+	defer release()
 	return c.raw.Indexes().DropOne(ctx, name, opts...)
 }
 
 // ListIndexes lists the indexes. MongoDB refuses listIndexes inside a transaction.
 func (c *Collection) ListIndexes(ctx context.Context, opts ...options.Lister[options.ListIndexesOptions]) (*mongo.Cursor, error) {
-	ctx, err := c.guard(ctx, "listIndexes")
+	ctx, release, err := c.guard(ctx, "listIndexes")
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return c.raw.Indexes().List(ctx, opts...)
 }

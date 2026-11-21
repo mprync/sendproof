@@ -237,6 +237,10 @@ type preview struct {
 	used     bool // a command carried the session to the server
 	finished bool
 	timer    *time.Timer
+	// inflight is held for reading by every guarded call that carries the session
+	// (see guardCall) and for writing by end, so the abort waits for calls already
+	// past the ended check and none reaches the server after it.
+	inflight sync.RWMutex
 	// startTime is the transaction's snapshot time: the operationTime of the first
 	// reply to a command the Preview session sent. Before images are read at this
 	// time, so a concurrent commit by another request is never a Preview change.
@@ -298,6 +302,9 @@ func (s *Store) BeginPreview(ctx context.Context) (sendproof.StorePreview, error
 	return p, nil
 }
 
+// windowHooks are test hooks (see export_test.go); both are nil in production.
+var windowHooks struct{ afterCheck, afterAbort func() }
+
 // end aborts the Preview transaction and ends its session, once. The driver ignores
 // abort errors, as the transactions specification requires; an unacknowledged abort
 // still commits nothing, because no commitTransaction is ever sent for the session.
@@ -314,8 +321,14 @@ func (p *preview) end() {
 	}
 	p.mu.Unlock()
 	if session != nil {
+		// Calls that passed the ended check finish inside the transaction first; later ones are refused.
+		p.inflight.Lock()
+		defer p.inflight.Unlock()
 		ctx := internal(context.Background())
 		_ = session.AbortTransaction(ctx)
+		if hook := windowHooks.afterAbort; hook != nil {
+			hook()
+		}
 		session.EndSession(ctx)
 	}
 }

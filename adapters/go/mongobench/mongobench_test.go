@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -516,6 +517,56 @@ func TestAPreviewThatOutlivesItsTimeLimitIsAbortedAndNeverConfirmed(t *testing.T
 	assertUnconfirmed(t, response, 500)
 	if a.count(t, "sleepy") != 0 || a.count(t, "after-sleep") != 0 {
 		t.Error("an aborted Preview left a write behind")
+	}
+}
+
+// TestACallPastTheEndedCheckNeverRunsOutsideTheTransaction closes the window
+// where a guarded call has passed the ended check and reaches the server only
+// after the Preview's abort: with no transaction on the session it would commit
+// on its own. The hooks hold the call there until the abort has happened (or
+// give up after a while, so a correct implementation, which makes the abort wait
+// for the call, finishes too).
+func TestACallPastTheEndedCheckNeverRunsOutsideTheTransaction(t *testing.T) {
+	a := newApp(t, appOptions{monitor: true})
+	var armed, fired atomic.Bool
+	checked, aborted, late := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	restore := mongobench.SetWindowHooks(func() {
+		if !armed.CompareAndSwap(true, false) {
+			return
+		}
+		fired.Store(true)
+		close(checked)
+		select {
+		case <-aborted:
+		case <-time.After(500 * time.Millisecond):
+		}
+	}, func() {
+		if !fired.Load() {
+			return
+		}
+		close(aborted)
+		select {
+		case <-late:
+		case <-time.After(500 * time.Millisecond):
+		}
+	})
+	defer restore()
+	mux := http.NewServeMux()
+	a.bench.HandlePreview(mux, "POST /window", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = a.docs.InsertOne(r.Context(), bson.D{{Key: "_id", Value: "window-first"}})
+		armed.Store(true)
+		go func() {
+			defer close(late)
+			_, _ = a.docs.InsertOne(r.Context(), bson.D{{Key: "_id", Value: "window-late"}})
+		}()
+		<-checked // the late call has passed the ended check; the Preview now ends
+		w.WriteHeader(201)
+	}))
+	a.handler = a.bench.Middleware(mux)
+	a.preview("POST", "/window", `{}`)
+	<-late
+	if a.count(t, "window-late") != 0 || a.count(t, "window-first") != 0 {
+		t.Error("a call past the ended check committed outside the Preview transaction")
 	}
 }
 
