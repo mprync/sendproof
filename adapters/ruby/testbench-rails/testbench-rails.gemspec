@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../testbench/lib/testbench/version"
+require_relative "../gemspec_metadata"
 
 Gem::Specification.new do |spec|
   spec.name = "testbench-rails"
@@ -9,10 +10,9 @@ Gem::Specification.new do |spec|
   spec.summary = "Rails engine that mounts the Test Bench workbench inside a Rails API."
   spec.description = "Adds the workbench at /bench, discovers preview-enabled controller actions from the router, " \
                      "and dispatches previews through the application's real middleware and controllers."
-  spec.homepage = "https://github.com/test-bench/test-bench"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.3"
-  spec.metadata["rubygems_mfa_required"] = "true"
+  TestBenchGemspec.apply(spec)
 
   spec.files = Dir["lib/**/*", "LICENSE", "README.md"]
   spec.require_paths = ["lib"]
