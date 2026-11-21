@@ -48,6 +48,7 @@
     { "command": { "count": "c" }, "expect": "read", "refusedInTransaction": "count" },
     { "command": { "listCollections": 1 }, "expect": "read", "refusedInTransaction": "listCollections" },
     { "command": { "drop": "c" }, "expect": "write", "refusedInTransaction": "drop" },
+    { "command": { "create": "c" }, "expect": "write", "refusedInTransaction": "create" },
     { "command": { "createIndexes": "c", "indexes": [] }, "expect": "write" },
     { "command": { "explain": { "find": "c" } }, "expect": "read" },
     { "command": { "explain": { "update": "c", "updates": [] } }, "expect": "write" },

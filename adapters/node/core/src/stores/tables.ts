@@ -236,6 +236,7 @@ export const mongodbTable = {
     "$comment": "Refused by the server inside a multi-document transaction. In Preview mode a binding blocks these before sending, with the reason below.",
     "commands": [
       "count",
+      "create",
       "listCollections",
       "listIndexes",
       "drop",
