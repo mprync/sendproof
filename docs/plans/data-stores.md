@@ -228,6 +228,10 @@ Each language's work, in order:
 4. Fixture routes from [the fixture contract](../../spec/conformance/fixture.md#data-store-routes) on the binding's SQLite (Java: H2) profile, with `"stores": ["mongodb", "redis", "dynamodb"]` and `"sharedRules": ["secret-columns", "raw-commit"]` in `bindings.json`.
 5. A page in the binding's docs: setup, the `preview: false` mark, and the coverage warning (unhooked clients are not covered).
 
+### Also in each language's batch-one work: MySQL Previews
+
+MySQL deadlocks (error 1213) when three or more Previews insert the same new key at once and the first rolls back, at every isolation level. The Go, Rust, Python and Node MySQL providers now run one Preview at a time per process (see [verified databases](../bindings/databases.md)). Java, .NET, PHP and Ruby have no MySQL conformance entry yet: each of those helpers adds one for its main framework, applies the same per-process turn-taking to its MySQL provider with a regression test, and adds the new tests to the counts in `docs/bindings/databases.md`.
+
 ### Acceptance checks for each language
 
 - `node tests/conformance/run.mjs <binding-id>` passes with the compose services up, with no data-store or shared-rule check reported as not implemented, and the binding's other profiles still pass.
