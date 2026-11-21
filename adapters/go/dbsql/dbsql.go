@@ -79,6 +79,9 @@ type DB struct {
 	pool    *sql.DB
 	cfg     config
 	dialect Dialect
+	// previews lets one MySQL preview run at a time; it is nil for other
+	// dialects. See previewQueue for why MySQL previews take turns.
+	previews previewQueue
 }
 
 // Wrap returns a DB that enlists in Sendproof previews. The dialect is detected
@@ -100,7 +103,44 @@ func Wrap(pool *sql.DB, options ...Option) (*DB, error) {
 			return nil, err
 		}
 	}
-	return &DB{pool: pool, cfg: cfg, dialect: dialect}, nil
+	db := &DB{pool: pool, cfg: cfg, dialect: dialect}
+	if dialect == DialectMySQL {
+		db.previews = make(previewQueue, 1)
+	}
+	return db, nil
+}
+
+// previewQueue holds a token while a MySQL preview runs, so previews through one
+// DB take turns, as SQLite previews do behind BEGIN IMMEDIATE.
+//
+// InnoDB checks a new key for duplicates under a shared lock. When three or more
+// transactions insert the same key and the first one rolls back, as every
+// preview does, the waiters each hold that shared lock and each need the
+// exclusive one, so InnoDB aborts all but one with a deadlock (error 1213). A
+// committed insert gives them a duplicate-key error instead, so concurrent
+// previews would fail where the same requests sent for real would not. Taking
+// turns keeps them from waiting on one another's rolled-back rows.
+type previewQueue chan struct{}
+
+// acquire waits for this preview's turn, or for ctx to end. A nil queue lets
+// every preview run at once.
+func (q previewQueue) acquire(ctx context.Context) error {
+	if q == nil {
+		return nil
+	}
+	select {
+	case q <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// release ends the turn taken by acquire.
+func (q previewQueue) release() {
+	if q != nil {
+		<-q
+	}
 }
 
 // Unwrap returns the underlying pool. Calls made on it bypass Sendproof.

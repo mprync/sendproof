@@ -57,6 +57,9 @@ type scope struct {
 	// records when the provider finishes with a context of its own.
 	logContext context.Context
 	closed     bool
+	// queued reports that this preview holds its DB's preview turn, which
+	// release hands back.
+	queued bool
 }
 
 type deferredRead struct {
@@ -72,11 +75,21 @@ const pgStatementSavepoint = "sendproof_statement"
 
 // open acquires the dedicated connection and prepares capture on it.
 func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
+	// A preview waits for its turn before it takes a connection, so waiting
+	// previews never hold pool connections the application needs.
+	if preview {
+		if err := d.previews.acquire(ctx); err != nil {
+			return nil, err
+		}
+	}
 	conn, err := d.pool.Conn(ctx)
 	if err != nil {
+		if preview {
+			d.previews.release()
+		}
 		return nil, err
 	}
-	s = &scope{db: d, dialect: d.dialect, preview: preview, conn: conn, metadata: map[string]*tableMeta{}, warned: map[string]bool{}}
+	s = &scope{db: d, dialect: d.dialect, preview: preview, conn: conn, metadata: map[string]*tableMeta{}, warned: map[string]bool{}, queued: preview}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, s.release(context.WithoutCancel(ctx)))
@@ -213,6 +226,11 @@ func (s *scope) release(ctx context.Context) error {
 	}
 	if err := s.conn.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
 		errs = append(errs, err)
+	}
+	// The transaction has ended, so its locks are gone: the next preview may run.
+	if s.queued {
+		s.queued = false
+		s.db.previews.release()
 	}
 	return errors.Join(errs...)
 }

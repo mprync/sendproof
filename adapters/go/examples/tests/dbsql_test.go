@@ -345,6 +345,48 @@ func TestConcurrentWritersNeverAppear(t *testing.T) {
 	})
 }
 
+// TestConcurrentPreviewsInsertingOneKeyAllComplete covers previews that insert
+// the same new key at once. On MySQL, InnoDB would abort all but one of them
+// with a deadlock when the first rolls back, so dbsql lets MySQL previews take
+// turns; on every engine each preview must report its own insert.
+func TestConcurrentPreviewsInsertingOneKeyAllComplete(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		db := newItems(t, e, pool)
+		insert := "INSERT INTO items (id, name) VALUES (" + e.ph(1) + ", " + e.ph(2) + ")"
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			if _, err := db.ExecContext(r.Context(), insert, "shared", "Shared"); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			// Let the other previews reach their insert, and wait on this
+			// one's row, before this preview rolls back.
+			time.Sleep(50 * time.Millisecond)
+			w.WriteHeader(http.StatusCreated)
+		})
+		const previews = 8
+		statuses := make([]int, previews)
+		envelopes := make([]map[string]any, previews)
+		var running sync.WaitGroup
+		for index := range previews {
+			running.Add(1)
+			go func() {
+				defer running.Done()
+				statuses[index], envelopes[index] = preview(t, handler, "/run")
+			}()
+		}
+		running.Wait()
+		for index := range previews {
+			if statuses[index] != http.StatusOK || envelopes[index]["status"] != float64(http.StatusCreated) {
+				t.Fatalf("preview %d: HTTP %d, envelope %v", index, statuses[index], envelopes[index])
+			}
+			expectChanges(t, envelopes[index]["changes"], `insert items {"id":"shared"} ->Shared`)
+		}
+		if count(t, pool, "items") != 0 {
+			t.Errorf("no preview may leave its insert behind")
+		}
+	})
+}
+
 func TestObservedSendReportsOnlyCommittedWrites(t *testing.T) {
 	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
 		db := newItems(t, e, pool)
