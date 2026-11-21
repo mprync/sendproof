@@ -243,8 +243,9 @@ export function safeProcedureNames(names: Iterable<string> = []): ReadonlySet<st
 /** Whether one statement, already split, would end or escape the Preview transaction. */
 function refuses(statement: string, provider: AdapterProvider, safeProcedures: ReadonlySet<string>): boolean {
   if (transactionControl.test(statement) || setAutocommit.test(statement)) return true;
-  if (provider !== 'mysql') return false;
+  // Every provider's backstop relies on its own savepoint, so a handler may not touch it.
   if (previewSavepointStatement.test(statement)) return true;
+  if (provider !== 'mysql') return false;
   const inner = mysqlSetStatement.exec(statement)?.[1];
   if (inner !== undefined) return refuses(inner.trim(), provider, safeProcedures);
   if (mysqlCall.test(statement)) {
@@ -300,37 +301,61 @@ export function rollsBackTransaction(error: unknown, provider: AdapterProvider):
 }
 
 /**
- * The savepoint behind the MySQL and MariaDB backstop of spec/data-stores.md "Transaction-control statements from the
- * handler". No ORM generates this name, and a handler may not set, release or roll back to it during a Preview.
+ * The savepoint behind the commit backstop of spec/data-stores.md "Transaction-control statements from the handler",
+ * which every SQL provider sets. No ORM generates this name, and a handler may not set, release or roll back to it
+ * during a Preview.
  */
 export const previewSavepoint = 'sendproof_preview';
 
-/** A handler's `SAVEPOINT`, `RELEASE SAVEPOINT` or `ROLLBACK TO SAVEPOINT` naming {@link previewSavepoint}. */
+/** A handler's savepoint statement naming {@link previewSavepoint}, including SQL Server's `SAVE TRANSACTION`. */
 const previewSavepointStatement =
-  /^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?)\s+[`"]?sendproof_preview[`"]?$/i;
+  /^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?)\s+[`"[]?sendproof_preview[`"\]]?$/i;
+
+const isSqlServer = (provider: AdapterProvider): boolean => provider === 'mssql' || provider === 'sqlserver';
 
 /**
  * Sets {@link previewSavepoint} through `run`, which sends one statement on the Preview connection. Providers call it
- * on MySQL and MariaDB right after opening the Preview transaction, and {@link previewSavepointHeld} before rolling back.
+ * right after opening the Preview transaction, and {@link previewSavepointHeld} before rolling back. SQL Server names
+ * its savepoints with `SAVE TRANSACTION`.
  */
-export async function setPreviewSavepoint(run: (sql: string) => Promise<unknown>): Promise<void> {
-  await run('SAVEPOINT ' + previewSavepoint);
+export async function setPreviewSavepoint(run: (sql: string) => Promise<unknown>, provider: AdapterProvider): Promise<void> {
+  await run(isSqlServer(provider) ? 'SAVE TRANSACTION ' + previewSavepoint : 'SAVEPOINT ' + previewSavepoint);
 }
 
 /**
- * Whether the savepoint {@link setPreviewSavepoint} set when the Preview started still exists, which proves nothing
- * committed the Preview transaction. Any commit, explicit or implicit, erases every savepoint, so the release fails with
- * error 1305. Checking the start savepoint, rather than whether some transaction is open now, also holds under
- * `autocommit=0`, where MySQL opens a new transaction implicitly after a commit. Any failure answers false, since it
- * can't confirm the transaction is the Preview's.
+ * Whether nothing committed the Preview transaction since {@link setPreviewSavepoint}. Any failure answers false, since
+ * it can't confirm the transaction is the Preview's, and the Preview then answers 500.
+ *
+ * MySQL, MariaDB, PostgreSQL and SQLite release the savepoint set when the Preview started: any commit, explicit or
+ * implicit, erases every savepoint, so the release fails. Checking the start savepoint, rather than whether some
+ * transaction is open now, also holds under MySQL `autocommit=0`, where a new transaction opens after a commit.
+ *
+ * SQL Server can't release a savepoint, so `@@TRANCOUNT` must still count the Preview transaction. `rows` reads the
+ * result rows from what `run` answers for that query.
  */
-export async function previewSavepointHeld(run: (sql: string) => Promise<unknown>): Promise<boolean> {
+export async function previewSavepointHeld(
+  run: (sql: string) => Promise<unknown>,
+  provider: AdapterProvider,
+  rows: (result: unknown) => readonly Record<string, unknown>[] = result => result as Record<string, unknown>[],
+): Promise<boolean> {
   try {
+    if (isSqlServer(provider)) {
+      const [row] = rows(await run('SELECT @@TRANCOUNT AS open_transactions, XACT_STATE() AS state'));
+      return Number(row?.['open_transactions']) >= 1;
+    }
     await run('RELEASE SAVEPOINT ' + previewSavepoint);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // A PostgreSQL transaction a failed statement aborted (25P02) is still the open Preview transaction: a COMMIT in
+    // that state only rolls back, so nothing could have committed. It refuses every statement, the release included.
+    return (provider === 'postgres' || provider === 'postgresql') && sqlState(error) === '25P02';
   }
+}
+
+/** The SQLSTATE of a driver error, or of the error an ORM wrapped. */
+function sqlState(error: unknown): unknown {
+  const value = error as { code?: unknown; cause?: { code?: unknown }; driverError?: { code?: unknown } } | null;
+  return value?.code ?? value?.driverError?.code ?? value?.cause?.code;
 }
 
 const readOnly = /^(?:SELECT|SHOW|EXPLAIN|DESCRIBE|DESC|PRAGMA|VALUES|SET\s+(?:SESSION\s+)?TRANSACTION\b)/i;

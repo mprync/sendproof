@@ -218,14 +218,14 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       try {
         await this.#probe.run(probe, () => client.$transaction(async transaction => {
           // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
-          if (this.#serialPreviews) await this.#ownStatement(probe, set => setPreviewSavepoint(set));
+          await this.#ownStatement(probe, set => setPreviewSavepoint(set, this.#provider));
           try {
             response = await this.#withClient(transaction, dispatch);
           } catch (error) {
             failure = { error };
           }
-          if (this.#serialPreviews && !probe.escaped && !await this.#ownStatement(probe, held => previewSavepointHeld(held))) {
-            probe.escaped = 'the savepoint set when the Preview started was gone, so something committed the MySQL transaction.';
+          if (!probe.escaped && !await this.#ownStatement(probe, held => previewSavepointHeld(held, this.#provider))) {
+            probe.escaped = 'the savepoint set when the Preview started was gone, so something committed the Preview transaction.';
           }
           probe.settled = true;
           throw rollback;
@@ -257,6 +257,11 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     return use(async sql => {
       if (sql.startsWith('SAVEPOINT ') && transaction.createSavepoint) return transaction.createSavepoint(previewSavepoint);
       if (sql.startsWith('RELEASE SAVEPOINT ') && transaction.releaseSavepoint) return transaction.releaseSavepoint(previewSavepoint);
+      if (sql.startsWith('SELECT ')) {
+        // SQL Server's `@@TRANCOUNT` check reads rows: answer them as objects keyed by column name.
+        const result = await transaction.queryRaw({ sql, args: [], argTypes: [] });
+        return result.rows.map(row => Object.fromEntries(result.columnNames.map((name, index) => [name, row[index]])));
+      }
       return transaction.executeRaw({ sql, args: [], argTypes: [] });
     });
   }

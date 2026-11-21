@@ -194,14 +194,13 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
       opened = scope;
       instrumentSession(transaction.session, state.dialect, scope);
       // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
-      if (state.dialect === 'mysql') await setPreviewSavepoint(statement => runRaw(transaction, statement));
+      await setPreviewSavepoint(statement => runRaw(transaction, statement), state.dialect);
       try {
         outcome = { value: await asCaller(() => inScope(scope, async () => await dispatch())) };
       } finally {
         scope.open = false;
       }
-      if (state.dialect === 'postgresql') await confirmOpen(transaction);
-      if (state.dialect === 'mysql') contained = await previewSavepointHeld(statement => runRaw(transaction, statement));
+      contained = await previewSavepointHeld(statement => runRaw(transaction, statement), state.dialect);
       throw rollback;
     }));
   } catch (error) {
@@ -213,25 +212,10 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
   // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
   if (opened?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');
   if (!contained) {
-    throw new Error('The Drizzle preview was not contained: the savepoint set when the Preview started was gone, so something committed the MySQL transaction.');
+    throw new Error('The Drizzle preview was not contained: the savepoint set when the Preview started was gone, so something committed the Preview transaction.');
   }
   if (!outcome) throw new Error('Drizzle did not run the Preview operation.');
   return outcome.value;
-}
-
-/**
- * PostgreSQL only warns when ROLLBACK runs outside a transaction, so check the transaction is still
- * open first. A failed transaction (SQLSTATE 25P02) is open and rolls back normally.
- */
-async function confirmOpen(transaction: DatabaseLike): Promise<void> {
-  const execute = transaction['execute'] as (query: unknown) => Promise<unknown>;
-  try {
-    await execute.call(transaction, sql`savepoint sendproof_preview_open`);
-    await execute.call(transaction, sql`release savepoint sendproof_preview_open`);
-  } catch (error) {
-    if (sqlState(error) === '25P02') return;
-    throw new Error('The operation ended the PostgreSQL transaction before Preview could roll it back.', { cause: error });
-  }
 }
 
 /** Runs one provider-owned statement on a Drizzle transaction. Called in the internal context, so the guard passes it. */
@@ -240,7 +224,3 @@ async function runRaw(transaction: DatabaseLike, statement: string): Promise<unk
   return execute.call(transaction, sql.raw(statement));
 }
 
-function sqlState(error: unknown): unknown {
-  const value = error as { code?: unknown; cause?: { code?: unknown } } | null;
-  return value?.code ?? value?.cause?.code;
-}

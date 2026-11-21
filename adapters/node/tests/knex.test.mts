@@ -187,6 +187,20 @@ for (const target of targets()) {
       });
     }
 
+    it('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
+      provider = provide();
+      await assert.rejects(provider.preview(async () => {
+        await provider.client('items').insert({ id: 'committed', name: 'Committed below the guard' });
+        // The dialect's own driver call, below the transaction client the guard wraps.
+        const client = (provider.client as Knex.Transaction).client as unknown as {
+          acquireConnection(): Promise<unknown>; _query(connection: unknown, query: { sql: string; bindings: unknown[] }): Promise<unknown>;
+        };
+        const connection = await client.acquireConnection();
+        await Object.getPrototypeOf(client)._query.call(client, connection, { sql: 'COMMIT', bindings: [] });
+      }), /not contained|did not acknowledge/);
+      await database('items').where({ id: 'committed' }).delete();
+    });
+
     if (target.name === 'SQL Server') {
       it('refuses every statement after SQL Server picked the Preview as a deadlock victim, so a retry never commits', async () => {
         provider = provide();

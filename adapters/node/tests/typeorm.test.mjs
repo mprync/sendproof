@@ -320,6 +320,25 @@ for (const dialect of dialects) {
       }
     });
 
+    await suite.test('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        const failure = await previewed(provider, () => provider.run(async manager => {
+          await items(manager).insert({ id: 'committed', name: 'Committed below the guard' });
+          // The driver's own connection, below the query runner the guard wraps.
+          const connection = manager.queryRunner.databaseConnection ?? manager.connection.driver.databaseConnection;
+          if (typeof connection.exec === 'function') connection.exec('COMMIT'); // better-sqlite3
+          else await new Promise((resolve, reject) => connection.query('COMMIT', error => error ? reject(error) : resolve()));
+        })).catch(error => error);
+        // SQLite then also fails TypeORM's own rollback, which withholds confirmation the same way.
+        assert.match(String(failure?.message), /not contained|completed early|no transaction is active/);
+        // On SQLite the failed rollback retires the provider until recovery, so clean up through the source.
+        await source.query("DELETE FROM items WHERE id = 'committed'");
+      } finally {
+        await source.destroy();
+      }
+    });
+
     if (dialect === 'mysql') await suite.test('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
       const { source, provider, items } = await harness(database);
       try {

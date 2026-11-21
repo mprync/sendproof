@@ -183,13 +183,11 @@ export class TypeOrmPreview implements PreviewProvider {
         await runner.connect();
         await runner.startTransaction();
         this.#refused.delete(runner);
-        if (this.#mysql) {
-          try {
-            await setPreviewSavepoint(statement => this.#hidden.run(true, () => runner.query(statement)));
-          } catch (error) {
-            await this.#rollBack(runner);
-            throw error;
-          }
+        try {
+          await setPreviewSavepoint(statement => this.#hidden.run(true, () => runner.query(statement)), this.#dialect);
+        } catch (error) {
+          await this.#rollBack(runner);
+          throw error;
         }
         const restore = this.#guardCommit(runner);
         try {
@@ -274,14 +272,20 @@ export class TypeOrmPreview implements PreviewProvider {
   }
 
   /**
-   * The backstop of spec/data-stores.md "Transaction-control statements from the handler": on MySQL
-   * and MariaDB, release the savepoint set when the Preview started. Any commit erases it, including
-   * one by a statement the guard didn't recognise or a procedure wrongly declared safe. Other
-   * databases answer true.
+   * The backstop of spec/data-stores.md "Transaction-control statements from the handler", on every
+   * driver: release the savepoint set when the Preview started (on SQL Server, check `@@TRANCOUNT`).
+   * Any commit erases it, including one sent through the driver connection directly, one by a
+   * statement the guard didn't recognise, or one by a procedure wrongly declared safe.
    */
   async #neverCommitted(runner: QueryRunner): Promise<boolean> {
-    if (!this.#mysql) return true;
-    return previewSavepointHeld(statement => this.#hidden.run(true, () => runner.query(statement)));
+    return previewSavepointHeld(statement => this.#hidden.run(true, () => runner.query(statement)), this.#dialect);
+  }
+
+  /** The dialect name the shared statement rules use for this source. */
+  get #dialect(): string {
+    if (this.#mysql) return 'mysql';
+    const type = String(this.#source.options.type);
+    return type === 'postgres' || type === 'cockroachdb' || type === 'aurora-postgres' ? 'postgres' : type;
   }
 
   /**

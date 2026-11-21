@@ -27,6 +27,8 @@ interface Script {
   failRollback?: boolean;
   /** Release the transaction without sending ROLLBACK, as a faulty client would. */
   skipRollbackStatement?: boolean;
+  /** Fail the release of the Preview savepoint, as when a commit below the adapter erased it. */
+  committedBelowGuard?: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ function scripted(script: Script = {}) {
     async queryRaw(sql: SqlQuery) { executed.push(sql.sql); return empty; },
     async executeRaw(sql: SqlQuery) {
       if (script.failRollback && sql.sql === 'ROLLBACK') throw new Error('rollback failed');
+      if (script.committedBelowGuard && sql.sql === 'RELEASE SAVEPOINT sendproof_preview') throw new Error('SAVEPOINT sendproof_preview does not exist');
       executed.push(sql.sql);
       return 0;
     },
@@ -96,7 +99,16 @@ describe('Prisma rollback acknowledgment', () => {
   it('confirms a Preview after the physical ROLLBACK and the driver release', async () => {
     const { provider, executed } = scripted();
     assert.equal(await provider.preview(async () => 'result'), 'result');
-    assert.deepEqual(executed, ['BEGIN', 'ROLLBACK', 'rollback()']);
+    // Every provider sets the Preview savepoint first and releases it before the rollback (the commit backstop).
+    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'RELEASE SAVEPOINT sendproof_preview', 'ROLLBACK', 'rollback()']);
+  });
+
+  it('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
+    // The driver lost the start savepoint: something committed the transaction below the adapter Sendproof wraps.
+    for (const provider of ['sqlite', 'postgres', 'mysql'] as const) {
+      const scripted_ = scripted({ provider, committedBelowGuard: true });
+      await assert.rejects(scripted_.provider.preview(async () => 'result'), /not contained/, provider);
+    }
   });
 
   it('confirms phantom-query adapters through their rollback method', async () => {

@@ -228,9 +228,9 @@ export class KnexPreview implements PreviewProvider {
   async #previewNow<T>(dispatch: () => Promise<T>): Promise<T> {
     const connection = await this.#database.transaction(undefined as never, { doNotRejectOnRollback: true });
     const completion = connection.executionPromise.then(() => true as const, (error: unknown) => ({ error }));
-    if (this.#dialect === 'mysql') {
+    if (this.#dialect !== 'other') {
       try {
-        await this.#internal.run(true, () => setPreviewSavepoint(async sql => await connection.raw(sql)));
+        await this.#internal.run(true, () => setPreviewSavepoint(async sql => await connection.raw(sql), this.#dialect));
       } catch (error) {
         await connection.rollback();
         await completion;
@@ -256,20 +256,23 @@ export class KnexPreview implements PreviewProvider {
       // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
       if (scope.refused) throw new Error('The Knex preview was not contained: the operation tried to end the Preview transaction.');
       if (!contained) {
-        throw new Error('The Knex preview was not contained: the savepoint set when the Preview started was gone, so something committed the MySQL transaction.');
+        throw new Error('The Knex preview was not contained: the savepoint set when the Preview started was gone, so something committed the Preview transaction.');
       }
     }
   }
 
   /**
-   * The backstop of spec/data-stores.md "Transaction-control statements from the handler": on MySQL
-   * and MariaDB, release the savepoint set when the Preview started. A statement the guard didn't
-   * recognise, or a procedure wrongly declared safe, may have committed the transaction, which
-   * erases it. Other databases answer true.
+   * The backstop of spec/data-stores.md "Transaction-control statements from the handler", on every
+   * dialect Knex names: release the savepoint set when the Preview started (on SQL Server, check
+   * `@@TRANCOUNT`). A statement the guard didn't see, such as one sent through the driver directly,
+   * or a procedure wrongly declared safe, may have committed the transaction, which erases it. An
+   * unknown dialect answers true.
    */
   async #neverCommitted(connection: Knex.Transaction): Promise<boolean> {
-    if (this.#dialect !== 'mysql') return true;
-    return this.#internal.run(true, () => this.#ending.run(true, () => previewSavepointHeld(async sql => await connection.raw(sql))));
+    if (this.#dialect === 'other') return true;
+    const dialect = this.#dialect;
+    return this.#internal.run(true, () => this.#ending.run(true, () =>
+      previewSavepointHeld(async sql => await connection.raw(sql), dialect, result => rowsOf(dialect, result))));
   }
 
   /** Remove the SQL listener while leaving the host's connection pool open. */

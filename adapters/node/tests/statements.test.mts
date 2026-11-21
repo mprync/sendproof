@@ -59,6 +59,13 @@ describe('Transaction-control classifier', () => {
     for (const sql of ['SAVEPOINT trx2', 'RELEASE SAVEPOINT trx2', 'ROLLBACK TO SAVEPOINT sendproof_preview_2']) {
       assert.ok(!endsTransaction(sql, 'mysql'), sql);
     }
+    // Every provider's backstop uses the same savepoint, so every provider guards it.
+    for (const provider of ['postgres', 'sqlite', 'mssql']) {
+      assert.ok(endsTransaction('RELEASE SAVEPOINT sendproof_preview', provider), provider);
+    }
+    assert.ok(endsTransaction('SAVE TRANSACTION sendproof_preview', 'mssql'));
+    assert.ok(endsTransaction('SAVE TRAN [sendproof_preview]', 'mssql'));
+    assert.ok(!endsTransaction('SAVE TRANSACTION knex_sp1', 'mssql'));
   });
 
   it('reads MySQL text as the server does: # and -- comments, executable comments, both string readings, no $$ quoting', () => {

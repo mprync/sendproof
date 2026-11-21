@@ -267,6 +267,19 @@ for (const target of targets()) {
       });
     }
 
+    if (target.dialect !== 'sqlite') {
+      it('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
+        await assert.rejects(opened.provider.preview(async () => {
+          await client.insert(t.items).values({ id: 'committed', name: 'Committed below the guard' });
+          // The driver's own connection, below the Drizzle session the guard wraps.
+          const driver = (client as unknown as { session: { client: { unsafe?(sql: string): Promise<unknown>; query(sql: string): Promise<unknown> } } })
+            .session.client;
+          await (driver.unsafe ? driver.unsafe('COMMIT') : driver.query('COMMIT'));
+        }), /not contained/);
+        await client.delete(t.items).where(eq(t.items.id, 'committed'));
+      });
+    }
+
     if (target.dialect === 'mysql') {
       it('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
         const [[{ d: name }]] = await raw(sql.raw('SELECT DATABASE() AS d')) as unknown as [[{ d: string }]];
