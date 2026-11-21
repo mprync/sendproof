@@ -3,6 +3,7 @@
   "description": "Framework-neutral Test Bench protocol core for PHP: preview, observed send, capture and embedded workbench assets.",
   "type": "library",
   "license": "MIT",
+  "authors": [{ "name": "Test Bench contributors" }],
   "keywords": ["testbench", "openapi", "api", "preview", "rollback"],
   "require": {
     "php": "^8.2",
@@ -20,7 +21,7 @@
   },
   "scripts": {
     "test": "phpunit",
-    "embed-ui": "node ../../../tools/pack-ui.mjs --version 0.1.0-alpha.1 --out resources/ui"
+    "embed-ui": "node ../../../tools/pack-ui.mjs --out resources/ui"
   },
   "archive": {
     "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
