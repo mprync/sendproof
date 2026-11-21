@@ -19,6 +19,7 @@ type fakeStore struct {
 	mu                      sync.Mutex
 	begun, finished, closed int
 	finishErr               error
+	panics                  bool // Finish and Close panic, like a store hook with a bug
 }
 
 func (s *fakeStore) Describe(context.Context) sendproof.DataStoreInfo {
@@ -41,6 +42,9 @@ func (p *fakeStorePreview) Finish(ctx context.Context) error {
 	p.store.mu.Lock()
 	defer p.store.mu.Unlock()
 	p.store.finished++
+	if p.store.panics {
+		panic("the store's abort crashed")
+	}
 	return p.store.finishErr
 }
 
@@ -48,6 +52,9 @@ func (p *fakeStorePreview) Close() error {
 	p.store.mu.Lock()
 	defer p.store.mu.Unlock()
 	p.store.closed++
+	if p.store.panics {
+		panic("the store's release crashed")
+	}
 	return nil
 }
 
@@ -222,6 +229,30 @@ func TestFailedStoreAbortWithholdsConfirmation(t *testing.T) {
 	}
 	if app.store.closed != 2 {
 		t.Error("the store was not released after a failed abort")
+	}
+}
+
+// A store hook that panics while aborting must not skip the SQL rollback or the
+// other cleanup, and the Preview answers 500 without confirmation.
+func TestAStorePanicStillRollsBackSQLAndWithholdsConfirmation(t *testing.T) {
+	var sent int
+	provider := &fakeProvider{}
+	app := newStoreApp(t, &sent, true, sendproof.WithProvider(provider))
+	app.store.panics = true
+	var response *httptest.ResponseRecorder
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				t.Fatalf("a store panic escaped the Preview pipeline: %v", recovered)
+			}
+		}()
+		response = app.preview("/read")
+	}()
+	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" || strings.Contains(response.Body.String(), "rolledBack") {
+		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	}
+	if provider.rolledBack != 1 || provider.closed != 1 || app.store.closed != 1 {
+		t.Errorf("cleanup was skipped: rolledBack=%d closed=%d storeClosed=%d", provider.rolledBack, provider.closed, app.store.closed)
 	}
 }
 

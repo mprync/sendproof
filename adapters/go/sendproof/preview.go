@@ -112,11 +112,11 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 		finishing := context.WithValue(cleanup, stateKey{}, state)
 		for _, entry := range stores {
 			if entry.preview != nil {
-				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Finish(finishing))
+				cleanupFailure = errors.Join(cleanupFailure, protect("a data store Finish", func() error { return entry.preview.Finish(finishing) }))
 			}
 		}
 		if session != nil {
-			cleanupFailure = errors.Join(cleanupFailure, session.Rollback(cleanup))
+			cleanupFailure = errors.Join(cleanupFailure, protect("the provider rollback", func() error { return session.Rollback(cleanup) }))
 		}
 		blocked, fault := state.outcome()
 		if cleanupFailure == nil && fault == nil && blocked == nil && handlerFailure == nil && completed && !capture.exceeded {
@@ -127,11 +127,11 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 		}
 		for _, entry := range stores {
 			if entry.preview != nil {
-				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Close())
+				cleanupFailure = errors.Join(cleanupFailure, protect("a data store Close", entry.preview.Close))
 			}
 		}
 		if session != nil {
-			cleanupFailure = errors.Join(cleanupFailure, session.Close())
+			cleanupFailure = errors.Join(cleanupFailure, protect("the provider session Close", session.Close))
 		}
 	}
 	if r.Context().Err() != nil {
@@ -237,6 +237,18 @@ func runProtected(fn func()) (failure error) {
 	}()
 	fn()
 	return nil
+}
+
+// protect runs one cleanup step and converts a panic into an error, so a crashing
+// store hook or provider never skips the remaining aborts and rollbacks, and the
+// Preview answers 500 instead of confirming.
+func protect(step string, fn func() error) (failure error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			failure = fmt.Errorf("%s panicked: %v", step, recovered)
+		}
+	}()
+	return fn()
 }
 
 // rejectUnexecuted explains why a preview produced no result: the request was
