@@ -1,0 +1,30 @@
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+    application
+}
+
+description = "Conformance fixture: a Ktor + JDBC + H2 app that exercises the Kotlin/Ktor binding over real HTTP."
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+application {
+    mainClass.set("dev.testbench.fixture.MainKt")
+    applicationName = "ktor-fixture"
+}
+
+dependencies {
+    implementation(platform(libs.ktor.bom))
+    implementation(platform(libs.jackson.bom))
+    implementation(project(":testbench-ktor"))
+    implementation("io.ktor:ktor-server-cio")
+    implementation("io.ktor:ktor-server-content-negotiation")
+    implementation("io.ktor:ktor-serialization-jackson")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.zaxxer:HikariCP:6.3.0")
+    runtimeOnly("com.h2database:h2:2.3.232")
+    runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
+}

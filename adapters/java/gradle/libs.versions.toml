@@ -1,0 +1,23 @@
+[versions]
+springBoot = "3.5.16"
+springdoc = "2.8.17"
+datasourceProxy = "1.11.1"
+junit = "5.12.2"
+kotlin = "2.3.21"
+ktor = "3.6.1"
+coroutines = "1.10.2"
+jackson = "2.19.4"
+slf4j = "2.0.18"
+
+[libraries]
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+springdoc-webmvc-api = { module = "org.springdoc:springdoc-openapi-starter-webmvc-api", version.ref = "springdoc" }
+datasource-proxy = { module = "net.ttddyy:datasource-proxy", version.ref = "datasourceProxy" }
+
+jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jackson" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

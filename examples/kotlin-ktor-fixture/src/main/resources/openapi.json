@@ -1,0 +1,36 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Test Bench Conformance", "version": "1" },
+  "paths": {
+    "/items": {
+      "post": {
+        "operationId": "createItem",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateItem" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } }, "400": { "description": "Invalid" } }
+      }
+    },
+    "/items/{id}": {
+      "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "get": { "operationId": "getItem", "responses": { "200": { "description": "The item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } }, "404": { "description": "Missing" } } },
+      "patch": {
+        "operationId": "renameItem",
+        "parameters": [ { "name": "tag", "in": "query", "required": false, "schema": { "type": "string" } } ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenameItem" } } } },
+        "responses": { "200": { "description": "Renamed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } } }
+      },
+      "delete": { "operationId": "deleteItem", "responses": { "204": { "description": "Deleted" } } }
+    },
+    "/items/{id}/fail": { "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ], "post": { "operationId": "failItem", "responses": { "409": { "description": "Handled failure" } } } },
+    "/items/{id}/large": { "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ], "post": { "operationId": "largeItem", "responses": { "200": { "description": "A body over the preview cap" } } } },
+    "/items/{id}/redirect": { "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ], "post": { "operationId": "redirectItem", "responses": { "302": { "description": "Redirect with a cookie" } } } },
+    "/items/{id}/capture": { "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ], "post": { "operationId": "captureItems", "responses": { "200": { "description": "Exceeds the capture caps" } } } },
+    "/items/{id}/ordinary": { "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } ], "post": { "operationId": "ordinaryItem", "responses": { "201": { "description": "Not previewable" } } } }
+  },
+  "components": {
+    "schemas": {
+      "Item": { "type": "object", "required": ["id", "name"], "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+      "CreateItem": { "type": "object", "required": ["id", "name"], "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+      "RenameItem": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
+    }
+  }
+}

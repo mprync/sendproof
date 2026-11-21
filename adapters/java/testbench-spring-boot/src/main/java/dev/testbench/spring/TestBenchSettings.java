@@ -1,0 +1,50 @@
+package dev.testbench.spring;
+
+import dev.testbench.core.Capabilities.AuthProvider;
+import dev.testbench.core.Capabilities.OpenApiDocument;
+import dev.testbench.core.LocalUrl;
+import java.time.Duration;
+import java.util.List;
+
+/**
+ * The settings the workbench actually uses: each value is the {@link TestBench} builder's if set, otherwise the
+ * {@code testbench.*} property, otherwise the default. See {@link TestBench} for the full precedence rules.
+ *
+ * @param apiName        the API display name, or {@code null} to fall back to {@code spring.application.name}
+ * @param environment    the environment label, or {@code null} to fall back to the first active profile
+ * @param openApiUrl     the explicit primary OpenAPI URL, or {@code null} to discover it
+ * @param documents      explicit OpenAPI documents
+ * @param authProviders  sign-in options
+ * @param fieldModules   field renderer modules
+ * @param traceRetention how long traces stay readable
+ * @param filterOrder    the servlet filter order
+ */
+record TestBenchSettings(String apiName, String environment, String openApiUrl, List<OpenApiDocument> documents,
+                         List<AuthProvider> authProviders, List<String> fieldModules, Duration traceRetention,
+                         int filterOrder) {
+
+    /** Merges the builder (which may be {@code null}) over the bound properties. */
+    static TestBenchSettings resolve(TestBenchProperties properties, TestBench builder) {
+        List<OpenApiDocument> documents = builder != null && builder.documents() != null ? builder.documents()
+                : properties.getDocuments().stream()
+                .map(document -> new OpenApiDocument(document.getName(), LocalUrl.validate(document.getUrl()))).toList();
+        List<AuthProvider> providers = builder != null && builder.authProviders() != null ? builder.authProviders()
+                : properties.getAuthProviders().stream().map(provider -> new AuthProvider(provider.getLabel(),
+                        provider.getKind(), provider.getUrl() == null ? null : LocalUrl.validate(provider.getUrl()))).toList();
+        List<String> modules = builder != null && builder.fieldModules() != null ? builder.fieldModules()
+                : properties.getFieldModules().stream().map(LocalUrl::validate).toList();
+        return new TestBenchSettings(
+                first(builder == null ? null : builder.apiName(), properties.getApiName()),
+                first(builder == null ? null : builder.environment(), properties.getEnvironment()),
+                first(builder == null ? null : builder.openApiUrl(), properties.getOpenApiUrl() == null ? null
+                        : LocalUrl.validate(properties.getOpenApiUrl())),
+                documents, providers, modules,
+                builder != null && builder.traceRetention() != null ? builder.traceRetention()
+                        : properties.getTrace().getRetention(),
+                properties.getFilterOrder());
+    }
+
+    private static <T> T first(T preferred, T fallback) {
+        return preferred != null ? preferred : fallback;
+    }
+}
