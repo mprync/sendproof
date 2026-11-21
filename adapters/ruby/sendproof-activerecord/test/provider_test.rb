@@ -132,7 +132,7 @@ class ProviderTest < Minitest::Test
   end
 
   def test_the_database_label_never_exposes_a_path_or_host
-    assert_equal "test", Sendproof::ActiveRecord::Provider.new.database
+    assert_equal "test", Sendproof::ActiveRecord::Provider.new.database unless MYSQL
     assert_equal "inventory", Sendproof::ActiveRecord::Provider.new(database: "inventory").database
   end
 
@@ -145,12 +145,16 @@ end
 class SqlCaptureTest < Minitest::Test
   include ProviderHelpers
 
+  # A bound parameter, or on a database without prepared statements (MySQL) an inlined literal.
   def probe(name, value)
+    return Item.lease_connection.select_all("SELECT #{Item.lease_connection.quote(value)} AS #{name}", "Probe") if MYSQL
+
     attribute = ActiveRecord::Relation::QueryAttribute.new(name, value, ActiveRecord::Type::String.new)
     Item.lease_connection.select_all("SELECT ? AS #{name}", "Probe", [attribute])
   end
 
   def test_sql_is_logged_with_parameters_and_timing
+    skip "MySQL inlines values instead of binding parameters" if MYSQL
     _, snapshot = preview { Item.create!(id: "a", name: "Alpha") }
     insert = snapshot.logs.find { |log| log[:sql] && log[:sql][:text].start_with?("INSERT") }
     assert_equal "Sql", insert[:level]
@@ -168,7 +172,13 @@ class SqlCaptureTest < Minitest::Test
     _, snapshot = preview { probe("fixture_secret", "fixture-secret-value") }
     refute_includes JSON.generate(snapshot.logs), "fixture-secret-value"
     parameter = snapshot.logs.flat_map { |log| log.dig(:sql, :parameters) || [] }.find { |p| p[:name] == "fixture_secret" }
-    assert_equal "[REDACTED]", parameter[:value]
+    assert_equal "[REDACTED]", parameter[:value] unless MYSQL
+  end
+
+  def test_a_statement_that_names_a_secret_is_shown_without_its_literals
+    _, snapshot = preview { probe("fixture_secret", "fixture-secret-value") }
+    text = snapshot.logs.map { |log| log.dig(:sql, :text) }.compact.find { |sql| sql.include?("fixture_secret") }
+    refute_includes text, "fixture-secret-value"
   end
 
   def test_a_secret_column_hides_every_value_in_its_statement
@@ -291,7 +301,7 @@ class ObservationTest < Minitest::Test
   # --- discovery --------------------------------------------------------------------------------
 
   def test_the_provider_names_its_sql_system
-    assert_equal "sqlite", Sendproof::ActiveRecord::Provider.new.database_system
+    assert_equal(MYSQL ? "mysql" : "sqlite", Sendproof::ActiveRecord::Provider.new.database_system)
     assert_equal "mariadb", Sendproof::ActiveRecord::Provider.new(system: "mariadb").database_system
   end
 
@@ -317,6 +327,30 @@ class ObservationTest < Minitest::Test
     end
     threads.each(&:join)
     assert_equal 1, overlap, "Serialized previews must take turns"
+    assert_empty durable_items
+  end
+
+  # Set BENCH_DATABASE=mysql (bin/test-mysql) to run this against a server. On MySQL, InnoDB aborts all but
+  # one of several Previews inserting one new key with a deadlock (1213) unless they take turns.
+  def test_concurrent_previews_inserting_one_key_all_complete
+    skip "Set BENCH_DATABASE=mysql to run this against a MySQL server." unless MYSQL
+    provider = Sendproof::ActiveRecord::Provider.new
+    start = Queue.new
+    results = Array.new(8) do
+      Thread.new do
+        start.pop # released together, so every Preview reaches its insert at once
+        session, = preview(provider) do
+          Item.create!(id: "shared", name: "Shared")
+          sleep 0.05 # let the others reach their insert and wait on this row
+        end
+        session.changes.map { |change| [change[:operation], change[:key]] }
+      ensure
+        ActiveRecord::Base.connection_pool.release_connection
+      end
+    end
+    results.length.times { start << true }
+    results = results.map(&:value)
+    assert(results.all? { |changes| changes == [["insert", { "id" => "shared" }]] }, results.inspect)
     assert_empty durable_items
   end
 

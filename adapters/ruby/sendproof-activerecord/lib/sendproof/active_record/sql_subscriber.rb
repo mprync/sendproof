@@ -27,15 +27,18 @@ module Sendproof
 
       # @return [Array(Hash, Boolean)] the captured SQL and whether anything was truncated
       def snapshot(text, payload, show_values)
-        clipped = Limits.clip(text)
         binds = Array(payload[:binds])
+        # Placeholders carry no column information, so one secret-looking name hides every value, and a
+        # statement that names a secret is shown without its literals: a database without prepared
+        # statements (MySQL) inlines values into the text instead of binding them.
+        redact_all = !show_values || Redaction.looks_secret?(text)
+        text = Redaction.mask_literals(text) if redact_all
+        clipped = Limits.clip(text)
         values = payload[:type_casted_binds]
         values = values.call if values.respond_to?(:call)
         values = Array(values)
         truncated = clipped.length != text.length || binds.length > Limits::PARAMETERS
 
-        # Placeholders carry no column information, so one secret-looking name hides every value.
-        redact_all = !show_values || Redaction.looks_secret?(text)
         parameters = binds.first(Limits::PARAMETERS).each_with_index.map do |bind, index|
           name = bind.respond_to?(:name) && bind.name ? bind.name.to_s : "p#{index}"
           redact = redact_all || Redaction.looks_secret?(name)

@@ -4,21 +4,27 @@ require "minitest/autorun"
 require "tmpdir"
 require "sendproof/active_record"
 
-# A real SQLite file, so a second connection can check what was durably committed.
-DIRECTORY = Dir.mktmpdir("sendproof-ar-")
-# Minitest runs at exit, so clean up after it rather than in a competing at_exit hook.
-Minitest.after_run { FileUtils.remove_entry(DIRECTORY, true) }
-ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: File.join(DIRECTORY, "test.sqlite3"),
-                                        timeout: 5000, pool: 5)
+# A real database, so a second connection can check what was durably committed: a SQLite file by default,
+# or the MySQL server the conformance runner provisions when BENCH_DATABASE=mysql (see bin/test-mysql).
+MYSQL = ENV["BENCH_DATABASE"] == "mysql"
+if MYSQL
+  ActiveRecord::Base.establish_connection(url: ENV.fetch("BENCH_DATABASE_URL").sub(/\Amysql:/, "trilogy:"), pool: 12)
+else
+  DIRECTORY = Dir.mktmpdir("sendproof-ar-")
+  # Minitest runs at exit, so clean up after it rather than in a competing at_exit hook.
+  Minitest.after_run { FileUtils.remove_entry(DIRECTORY, true) }
+  ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: File.join(DIRECTORY, "test.sqlite3"),
+                                          timeout: 5000, pool: 5)
+end
 ActiveRecord::Schema.verbose = false
 ActiveRecord::Schema.define do
-  create_table :items, id: false do |t|
+  create_table :items, id: false, force: true do |t|
     t.string :id, null: false, primary_key: true
     t.string :name, null: false
     t.string :password_hash
     t.timestamps null: true
   end
-  create_table :memberships, primary_key: %i[org_id user_id] do |t|
+  create_table :memberships, primary_key: %i[org_id user_id], force: true do |t|
     t.integer :org_id, null: false
     t.integer :user_id, null: false
     t.string :role

@@ -7,6 +7,22 @@ module Fixture
     self.primary_key = "id"
   end
 
+  class Account < ActiveRecord::Base
+    self.primary_key = "id"
+  end
+
+  # A document in the Mongoid `documents` collection (spec/conformance/fixture.md): {_id, name, profile: {city}, password_hash}.
+  if defined?(::Mongoid)
+    class Document
+      include Mongoid::Document
+      store_in collection: "documents"
+      field :_id, type: String
+      field :name, type: String
+      field :profile, type: Hash
+      field :password_hash, type: String
+    end
+  end
+
   class BaseController < ActionController::API
     private
 
@@ -56,7 +72,7 @@ module Fixture
 
   class ItemsController < BaseController
     # Create/update/delete and the demonstration operations are previewable. `show` and `ordinary` are not.
-    sendproof_preview only: %i[create update destroy fail large redirect capture]
+    sendproof_preview only: %i[create update destroy fail large redirect capture commit remember]
 
     before_action :authenticate!
     before_action :require_admin!, except: :show
@@ -124,15 +140,45 @@ module Fixture
       head :created
     end
 
+    # Inserts, then commits the transaction by hand: a Preview must refuse the COMMIT (the shared raw-commit rule).
+    def commit
+      Item.create!(id: params[:id], name: params.require(:name))
+      Item.lease_connection.execute("COMMIT")
+      render json: { id: params[:id], name: params[:name] }, status: :created
+    end
+
+    # Inserts the item, then writes the named guarded store, so SQL and a store write roll back together.
+    def remember
+      item = Item.create!(id: params[:id], name: params.require(:name))
+      case params[:store]
+      when "redis" then Fixture::REDIS.incr("#{ENV.fetch('BENCH_REDIS_PREFIX', '')}counter:item-#{params[:id]}")
+      when "dynamodb" then Fixture.touch_order("item-#{params[:id]}")
+      else return head(:bad_request)
+      end
+      render json: item_json(item), status: :created
+    end
+
     private
 
     def item_json(item) = { id: item.id, name: item.name }
 
-    # A bound parameter whose name looks secret; the value must never reach a capture.
+    # A bound parameter whose name looks secret; the value must never reach a capture. SQLite binds it. MySQL
+    # through Trilogy has no prepared statements, so Active Record never binds a parameter there: the fixture
+    # reports the same statement and bind the way a prepared-statement adapter would, which exercises the
+    # redaction of a named parameter (the unit suite covers it on SQLite), while the statement it really runs
+    # carries the value inline, as every Trilogy statement does.
     def probe_secret_parameter
+      connection = Item.lease_connection
       attribute = ActiveRecord::Relation::QueryAttribute.new("fixture_secret", "fixture-secret-value",
                                                               ActiveRecord::Type::String.new)
-      Item.lease_connection.select_all("SELECT ? AS fixture_secret", "Fixture probe", [attribute])
+      if connection.prepared_statements
+        connection.select_all("SELECT ? AS fixture_secret", "Fixture probe", [attribute])
+      else
+        ActiveSupport::Notifications.instrument(
+          "sql.active_record", sql: "SELECT ? AS fixture_secret", name: "Fixture probe", binds: [attribute],
+                               type_casted_binds: ["fixture-secret-value"], connection: connection
+        ) { connection.select_all("SELECT #{connection.quote('fixture-secret-value')} AS fixture_secret", "SCHEMA") }
+      end
     end
 
     def notify(description, id)
@@ -141,6 +187,143 @@ module Fixture
       OUTBOX << { description: description, id: id } unless suppressed
     end
   end
+
+  # The shared security rule routes: a second table whose password_hash must never reach a capture.
+  class AccountsController < BaseController
+    sendproof_preview only: :create
+    before_action :authenticate!
+
+    def create
+      id, email, password = params.values_at(:id, :email, :password)
+      return head(:bad_request) unless [id, email, password].all? { |value| value.is_a?(String) && !value.empty? }
+
+      Account.create!(id: id, email: email, password_hash: "hashed:#{password}")
+      render json: { id: id, email: email }, status: :created
+    end
+
+    def show
+      account = Account.find(params[:id])
+      render json: { id: account.id, email: account.email }
+    end
+  end
+
+  # MongoDB through Mongoid. In Preview the session is ambient, so these are ordinary Mongoid calls.
+  class DocumentsController < BaseController
+    sendproof_preview
+    sendproof_no_preview only: :destroy, stores: :mongodb
+    before_action :authenticate!
+
+    def show
+      document = Document.where(_id: params[:id]).first
+      document ? render(json: shape(document)) : head(:not_found)
+    end
+
+    def create
+      id, name, city, password = params.values_at(:id, :name, :city, :password)
+      return head(:bad_request) unless [id, name, city, password].all? { |value| value.is_a?(String) && !value.empty? }
+
+      document = Document.create!(_id: id, name: name, profile: { "city" => city }, password_hash: "hashed:#{password}")
+      Rails.logger.info("created-document:#{id}")
+      render json: shape(document), status: :created
+    end
+
+    def update
+      return head(:not_found) unless Document.where(_id: params[:id]).exists?
+
+      set = {}
+      set["name"] = params[:name] if params[:name].is_a?(String)
+      set["profile.city"] = params[:city] if params[:city].is_a?(String)
+      return head(:bad_request) if set.empty?
+
+      Document.where(_id: params[:id]).update("$set" => set)
+      render json: shape(Document.where(_id: params[:id]).first)
+    end
+
+    # $out can't run inside a transaction: the Preview is blocked with that reason.
+    def archive
+      Document.collection.aggregate([{ "$match" => {} }, { "$out" => "documents_archive" }]).to_a
+      head :no_content
+    end
+
+    def destroy
+      Document.where(_id: params[:id]).delete
+      head :no_content
+    end
+
+    private
+
+    def shape(document) = { id: document._id, name: document.name, city: document.profile&.fetch("city", nil) }
+  end
+
+  # Redis through the redis gem, guarded by the redis-client middleware.
+  class CountersController < BaseController
+    sendproof_preview
+    sendproof_no_preview only: :destroy, stores: :redis
+    before_action :authenticate!
+
+    def show
+      value = REDIS.get(key)
+      value.nil? ? head(:not_found) : render(json: { key: params[:key], value: value.to_i })
+    end
+
+    def increment = render(json: { key: params[:key], value: REDIS.incr(key) })
+
+    # GETDEL looks like a read but deletes the key; a handler that swallows the refusal still gets a 409.
+    def take
+      value = REDIS.getdel(key)
+      value.nil? ? head(:not_found) : render(json: { key: params[:key], value: value.to_i })
+    end
+
+    def destroy
+      REDIS.del(key)
+      head :no_content
+    end
+
+    private
+
+    def key = "#{ENV.fetch('BENCH_REDIS_PREFIX', '')}counter:#{params[:key]}"
+  end
+
+  # DynamoDB through aws-sdk-dynamodb, guarded by the Seahorse handler.
+  class OrdersController < BaseController
+    sendproof_preview
+    sendproof_no_preview only: :destroy, stores: :dynamodb
+    before_action :authenticate!
+
+    def show
+      item = DYNAMODB.get_item(table_name: table, key: { "id" => params[:id] }).item
+      item ? render(json: Fixture.order_json(item)) : head(:not_found)
+    end
+
+    def touch
+      render json: Fixture.order_json(Fixture.touch_order(params[:id]).attributes)
+    end
+
+    # A PartiQL UPDATE travels through ExecuteStatement, which also carries reads.
+    def cancel
+      DYNAMODB.execute_statement(statement: %(UPDATE "#{table}" SET status = 'cancelled' WHERE id = ?), parameters: [params[:id]])
+      render json: { id: params[:id], status: "cancelled" }
+    end
+
+    def destroy
+      DYNAMODB.delete_item(table_name: table, key: { "id" => params[:id] })
+      head :no_content
+    end
+
+    private
+
+    def table = ENV.fetch("BENCH_DYNAMODB_TABLE")
+  end
+
+  # The same update the order touch route and the mixed route make.
+  def self.touch_order(id)
+    DYNAMODB.update_item(table_name: ENV.fetch("BENCH_DYNAMODB_TABLE"), key: { "id" => id },
+                         update_expression: "ADD hits :one SET #s = if_not_exists(#s, :new)",
+                         expression_attribute_names: { "#s" => "status" },
+                         expression_attribute_values: { ":one" => 1, ":new" => "new" }, return_values: "ALL_NEW")
+  end
+
+  def self.order_json(item) = { id: item["id"], status: item["status"], hits: item["hits"]&.to_i }
 
   LARGE_BYTES = 1024 * 1024 + 1024
 
@@ -152,7 +335,7 @@ module Fixture
     json = ->(description) { { description: description, content: { "application/json" => { schema: ref } } } }
     id_param = { name: "id", in: "path", required: true, schema: { type: "string" } }
     simple = ->(summary, status = "200") { { summary: summary, parameters: [id_param], responses: { status => { description: summary } } } }
-    {
+    document = {
       openapi: "3.0.3",
       info: { title: "Sendproof Conformance", version: "1.0.0" },
       paths: {
@@ -174,5 +357,35 @@ module Fixture
       },
       components: { schemas: { Item: item } }
     }
+    paths = document[:paths]
+    paths["/accounts"] = { post: { summary: "Create an account", responses: { "201" => { description: "Created" } } } }
+    paths["/accounts/{id}"] = { parameters: [id_param], get: { summary: "Read an account", responses: { "200" => { description: "The account" } } } }
+    paths["/items/{id}/commit"] = { post: simple.call("Insert, then COMMIT by hand", "201") }
+    if STORES.any?
+      paths["/items/{id}/remember"] = { post: { summary: "Insert, then write a guarded store", parameters: [id_param,
+        { name: "store", in: "query", required: true, schema: { type: "string", enum: %w[redis dynamodb] } }],
+        responses: { "201" => { description: "Created" } } } }
+    end
+    if STORES.include?(:mongodb)
+      paths["/documents"] = { post: { summary: "Create a document", responses: { "201" => { description: "Created" } } } }
+      paths["/documents/archive"] = { post: { summary: "Aggregate into an archive collection ($out)", responses: { "204" => { description: "Archived" } } } }
+      paths["/documents/{id}"] = { parameters: [id_param], get: { summary: "Read a document", responses: { "200" => { description: "The document" } } },
+                                   patch: { summary: "Update a document", responses: { "200" => { description: "Updated" } } },
+                                   delete: { summary: "Delete a document", responses: { "204" => { description: "Deleted" } } } }
+    end
+    if STORES.include?(:redis)
+      key_param = { name: "key", in: "path", required: true, schema: { type: "string" } }
+      paths["/counters/{key}"] = { parameters: [key_param], get: { summary: "Read a counter", responses: { "200" => { description: "The counter" } } },
+                                   post: { summary: "Increment a counter", responses: { "200" => { description: "The counter" } } },
+                                   delete: { summary: "Delete a counter", responses: { "204" => { description: "Deleted" } } } }
+      paths["/counters/{key}/take"] = { parameters: [key_param], post: { summary: "Take (GETDEL) a counter", responses: { "200" => { description: "The counter" } } } }
+    end
+    if STORES.include?(:dynamodb)
+      paths["/orders/{id}"] = { parameters: [id_param], get: { summary: "Read an order", responses: { "200" => { description: "The order" } } },
+                                delete: { summary: "Delete an order", responses: { "204" => { description: "Deleted" } } } }
+      paths["/orders/{id}/touch"] = { post: simple.call("Touch an order (UpdateItem)") }
+      paths["/orders/{id}/cancel"] = { post: simple.call("Cancel an order (PartiQL UPDATE)") }
+    end
+    document
   end.freeze
 end

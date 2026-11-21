@@ -12,6 +12,16 @@ gem "rails", "~> 8.0.0"
 gem "sqlite3", ">= 2.1"
 gem "puma", ">= 6.4"
 
+# Data-store clients the Sendproof store hooks guard (see adapters/ruby/data-stores.md). Hosts add the ones they use.
+gem "mongoid", "~> 9.0"
+gem "mongo", "~> 2.21"
+gem "redis-client", ">= 0.22"
+gem "redis", "~> 5.0"
+gem "aws-sdk-dynamodb", "~> 1.100"
+
+# MySQL: Trilogy needs no client library, so the MySQL conformance entry runs on a plain machine.
+gem "trilogy", "~> 2.9"
+
 group :development, :test do
   gem "rake", "~> 13.2"
   gem "minitest", "~> 5.25"
