@@ -28,6 +28,14 @@ internal class GuardedSession : DispatchProxy
     {
         var method = targetMethod!;
         var arguments = args ?? [];
+        if (_state.Finished && method.Name != "Dispose")
+        {
+            // The Preview transaction has ended: nothing more may run through its session.
+            var ended = new PreviewTransactionControlException($"The Preview's MongoDB transaction has ended, so {method.Name.Replace("get_", "")} can't run.");
+            _preview.Refuse(ended);
+            return TaskFault.Create(method.ReturnType, ended) ?? throw ended;
+        }
+
         switch (method.Name)
         {
             case "StartTransaction":
@@ -45,8 +53,9 @@ internal class GuardedSession : DispatchProxy
                     $"Preview owns the MongoDB transaction, so the handler's {verb} cannot run during Preview.");
                 _preview.Refuse(error);
                 return TaskFault.Create(method.ReturnType, error) ?? throw error;
-            case "Fork" or "get_WrappedCoreSession":
-                // Either would hand handler code the real session or a copy of it, and with it the power to commit it.
+            case "Fork" or "get_WrappedCoreSession" or "get_ServerSession":
+                // Each would hand handler code the real session, a copy of it, or its id and transaction number, and with
+                // them the power to send a commit for it from some other client.
                 var leak = new PreviewTransactionControlException(
                     $"Preview owns the MongoDB session, so the handler can't reach it through {method.Name.Replace("get_", "")}.");
                 _preview.Refuse(leak);

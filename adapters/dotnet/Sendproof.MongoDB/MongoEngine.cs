@@ -638,6 +638,10 @@ internal sealed class MongoEngine
                 else if (state.Session.IsInTransaction)
                 {
                     await state.Session.AbortTransactionAsync().ConfigureAwait(false);
+                    // A handler command that passed the guard just before the end must not autocommit on the ended
+                    // session: open a fresh transaction (client-side only) that is never committed and is aborted when
+                    // the session is disposed below.
+                    state.Session.StartTransaction(new TransactionOptions(ReadConcern.Snapshot, writeConcern: WriteConcern.WMajority));
                 }
             }
             catch (Exception error) when (error is not OutOfMemoryException)

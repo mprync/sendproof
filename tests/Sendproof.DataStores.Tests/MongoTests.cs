@@ -628,6 +628,34 @@ public sealed class MongoTests
     }
 
     [ServiceFact("mongodb")]
+    public async Task OnceThePreviewTransactionEndsEveryFurtherCallIsRefusedNeverSentOutsideIt()
+    {
+        await using var f = await Fixture.StartAsync();
+        var guarded = f.App.Services.GetRequiredService<IMongoClient>();
+        var outcomes = new List<string>();
+        // Runs where a late handler write lands: after the abort, before the session is ended (the time limit's path too).
+        f.Engine.AbortOverride = async session =>
+        {
+            await session.AbortTransactionAsync();
+            foreach (var (name, call) in new (string, Func<Task>)[]
+            {
+                ("insert", () => Documents(guarded, f.Database).InsertOneAsync(new BsonDocument("_id", "after-end"))),
+                ("find", async () => await (await Documents(guarded, f.Database).FindAsync(new BsonDocument())).ToListAsync()),
+                ("commit", async () => { using var handle = await guarded.StartSessionAsync(); await handle.CommitTransactionAsync(); }),
+                ("server-session", async () => { using var handle = await guarded.StartSessionAsync(); _ = handle.ServerSession; await Task.CompletedTask; })
+            })
+            {
+                try { await call(); outcomes.Add(name + ": ran"); }
+                catch (PreviewTransactionControlException) { outcomes.Add(name + ": refused"); }
+            }
+        };
+        Expect.Unconfirmed(await f.App.PreviewAsync("POST", "/documents", NewDocument), HttpStatusCode.InternalServerError);
+        Assert.Equal(["insert: refused", "find: refused", "commit: refused", "server-session: refused"], outcomes);
+        Assert.Null(await f.FindAsync("after-end"));
+        Assert.Null(await f.FindAsync("preview-doc"));
+    }
+
+    [ServiceFact("mongodb")]
     public async Task AWriteWithNoRequestAttributionFailsTheOpenPreviewUnlessDetached()
     {
         await using var f = await Fixture.StartAsync();

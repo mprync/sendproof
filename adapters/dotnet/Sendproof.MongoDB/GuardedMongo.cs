@@ -144,6 +144,14 @@ internal class GuardedMongo : DispatchProxy
         }
 
         var state = _engine.StateOf(preview);
+        if (state is { Finished: true })
+        {
+            // The Preview transaction was aborted (the handler ended, or ran past the time limit). The session no longer
+            // carries a transaction, so a command sent with it would autocommit: refuse every further call instead.
+            var ended = _engine.Capture.RefuseInPreview($"The Preview's MongoDB transaction has ended, so {method.Name} can't run.")!;
+            return TaskFault.Create(method.ReturnType, ended) ?? throw ended;
+        }
+
         if (_kind == Kind.Client && baseName == "StartSession")
         {
             if (state is not null)
