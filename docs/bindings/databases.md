@@ -27,6 +27,10 @@ The [conformance manifest](../../tests/conformance/bindings.json) lists the exac
 
 Frameworks can use another provider from their ecosystem. The table identifies the combinations tested together. See each provider's guide for automatic row capture, per-statement behavior, concurrency and limits.
 
+## Concurrent previews on MySQL and SQLite run one at a time
+
+On MySQL and MariaDB, each provider lets one preview run at a time in each process, and further previews wait their turn. InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the same key and the first one rolls back, as every preview does, InnoDB aborts all but one of the rest with a deadlock (error 1213), at any isolation level. Sent for real, the first insert would commit and the others would get a duplicate-key error. SQLite previews already queue the same way, because each one opens with `BEGIN IMMEDIATE` (Django included). Previews sent to different processes or servers of one application still run at the same time, so they can still hit this deadlock. When that happens, the preview fails safely and nothing is written. Sends and observed sends never wait for a turn.
+
 ## Local test coverage
 
 | Suite | SQLite | PostgreSQL | MySQL | SQL Server | Shared or H2 |
