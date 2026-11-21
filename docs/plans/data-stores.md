@@ -245,6 +245,10 @@ Each binding fills two capabilities fields defined in `spec/capabilities.schema.
 - MongoDB: a unit or integration test shows a write sent without the Preview session during a Preview yields 500, not a confirmation.
 - The Opus review signs off the MongoDB session binding, the tripwire and the pipeline order.
 
+### After batch one lands: release tooling
+
+`tools/release/*.mjs` lists packages per registry by hand and knows none of the new store packages (Node `@sendproof/redis`, `/dynamodb`, `/mongodb`; Go `redisbench`, `dynamobench`, `mongobench`; the Rust, Python, .NET, Java, Ruby and PHP store packages). Once every language is reviewed, one pass adds them to each registry script, the CI publish jobs, the consumer smoke tests and, for PHP, the split mirror repos, then runs `pack-all --verify`. The Rust review adds its three crates to `crates.mjs` already.
+
 ## Work breakdown, batch two
 
 Batch two adds one classification table per store under `spec/data-stores/`, extends `classification-cases.json`, and adds guard-only hooks. All four stores are `guard` only (see [Batch two stores](../../spec/data-stores.md#batch-two-stores)).
