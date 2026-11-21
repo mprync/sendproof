@@ -52,13 +52,17 @@ Commands sent on the context's own connection (`Database.GetDbConnection()` with
 
 A connection your application creates and passes to EF Core isn't created by EF Core, so it isn't guarded either.
 
-### Savepoint backstop
+### Savepoint backstop (every relational provider)
 
-The Preview makes savepoint `sendproof_preview` as soon as its transaction opens and rolls back to it before the
-final rollback. Any commit erases every savepoint, so a missing savepoint means the Preview's writes may have
-persisted: the Preview answers 500 without confirmation. (MySQL has no `@@in_transaction`, and with auto-commit
-off it opens a new transaction after a commit, so a check made only at the end can't see one.) Statements naming
-the savepoint are refused.
+On every relational provider the Preview makes savepoint `sendproof_preview` as soon as its transaction opens
+(`SAVE TRANSACTION` on SQL Server) and rolls back to it before the final rollback (`ROLLBACK TRANSACTION` on SQL
+Server). Any commit erases every savepoint, so a missing savepoint means the Preview's writes may have persisted
+by a route no guard saw (plain ADO.NET on Npgsql, SqlClient or MySqlConnector, a connection the app created): the
+Preview answers 500 without confirmation. A check made only at the end can't see a commit: MySQL has no
+`@@in_transaction`, and with auto-commit off MySQL and SQL Server (`IMPLICIT_TRANSACTIONS`) open a new transaction
+after one. Rolling back to the savepoint, rather than releasing it, also works in a PostgreSQL transaction that a
+handled error (such as a unique violation answered with 409) left aborted, and discards nested savepoints the
+handler left open. Statements naming the savepoint are refused on every provider.
 
 ### Deadlocks and aborted transactions
 

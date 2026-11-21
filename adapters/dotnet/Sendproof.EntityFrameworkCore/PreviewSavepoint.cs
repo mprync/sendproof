@@ -6,31 +6,46 @@ using Sendproof.AspNetCore;
 namespace Sendproof.EntityFrameworkCore;
 
 /// <summary>
-/// The MySQL and MariaDB backstop of spec/data-stores.md "Transaction-control statements from the handler": proof, just
-/// before the rollback, that nothing committed the Preview transaction.
+/// The backstop of spec/data-stores.md "Transaction-control statements from the handler", on every SQL provider: proof,
+/// just before the rollback, that nothing committed the Preview transaction by a route the pre-send guard couldn't see
+/// (plain ADO.NET on a provider without a driver hook, a connection the application created, a trigger).
 /// </summary>
 /// <remarks>
-/// MySQL has no <c>@@in_transaction</c>, and with auto-commit off it opens a new transaction implicitly after any commit,
-/// so "is a transaction open" can't tell the Preview's from a later one. Instead the provider makes savepoint
-/// <c>sendproof_preview</c> right after it opens the Preview transaction, and rolls back to it before the final rollback.
-/// Every commit, explicit or implicit, erases every savepoint, so a missing savepoint (MySQL error 1305) means the
-/// Preview's writes were committed: the Preview answers 500 without confirmation. The commands run through plain
-/// ADO.NET, past EF Core's interceptors, so the probe never shows in the captured SQL; the handler can't release, roll
-/// back to or recreate the savepoint (see <see cref="SqlStatements"/>).
+/// The provider makes savepoint <c>sendproof_preview</c> right after it opens the Preview transaction (<c>SAVE
+/// TRANSACTION</c> on SQL Server) and rolls back to it before the final rollback (<c>ROLLBACK TRANSACTION</c> on SQL
+/// Server). Every commit, explicit or implicit, erases every savepoint, so a missing savepoint means the Preview's writes
+/// were committed: the Preview answers 500 without confirmation. A check made only at the end can't see a commit: MySQL
+/// has no <c>@@in_transaction</c>, and with auto-commit off MySQL and SQL Server (<c>IMPLICIT_TRANSACTIONS</c>) open a
+/// new transaction after one, so even <c>@@TRANCOUNT</c> looks open. Rolling back to the savepoint rather than releasing
+/// it also works in a PostgreSQL transaction a handled error left aborted. The commands run through plain ADO.NET, past
+/// EF Core's interceptors and Sendproof's guards, so the probe never shows in the captured SQL; the handler can't
+/// release, roll back to or recreate the savepoint (see <see cref="SqlStatements"/>).
 /// </remarks>
 internal sealed class PreviewSavepoint
 {
-    private readonly DbContext _context;
+    private const string SqlServer = "Microsoft.EntityFrameworkCore.SqlServer";
 
-    private PreviewSavepoint(DbContext context) => _context = context;
+    private readonly DbContext _context;
+    private readonly bool _sqlServer;
+
+    private PreviewSavepoint(DbContext context)
+    {
+        _context = context;
+        _sqlServer = context.Database.ProviderName == SqlServer;
+    }
 
     /// <summary>Makes the savepoint in the Preview transaction just opened on the context's connection.</summary>
     internal static async Task<PreviewSavepoint> OpenAsync(DbContext context, CaptureContext capture, CancellationToken cancellationToken)
     {
         var savepoint = new PreviewSavepoint(context);
-        await savepoint.RunAsync("SAVEPOINT " + SqlStatements.PreviewSavepointName, cancellationToken);
-        // Lets the MySql.Data hook prove the transaction is still open before each statement (see SqlGuard.CheckMySqlData).
-        SqlGuard.RegisterPreviewConnection(context.Database.GetDbConnection(), capture, savepoint);
+        await savepoint.RunAsync((savepoint._sqlServer ? "SAVE TRANSACTION " : "SAVEPOINT ") + SqlStatements.PreviewSavepointName,
+            cancellationToken);
+        if (PreviewTurns.IsMySql(context.Database.ProviderName))
+        {
+            // Lets the MySql.Data hook prove the transaction is still open before each statement (see SqlGuard.CheckMySqlData).
+            SqlGuard.RegisterPreviewConnection(context.Database.GetDbConnection(), capture, savepoint);
+        }
+
         return savepoint;
     }
 
@@ -40,15 +55,15 @@ internal sealed class PreviewSavepoint
     {
         try
         {
-            await OwnSql.RunAsync(() => RunAsync("ROLLBACK TO SAVEPOINT " + SqlStatements.PreviewSavepointName, cancellationToken));
+            await OwnSql.RunAsync(() => RunAsync(
+                (_sqlServer ? "ROLLBACK TRANSACTION " : "ROLLBACK TO SAVEPOINT ") + SqlStatements.PreviewSavepointName, cancellationToken));
         }
-        catch (DbException failure)
+        catch (Exception failure) when (failure is DbException or InvalidOperationException)
         {
+            // A commit erased the savepoint, or the transaction is no longer usable: either way it can't be vouched for.
             throw new PreviewTransactionEndedException(
-                failure.Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) || failure.ErrorCode == 1305
-                    ? "Something committed the Preview's MySQL transaction while the handler ran (its savepoint is gone), so its writes may have persisted and the Preview can't be confirmed."
-                    : "Sendproof couldn't confirm the Preview's MySQL transaction was still open, so the Preview can't be confirmed.",
-                failure);
+                "Something committed the Preview's SQL transaction while the handler ran (its savepoint is gone), so its " +
+                "writes may have persisted and the Preview can't be confirmed.", failure);
         }
     }
 

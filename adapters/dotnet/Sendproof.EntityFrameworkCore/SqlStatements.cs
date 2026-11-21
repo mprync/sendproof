@@ -29,10 +29,11 @@ internal static partial class SqlStatements
 
     // BEGIN, START TRANSACTION, COMMIT [WORK|TRAN], END, ABORT, ROLLBACK without TO, PREPARE TRANSACTION, XA, and the
     // session settings that end the transaction, in any spelling and anywhere in a SET list (a user variable such as
-    // @autocommit is not a setting). SAVEPOINT, RELEASE SAVEPOINT and ROLLBACK TO stay allowed because ORMs use them for
+    // @autocommit is not a setting). SQL Server's SET IMPLICIT_TRANSACTIONS OFF, which EF Core starts its batches with,
+    // leaves an open transaction open, so it is allowed. SAVEPOINT, RELEASE SAVEPOINT and ROLLBACK TO stay allowed because ORMs use them for
     // nested transactions. EF Core's SQL Server savepoint rollback (ROLLBACK TRANSACTION __EFSavePoint) is allowed for
     // the same reason.
-    [GeneratedRegex(@"^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:(?:WORK|TRANSACTION|TRAN)\s+)?TO\b)(?!\s+TRAN(?:SACTION)?\s+\[?__EFSavePoint)|PREPARE\s+TRANSACTION|XA\b|SET\b(?:.*[\s,])?(?:@@(?:(?:SESSION|GLOBAL|LOCAL)\.)?|(?:SESSION|GLOBAL|LOCAL)\s+)?(?:AUTOCOMMIT|IMPLICIT_TRANSACTIONS)\b)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    [GeneratedRegex(@"^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:(?:WORK|TRANSACTION|TRAN)\s+)?TO\b)(?!\s+TRAN(?:SACTION)?\s+\[?__EFSavePoint)|PREPARE\s+TRANSACTION|XA\b|SET\b(?:.*[\s,])?(?:@@(?:(?:SESSION|GLOBAL|LOCAL)\.)?|(?:SESSION|GLOBAL|LOCAL)\s+)?(?:AUTOCOMMIT\b|IMPLICIT_TRANSACTIONS\b(?!\s*(?:=\s*)?OFF\b)))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex TransactionControl();
 
     // MySQL commits the open transaction before (and after) these statements.
@@ -48,9 +49,10 @@ internal static partial class SqlStatements
     [GeneratedRegex(@"^CALL\s+(?<name>[^\s(;]+(?:\s*\.\s*[^\s(;]+)?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex MySqlCall();
 
-    // Releasing the backstop savepoint, rolling back to it or making it again would hide a commit from the backstop.
-    [GeneratedRegex(@"^(?:SAVEPOINT|RELEASE\s+SAVEPOINT|ROLLBACK\s+(?:WORK\s+)?TO(?:\s+SAVEPOINT)?)\s+`?sendproof_preview`?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex MySqlPreviewSavepoint();
+    // On every database: releasing the backstop savepoint, rolling back to it or making it again would hide a commit from
+    // the backstop. SQL Server spells these SAVE TRANSACTION and ROLLBACK TRANSACTION; names may be quoted.
+    [GeneratedRegex(@"^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK\s+(?:WORK\s+)?TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?|ROLLBACK\s+TRAN(?:SACTION)?)\s+[`""\[]?sendproof_preview[`""\]]?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PreviewSavepointStatement();
 
     // MySQL and MariaDB run the body of /*! ... */ and /*M! ... */ comments as SQL.
     [GeneratedRegex(@"^/\*M?!\d*")]
@@ -113,7 +115,7 @@ internal static partial class SqlStatements
 
     private static bool EndsTransactionStatement(string statement, bool mysql, IReadOnlySet<string>? safeProcedures)
     {
-        if (TransactionControl().IsMatch(statement))
+        if (TransactionControl().IsMatch(statement) || PreviewSavepointStatement().IsMatch(statement))
         {
             return true;
         }
@@ -121,11 +123,6 @@ internal static partial class SqlStatements
         if (!mysql)
         {
             return false;
-        }
-
-        if (MySqlPreviewSavepoint().IsMatch(statement))
-        {
-            return true;
         }
 
         var call = MySqlCall().Match(statement);

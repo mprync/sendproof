@@ -85,7 +85,8 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
             // Sendproof's own work, which the guards let through (a MySQL driver hook sees the BEGIN).
             var transaction = await OwnSql.RunAsync(() => db.Database.BeginTransactionAsync(cancellationToken));
             PreviewSavepoint? savepoint = null;
-            if (PreviewTurns.IsMySql(db.Database.ProviderName))
+            // MongoDB's provider has no savepoints; every relational provider gets the backstop.
+            if (db.Database.IsRelational())
             {
                 try
                 {

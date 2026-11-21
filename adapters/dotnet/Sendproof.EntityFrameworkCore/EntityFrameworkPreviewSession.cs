@@ -36,7 +36,16 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
             }
         }
 
-        await OwnSql.RunAsync(() => transaction.RollbackAsync(cancellationToken));
+        try
+        {
+            await OwnSql.RunAsync(() => transaction.RollbackAsync(cancellationToken));
+        }
+        catch (Exception) when (ended is not null)
+        {
+            // The commit that erased the savepoint also ended the transaction (SQLite refuses to roll it back); the
+            // backstop's error is the one that explains the 500.
+        }
+
         _rolledBack = true;
         if (ended is not null) throw ended;
     }
