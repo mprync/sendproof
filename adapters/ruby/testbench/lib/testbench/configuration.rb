@@ -162,11 +162,25 @@ module TestBench
       @preview_operations.respond_to?(:call) ? @preview_operations.call : @preview_operations
     end
 
+    # Accepts only application-relative paths. Discovery hands these URLs to the browser, which
+    # loads field modules as scripts and follows sign-in links, so anything a browser could resolve
+    # off-origin (+//host+, a backslash, a tab or newline it strips, a fragment) or that climbs out
+    # of the mount with dot segments is refused.
     def local_url!(url)
       url = url.to_s
-      return url if url.match?(%r{\A/(?!/)}) && !url.include?("\\")
+      return url if local_url?(url)
 
       raise ConfigurationError, "Use an application-relative, same-origin path (got #{url.inspect})."
+    end
+
+    def local_url?(url)
+      raw = url.b
+      path = raw.split("?", 2).first.to_s
+      decoded = path.gsub(/%\h\h/n) { |escape| escape[1..].hex.chr }
+      segments = decoded.split("/")
+      path.start_with?("/") && !decoded.start_with?("//") && !raw.include?("#") && !raw.include?("\\") &&
+        !decoded.include?("\\") && !raw.match?(/[\x00-\x20\x7f]/n) && !decoded.match?(/[\x00-\x1f\x7f]/n) &&
+        !segments.include?(".") && !segments.include?("..")
     end
   end
 end

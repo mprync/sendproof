@@ -1,0 +1,6 @@
+# Shared by the bin scripts: keep every Ruby dependency inside adapters/ruby.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export BUNDLE_GEMFILE="$ROOT/Gemfile"
+export BUNDLE_PATH="$ROOT/vendor/bundle"
+export BUNDLE_APP_CONFIG="$ROOT/.bundle"
+export BUNDLE_FROZEN=false

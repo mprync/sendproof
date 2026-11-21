@@ -227,4 +227,23 @@ class ObservationTest < Minitest::Test
     observe { Item.create!(id: "a", name: "Alpha") }
     assert_nil TestBench::ActiveRecord::Tracker.current
   end
+
+  def test_change_snapshots_redact_secret_columns_and_filter_attributes
+    Item.create!(id: "a", name: "Alpha", password_hash: "old-digest")
+    session, = preview do
+      Item.find("a").update!(password_hash: "new-digest")
+      Item.create!(id: "b", name: "Beta", password_hash: "inserted-digest")
+    end
+    update, insert = session.changes
+    assert_equal "[REDACTED]", update[:before]["password_hash"]
+    assert_equal "[REDACTED]", update[:after]["password_hash"]
+    assert_equal "[REDACTED]", insert[:after]["password_hash"]
+    refute_match(/digest/, JSON.generate(session.changes))
+
+    Item.filter_attributes = [:name]
+    session, = preview { Item.create!(id: "c", name: "Filtered") }
+    assert_equal "[REDACTED]", session.changes.first[:after]["name"]
+  ensure
+    Item.filter_attributes = nil
+  end
 end

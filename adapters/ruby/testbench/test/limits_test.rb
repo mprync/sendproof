@@ -54,4 +54,14 @@ class RedactionTest < Minitest::Test
   def test_finds_a_secret_inside_a_statement
     assert TestBench::Redaction.looks_secret?('UPDATE "users" SET "password_digest" = ? WHERE id = ?')
   end
+
+  def test_oversized_payloads_are_rejected_before_serialization
+    huge = { "rows" => Array.new(10) { "x" * 4000 } }
+    JSON.stub(:generate, ->(*) { flunk "serialized an oversized payload" }) do
+      assert_nil TestBench::Limits.snapshot(huge)
+      assert_nil TestBench::Limits.snapshot(Array.new(1_000_000, 1))
+      assert_nil TestBench::Limits.snapshot("y" * 10_000_000)
+    end
+    assert_equal({ "ok" => [1, "two"] }, TestBench::Limits.snapshot({ ok: [1, :two] }))
+  end
 end

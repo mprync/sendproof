@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs every Ruby suite: core, ActiveRecord, Rails and the conformance fixture. No network needed.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_env"
+cd "$ROOT"
+exec bundle exec rake test

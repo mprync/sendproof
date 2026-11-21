@@ -86,6 +86,16 @@ class MiddlewareTest < Minitest::Test
     assert_raises(TestBench::ConfigurationError) { TestBench::Middleware.new(APPLICATION, TestBench::Configuration.new(environments: %w[development])) }
   end
 
+  def test_discovery_urls_must_stay_inside_the_application
+    config = TestBench::Configuration.new
+    %w[/fields.js /auth/sign-in?next=%2Fbench /tenant/openapi.json].each { |url| config.field_module(url) }
+    ["//evil.example/x.js", "https://evil.example/x.js", "/\\evil.example", "/%2F/evil.example",
+     "/\t/evil.example", "/a/../b", "/a/%2e%2e/b", "/x.js#frag", "relative.js", "/%5Cevil", "/a\nb"].each do |url|
+      assert_raises(TestBench::ConfigurationError, url) { config.field_module(url) }
+      assert_raises(TestBench::ConfigurationError, url) { config.auth_provider("SSO", "oidc", url) }
+    end
+  end
+
   def test_options_can_configure_the_middleware_directly
     provider = @provider
     rack = Rack::Builder.app do

@@ -69,7 +69,8 @@ module TestBench
         owned = @entries.select { |entry| entry.owner == owner }
         remove(owned.first) if owned.length >= @per_owner
         remove(@entries.first) if @entries.length >= @total
-        Reservation.new(SecureRandom.uuid.delete("-"), owner, @clock.call).tap { |entry| @entries << entry }
+        # 128 random bits from the CSPRNG (a UUID would carry only 122).
+        Reservation.new(SecureRandom.hex(16), owner, @clock.call).tap { |entry| @entries << entry }
       end
     end
 

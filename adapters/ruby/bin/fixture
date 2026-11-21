@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Starts the conformance fixture. Honours PORT, BENCH_PATH_BASE and BENCH_SCENARIO.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_env"
+export RAILS_ENV="${RAILS_ENV:-development}"
+cd "$ROOT/examples/rails-fixture"
+exec bundle exec puma --bind "tcp://127.0.0.1:${PORT:-5352}" --threads 1:4 config.ru

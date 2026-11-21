@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Installs gems into adapters/ruby/vendor/bundle (needs network once) and packs the shared UI bundle
+# into the core gem with tools/pack-ui.mjs (needs Node).
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_env"
+cd "$ROOT"
+bundle install
+bundle exec rake ui:pack

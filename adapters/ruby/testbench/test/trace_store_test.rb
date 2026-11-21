@@ -12,6 +12,13 @@ class TraceStoreTest < Minitest::Test
     @sam = Owner.new(authentication: "cookie", subject: "sam", issuer: "", path_base: "")
   end
 
+  def test_trace_ids_carry_128_random_bits
+    ids = Array.new(4) { TestBench::TraceStore.new.reserve(:owner).id }
+    assert(ids.all? { |id| id.match?(/\A\h{32}\z/) })
+    # A version-4 UUID fixes six bits (the "4" nibble and the variant), so it would never vary there.
+    refute(ids.all? { |id| id[12] == "4" }, "ids must not be UUIDs with fixed version bits")
+  end
+
   def test_owner_reads_a_completed_trace
     reservation = @store.reserve(@alex)
     reservation.complete({ ok: true })

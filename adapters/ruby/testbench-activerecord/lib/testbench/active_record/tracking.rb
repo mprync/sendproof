@@ -44,7 +44,24 @@ module TestBench
         private
 
         def change(operation, record, before, after, tracker)
-          { operation:, table: record.class.table_name, key: key(record, tracker), before:, after: }
+          filter = filter_for(record.class)
+          { operation:, table: record.class.table_name, key: redact(key(record, tracker), filter),
+            before: redact(before, filter), after: redact(after, filter) }
+        end
+
+        # Masks columns that name a secret (+password_digest+, +api_key+, +reset_token+) and the
+        # model's +filter_attributes+ (Rails' +filter_parameters+), so snapshots never carry
+        # credentials even when SQL parameter values are hidden.
+        def redact(row, filter)
+          return nil if row.nil?
+
+          row = filter.filter(row) if filter
+          row.to_h { |name, value| [name, Redaction.looks_secret?(name) ? Redaction::REDACTED : value] }
+        end
+
+        def filter_for(model)
+          filters = model.respond_to?(:filter_attributes) ? Array(model.filter_attributes) : []
+          filters.empty? ? nil : ActiveSupport::ParameterFilter.new(filters, mask: Redaction::REDACTED)
         end
 
         def key(record, tracker)

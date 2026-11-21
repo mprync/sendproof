@@ -28,6 +28,8 @@ module TestBench
     # @return [Object, nil] parsed JSON value, or nil when it is cyclic, too big or fails to serialize
     def snapshot(value)
       return nil if value.nil?
+      # Reject oversized plain data before serializing it, so a huge host payload is never copied.
+      return nil unless bounded?(value)
 
       json = JSON.generate(value, max_nesting: MAX_DEPTH)
       return nil if json.bytesize > PAYLOAD_BYTES
@@ -68,6 +70,27 @@ module TestBench
         result << { operation:, table:, key:, before:, after: }
       end
       [result, truncated]
+    end
+
+    # Walks plain Ruby data (strings, symbols, arrays, hashes) and stops at the first value that
+    # {fits?} would reject, or once the strings alone exceed {PAYLOAD_BYTES}. Other objects are
+    # left to the serializer. +budget+ is a one-element array so the remaining bytes are shared.
+    def bounded?(value, depth = 0, budget = [PAYLOAD_BYTES])
+      return false if depth >= MAX_DEPTH
+
+      case value
+      when String
+        value.length <= TEXT && (budget[0] -= value.bytesize) >= 0
+      when Symbol then bounded?(value.to_s, depth, budget)
+      when Array
+        value.length <= PARAMETERS && value.all? { |item| bounded?(item, depth + 1, budget) }
+      when Hash
+        value.length <= PARAMETERS && value.all? do |name, item|
+          key = name.to_s
+          key.length <= NAME && (budget[0] -= key.bytesize) >= 0 && bounded?(item, depth + 1, budget)
+        end
+      else true
+      end
     end
 
     def fits?(value, depth = 0)
