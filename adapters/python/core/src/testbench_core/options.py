@@ -11,14 +11,20 @@ from .identity import Identity
 
 
 def _is_local_url(url: str) -> bool:
+    from urllib.parse import unquote
+
     path = url.split("?", 1)[0]
+    decoded = unquote(path)
     return (
         path.startswith("/")
         and not path.startswith("//")
         and "\\" not in url
         and "#" not in url
         and not any(c.isspace() or ord(c) < 32 for c in url)
-        and not any(part in (".", "..") for part in path.split("/"))
+        and not decoded.startswith("//")
+        and "\\" not in decoded
+        # Browsers treat "%2e%2e" as "..", so dot segments are checked after decoding.
+        and not any(part in (".", "..") for part in decoded.split("/"))
     )
 
 
@@ -27,6 +33,23 @@ def require_local_url(url: str) -> str:
     if not isinstance(url, str) or not _is_local_url(url):
         raise ValueError("Use an application-relative, same-origin path such as '/openapi.json'.")
     return url
+
+
+def require_display_label(label: str) -> str:
+    """Validate a public database label: a bare name such as ``PostgreSQL``.
+
+    Connection strings, URLs, hosts, credentials and file paths are refused so that a
+    misconfigured label never publishes them in discovery.
+    """
+    if (
+        not isinstance(label, str)
+        or not label.strip()
+        or len(label) > 128
+        or any(c in label for c in "/\\@=;:?#")
+        or any(ord(c) < 32 for c in label)
+    ):
+        raise ValueError("Use a bare display name for the database label, such as 'PostgreSQL'.")
+    return label
 
 
 @dataclass(frozen=True)

@@ -26,6 +26,10 @@ from .routing import find_route, preview_operations, route_path
 logger = logging.getLogger("testbench_fastapi")
 ASGIApp = Callable[..., Awaitable[None]]
 
+#: Scope key of a re-dispatched preview: the route that was checked before the handler runs.
+#: Only this middleware sets it; HTTP clients cannot place keys in the ASGI scope.
+PREVIEW_ROUTE = "testbench.preview_route"
+
 
 class TestBenchMiddleware:
     """Intercepts ``/bench/*`` and Preview/Observed requests; everything else passes through."""
@@ -40,6 +44,9 @@ class TestBenchMiddleware:
         bench = self.bench
         if scope["type"] != "http" or not bench.options.enabled:
             await self.app(scope, receive, send)
+            return
+        if PREVIEW_ROUTE in scope:
+            await self._inner_preview(scope, receive, send)
             return
         started = time.perf_counter()
         path = route_path(scope)
@@ -150,6 +157,12 @@ class TestBenchMiddleware:
             (k, v) for k, v in scope["headers"] if k.lower() != b"accept-encoding"
         ] + [(b"cache-control", b"no-cache, no-store")]
         inner.pop("endpoint", None)
+        # The host's middleware runs again for the inner request. Give it its own per-request
+        # dictionaries so that session or state changes made during the preview never reach the
+        # outer response (for example a session cookie written by SessionMiddleware).
+        for key in ("state", "session"):
+            if isinstance(inner.get(key), dict):
+                inner[key] = dict(inner[key])
 
         found = find_route(scope["app"].router.routes, inner)
         if found is None or found[1] != Match.FULL:
@@ -158,6 +171,7 @@ class TestBenchMiddleware:
         if not is_marked(getattr(found[0], "endpoint", None)):
             await _send(send, problem_response(409, "This operation is unavailable for preview."))
             return
+        inner[PREVIEW_ROUTE] = found[0]
         identity = await self._identity(scope, receive)
         if not await self._authorized(scope, receive, identity):
             await _send(send, problem_response(403 if identity else 401, "This preview is forbidden."))
@@ -167,6 +181,19 @@ class TestBenchMiddleware:
             await _send(send, problem_response(503, "Preview requires one available preview provider."))
             return
         await self._run_preview(inner, receive, send, provider, started, scope["method"], path)
+
+    async def _inner_preview(self, scope: dict, receive: Callable, send: Callable) -> None:
+        """Last check of a re-dispatched preview, after every host middleware has run.
+
+        Host middleware may have changed the method (method override) or the path. The handler
+        runs only when the request still routes to the marked route checked earlier; otherwise
+        nothing executes and the preview answers 409.
+        """
+        found = find_route(scope["app"].router.routes, scope)
+        if found is None or found[1] != Match.FULL or found[0] is not scope[PREVIEW_ROUTE]:
+            await _send(send, problem_response(409, "This operation is unavailable for preview."))
+            return
+        await self.app(scope, receive, send)
 
     async def _run_preview(
         self, inner: dict, receive: Callable, send: Callable, provider: Any, started: float, method: str, path: str
@@ -181,6 +208,7 @@ class TestBenchMiddleware:
         envelope: dict[str, Any] | None = None
         session = None
         response: Response | None = None
+        interrupted: BaseException | None = None
         try:
             try:
                 session = provider.begin(request_scope)
@@ -192,9 +220,14 @@ class TestBenchMiddleware:
                 response = problem_response(500, "The preview could not be completed safely.")
             if session is not None:
                 try:
-                    await self.app(inner, receive, buffered)
+                    # Dispatch through the whole application, as .NET does: the host middleware
+                    # (authentication, path-based policies, method override) sees the target path
+                    # rather than /bench/_preview, and _inner_preview re-checks the route last.
+                    await inner["app"](inner, receive, buffered)
                 except Exception as error:
                     failure = error
+                except BaseException as error:  # cancellation or client abort: roll back first
+                    failure = interrupted = error
                 capture.handler_finished()
                 with anyio.CancelScope(shield=True):
                     try:
@@ -215,6 +248,8 @@ class TestBenchMiddleware:
         finally:
             deactivate(token)
 
+        if interrupted is not None:
+            raise interrupted
         if response is None:
             response = self._finish_preview(request_scope, buffered, failure, envelope, method, path)
         await _send(send, response)

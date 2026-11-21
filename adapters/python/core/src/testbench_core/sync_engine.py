@@ -175,12 +175,15 @@ class SyncBench:
             except Exception:
                 logger.exception("A Test Bench preview could not begin for %s %s.", method, path)
                 return problem_response(500, "The preview could not be completed safely.")
+            interrupted: BaseException | None = None
             try:
                 inner = dispatch(scope)
             except ResponseTooLarge:
                 exceeded = True
             except Exception as error:
                 failure = error
+            except BaseException as error:  # SystemExit, gevent.Timeout...: roll back, then re-raise
+                failure = interrupted = error
             scope.capture.handler_finished()
             try:
                 session.rollback()
@@ -197,6 +200,8 @@ class SyncBench:
                     session.close()
                 except Exception as error:
                     failure = failure or error
+            if interrupted is not None:
+                raise interrupted
         finally:
             deactivate(token)
 

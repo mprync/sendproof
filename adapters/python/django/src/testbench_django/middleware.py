@@ -7,7 +7,9 @@ and view of the target run for a preview.
 
 from __future__ import annotations
 
+import copy
 import logging
+import threading
 import time
 from typing import Any, Callable
 
@@ -23,6 +25,37 @@ from . import conf
 from .discovery import preview_operations, view_methods
 
 logger = logging.getLogger("testbench_django")
+
+#: Request attribute of a re-dispatched preview: the view callback checked before it runs.
+#: Only this middleware sets it; HTTP clients cannot set attributes on the request object.
+PREVIEW_VIEW = "_testbench_preview_view"
+
+_chain_lock = threading.Lock()
+_chain: Callable[[HttpRequest], HttpResponse] | None = None
+
+
+def _middleware_chain() -> Callable[[HttpRequest], HttpResponse]:
+    """A complete synchronous ``MIDDLEWARE`` chain for previews, built once per process.
+
+    It is the same chain Django's own handlers build (and that its test client uses), so every
+    middleware, including path-based ones, sees the preview target path.
+    """
+    global _chain
+    with _chain_lock:
+        if _chain is None:
+            from django.core.handlers.base import BaseHandler
+
+            handler = BaseHandler()
+            handler.load_middleware(is_async=False)
+            _chain = handler._middleware_chain
+        return _chain
+
+
+def reset_chain() -> None:
+    """Forget the cached preview chain (tests that change ``MIDDLEWARE``)."""
+    global _chain
+    with _chain_lock:
+        _chain = None
 
 
 def _to_http(response: Response, head: bool = False) -> HttpResponse:
@@ -47,6 +80,9 @@ class TestBenchMiddleware:
         bench = conf.get_bench()
         if not bench.options.enabled:
             return self.get_response(request)
+        expected = getattr(request, PREVIEW_VIEW, None)
+        if expected is not None:
+            return self._inner_preview(request, expected)
         started = time.perf_counter()
         path, engine = request.path_info, bench.engine
         if engine.is_reserved(path):
@@ -97,6 +133,17 @@ class TestBenchMiddleware:
         except Resolver404:
             return None, 404
 
+    def _inner_preview(self, request: HttpRequest, expected: Any) -> HttpResponse:
+        """Last check of a re-dispatched preview, after every other middleware has run.
+
+        Middleware may have changed the method or the path. Unless the request still resolves to
+        the marked view and method checked earlier, nothing runs and the preview answers 409.
+        """
+        match, _ = self._match(request, request.path_info)
+        if match is None or match.func is not expected or (request.method or "") not in view_methods(match.func):
+            return _to_http(problem_response(409, "This operation is unavailable for preview."))
+        return self.get_response(request)
+
     # ---------------------------------------------------------------- workbench
     def _workbench(self, request: HttpRequest, bench: Any, path: str) -> Response:
         headers = _Headers(request)
@@ -128,33 +175,31 @@ class TestBenchMiddleware:
         if not self._authorized(request, bench, identity):
             return problem_response(403 if identity else 401, "This preview is forbidden.")
 
-        original = (request.path_info, request.path, request.META.get("PATH_INFO"),
-                    request.META.get("HTTP_ACCEPT_ENCODING"), request.META.get("HTTP_CACHE_CONTROL"))
-
         def dispatch(scope: Any) -> Inner:
-            request.path_info = target
-            request.path = self._path_base() + target
-            request.META["PATH_INFO"] = target
-            request.META.pop("HTTP_ACCEPT_ENCODING", None)
-            request.META["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
-            request.resolver_match = None
-            response = self.get_response(request)
+            # A copy of the request runs the full middleware chain, so the outer request keeps its
+            # own session, user and META: session changes made during the preview are never saved
+            # by the outer SessionMiddleware nor sent as a cookie on the real response.
+            inner = copy.copy(request)
+            inner.META = dict(request.META)
+            if hasattr(inner, "environ"):
+                inner.environ = inner.META
+            inner.path_info = target
+            inner.path = self._path_base() + target
+            inner.META["PATH_INFO"] = target
+            inner.META.pop("HTTP_ACCEPT_ENCODING", None)
+            inner.META["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
+            inner.resolver_match = None
+            setattr(inner, PREVIEW_VIEW, match.func)
+            # response.close() is deliberately not called: it sends request_finished, whose
+            # close_old_connections receiver would close the connection mid-transaction.
+            response = _middleware_chain()(inner)
             body = _bounded_body(response)
             unhandled = scope.extensions.get("unhandled")
             if unhandled is not None:
                 raise unhandled if isinstance(unhandled, BaseException) else RuntimeError("Unhandled application error.")
             return Inner(response.status_code, [(k, v) for k, v in response.items()], body)
 
-        try:
-            return engine.preview(dispatch=dispatch, started=started, method=method, path=path)
-        finally:
-            request.path_info, request.path, meta_path = original[0], original[1], original[2]
-            request.META["PATH_INFO"] = meta_path
-            for key, value in (("HTTP_ACCEPT_ENCODING", original[3]), ("HTTP_CACHE_CONTROL", original[4])):
-                if value is None:
-                    request.META.pop(key, None)
-                else:
-                    request.META[key] = value
+        return engine.preview(dispatch=dispatch, started=started, method=method, path=path)
 
     # ----------------------------------------------------------------- observed
     def _observed(self, request: HttpRequest, bench: Any, headers: "_Headers", started: float) -> Any:

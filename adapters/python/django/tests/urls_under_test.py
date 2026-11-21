@@ -62,6 +62,40 @@ def denied(request):
     return JsonResponse({"detail": "no"}, status=403)
 
 
+@preview(methods=["POST"])
+def admin_create(request):
+    Item.objects.create(id="admin", name="x")
+    return JsonResponse({"ok": True}, status=201)
+
+
+@preview(methods=["POST"])
+def sign_in(request):
+    request.session["user"] = "mallory"
+    return JsonResponse({"ok": True})
+
+
+@preview(methods=["POST"])
+def escape(request):
+    from django.db import connection
+
+    Item.objects.create(id="escaped", name="x")
+    with connection.cursor() as cursor:
+        cursor.execute("COMMIT")
+    return JsonResponse({"ok": True})
+
+
+class AdminOnlyMiddleware:
+    """A path-based policy of the kind many hosts write: /admin needs a header."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path.startswith("/admin") and request.headers.get("X-Admin") != "yes":
+            return JsonResponse({"detail": "admins only"}, status=403)
+        return self.get_response(request)
+
+
 class Things(APIView):
     authentication_classes: list = []
     permission_classes: list = []
@@ -82,4 +116,7 @@ urlpatterns = [
     path("boom", boom),
     path("denied", denied),
     path("things", Things.as_view()),
+    path("admin/items", admin_create),
+    path("sign-in", sign_in),
+    path("escape", escape),
 ]

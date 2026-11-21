@@ -24,8 +24,9 @@ from testbench_core.provider import run_in_thread
 from testbench_core.scope import current_scope
 
 from . import changes as change_capture
-from .connection import Hold, ensure_supported
+from .connection import SAVEPOINT, Hold, ensure_supported
 from testbench_core.redaction import describe_parameters, python_type_name
+from testbench_core.txguard import escapes_transaction
 
 try:  # AsyncEngine support needs greenlet; synchronous use does not.
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -107,9 +108,15 @@ class _Instrumentation:
         if scope is None:
             return
         state = scope.extensions.get(STATE_KEY)
-        if state is not None and state.rollback and \
-                conn.get_execution_options().get("isolation_level") == "AUTOCOMMIT":
-            state.unsafe = "A statement ran in AUTOCOMMIT mode, which cannot be rolled back."
+        if state is not None and state.rollback and not state.finished:
+            if conn.get_execution_options().get("isolation_level") == "AUTOCOMMIT":
+                state.unsafe = "A statement ran in AUTOCOMMIT mode, which cannot be rolled back."
+            # Refuse COMMIT, END, implicit-commit DDL and the like before they reach the driver:
+            # flagging them afterwards would be too late, the earlier writes would be durable.
+            reason = escapes_transaction(statement, conn.dialect.name, SAVEPOINT)
+            if reason is not None:
+                state.unsafe = reason
+                raise PreviewRollbackError(reason)
         try:
             setattr(context, _STARTED, time.perf_counter())
         except AttributeError:

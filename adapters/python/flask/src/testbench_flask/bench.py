@@ -17,7 +17,7 @@ from testbench_core.scope import current_scope, install_logging_capture
 from testbench_core.sync_engine import SyncBench
 from testbench_core.workbench import Workbench
 
-from .middleware import TestBenchWsgi
+from .middleware import PREVIEW_VIEW, TestBenchWsgi
 
 F = TypeVar("F", bound=Callable[..., Any])
 IdentityResolver = Callable[[Request], "Identity | None"]
@@ -91,12 +91,35 @@ class TestBench:
         self.workbench = Workbench(self.options, provider, assets)
         self.engine = SyncBench(self.options, provider, self.workbench, authorize)
         app.wsgi_app = TestBenchWsgi(app.wsgi_app, self)  # type: ignore[method-assign]
+        # First in line, so no host hook or view runs for a preview that no longer targets the
+        # marked view it was checked against.
+        app.before_request_funcs.setdefault(None, []).insert(0, self._verify_preview_target)
         got_request_exception.connect(_remember_unhandled, app, weak=False)
         install_logging_capture()
 
     @property
     def enabled(self) -> bool:
         return self.options.enabled
+
+    def _verify_preview_target(self) -> Any:
+        """Last check of a re-dispatched preview, after every WSGI middleware has run.
+
+        Middleware may have changed the method (method override) or the path. Unless the request
+        still routes to the marked view and method checked earlier, nothing else runs and the
+        preview answers 409. Routing errors are left to Flask (404, 405).
+        """
+        from flask import request
+
+        expected = request.environ.get(PREVIEW_VIEW)
+        if expected is None or request.routing_exception is not None:
+            return None
+        view = self.app.view_functions.get(request.endpoint)
+        if view is expected and request.method in marked_methods(view):
+            return None
+        return self.app.response_class(
+            '{"status":409,"title":"This operation is unavailable for preview."}',
+            status=409, content_type="application/problem+json",
+        )
 
     def operations(self) -> list[tuple[str, str]]:
         """Method and OpenAPI path of every marked view."""

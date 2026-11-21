@@ -278,6 +278,30 @@ def _entry_size(entry: Mapping[str, Any]) -> int:
     return size
 
 
+# Loggers that print SQL with its bound values (SQLAlchemy ``echo``, Django's DEBUG query log).
+# The data-layer providers record every statement themselves with redaction applied, so these
+# records would only duplicate them with secrets in clear text.
+_SQL_ECHO_LOGGERS = ("sqlalchemy.engine", "django.db.backends")
+
+
+def _is_sql_echo(name: str) -> bool:
+    return any(name == prefix or name.startswith(prefix + ".") for prefix in _SQL_ECHO_LOGGERS)
+
+
+def _exception_message(error: BaseException | None) -> str:
+    """The message of a logged exception without SQL parameter values.
+
+    SQLAlchemy's ``StatementError`` appends ``[parameters: ...]`` to its text; only the driver's
+    own message (``orig``) is kept for those.
+    """
+    if error is None:
+        return ""
+    if hasattr(error, "statement") and hasattr(error, "params"):
+        original = getattr(error, "orig", None)
+        return f"{type(original).__name__}: {original}" if original is not None else type(error).__name__
+    return str(error)
+
+
 class CaptureLogHandler(logging.Handler):
     """Forwards standard ``logging`` records to the capture of the current request."""
 
@@ -287,13 +311,12 @@ class CaptureLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API
         scope = self._scope_getter()
-        if scope is None:
+        if scope is None or _is_sql_echo(record.name):
             return
         try:
             exception = None
             if record.exc_info and record.exc_info[0] is not None:
-                error = record.exc_info[1]
-                exception = (record.exc_info[0].__qualname__, str(error))
+                exception = (record.exc_info[0].__qualname__, _exception_message(record.exc_info[1]))
             scope.capture.record_log(
                 _LEVELS.get(record.levelno, record.levelname.title()),
                 record.getMessage(),

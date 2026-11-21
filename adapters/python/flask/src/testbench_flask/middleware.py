@@ -18,6 +18,10 @@ from testbench_core.workbench import Response, problem_response
 logger = logging.getLogger("testbench_flask")
 StartResponse = Callable[..., Callable[[bytes], Any]]
 
+#: WSGI environ key of a re-dispatched preview: the view checked before the handler runs.
+#: Only this middleware sets it; HTTP clients can only add ``HTTP_*`` keys.
+PREVIEW_VIEW = "testbench.preview_view"
+
 
 class TestBenchWsgi:
     """Intercepts ``/bench/*`` and Preview/Observed requests; everything else passes through."""
@@ -29,7 +33,8 @@ class TestBenchWsgi:
 
     def __call__(self, environ: dict, start_response: StartResponse) -> Iterable[bytes]:
         bench = self.bench
-        if not bench.options.enabled:
+        if not bench.options.enabled or PREVIEW_VIEW in environ:
+            # A re-dispatched preview passes straight through; Flask checks it in before_request.
             return self.app(environ, start_response)
         started = time.perf_counter()
         path = environ.get("PATH_INFO", "") or "/"
@@ -139,6 +144,7 @@ class TestBenchWsgi:
         inner_env["PATH_INFO"] = target
         inner_env.pop("HTTP_ACCEPT_ENCODING", None)
         inner_env["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
+        inner_env[PREVIEW_VIEW] = view
 
         def dispatch(scope: Any) -> Inner:
             captured: dict[str, Any] = {}
@@ -149,7 +155,10 @@ class TestBenchWsgi:
                 return lambda data: None
 
             chunks, size = [], 0
-            iterable = self.app(inner_env, start)
+            # Dispatch through the application's whole WSGI chain (``app.wsgi_app`` as it is now,
+            # including middleware wrapped around Test Bench later), so path-based host
+            # middleware sees the target path rather than /bench/_preview.
+            iterable = bench.app.wsgi_app(inner_env, start)
             try:
                 for chunk in iterable:
                     size += len(chunk)

@@ -23,6 +23,7 @@ from testbench_core import (
 from testbench_core.jsonsafe import is_missing, snapshot
 from testbench_core.redaction import describe_parameters, python_type_name
 from testbench_core.scope import current_scope
+from testbench_core.txguard import escapes_transaction
 
 STATE_KEY = "django_orm"
 _UID = "testbench_django"
@@ -47,6 +48,8 @@ class _State:
         self.atomics: list[tuple[str, Any]] = []
         self.wrappers: list[tuple[Any, Any]] = []
         self.finished = False
+        #: Why the rollback cannot be trusted, set when SQL tried to end the preview transaction.
+        self.unsafe: str | None = None
 
     def add_change(self, change: PreviewChange) -> None:
         if len(self.changes) >= limits.CHANGES:
@@ -69,6 +72,14 @@ class _State:
         self.wrappers.clear()
 
     def _wrapper(self, execute: Any, sql: str, params: Any, many: bool, context: dict) -> Any:
+        if self.rollback and not self.finished:
+            # A raw COMMIT (or DDL that MySQL and Oracle commit implicitly) would make the
+            # preview's writes durable before the rollback, so it never reaches the database.
+            vendor = getattr(context.get("connection"), "vendor", "")
+            reason = escapes_transaction(sql if isinstance(sql, str) else str(sql), vendor)
+            if reason is not None:
+                self.unsafe = reason
+                raise PreviewRollbackError(reason)
         scope = current_scope()
         if scope is None or self.silent or not scope.capture.is_active:
             return execute(sql, params, many, context)
@@ -253,6 +264,8 @@ class _Session(PreviewSession):
                 errors.append(error)
         if errors:
             raise PreviewRollbackError("The database rollback could not be confirmed.") from errors[0]
+        if state.unsafe:
+            raise PreviewRollbackError(state.unsafe)
         self._rolled_back = True
 
     def close(self) -> None:

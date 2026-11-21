@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import threading
 import uuid
 from collections import OrderedDict
@@ -12,7 +13,7 @@ PER_OWNER_LIMIT = 8
 TOTAL_LIMIT = 32
 DEFAULT_WAIT_SECONDS = 5.0
 
-Owner = tuple[str, str, str]  # (authentication type, subject, path base)
+Owner = tuple[str, str, str, str]  # (authentication type, issuer, subject, path base)
 
 
 @dataclass
@@ -46,7 +47,7 @@ class TraceStore:
                 self._remove(mine[0])
             if len(self._entries) >= TOTAL_LIMIT:
                 self._remove(next(iter(self._entries.values())))
-            entry = Reservation(uuid.uuid4().hex, owner, self._clock())
+            entry = Reservation(secrets.token_hex(16), owner, self._clock())  # 128 random bits
             self._entries[entry.id] = entry
             return entry
 

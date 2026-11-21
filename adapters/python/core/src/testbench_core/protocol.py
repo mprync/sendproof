@@ -55,7 +55,9 @@ def is_same_origin(get: HeaderGetter, scheme: str, host: str) -> bool:
         return True
     if len(origins) != 1:
         return False
-    return _normalize_origin(origins[0]) == _normalize_origin(f"{scheme}://{host}")
+    origin = _normalize_origin(origins[0])
+    # "Origin: null" and malformed values never match, even when the Host header is malformed too.
+    return origin is not None and origin == _normalize_origin(f"{scheme}://{host}")
 
 
 def _normalize_origin(value: str) -> str | None:

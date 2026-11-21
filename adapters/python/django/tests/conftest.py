@@ -15,7 +15,7 @@ def pytest_configure():
         SECRET_KEY="tests",
         ALLOWED_HOSTS=["*"],
         ROOT_URLCONF="urls_under_test",
-        INSTALLED_APPS=["django.contrib.contenttypes"],
+        INSTALLED_APPS=["django.contrib.contenttypes", "django.contrib.sessions"],
         MIDDLEWARE=["testbench_django.middleware.TestBenchMiddleware"],
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": str(_directory / "tests.db")}},
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
@@ -29,8 +29,10 @@ def pytest_configure():
         },
     )
     django.setup()
+    from django.contrib.sessions.models import Session
     from django.db import connection
     from urls_under_test import Item
 
     with connection.schema_editor() as editor:
         editor.create_model(Item)
+        editor.create_model(Session)  # for the database session backend tests

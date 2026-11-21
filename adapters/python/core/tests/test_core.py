@@ -158,7 +158,18 @@ def test_trace_read_waits_for_completion_but_not_forever():
 def test_trace_owner_requires_a_subject():
     assert trace_owner(None, "") is None
     assert trace_owner(Identity("a", subject=None), "") is None
-    assert trace_owner(Identity("a", subject="s", authentication_type="cookie"), "/t") == ("cookie", "s", "/t")
+    assert trace_owner(Identity("a", subject="s", authentication_type="cookie"), "/t") == ("cookie", "", "s", "/t")
+
+
+def test_trace_owner_separates_issuers_of_the_same_subject():
+    first = trace_owner(Identity("a", subject="s", authentication_type="jwt", issuer="https://one"), "")
+    second = trace_owner(Identity("a", subject="s", authentication_type="jwt", issuer="https://two"), "")
+    assert first != second
+    store = TraceStore()
+    reservation = store.reserve(first)
+    store.complete(reservation, {"changes": []})
+    assert store.read(reservation.id, second, timeout=0) is None
+    assert store.read(reservation.id, first, timeout=0) == {"changes": []}
 
 
 def test_capabilities_document_shape():
@@ -194,3 +205,112 @@ def test_assets_serve_only_verified_manifest_files(tmp_path):
         UiAssets(tmp_path).get("index.html")
     with pytest.raises(UiBundleError):
         UiAssets(tmp_path / "missing").get("index.html")
+
+
+# ------------------------------------------------------------------ security regressions
+def test_change_snapshots_redact_secret_columns_and_a_secret_primary_key():
+    from testbench_core.provider import PreviewChange
+
+    change = PreviewChange(
+        "update", "api_tokens", {"api_token": "tok-123"},
+        {"api_token": "tok-123", "password_digest": "old-digest", "reset_token": None, "name": "A"},
+        {"api_token": "tok-123", "password_digest": "new-digest", "reset_token": "r-1", "name": "B"},
+    )
+    payload, _ = Workbench.changes_payload([change])
+    assert payload[0]["key"] == {"api_token": "[REDACTED]"}
+    assert payload[0]["before"] == {"api_token": "[REDACTED]", "password_digest": "[REDACTED]", "reset_token": None, "name": "A"}
+    assert payload[0]["after"]["reset_token"] == "[REDACTED]" and payload[0]["after"]["name"] == "B"
+    assert "tok-123" not in json.dumps(payload) and "digest" not in json.dumps(payload).replace("password_digest", "")
+
+
+def test_session_identifiers_count_as_secrets():
+    from testbench_core.redaction import describe_parameters, looks_secret
+
+    for name in ("session_key", "session_data", "sessionId", "SESSION_TOKEN"):
+        assert looks_secret(name), name
+    assert not looks_secret("session_count") and not looks_secret("sessions")
+    statement = 'SELECT "django_session"."session_data" FROM "django_session" WHERE "session_key" = %s'
+    listed, _ = describe_parameters(statement, [("p0", "abc123sessionkey", "String")], True)
+    assert listed == [("p0", "[REDACTED]", "String")]
+
+
+def test_transaction_guard_refuses_statements_that_end_the_preview():
+    from testbench_core.txguard import escapes_transaction as escapes
+
+    for sql in ("COMMIT", "commit work", "/* x */ END", "ROLLBACK", "BEGIN", "START TRANSACTION",
+                "select 1; commit", "PREPARE TRANSACTION 'x'", "RELEASE SAVEPOINT testbench_preview"):
+        assert escapes(sql, "postgresql", "testbench_preview"), sql
+    assert escapes("SET autocommit = 1", "mysql") and escapes("CREATE TABLE t (a int)", "mysql")
+    assert escapes("BEGIN COMMIT; END;", "oracle")
+    for sql in ("ROLLBACK TO SAVEPOINT s1", 'SAVEPOINT "s1_x1"', "RELEASE SAVEPOINT sa_savepoint_1",
+                "INSERT INTO t VALUES ('a; commit')", "DO $$ BEGIN PERFORM 1; END $$", "UPDATE t SET end_date = 1"):
+        assert escapes(sql, "postgresql", "testbench_preview") is None, sql
+    assert escapes("CREATE TABLE t (a int)", "sqlite") is None
+    assert escapes("CREATE TEMPORARY TABLE t (a int)", "mysql") is None
+    assert escapes("BEGIN NULL; END;", "oracle") is None
+
+
+def test_malformed_origin_never_matches_a_malformed_host():
+    headers = {"origin": ["null"]}
+    assert not protocol.is_same_origin(lambda name: headers.get(name, []), "http", "")
+    assert not protocol.is_same_origin(lambda name: headers.get(name, []), "http", "bad host")
+
+
+def test_database_label_must_be_a_bare_name():
+    from testbench_core.options import require_display_label
+
+    assert require_display_label("PostgreSQL 16") == "PostgreSQL 16"
+    for bad in ("postgresql://u:p@h/db", "/var/data/app.sqlite", "Server=h;Password=p", "C:\\db.sqlite", "user@host", ""):
+        with pytest.raises(ValueError):
+            require_display_label(bad)
+
+    class Provider(testbench_core.PreviewProvider):
+        database = "postgresql://user:secret@db/app"
+
+        def begin(self, scope):
+            raise NotImplementedError
+
+    with pytest.raises(ValueError):
+        Workbench(BenchOptions(environment="Development"), Provider())
+
+
+def test_encoded_dot_segments_are_not_local_urls():
+    from testbench_core.options import require_local_url
+
+    for bad in ("/docs/%2e%2e/%2E%2E/admin", "/%2F/evil.example", "/a/%5c/b"):
+        with pytest.raises(ValueError):
+            require_local_url(bad)
+    assert require_local_url("/openapi.json?v=%2e") == "/openapi.json?v=%2e"
+
+
+def test_sql_echo_loggers_and_statement_error_parameters_are_not_captured():
+    import logging
+
+    from testbench_core.capture import CaptureLogHandler
+
+    scope = RequestScope(Capture(rollback=True), "Development", True)
+    handler = CaptureLogHandler(lambda: scope)
+
+    class StatementError(Exception):
+        def __init__(self):
+            super().__init__("(IntegrityError) failed [parameters: ('hunter2',)]")
+            self.statement, self.params, self.orig = "INSERT ...", ("hunter2",), ValueError("UNIQUE failed")
+
+    for name in ("sqlalchemy.engine.Engine", "django.db.backends"):
+        handler.emit(logging.LogRecord(name, logging.INFO, __file__, 1, "INSERT ... ('hunter2',)", None, None))
+    try:
+        raise StatementError()
+    except StatementError:
+        import sys
+
+        handler.emit(logging.LogRecord("app", logging.ERROR, __file__, 1, "insert failed", None, sys.exc_info()))
+    logs = scope.capture.finish().logs
+    assert [entry["category"] for entry in logs] == ["app"]
+    assert "hunter2" not in json.dumps(logs) and logs[0]["exception"]["message"] == "ValueError: UNIQUE failed"
+
+
+def test_trace_ids_carry_128_random_bits():
+    store = TraceStore()
+    owner = ("session", "", "a", "")
+    ids = {store.reserve(owner).id for _ in range(8)}
+    assert len(ids) == 8 and all(len(i) == 32 and int(i, 16) >= 0 for i in ids)

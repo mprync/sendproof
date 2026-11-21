@@ -16,8 +16,9 @@ from .assets import Asset, UiAssets, UiBundleError
 from .capture import CaptureSnapshot, CaptureTiming
 from .identity import Identity
 from .jsonsafe import body_from_bytes
-from .options import BenchOptions, OpenApiDocument
+from .options import BenchOptions, OpenApiDocument, require_display_label
 from .provider import PreviewChange, PreviewProvider
+from .redaction import REDACTED, looks_secret
 from .trace_store import Owner, TraceStore
 
 
@@ -47,16 +48,36 @@ def problem_response(status: int, title: str, headers: Iterable[tuple[str, str]]
 
 
 def trace_owner(identity: Identity | None, path_base: str) -> Owner | None:
-    """Return the stable owner of traces for an identity, or ``None`` when it has no subject."""
+    """Return the stable owner of traces for an identity, or ``None`` when it has no subject.
+
+    The owner is (authentication type, issuer, subject, path base), so the same subject issued by
+    two identity providers, or signed in through two schemes, never shares traces.
+    """
     if identity is None or not identity.subject or len(identity.subject) > 256 or len(path_base) > 4096:
         return None
-    return (identity.authentication_type, identity.subject, path_base)
+    issuer = identity.issuer or ""
+    if len(issuer) > 4096:
+        return None
+    return (identity.authentication_type, issuer, identity.subject, path_base)
+
+
+def redact_row(row: Any) -> Any:
+    """Replace the values of secret-named columns (``password_hash``, ``api_key``...) in a snapshot.
+
+    Change snapshots are shown in every enabled environment, so a column the SQL log would
+    redact is redacted here too, whatever the SQL parameter setting.
+    """
+    if not isinstance(row, dict):
+        return row
+    return {name: (REDACTED if looks_secret(str(name)) and value is not None else value) for name, value in row.items()}
 
 
 class Workbench:
     """Discovery, UI assets, trace retrieval and envelope construction."""
 
     def __init__(self, options: BenchOptions, provider: PreviewProvider | None = None, assets: UiAssets | None = None):
+        if provider is not None and provider.database is not None:
+            require_display_label(provider.database)
         self.options = options
         self.provider = provider
         self.assets = assets or UiAssets()
@@ -150,6 +171,7 @@ class Workbench:
                 key = None if jsonsafe.is_missing(key) else key
                 before = None if jsonsafe.is_missing(before) else before
                 after = None if jsonsafe.is_missing(after) else after
+            key, before, after = redact_row(key), redact_row(before), redact_row(after)
             remaining -= len(json.dumps([key, before, after]))
             if remaining < 0:
                 truncated = True

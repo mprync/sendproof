@@ -2,6 +2,9 @@
 
 Words are split at punctuation, underscores and camel-case boundaries. ``key`` alone is ordinary
 (primary key, idempotency key) and counts only after qualifiers such as ``api`` or ``private``.
+Session identifiers and payloads (``session_key``, ``session_data``, ``session_id``) are bearer
+credentials, so they count as secrets too: a statement on Django's ``django_session`` table or a
+Flask-Session table names them and has all of its values redacted.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ _SECRET_WORDS = frozenset(
     {"password", "passwd", "pwd", "secret", "token", "hash", "salt", "credential", "credentials", "apikey"}
 )
 _KEY_QUALIFIERS = frozenset({"api", "private", "secret", "access", "signing", "encryption", "client"})
+_SESSION_PARTS = frozenset({"key", "data", "id", "token"})
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 
 
@@ -23,6 +27,8 @@ def looks_secret(text: str) -> bool:
     for match in _WORD.finditer(text):
         word = match.group(0).lower()
         if word in _SECRET_WORDS or (word == "key" and previous in _KEY_QUALIFIERS):
+            return True
+        if previous == "session" and word in _SESSION_PARTS:
             return True
         previous = word
     return False

@@ -36,7 +36,8 @@ def main() -> int:
     parser.add_argument("--python", default="3.12", help="Python version for the virtual environment")
     parser.add_argument("--extra", nargs="*", default=[], help="additional package directories to install")
     args = parser.parse_args()
-    python = VENV / "bin/python"
+    # Virtual environments keep the interpreter in Scripts\ on Windows and bin/ everywhere else.
+    python = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     uv = shutil.which("uv")
     if not python.exists():
         if uv:
