@@ -12,7 +12,7 @@ import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import {
   controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, previewSavepoint, previewSavepointHeld,
-  safeProcedureNames, setPreviewSavepoint, type PreviewProvider,
+  rollsBackTransaction, safeProcedureNames, setPreviewSavepoint, type PreviewProvider,
 } from '@sendproof/core';
 import type { SqlDriverAdapter, SqlDriverAdapterFactory, SqlQuery, Transaction } from '@prisma/driver-adapter-utils';
 import { ChangeCapture, isWrite, type ModelOperation } from './capture.js';
@@ -349,7 +349,18 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       this.#guard(kind, query.sql);
       const recorder = this.#internal.getStore() ? undefined : currentCapture();
       const started = performance.now();
-      const result = await execute(query);
+      let result: R;
+      try {
+        result = await execute(query);
+      } catch (error) {
+        // The handler still gets the database's error. After a deadlock the Preview transaction is gone, so every
+        // later statement would run with autocommit: the guard now refuses them and the Preview fails.
+        const probe = this.#probe.getStore();
+        if (kind === 'preview' && probe && !probe.escaped && rollsBackTransaction(error, this.#provider)) {
+          probe.escaped = 'the database rolled the Preview transaction back after a deadlock or lock wait timeout.';
+        }
+        throw error;
+      }
       const names = this.#labels.getStore();
       recorder?.sql({
         text: query.sql,

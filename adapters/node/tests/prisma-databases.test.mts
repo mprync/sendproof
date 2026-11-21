@@ -5,9 +5,11 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { inspect } from 'node:util';
 import { PrismaPreview } from '@sendproof/prisma';
 import type { PrismaPreviewOptions } from '@sendproof/prisma';
 import { capturing, sqlEntries } from './support/capture.mts';
+import { deadlockPreview } from './support/deadlock.mts';
 import { targets } from './support/prisma-databases.mts';
 import type { Client, TestDatabase } from './support/prisma-databases.mts';
 
@@ -217,6 +219,23 @@ for (const target of targets()) {
           await tx.$executeRawUnsafe('CREATE TABLE implicit_commit (id INT PRIMARY KEY)');
         })), /not contained/);
         assert.deepEqual(await names(client), []);
+      });
+
+      it('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
+        const { preview, client } = await provide();
+        const [{ d: name }] = await client.$queryRawUnsafe('SELECT DATABASE() AS d');
+        const outcome = await deadlockPreview({
+          database: name, column: 'name',
+          preview: work => preview.preview(() => preview.run(() => work())),
+          update: id => preview.run((tx: Client) => tx.item.updateMany({ where: { id }, data: { name: 'Preview' } })),
+          insert: id => preview.run((tx: Client) => tx.item.create({ data: { id, name: 'Retry' } })),
+        });
+        assert.ok(outcome.deadlock, 'the Preview was the deadlock victim');
+        assert.match(String((outcome.retry as Error)?.message), /deadlock|rolled back/i, inspect(outcome.deadlock, { depth: 4 }));
+        // The handler got the database's own error for the statement that hit the deadlock.
+        assert.match(String((outcome.deadlock as Error)?.message), /deadlock/i);
+        assert.match(String((outcome.previewError as Error)?.message), /not contained/);
+        assert.equal(outcome.retried, 0);
       });
 
       it('refuses CALL and the Preview savepoint, and catches a declared procedure that commits', async () => {

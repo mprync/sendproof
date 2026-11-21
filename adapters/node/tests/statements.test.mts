@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { endsTransaction, refusedStatement, safeProcedureNames } from '@sendproof/core';
+import { endsTransaction, refusedStatement, rollsBackTransaction, safeProcedureNames } from '@sendproof/core';
 
 describe('Transaction-control classifier', () => {
   it('refuses MySQL CALL unless the host declared the procedure safe by exact name', () => {
@@ -83,6 +83,16 @@ describe('Transaction-control classifier', () => {
       'SELECT 1 # 2']) {
       assert.ok(!endsTransaction(sql, 'postgres'), JSON.stringify(sql));
     }
+  });
+
+  it('recognises errors after which the database rolled the whole transaction back', () => {
+    assert.ok(rollsBackTransaction(Object.assign(new Error('x'), { errno: 1213 }), 'mysql'));
+    assert.ok(rollsBackTransaction(Object.assign(new Error('x'), { code: 'ER_LOCK_WAIT_TIMEOUT' }), 'mysql'));
+    assert.ok(rollsBackTransaction({ cause: { originalCode: '1213', kind: 'TransactionWriteConflict' } }, 'mysql'));
+    assert.ok(rollsBackTransaction({ driverError: { errno: 1205 } }, 'mysql'));
+    assert.ok(rollsBackTransaction({ originalError: { number: 1205 } }, 'mssql'));
+    assert.ok(!rollsBackTransaction(Object.assign(new Error('x'), { errno: 1062 }), 'mysql'));
+    assert.ok(!rollsBackTransaction(Object.assign(new Error('x'), { code: '40P01' }), 'postgres'));
   });
 
   it('names the refused statement', () => {

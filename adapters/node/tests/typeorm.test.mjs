@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { DataSource, EntitySchema } from 'typeorm';
 import { TypeOrmPreview } from '@sendproof/typeorm';
 import { Capture } from '../core/dist/capture.js';
+import { deadlockPreview } from './support/deadlock.mts';
 
 /**
  * Real-database coverage for the TypeORM provider. SQLite always runs. PostgreSQL and MySQL run
@@ -315,6 +316,25 @@ for (const dialect of dialects) {
         assert.deepEqual(await ids(), ['declared', 'manual']);
       } finally {
         await source.query('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+        await source.destroy();
+      }
+    });
+
+    if (dialect === 'mysql') await suite.test('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        const [{ d: name }] = await source.query('SELECT DATABASE() AS d');
+        const outcome = await deadlockPreview({
+          database: name, column: 'display_name',
+          preview: work => provider.preview(() => provider.run(() => work())),
+          update: id => provider.run(manager => items(manager).update({ id }, { name: 'Preview' })),
+          insert: id => provider.run(manager => items(manager).insert({ id, name: 'Retry' })),
+        });
+        assert.ok(outcome.deadlock, 'the Preview was the deadlock victim');
+        assert.match(String(outcome.retry?.message), /deadlock|rolled back/i);
+        assert.match(String(outcome.previewError?.message), /not contained/);
+        assert.equal(outcome.retried, 0);
+      } finally {
         await source.destroy();
       }
     });

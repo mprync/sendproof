@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { endsTransaction } from '@sendproof/core';
+import { endsTransaction, rollsBackTransaction } from '@sendproof/core';
 import type { AdapterProvider } from '@sendproof/core';
 
 /**
@@ -136,6 +136,9 @@ export interface StatementGuard {
   refused: () => void;
   /** True while the provider runs its own statements, such as the final ROLLBACK. */
   internal: () => boolean;
+  /** Whether the database already rolled the Preview transaction back (a deadlock), and how to record that it did. */
+  broken: () => boolean;
+  markBroken: () => void;
 }
 
 /** A transaction's client, as Knex builds it: every query and stream on the transaction goes through these two. */
@@ -158,19 +161,29 @@ export function guardStatements(transaction: Knex.Transaction, guard: StatementG
   const client = transaction.client as unknown as TransactionClient;
   const check = (query: unknown): Error | undefined => {
     if (guard.internal()) return undefined;
+    // After a deadlock the transaction is gone: a statement now would run with autocommit and commit for real.
+    if (guard.broken()) return new Error(deadlockMessage);
     const text = typeof query === 'string' ? query : (query as { sql?: unknown } | null)?.sql;
     if (typeof text !== 'string' || !endsTransaction(text, guard.provider, guard.safeProcedures)) return undefined;
     guard.refused();
     return new Error(previewOwnsMessage);
   };
+  /** The caller still gets the database's error; the Preview remembers that its transaction is gone. */
+  const watch = <T>(sent: Promise<T>): Promise<T> => sent.catch((error: unknown) => {
+    if (rollsBackTransaction(error, guard.provider)) guard.markBroken();
+    throw error;
+  });
   const query = client.query;
   client.query = function guardedQuery(this: TransactionClient, connection, sent) {
     const refusal = check(sent);
-    return refusal ? Promise.reject(refusal) : query.call(this, connection, sent);
+    return refusal ? Promise.reject(refusal) : watch(query.call(this, connection, sent));
   };
   const stream = client.stream;
   client.stream = function guardedStream(this: TransactionClient, connection, sent, ...rest) {
     const refusal = check(sent);
-    return refusal ? Promise.reject(refusal) : stream.call(this, connection, sent, ...rest);
+    return refusal ? Promise.reject(refusal) : watch(stream.call(this, connection, sent, ...rest));
   };
 }
+
+/** Why a statement after a deadlock is refused. */
+export const deadlockMessage = 'The database rolled the Preview transaction back after a deadlock or lock wait timeout, so no further statement runs in this Preview.';

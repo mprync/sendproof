@@ -8,6 +8,7 @@ import { drizzle as mysqlDrizzle } from 'drizzle-orm/mysql2';
 import { drizzlePreview } from '@sendproof/drizzle';
 import { SQLiteDatabase } from '@sendproof/sqlite';
 import { capturing, sqlEntries } from './support/capture.mts';
+import { deadlockPreview } from './support/deadlock.mts';
 import { targets } from './support/drizzle-databases.mts';
 import type { Client, Opened, Tables } from './support/drizzle-databases.mts';
 
@@ -263,6 +264,22 @@ for (const target of targets()) {
         } finally {
           await raw(sql.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe'));
         }
+      });
+    }
+
+    if (target.dialect === 'mysql') {
+      it('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
+        const [[{ d: name }]] = await raw(sql.raw('SELECT DATABASE() AS d')) as unknown as [[{ d: string }]];
+        const outcome = await deadlockPreview({
+          database: name, column: 'name',
+          preview: work => opened.provider.preview(work),
+          update: id => client.update(t.items).set({ name: 'Preview' }).where(eq(t.items.id, id)),
+          insert: id => client.insert(t.items).values({ id, name: 'Retry' }),
+        });
+        assert.ok(outcome.deadlock, 'the Preview was the deadlock victim');
+        assert.match(String((outcome.retry as Error)?.message), /deadlock|rolled back/i);
+        assert.match(String((outcome.previewError as Error)?.message), /not contained/);
+        assert.equal(outcome.retried, 0);
       });
     }
 

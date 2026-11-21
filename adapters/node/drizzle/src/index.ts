@@ -187,7 +187,10 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
   try {
     // Drizzle rethrows the error only after its ROLLBACK succeeds, which confirms the rollback.
     await asInternal(() => state.base.transaction(async transaction => {
-      const scope: Scope = { target: transaction, preview: true, open: true, ...state.safeProcedures && { safeProcedures: state.safeProcedures } };
+      const scope: Scope = {
+        target: transaction, preview: true, open: true, outcome: { broken: false },
+        ...state.safeProcedures && { safeProcedures: state.safeProcedures },
+      };
       opened = scope;
       instrumentSession(transaction.session, state.dialect, scope);
       // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
@@ -203,6 +206,9 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
     }));
   } catch (error) {
     if (error !== rollback) throw error;
+  }
+  if (opened?.outcome?.broken) {
+    throw new Error('The Drizzle preview was not contained: the database rolled the Preview transaction back after a deadlock or lock wait timeout.');
   }
   // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
   if (opened?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');

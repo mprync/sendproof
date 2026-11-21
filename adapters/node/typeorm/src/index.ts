@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { currentCapture, endsTransaction, mayWrite, previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
+import {
+  currentCapture, endsTransaction, mayWrite, previewSavepointHeld, rollsBackTransaction, safeProcedureNames, setPreviewSavepoint,
+} from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import type { DataSource, EntityManager, EntityTarget, FindOptionsWhere, Logger, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { ChangeTracker } from './changes.js';
@@ -86,6 +88,11 @@ export class TypeOrmPreview implements PreviewProvider {
   readonly #hidden = new AsyncLocalStorage<true>();
   /** Preview runners whose handler tried to end the transaction; such a Preview is never confirmed. */
   readonly #refused = new WeakSet<QueryRunner>();
+  /**
+   * Preview runners whose transaction the database rolled back after a deadlock or lock wait timeout. Every later
+   * statement on them is refused, since it would run with autocommit and commit for real.
+   */
+  readonly #broken = new WeakSet<QueryRunner>();
   /** Set while TypeORM's own transaction methods run, so their BEGIN, COMMIT and ROLLBACK pass the guard. */
   readonly #control = new AsyncLocalStorage<true>();
   readonly #previousLogger: Logger;
@@ -190,6 +197,11 @@ export class TypeOrmPreview implements PreviewProvider {
         } finally {
           restore();
           const contained = await this.#rollBack(runner);
+          if (this.#broken.has(runner)) {
+            this.#broken.delete(runner);
+            this.#refused.delete(runner);
+            throw new Error('The TypeORM preview was not contained: the database rolled the Preview transaction back after a deadlock or lock wait timeout.');
+          }
           // Rolled back, but the handler tried to end the transaction itself: never confirm that Preview.
           if (this.#refused.has(runner)) {
             this.#refused.delete(runner);
@@ -282,6 +294,9 @@ export class TypeOrmPreview implements PreviewProvider {
     if (!scope?.preview || this.#control.getStore()) return;
     if (!scope.open) throw new Error(endedMessage);
     const provider = this.#mysql ? 'mysql' : this.#source.options.type;
+    if (this.#broken.has(scope.preview)) {
+      throw new Error('The database rolled the Preview transaction back after a deadlock or lock wait timeout, so no further statement runs in this Preview.');
+    }
     if (runner === scope.preview) {
       if (endsTransaction(text, provider, this.#safeProcedures)) {
         this.#refused.add(runner);
@@ -339,9 +354,14 @@ export class TypeOrmPreview implements PreviewProvider {
           return Promise.reject(error);
         }
       }
+      // The caller still gets the database's error; a Preview runner remembers that its transaction is gone.
+      const send = (): Promise<unknown> => original(text, parameters, useStructuredResult).catch((error: unknown) => {
+        if (rollsBackTransaction(error, this.#mysql ? 'mysql' : String(this.#source.options.type))) this.#broken.add(runner);
+        throw error;
+      });
       const capture = currentCapture();
-      if (this.#disposed || !capture || this.#hidden.getStore()) return original(text, parameters, useStructuredResult);
-      return this.#tracker.around(capture, text, read, () => original(text, parameters, useStructuredResult));
+      if (this.#disposed || !capture || this.#hidden.getStore()) return send();
+      return this.#tracker.around(capture, text, read, send);
     };
     this.#wrappers.set(runner, { wrapper, ownQuery });
     runner.query = wrapper as QueryRunner['query'];

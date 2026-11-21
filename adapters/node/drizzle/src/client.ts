@@ -96,7 +96,7 @@ async function transaction(
   let scope: Scope | undefined;
   const result = await asInternal(() => target.transaction(async opened => {
     scope = { target: opened, preview: parent?.preview ?? false, open: true, changes: [],
-      ...parent?.safeProcedures && { safeProcedures: parent.safeProcedures } };
+      ...parent?.safeProcedures && { safeProcedures: parent.safeProcedures }, ...parent?.outcome && { outcome: parent.outcome } };
     const current = scope;
     instrumentSession(opened.session, state.dialect, current);
     try {

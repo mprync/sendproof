@@ -31,6 +31,8 @@ interface Scope {
   refused?: boolean;
   /** The Preview scope this scope runs in (itself for the Preview), or undefined outside a Preview. */
   preview?: Scope;
+  /** Set on a Preview when the database rolled its transaction back after a deadlock or lock wait timeout. */
+  broken?: boolean;
 }
 
 type Row = Record<string, unknown>;
@@ -248,6 +250,9 @@ export class KnexPreview implements PreviewProvider {
       await this.#ending.run(true, () => connection.rollback());
       const outcome = await completion;
       if (outcome !== true) throw new Error('Knex did not acknowledge the rollback.', { cause: outcome.error });
+      if (scope.broken) {
+        throw new Error('The Knex preview was not contained: the database rolled the Preview transaction back after a deadlock or lock wait timeout.');
+      }
       // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
       if (scope.refused) throw new Error('The Knex preview was not contained: the operation tried to end the Preview transaction.');
       if (!contained) {
@@ -299,6 +304,8 @@ export class KnexPreview implements PreviewProvider {
         safeProcedures: this.#safeProcedures,
         refused: () => { root.refused = true; },
         internal: () => this.#ending.getStore() === true,
+        broken: () => root.broken === true,
+        markBroken: () => { root.broken = true; },
       });
     }
     const connection = preview ? guardPreview(trx, () => { scope.refused = true; }) : trx;

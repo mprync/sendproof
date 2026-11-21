@@ -272,6 +272,33 @@ export function refusedStatement(sql: string, provider: AdapterProvider, safePro
 }
 
 /**
+ * Whether a driver error means the database rolled the whole transaction back, so later statements would run outside
+ * it and, with autocommit, a retried write would commit for real (spec/data-stores.md "Transaction-control statements
+ * from the handler"): a MySQL or MariaDB deadlock (1213) or lock wait timeout (1205, which rolls back with
+ * `innodb_rollback_on_timeout`; the provider can't see the setting, so it counts either way), or a SQL Server deadlock
+ * victim (1205). The error may be wrapped by an ORM, so its causes are searched too.
+ */
+export function rollsBackTransaction(error: unknown, provider: AdapterProvider): boolean {
+  const mysql = provider === 'mysql' || provider === 'mariadb';
+  const mssql = provider === 'mssql' || provider === 'sqlserver';
+  if (!mysql && !mssql) return false;
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; current && typeof current === 'object' && depth < 8 && !seen.has(current); depth++) {
+    seen.add(current);
+    // mysql2 and mssql name the code `errno`, `code` or `number`; Prisma's driver adapters keep it as `originalCode`.
+    const fields = current as {
+      errno?: unknown; code?: unknown; number?: unknown; originalCode?: unknown; cause?: unknown; driverError?: unknown; originalError?: unknown;
+    };
+    const numbers = [fields.errno, fields.number, fields.code, fields.originalCode].map(value => Number(value));
+    if (mysql && (numbers.includes(1213) || numbers.includes(1205) || fields.code === 'ER_LOCK_DEADLOCK' || fields.code === 'ER_LOCK_WAIT_TIMEOUT')) return true;
+    if (mssql && numbers.includes(1205)) return true;
+    current = fields.driverError ?? fields.originalError ?? fields.cause;
+  }
+  return false;
+}
+
+/**
  * The savepoint behind the MySQL and MariaDB backstop of spec/data-stores.md "Transaction-control statements from the
  * handler". No ORM generates this name, and a handler may not set, release or roll back to it during a Preview.
  */

@@ -5,6 +5,7 @@ import knex from 'knex';
 import type { Knex } from 'knex';
 import { KnexPreview } from '@sendproof/knex';
 import { capturing, sqlEntries } from './support/capture.mts';
+import { deadlockPreview } from './support/deadlock.mts';
 import { resetSchema, targets } from './support/knex-databases.mts';
 import type { TestDatabase } from './support/knex-databases.mts';
 
@@ -156,6 +157,21 @@ for (const target of targets()) {
         } finally {
           await database.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
         }
+      });
+
+      it('refuses every statement after a deadlock rolled the Preview back, so a retry never commits', async () => {
+        provider = provide();
+        const [[{ d: name }]] = await database.raw('SELECT DATABASE() AS d');
+        const outcome = await deadlockPreview({
+          database: name, column: 'name',
+          preview: work => provider.preview(work),
+          update: id => provider.client('items').where({ id }).update({ name: 'Preview' }),
+          insert: id => provider.client('items').insert({ id, name: 'Retry' }),
+        });
+        assert.ok(outcome.deadlock, 'the Preview was the deadlock victim');
+        assert.match(String((outcome.retry as Error)?.message), /deadlock|rolled back/i);
+        assert.match(String((outcome.previewError as Error)?.message), /not contained/);
+        assert.equal(outcome.retried, 0);
       });
 
       it('refuses a handler releasing or recreating the Preview savepoint', async () => {

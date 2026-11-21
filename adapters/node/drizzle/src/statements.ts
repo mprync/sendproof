@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { currentCapture, refusedStatement } from '@sendproof/core';
+import { currentCapture, refusedStatement, rollsBackTransaction } from '@sendproof/core';
 import { is, Placeholder } from 'drizzle-orm';
 import type { DrizzleDialect } from './metadata.js';
 import { endedMessage, isInternal, parameterNames } from './scope.js';
@@ -52,8 +52,20 @@ function wrapPrepared(prepared: Record<string, unknown>, query: CompiledQuery, s
     const method = prepared[name];
     if (typeof method !== 'function') continue;
     prepared[name] = async function run(...args: unknown[]): Promise<unknown> {
-      if (isInternal()) return (method as PreparedMethod).apply(prepared, args);
+      const outcome = sessionScopes.get(session)?.outcome;
+      if (isInternal()) {
+        // The provider's own reads still note a deadlock, so the write they precede is refused.
+        try {
+          return await (method as PreparedMethod).apply(prepared, args);
+        } catch (error) {
+          if (outcome && rollsBackTransaction(error, dialect)) outcome.broken = true;
+          throw error;
+        }
+      }
       guard(query.sql, session, dialect);
+      return outcome ? watch(outcome, dialect, () => send(args)) : send(args);
+    };
+    const send = async (args: unknown[]): Promise<unknown> => {
       const recorder = currentCapture();
       if (!recorder) return (method as PreparedMethod).apply(prepared, args);
       const names = parameterNames();
@@ -79,6 +91,23 @@ function wrapPrepared(prepared: Record<string, unknown>, query: CompiledQuery, s
         throw error;
       }
     };
+  }
+}
+
+/**
+ * Run one Preview statement, refusing it when the database already rolled the Preview transaction back: after a
+ * deadlock or lock wait timeout a statement would run with autocommit and commit for real. The handler still gets the
+ * database's own error for the statement that hit it.
+ */
+async function watch(outcome: { broken: boolean }, dialect: DrizzleDialect, send: () => Promise<unknown>): Promise<unknown> {
+  if (outcome.broken) {
+    throw new Error('The database rolled the Preview transaction back after a deadlock or lock wait timeout, so no further statement runs in this Preview.');
+  }
+  try {
+    return await send();
+  } catch (error) {
+    if (rollsBackTransaction(error, dialect)) outcome.broken = true;
+    throw error;
   }
 }
 

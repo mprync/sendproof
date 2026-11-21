@@ -77,7 +77,7 @@ The provider confirms a Preview only when all of the following hold:
    - on MySQL, statements that commit implicitly, such as `CREATE TABLE`, `TRUNCATE` and `LOCK TABLES`, SQL-level `PREPARE` and `EXECUTE`, and statements touching `sendproof_preview`
    - on MySQL, `CALL`, because a stored procedure can commit. Declare procedures that never commit with `safeProcedures: ['name', 'schema.name']` (exact names, no wildcards). **Warning:** a declared procedure that does commit keeps the handler's writes; the Preview still fails.
 
-   Savepoints are allowed, so nested `$transaction` calls roll back with the Preview.
+   Savepoints are allowed, so nested `$transaction` calls roll back with the Preview. After a MySQL deadlock or lock wait timeout the database has rolled the Preview transaction back, so the handler gets the error and every later statement of that Preview is refused.
 4. On pooled databases (PostgreSQL, MySQL), nothing wrote through another connection or a separate transaction during the Preview. Reads through the root client are allowed. SQLite adapters share one connection, so their root-client statements run inside the Preview transaction.
 
 Sendproof blocks the statements in cases 3 and 4 before sending them to the driver. Even if the handler catches the error, that Preview fails and its earlier writes roll back. A missing or failed rollback acknowledgment retires the client until the process restarts. Use `preview.run` for request work so the provider can enroll it in the transaction.
