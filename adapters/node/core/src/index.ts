@@ -4,17 +4,17 @@ import { performance } from 'node:perf_hooks';
 import type { BenchBinding, BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Capture } from './capture.js';
+import { attributeHttpRequests, Capture, closePreview, openPreview } from './capture.js';
 import { hasPreference, localPath, requireLocalPath, requestsRollback, sameOrigin } from './paths.js';
 import { writeReason } from './stores/guard.js';
 
 export type * from './types.js';
-export { Capture, currentCapture, currentPreview, deliverEffect } from './capture.js';
+export { attributeRequest, Capture, currentCapture, currentPreview, deliverEffect, detached } from './capture.js';
 export { looksSecret, redacted, redactDeep, redactRow } from './secrets.js';
 export { classifyDynamo, classifyMongo, classifyRedis, partiqlVerb, type CommandKind, type MongoClassification } from './stores/classify.js';
 export {
   guard, PreviewTransactionControlError, PreviewWriteBlockedError, readSet, refuseInPreview, sanitizeDocument, storeLabel, storeName, storeNames,
-  writeReason,
+  unattributedWrite, writeReason,
 } from './stores/guard.js';
 export { dynamodbTable, mongodbTable, redisTable } from './stores/tables.js';
 export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
@@ -168,6 +168,9 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError('Limits must be positive integers.');
   }
   const enabled = environments.some(value => value.toLowerCase() === environment.toLowerCase());
+  // Store writes are attributed to the request that sent them, so one with no request while a
+  // Preview is open can fail that Preview (guard.ts unattributedWrite).
+  if (dataStores.length) attributeHttpRequests();
   const store = new TraceStore(traceTtlMs, traceClock);
   let manifest: AssetManifest | undefined;
 
@@ -237,6 +240,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     // A handler that throws after a blocked write still gets the 409, once the provider rolled
     // back and rethrew that same error. Any other rejection means the rollback itself failed.
     const failure: { error?: unknown } = {};
+    openPreview(capture);
     try {
       // Pipeline order (spec/data-stores.md): run the handler; abort every preview-mode store
       // transaction; roll back SQL. A failed abort or rollback, or a recorded fault, answers 500;
@@ -287,6 +291,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
       }
       return problem(500, 'The preview could not be completed safely.');
     } finally {
+      closePreview(capture);
       if (capture.active) capture.finish();
     }
   }

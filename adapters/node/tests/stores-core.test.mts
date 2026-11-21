@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  Capture, classifyDynamo, classifyMongo, classifyRedis, currentPreview, dynamodbTable, guard, mongodbTable,
+  Capture, classifyDynamo, classifyMongo, classifyRedis, currentPreview, detached, dynamodbTable, guard, mongodbTable,
   PreviewWriteBlockedError, redactDeep, redisTable, refuseInPreview, sanitizeDocument,
 } from '@sendproof/core';
 import type { CaptureRecorder, DataStore } from '@sendproof/core';
@@ -147,6 +147,86 @@ test('a failed store abort and a recorded fault outrank a blocked write', async 
   await assertUnconfirmed(await app.preview('POST', '/commit'));
   await assertUnconfirmed(await app.preview('POST', '/sql-commit'));
   assert.equal(await app.db.get('SELECT id FROM items WHERE id = :id', { id: 'c' }), undefined);
+});
+
+test('every cleanup step runs when one store fails to finish, and the Preview answers 500', async t => {
+  const finished: string[] = [];
+  const failing = fakeStore({ finish: async () => { finished.push('failing'); throw new Error('abort failed'); } });
+  const healthy = fakeStore({ finish: async () => { finished.push('healthy'); } });
+  const app = await startApp(t, [failing, healthy], bench => {
+    bench.operation('POST', '/items/{id}', handle(async (req, res) => {
+      await app.db.write('INSERT INTO items (id, name) VALUES (:id, :name)', { id: req.params.id as string, name: 'Cleanup' }, { table: 'items', keys: [{ id: req.params.id }] });
+      res.status(201).json({ ok: true });
+    }));
+  });
+  await assertUnconfirmed(await app.preview('POST', '/items/cleanup'));
+  assert.deepEqual(finished, ['failing', 'healthy'], 'A failed abort must not skip the other stores');
+  assert.equal(await app.db.get('SELECT id FROM items WHERE id = :id', { id: 'cleanup' }), undefined, 'A failed abort must not skip the SQL rollback');
+});
+
+/** A route that holds every Preview that reaches it until `release()`, so a test can act while Previews are open. */
+function holder() {
+  let entered = 0;
+  let waiting: (() => void)[] = [];
+  let open: () => void = () => {};
+  let released = new Promise<void>(resolve => { open = resolve; });
+  return {
+    route: handle(async (_req, res) => {
+      entered++;
+      for (const wake of waiting.splice(0)) wake();
+      await released;
+      res.json({ ok: true });
+    }),
+    /** Resolves once `count` requests are being held. */
+    async held(count: number) {
+      while (entered < count) await new Promise<void>(resolve => waiting.push(resolve));
+    },
+    release() {
+      open();
+      entered = 0;
+      waiting = [];
+      released = new Promise<void>(resolve => { open = resolve; });
+    },
+  };
+}
+
+test('a write outside any request fails every open Preview unless it is marked detached', async t => {
+  const store = fakeStore();
+  const hold = holder();
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/hold', hold.route);
+    bench.operation('POST', '/counters/{key}', handle(async (req, res) => {
+      await store.incr(req.params.key as string);
+      res.json({ ok: true });
+    }));
+    // No SQL provider: its Previews take turns, and this test holds two open at once.
+  }, { sqlProvider: false });
+
+  // Without an open Preview, background writes are none of the binding's business.
+  await store.incr('idle');
+
+  // A Send, even untraced, is a request: its write is attributed and leaves the Preview alone.
+  const pending = app.confirmed('POST', '/hold');
+  await hold.held(1);
+  assert.equal((await fetch(app.url + '/counters/sent', { method: 'POST' })).status, 200);
+  // Background work marked detached is attributed too.
+  await detached(() => store.incr('background'));
+  hold.release();
+  await pending;
+
+  // An unattributed write may belong to any open Preview: every one of them fails with 500.
+  const first = app.preview('POST', '/hold');
+  const second = app.preview('POST', '/hold');
+  await hold.held(2);
+  await store.incr('stray');
+  hold.release();
+  await assertUnconfirmed(await first);
+  await assertUnconfirmed(await second);
+  assert.deepEqual(store.writes, ['idle', 'sent', 'background', 'stray'], 'Unattributed writes are reported, not blocked');
+
+  // Detached work inside a Preview is still that Preview's: the guard keeps blocking it.
+  await assertBlocked(await app.preview('POST', '/counters/inside'), 'redis', 'INCR');
+  new Capture('preview').run(() => assert.throws(() => detached(() => guard('redis', 'INCR', 'write')), PreviewWriteBlockedError));
 });
 
 test('discovery lists data stores and preview:false operations, which never run in Preview', async t => {

@@ -1,5 +1,6 @@
 import type { BlockedWrite, CaptureCollection, CaptureLimits, CaptureMode, CaptureSnapshot, CaptureRecorder, Change, DbEntry, Effect, Log, RecordedLog, SqlEntry, Timing } from './types.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { subscribe } from 'node:diagnostics_channel';
 import { performance } from 'node:perf_hooks';
 import { looksSecret, redacted, redactDeep } from './secrets.js';
 
@@ -45,6 +46,72 @@ export function currentCapture(): CaptureRecorder | undefined {
 export function currentPreview(): CaptureRecorder | undefined {
   const capture = current.getStore();
   return capture?.mode === 'preview' ? capture : undefined;
+}
+
+/**
+ * Request attribution: set for the whole of every HTTP request the process serves (see
+ * {@link attributeHttpRequests}) and for work marked {@link detached}. A capture's own context
+ * attributes too. A store write seen with none of these while a Preview is open may belong to that
+ * Preview, having lost its async context, so it fails every open Preview with 500.
+ */
+const attribution = new AsyncLocalStorage<'request' | 'detached'>();
+
+/** Previews from start to finish, for failing them all when a write can't be attributed. */
+const open = new Set<Capture>();
+
+/**
+ * Run background work (a queue consumer, a scheduled job, startup seeding) that writes to a
+ * guarded store outside any request. While a Preview is open, a store write with no request
+ * attribution fails every open Preview with 500, because it may be a write of the Preview's that
+ * lost its async context; marking the work detached says it isn't.
+ *
+ * Inside a request, including a Preview, `detached` changes nothing: the request's guard still
+ * applies, so a Preview can't use it to let a write through.
+ *
+ * ```ts
+ * setInterval(() => detached(() => redis.incr('heartbeat')), 60_000);
+ * ```
+ */
+export function detached<Result>(work: () => Result): Result {
+  return current.getStore() ? work() : attribution.run('detached', work);
+}
+
+/** Run `work` as one request's: its store writes are attributed to it. Bindings call it per request. */
+export function attributeRequest<Result>(work: () => Result): Result {
+  return attribution.run('request', work);
+}
+
+/** Whether code running now belongs to a request, a capture or detached work. */
+export function attributed(): boolean {
+  return current.getStore() !== undefined || attribution.getStore() !== undefined;
+}
+
+let httpAttribution = false;
+
+/**
+ * Attribute every request a Node HTTP server in this process serves, whatever framework or
+ * middleware order handles it: `http.server.request.start` is published synchronously just before
+ * the server emits `request`, so entering the attribution there covers the handler and every
+ * async continuation it starts.
+ */
+export function attributeHttpRequests(): void {
+  if (httpAttribution) return;
+  httpAttribution = true;
+  subscribe('http.server.request.start', () => attribution.enterWith('request'));
+}
+
+/** Mark a Preview open until {@link closePreview}. */
+export function openPreview(capture: Capture): void {
+  open.add(capture);
+}
+
+export function closePreview(capture: Capture): void {
+  open.delete(capture);
+}
+
+/** The Previews open right now. */
+export function openPreviews(): Capture[] {
+  return [...open];
 }
 
 export class Capture implements CaptureRecorder {

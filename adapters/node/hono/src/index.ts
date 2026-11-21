@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context, Env, Handler, MiddlewareHandler } from 'hono';
-import { createBench, unavailableOperation } from '@sendproof/core';
+import { attributeRequest, createBench, unavailableOperation } from '@sendproof/core';
 import type { BenchOptions, BenchRequest, RegisteredOperation, UnavailableOptions } from '@sendproof/core';
 import { assertBasePath, routePath } from './paths.js';
 import { captureResponse, toResponse, unmatchedHeader } from './response.js';
@@ -58,7 +58,9 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   app.use('*', async (c, next) => {
     const request = describe(c, basePath);
     const answer = await bench.lookup(request);
-    if (!answer) return next();
+    // Attribute the request's store writes to it on runtimes without Node's HTTP server, whose
+    // requests the core attributes itself.
+    if (!answer) return attributeRequest(next);
     if (!('target' in answer)) return toResponse(answer, c.req.method);
 
     const rendered = await bench.preview(request, async () => {

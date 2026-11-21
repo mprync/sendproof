@@ -7,7 +7,7 @@
  * {@link PreviewWriteBlockedError}. The capture's mark, not the handler's response, decides the
  * outcome: a handler that catches the error and returns 200 still produces a 409.
  */
-import { currentPreview } from '../capture.js';
+import { attributed, currentPreview, openPreviews } from '../capture.js';
 import type { CommandKind } from './classify.js';
 
 /** Display names used in "Preview unavailable: this operation writes to <Store>". */
@@ -55,11 +55,29 @@ export class PreviewTransactionControlError extends Error {
 export function guard(store: string, operation: string, kind: CommandKind, detail?: string): void {
   if (kind !== 'write') return;
   const capture = currentPreview();
-  if (!capture) return;
+  if (!capture) {
+    unattributedWrite(store, operation);
+    return;
+  }
   const reason = detail ?? writeReason(store);
   capture.block({ store, operation, detail: reason });
   capture.db({ system: store, operation, blocked: true });
   throw new PreviewWriteBlockedError(store, operation, reason);
+}
+
+/**
+ * Report a store write that is about to be sent, or was seen by monitoring, outside any Preview.
+ * When it has no request attribution (no request, capture or `detached()` context) and a
+ * Preview is open, the write may be the Preview's own, having lost its async context, so every
+ * open Preview fails with 500. The write itself is not blocked: it most likely belongs to
+ * background work. Does nothing when the write is attributed or no Preview is open.
+ */
+export function unattributedWrite(store: string, operation: string): void {
+  if (attributed()) return;
+  const previews = openPreviews();
+  if (!previews.length) return;
+  const message = `A ${storeName(store)} ${operation} ran outside any request while a Preview was open, so it may be the Preview's; wrap background work in detached() so it isn't mistaken for one.`;
+  for (const preview of previews) preview.refuse(new PreviewTransactionControlError(message));
 }
 
 /**
