@@ -14,10 +14,11 @@ use sendproof_sqlx::{Backend, SqlxProvider};
 use crate::{
     auth::Sessions,
     scenario::{FailingRollback, Scenario},
+    stores::Stores,
 };
 
 /// The operations declared for preview. `/items/{id}/ordinary` is deliberately absent.
-pub const PREVIEW_OPERATIONS: [(&str, &str); 7] = [
+pub const PREVIEW_OPERATIONS: [(&str, &str); 9] = [
     ("POST", "/items"),
     ("PATCH", "/items/{id}"),
     ("DELETE", "/items/{id}"),
@@ -25,6 +26,9 @@ pub const PREVIEW_OPERATIONS: [(&str, &str); 7] = [
     ("POST", "/items/{id}/large"),
     ("POST", "/items/{id}/redirect"),
     ("POST", "/items/{id}/capture"),
+    // The shared security rules (`spec/conformance/fixture.md`).
+    ("POST", "/accounts"),
+    ("POST", "/items/{id}/commit"),
 ];
 
 /// The fixture's database, chosen by `BENCH_DATABASE` (`sqlite`, the default, `postgresql` or
@@ -70,6 +74,9 @@ impl Database {
                 )
                 .execute(&pool)
                 .await?;
+                sqlx::query("CREATE TABLE accounts (id TEXT PRIMARY KEY NOT NULL, email TEXT NOT NULL, password_hash TEXT NOT NULL)")
+                    .execute(&pool)
+                    .await?;
                 Self::Sqlite { pool, file }
             }
             "postgresql" | "postgres" => {
@@ -82,6 +89,9 @@ impl Database {
                 )
                 .execute(&pool)
                 .await?;
+                sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT NOT NULL)")
+                    .execute(&pool)
+                    .await?;
                 Self::Postgres(pool)
             }
             "mysql" => {
@@ -90,6 +100,9 @@ impl Database {
                     .connect(&url()?)
                     .await?;
                 sqlx::query("CREATE TABLE IF NOT EXISTS items (id VARCHAR(191) PRIMARY KEY, name TEXT NOT NULL) ENGINE=InnoDB")
+                    .execute(&pool)
+                    .await?;
+                sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id VARCHAR(191) PRIMARY KEY, email VARCHAR(191) NOT NULL, password_hash TEXT NOT NULL) ENGINE=InnoDB")
                     .execute(&pool)
                     .await?;
                 Self::MySql(pool)
@@ -138,6 +151,7 @@ pub fn config<B: Backend>(
     pool: Pool<B>,
     label: &str,
     sessions: Arc<Sessions>,
+    stores: &Stores,
 ) -> Result<Config, sendproof_core::ConfigError> {
     let mut config: ConfigBuilder = Config::builder("Sendproof Conformance")
         .environment(if scenario == Scenario::Disabled {
@@ -158,6 +172,8 @@ pub fn config<B: Backend>(
     for (method, path) in PREVIEW_OPERATIONS {
         config = config.preview_operation(method, path);
     }
+    // The data stores the runner provisioned (none unless the entry lists `stores`).
+    config = stores.configure(config);
     let provider = SqlxProvider::new(pool).database(label);
     config = match scenario {
         Scenario::NoProvider => config,

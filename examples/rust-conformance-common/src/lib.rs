@@ -8,3 +8,4 @@ pub mod items;
 pub mod openapi;
 pub mod scenario;
 pub mod setup;
+pub mod stores;

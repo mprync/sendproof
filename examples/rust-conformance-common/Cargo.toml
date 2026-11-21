@@ -10,8 +10,16 @@ workspace = "../../adapters/rust"
 [dependencies]
 sendproof-core.workspace = true
 sendproof-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
+sendproof-mongodb.workspace = true
+sendproof-redis.workspace = true
+sendproof-dynamodb.workspace = true
+mongodb.workspace = true
+redis = { workspace = true, features = ["aio", "tokio-comp"] }
+aws-sdk-dynamodb = { workspace = true, features = ["default-https-client", "rustls"] }
+aws-credential-types.workspace = true
 http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 tracing.workspace = true
+tokio.workspace = true

@@ -35,6 +35,10 @@ impl<P: PreviewProvider> PreviewProvider for FailingRollback<P> {
         self.0.database()
     }
 
+    fn system(&self) -> Option<&'static str> {
+        self.0.system()
+    }
+
     fn begin_preview<'a>(
         &'a self,
         extensions: &'a mut http::Extensions,

@@ -11,6 +11,8 @@ workspace = "../../adapters/rust"
 rust-conformance-common = { path = "../rust-conformance-common" }
 sendproof-axum.workspace = true
 sendproof-core.workspace = true
+sendproof-mongodb = { workspace = true, features = ["axum"] }
+sendproof-redis = { workspace = true, features = ["axum"] }
 sendproof-sqlx = { workspace = true, features = ["axum", "sqlite", "postgres", "mysql"] }
 axum.workspace = true
 serde.workspace = true

@@ -6,7 +6,7 @@ mod app;
 
 use std::net::SocketAddr;
 
-use rust_conformance_common::{scenario::Scenario, setup::Database};
+use rust_conformance_common::{scenario::Scenario, setup::Database, stores::Stores};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -26,10 +26,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let database = Database::open().await?;
     let label = database.label();
+    // MongoDB, Redis and DynamoDB are hooked only when the runner provisions them.
+    let stores = Stores::from_env().await?;
     let router = match &database {
-        Database::Sqlite { pool, .. } => app::build(pool.clone(), label, &base, scenario)?,
-        Database::Postgres(pool) => app::build(pool.clone(), label, &base, scenario)?,
-        Database::MySql(pool) => app::build(pool.clone(), label, &base, scenario)?,
+        Database::Sqlite { pool, .. } => app::build(pool.clone(), label, &base, scenario, stores)?,
+        Database::Postgres(pool) => app::build(pool.clone(), label, &base, scenario, stores)?,
+        Database::MySql(pool) => app::build(pool.clone(), label, &base, scenario, stores)?,
     };
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
     eprintln!(

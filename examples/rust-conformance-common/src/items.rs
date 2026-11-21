@@ -14,7 +14,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn new(status: u16, body: Value) -> Self {
+    pub fn new(status: u16, body: Value) -> Self {
         Self {
             status,
             headers: Vec::new(),
@@ -22,7 +22,7 @@ impl Outcome {
         }
     }
 
-    fn empty(status: u16) -> Self {
+    pub fn empty(status: u16) -> Self {
         Self {
             status,
             headers: Vec::new(),
@@ -30,7 +30,7 @@ impl Outcome {
         }
     }
 
-    fn problem(status: u16, title: &str) -> Self {
+    pub fn problem(status: u16, title: &str) -> Self {
         Self::new(status, json!({ "title": title, "status": status }))
     }
 }
@@ -48,7 +48,8 @@ impl Outbox {
     }
 }
 
-async fn insert<B: Backend>(db: &Db<B>, id: &str, name: &str) -> Result<bool, DbError> {
+/// Inserts an item; `false` when it already exists.
+pub async fn insert<B: Backend>(db: &Db<B>, id: &str, name: &str) -> Result<bool, DbError> {
     let mut conn = db.acquire().await?;
     match conn
         .query("INSERT INTO items (id, name) VALUES (:id, :name)")
@@ -214,4 +215,70 @@ pub async fn capture_many<B: Backend>(
 pub async fn ordinary<B: Backend>(db: &Db<B>, id: &str) -> Result<Outcome, DbError> {
     insert(db, id, "Ordinary").await?;
     Ok(Outcome::new(201, json!({ "id": id, "name": "Ordinary" })))
+}
+
+/// `POST /accounts`: stores the password as the literal `hashed:<password>` (test data, so the runner can
+/// search captures for it). Used by the `secret-columns` shared rule.
+pub async fn create_account<B: Backend>(db: &Db<B>, body: &Value) -> Result<Outcome, DbError> {
+    let text = |field: &str| body.get(field).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let (Some(id), Some(email), Some(password)) = (text("id"), text("email"), text("password")) else {
+        return Ok(Outcome::problem(400, "An account needs an id, an email and a password."));
+    };
+    let mut conn = db.acquire().await?;
+    conn.query("INSERT INTO accounts (id, email, password_hash) VALUES (:id, :email, :password_hash)")
+        .bind("id", id)
+        .bind("email", email)
+        .bind("password_hash", format!("hashed:{password}").as_str())
+        .execute()
+        .await?;
+    Ok(Outcome::new(201, json!({ "id": id, "email": email })))
+}
+
+/// `GET /accounts/{id}`.
+pub async fn read_account<B: Backend>(db: &Db<B>, id: &str) -> Result<Outcome, DbError>
+where
+    String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
+    usize: sqlx::ColumnIndex<B::Row>,
+{
+    let mut conn = db.acquire().await?;
+    let email = conn.query("SELECT email FROM accounts WHERE id = :id").bind("id", id).fetch_scalar::<String>().await?;
+    Ok(match email {
+        Some(email) => Outcome::new(200, json!({ "id": id, "email": email })),
+        None => Outcome::empty(404),
+    })
+}
+
+/// Executes a raw `COMMIT` on the connection the handler uses, below the named-query layer that already
+/// refuses it. Implemented for each SQLx backend.
+pub trait RawCommit: Backend {
+    fn raw_commit(connection: &mut Self::Connection) -> sendproof_core::BoxFuture<'_, ()>;
+}
+
+macro_rules! raw_commit {
+    ($backend:ty) => {
+        impl RawCommit for $backend {
+            fn raw_commit(connection: &mut Self::Connection) -> sendproof_core::BoxFuture<'_, ()> {
+                Box::pin(async move {
+                    // The error is the point: a preview refuses the commit, and the handler carries on.
+                    let _ = sqlx::raw_sql("COMMIT").execute(connection).await;
+                })
+            }
+        }
+    };
+}
+raw_commit!(sqlx::Sqlite);
+raw_commit!(sqlx::Postgres);
+raw_commit!(sqlx::MySql);
+
+/// `POST /items/{id}/commit`: inserts the item, then executes a raw `COMMIT` on the same connection and
+/// answers 201. Used by the `raw-commit` shared rule: a Preview must answer 500 without confirming.
+pub async fn commit<B: RawCommit>(db: &Db<B>, id: &str, body: &Value) -> Result<Outcome, DbError> {
+    let Some(name) = body.get("name").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+        return Ok(Outcome::problem(400, "An item needs a name."));
+    };
+    insert(db, id, name).await?;
+    let mut conn = db.acquire().await?;
+    B::raw_commit(&mut conn).await;
+    drop(conn);
+    Ok(Outcome::new(201, json!({ "id": id, "name": name })))
 }
