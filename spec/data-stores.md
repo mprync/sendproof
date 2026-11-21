@@ -255,6 +255,10 @@ As a backstop on MySQL and MariaDB, the provider proves the Preview transaction 
 
 The savepoint must be set at the start. `SELECT @@in_transaction` exists only on MariaDB, and a savepoint set and released only at the end can't tell: with `autocommit=0` (JDBC, Hibernate, Python DB-API drivers) MySQL opens a new transaction implicitly after a commit, so a fresh savepoint succeeds after the Preview transaction is gone. The start savepoint works on MySQL and MariaDB in either autocommit mode.
 
+A server can also end the Preview transaction itself: a deadlock (error 1213) rolls back the whole transaction, and so does a lock wait timeout (1205) when `innodb_rollback_on_timeout` is on. Nothing was committed, but every later statement on that connection runs outside the Preview transaction, and with `autocommit=1` an ORM's automatic retry would commit for real. So once the provider sees either error on the Preview connection, it refuses every further statement in that Preview before sending, and the Preview answers 500 without confirmation. The handler still receives the original error.
+
+The same applies to SQL Server, where a deadlock victim (error 1205) or an error under `XACT_ABORT ON` rolls back the whole transaction and later statements autocommit. PostgreSQL is safe without this: after an error it keeps the transaction open but aborted, and refuses every later statement itself (`25P02`) until the rollback.
+
 ## Batch two stores
 
 Each batch-two store starts in `guard` mode. Its plan entry names the hook and the classification table to add under `spec/data-stores/`.
