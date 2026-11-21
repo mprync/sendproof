@@ -120,3 +120,7 @@ composer install && vendor/bin/phpunit
 ```
 
 The Symfony conformance fixture is in [`../examples/symfony-fixture`](../examples/symfony-fixture/README.md).
+
+## Data stores
+
+Preview can also cover MongoDB, Redis (Predis) and DynamoDB. List the client services in `sendproof.data_stores`, and mark an operation you know writes to a guarded store with `#[AllowPreview(false, reason: 'Clears the Redis session')]`. Only the clients you list are covered. See [data stores in the PHP binding](../data-stores.md).

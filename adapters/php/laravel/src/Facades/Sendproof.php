@@ -19,6 +19,7 @@ use Sendproof\Laravel\SendproofManager;
  * @method static bool isPreview()
  * @method static void identifyUsing(Closure $resolver)
  * @method static void authorizeUsing(Closure $authorizer)
+ * @method static \Aws\DynamoDb\DynamoDbClient hookDynamoDb(\Aws\DynamoDb\DynamoDbClient $client, ?string $name = null)
  *
  * @see SendproofManager
  */

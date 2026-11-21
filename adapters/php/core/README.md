@@ -36,3 +36,7 @@ Implement `PreviewProvider` for your data layer: begin on the connection the han
 ```sh
 composer install && vendor/bin/phpunit
 ```
+
+## Data stores
+
+`Sendproof\Core\Stores` holds the write guard, the classifiers and the hooks for Predis, the AWS SDK and the MongoDB library. `PreviewRunner::run()` takes the hooked stores as its last argument. See [data stores in the PHP binding](../data-stores.md).

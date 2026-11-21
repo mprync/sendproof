@@ -1,5 +1,7 @@
 # Sendproof for PHP
 
+Sendproof guards and previews data stores beyond SQL: MongoDB, Redis and DynamoDB. See [data stores in the PHP binding](data-stores.md).
+
 | Package | Purpose | Status |
 | --- | --- | --- |
 | [`core`](core/README.md) | Framework-neutral protocol core: preview runner, observed send, capture, trace store, embedded UI | `0.1.0-alpha.1` |
@@ -9,7 +11,7 @@
 
 ## Develop
 
-Requires PHP 8.2+, Composer and `ext-pdo_sqlite`. Dependencies install into each package's own `vendor/`.
+Requires PHP 8.2+, Composer and `ext-pdo_sqlite`. Dependencies install into each package's own `vendor/`. The MongoDB hook needs `ext-mongodb` (and phpredis needs `ext-redis`); the tests for a store skip when its client or service is missing.
 
 ```sh
 sh adapters/php/scripts/prepare.sh   # packs the shared UI, runs composer install
@@ -17,6 +19,8 @@ sh adapters/php/scripts/test.sh      # PHPUnit for core, laravel and symfony
 node tests/conformance/run.mjs php-laravel
 node tests/conformance/run.mjs php-symfony
 ```
+
+The data-store checks need the compose services: `docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb`.
 
 ## Release packaging
 

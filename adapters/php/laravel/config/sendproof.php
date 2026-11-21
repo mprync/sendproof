@@ -50,6 +50,15 @@ return [
     // Show SQL parameter values. Null shows them in local, development and testing only.
     'include_sql_parameter_values' => null,
 
+    // Data stores beyond SQL, hooked when Sendproof is enabled. Only the clients listed here are covered:
+    // writes through any other client are neither blocked nor rolled back.
+    //   'mongodb'  => ['connection' => 'mongodb', 'name' => 'catalog'],   // a mongodb/laravel-mongodb connection
+    //   'redis'    => ['name' => 'cache'],                                  // every connection Laravel's Redis manager creates
+    //   'dynamodb' => ['clients' => [DynamoDbClient::class], 'name' => 'orders'],
+    // Each also takes 'treat_as_read' (exact command names you state never write); mongodb takes 'preview_timeout_ms'.
+    // See adapters/php/data-stores.md. Mark an operation with ->sendproofPreview(false, 'reason') when you know it writes to one.
+    'data_stores' => [],
+
     'trace' => [
         // How long an observed send trace can be read, in seconds.
         'ttl' => (int) env('SENDPROOF_TRACE_TTL', 300),
