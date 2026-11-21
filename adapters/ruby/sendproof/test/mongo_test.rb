@@ -5,7 +5,61 @@ require "sendproof/mongo"
 
 # The MongoDB engine and plain-driver store against the compose replica set
 # (docker compose -f tests/conformance/compose.yml up -d --wait mongodb).
-# Lets one test stand in for a driver that swallows an exception raised from a command subscriber.
+
+# Pins the driver behavior the pre-send refusal relies on: an exception raised from a command subscriber's
+# +started+ leaves the driver before any byte of that command reaches a socket. The driver names the socket
+# in each started event, and a refused command marks its connection failed, so any later write to the
+# socket of a refused command is recorded as a violation.
+module MongoSocketWatch
+  module Subscriber
+    def started(event)
+      super
+    rescue Sendproof::PreviewWriteBlocked, Sendproof::PreviewTransactionControl
+      Thread.current[:mongo_socket_watch]&.then do |watch|
+        watch[:refused][event.socket_object_id] = event.command_name
+        watch[:attempts][event.command_name] += 1
+      end
+      raise
+    end
+  end
+
+  module Socket
+    def write(*args, **options)
+      watch = Thread.current[:mongo_socket_watch]
+      watch[:violations] << watch[:refused][object_id] if watch&.dig(:refused)&.key?(object_id)
+      super
+    end
+  end
+
+  # Counts concurrent and interrupted aborts of Preview transactions, from any thread.
+  module Abort
+    class << self
+      attr_accessor :watch
+    end
+
+    def abort_transaction(*args, **options)
+      watch = Abort.watch or return super
+      watch[:lock].synchronize { watch[:max] = [watch[:max], watch[:running] += 1].max }
+      done = false
+      begin
+        sleep watch[:delay]
+        result = super
+        done = true
+        result
+      ensure
+        watch[:lock].synchronize do
+          watch[:running] -= 1
+          watch[:interrupted] += 1 unless done
+        end
+      end
+    end
+  end
+end
+Sendproof::Mongo::Subscriber.prepend(MongoSocketWatch::Subscriber)
+Mongo::Socket.prepend(MongoSocketWatch::Socket)
+Mongo::Session.prepend(MongoSocketWatch::Abort)
+
+# Prepended last, so it wraps the watch above: lets one test stand in for a driver that swallows an exception raised from a command subscriber.
 Sendproof::Mongo::Subscriber.prepend(Module.new do
   def started(event)
     super
@@ -323,6 +377,143 @@ class MongoHookTest < Minitest::Test
     assert_equal 1, stored(_id: "leaked").length, "The driver sent it, which is why the Preview cannot be confirmed"
   ensure
     Thread.current[:swallow_refusals] = nil
+  end
+
+  # --- the driver behavior the guard relies on (mongo 2.26) ---------------------------------------------
+
+  # Runs +block+, expecting a refusal, and returns the refused commands that wrote to a socket anyway.
+  def socket_violations
+    watch = { refused: {}, violations: [], attempts: Hash.new(0) }
+    Thread.current[:mongo_socket_watch] = watch
+    yield
+    watch
+  ensure
+    Thread.current[:mongo_socket_watch] = nil
+  end
+
+  def guard_mode_store
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(@raw, hello: -> { { "ismaster" => true } })
+    @client = @store.client
+  end
+
+  # Every write path of the driver, refused in guard mode: none may reach a socket, none may be retried,
+  # and a write the driver splits into several commands stops at the first.
+  def test_a_refusal_from_the_subscriber_stops_every_driver_write_path_before_the_socket
+    guard_mode_store
+    documents = @client[:documents]
+    bucket = @client.database.fs(bucket_name: "files")
+    paths = {
+      "insert_one" => -> { documents.insert_one(_id: "w1") },
+      "insert_many split" => -> { documents.insert_many(Array.new(100_001) { |n| { n: n } }) },
+      "bulk_write unordered" => -> { documents.bulk_write([{ insert_one: { _id: "w2" } }, { delete_one: { filter: { _id: "seeded" } } }], ordered: false) },
+      "update_many" => -> { documents.update_many({}, "$set" => { a: 1 }) },
+      "replace_one" => -> { documents.replace_one({ _id: "seeded" }, { name: "Replaced" }) },
+      "delete_many" => -> { documents.delete_many({}) },
+      "find_one_and_update" => -> { documents.find_one_and_update({ _id: "seeded" }, "$set" => { a: 1 }) },
+      "find_one_and_replace" => -> { documents.find_one_and_replace({ _id: "seeded" }, { a: 1 }) },
+      "find_one_and_delete" => -> { documents.find_one_and_delete(_id: "seeded") },
+      "aggregate $out" => -> { documents.aggregate([{ "$out" => "copied" }]).to_a },
+      "aggregate $merge" => -> { documents.aggregate([{ "$merge" => { into: "copied" } }]).to_a },
+      "database.command" => -> { @client.database.command(insert: "documents", documents: [{ _id: "w3" }]) },
+      "create index" => -> { documents.indexes.create_one({ name: 1 }) },
+      "drop" => -> { documents.drop },
+      "GridFS upload" => -> { bucket.upload_from_stream("f.txt", StringIO.new("data")) }
+    }
+    paths.each do |label, call|
+      watch = nil
+      preview([@store]) do |_|
+        watch = socket_violations { assert_raises(Sendproof::PreviewWriteBlocked, label) { call.call } }
+      end
+      assert_empty watch[:violations], "#{label}: a refused command reached a socket"
+      assert watch[:attempts].values.all? { |count| count == 1 }, "#{label}: the refused command was retried: #{watch[:attempts]}"
+    end
+    assert_equal [SEEDED["_id"]], stored.map { |document| document["_id"] }
+    assert_equal SEEDED["name"], stored.first["name"]
+    assert_empty @reader.database.collection_names.grep(/copied|files/)
+  end
+
+  # The negative check of the pin: were the driver to carry on after the exception, the watch sees the send.
+  def test_the_socket_watch_sees_a_refused_command_that_is_sent
+    guard_mode_store
+    Thread.current[:swallow_refusals] = true
+    watch = nil
+    preview([@store]) { |_| watch = socket_violations { @client[:documents].insert_one(_id: "leaked") } }
+    assert_equal ["insert"], watch[:violations]
+  ensure
+    Thread.current[:swallow_refusals] = nil
+  end
+
+  # In preview mode a write without the Preview session is refused by the same subscriber, on the same terms.
+  def test_a_refused_escape_never_reaches_a_socket
+    watch = nil
+    preview([@store]) do |_|
+      watch = socket_violations do
+        assert_raises(Sendproof::PreviewTransactionControl) { @raw[:documents].insert_one(_id: "escaped") }
+        assert_raises(Sendproof::PreviewTransactionControl) { @raw[:documents].update_one({ _id: "seeded" }, "$set" => { a: 1 }) }
+      end
+    end
+    assert_empty watch[:violations]
+    assert_equal({ "insert" => 1, "update" => 1 }, watch[:attempts])
+    assert_empty stored(_id: "escaped")
+  end
+
+  # Client#with and an option outside the CRUD set builds a new cluster with a fresh Monitoring: without
+  # the store's subscriber on it, every command of the derived client would bypass the guard.
+  def test_a_client_derived_with_new_cluster_options_is_still_guarded
+    guard_mode_store
+    preview([@store]) do |_|
+      derived = @client.with(app_name: "derived")
+      @others << derived.__target__
+      assert_raises(Sendproof::PreviewWriteBlocked) { derived[:documents].insert_one(_id: "derived") }
+      silent = @raw.with(monitoring: false, socket_timeout: 7)
+      @others << silent
+      assert_raises(Sendproof::PreviewWriteBlocked) { silent[:documents].insert_one(_id: "silent") }
+    end
+    assert_empty stored(_id: "derived")
+    assert_empty stored(_id: "silent")
+  end
+
+  def test_a_client_derived_with_new_cluster_options_cannot_escape_the_preview_transaction
+    recorder = preview([@store]) do |_|
+      derived = @raw.with(server_selection_timeout: 4)
+      @others << derived
+      assert_raises(Sendproof::PreviewTransactionControl) { derived[:documents].insert_one(_id: "derived") }
+    end
+    refute_nil recorder.fault
+    assert_empty stored(_id: "derived")
+  end
+
+  # The time limit and the end of the Preview both abort the transaction. They must take turns: one
+  # interrupted mid-abort, or both at once on one session, leaves the driver's session state undefined.
+  def test_the_time_limit_and_the_finish_never_abort_at_once
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(@raw, preview_timeout: 0.2)
+    @client = @store.client
+    watch = { lock: Mutex.new, running: 0, max: 0, interrupted: 0, delay: 0.4 }
+    MongoSocketWatch::Abort.watch = watch
+    recorder = preview([@store]) do |_|
+      @client[:documents].insert_one(_id: "slow")
+      sleep 0.3 # the timer is now aborting; the Preview finishes while it is
+    end
+    sleep 0.5
+    assert_equal 0, watch[:interrupted], "An abort was interrupted"
+    assert_equal 1, watch[:max], "Two aborts ran at once"
+    refute_nil recorder.fault
+    assert_empty stored(_id: "slow")
+  ensure
+    MongoSocketWatch::Abort.watch = nil
+  end
+
+  # A direct connection is a "single" topology: the two client-side checks are lifted on the Preview
+  # session only. A session of the same client outside a Preview keeps them.
+  def test_the_direct_connection_checks_are_lifted_on_the_preview_session_only
+    skip "needs a direct connection" unless @raw.cluster.single?
+    preview([@store]) { |_| @client[:documents].insert_one(_id: "direct") }
+    session = @raw.start_session
+    assert_raises(::Mongo::Error::TransactionsNotSupported) { session.start_transaction }
+    session.end_session
+    assert_empty stored(_id: "direct")
   end
 
   Event = Struct.new(:command_name, :database_name, :command, :request_id)

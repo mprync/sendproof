@@ -45,9 +45,10 @@ module Sendproof
       # The state of one +preview+-mode Preview.
       # +start_time+ is the transaction's snapshot time: the +operationTime+ of the first reply to a command
       # the Preview session sent, so +before+ images are read at that time and a concurrent commit by
-      # another request never shows up as a Preview change.
+      # another request never shows up as a Preview change. +lock+ makes the time limit and the finish take
+      # turns: only one of them ever aborts the transaction, and neither is interrupted while it does.
       State = Struct.new(:mode, :session, :lsid, :used, :finished, :expired, :candidates, :filters, :start_time, :timer,
-                         keyword_init: true)
+                         :lock, keyword_init: true)
 
       # One document a Preview may have changed, and how.
       Candidate = Struct.new(:namespace, :collection, :id, :via)
@@ -60,6 +61,8 @@ module Sendproof
 
       # @return [Mongo::Client] the hooked client
       attr_reader :client
+      # @return [Subscriber] the command subscriber on the hooked client and on every client derived from it
+      attr_reader :subscriber
 
       # @param client [Mongo::Client] the client to hook; its command monitoring must be on (the default)
       # @param reads [Set<String>, nil] host-declared reads, lower case
@@ -81,14 +84,41 @@ module Sendproof
         @detect_lock = Mutex.new
         @detected = nil
         @active = true
-        client.subscribe(::Mongo::Monitoring::COMMAND, Subscriber.new(self))
+        @subscriber = Subscriber.new(self)
+        client.subscribe(::Mongo::Monitoring::COMMAND, @subscriber)
         Engine.registry << self
       end
 
       class << self
         # The engines that may own a Preview session, so Mongoid's ambient-session lookup can find them.
         def registry = @registry ||= []
+
+        # Subscribes every hooked engine of +source+ to +derived+, a client +source.with+ returned. When
+        # +with+ changes an option outside the driver's CRUD set (+app_name+, +socket_timeout+,
+        # +monitoring+ ...), the driver builds a new cluster with a fresh Monitoring that has none of the
+        # source's subscribers, so the derived client's commands would bypass the guard and the tripwire.
+        # Its sessions belong to the new cluster, so in +preview+ mode its writes are refused as escapes.
+        def carry(source, derived)
+          target = derived.monitoring
+          return if target.equal?(source.monitoring)
+
+          subscribed = source.monitoring.subscribers[::Mongo::Monitoring::COMMAND] || []
+          registry.each do |engine|
+            next unless subscribed.include?(engine.subscriber)
+            next if (target.subscribers[::Mongo::Monitoring::COMMAND] || []).include?(engine.subscriber)
+
+            target.subscribe(::Mongo::Monitoring::COMMAND, engine.subscriber)
+          end
+        end
       end
+
+      # Prepended to +Mongo::Client+ so a client derived with {#with} stays hooked (see {Engine.carry}).
+      module DerivedClients
+        def with(new_options = nil)
+          super.tap { |derived| Engine.carry(self, derived) }
+        end
+      end
+      ::Mongo::Client.prepend(DerivedClients)
 
       # Turns the hook off: nothing is guarded or logged afterwards. The subscriber stays on the client.
       def unhook!
@@ -156,7 +186,7 @@ module Sendproof
         session.start_transaction(read_concern: { level: :snapshot }, write_concern: { w: :majority })
         join_transaction(session, recorder)
         state = State.new(mode: mode, session: session, lsid: hex(session.session_id), used: false, finished: false,
-                          expired: false, candidates: {}, filters: [])
+                          expired: false, candidates: {}, filters: [], lock: Mutex.new)
         recorder.set_store_state(self, state)
         # A handler still running at the limit loses its transaction: later commands fail, nothing commits,
         # and the Preview answers 500 when it ends.
@@ -176,17 +206,24 @@ module Sendproof
         # Bookkeeping for commands this thread never saw finish (a refused command is never sent).
         Thread.current[:sendproof_mongo_refused]&.clear
         Thread.current[:sendproof_mongo_pending]&.clear
-        return unless current&.session && !current.finished
+        return unless current&.session
 
         failure = nil
-        begin
-          internal { capture_changes(recorder, current) } if current.used
-        rescue StandardError => error
-          # A failed command inside a transaction makes the server abort it: nothing to capture.
-          failure = error unless error.is_a?(::Mongo::Error::OperationFailure) && error.code == 251 # NoSuchTransaction
-        ensure
-          end_session(current)
+        # Waits for a time limit that is aborting the transaction right now, rather than racing it.
+        current.lock.synchronize do
+          next if current.finished
+
+          begin
+            internal { capture_changes(recorder, current) } if current.used && !current.expired
+          rescue StandardError => error
+            # A failed command inside a transaction makes the server abort it: nothing to capture.
+            failure = error unless error.is_a?(::Mongo::Error::OperationFailure) && error.code == 251 # NoSuchTransaction
+          ensure
+            end_session(current)
+          end
         end
+        # The timer is asleep, waiting for the lock or done: never stopped in the middle of an abort.
+        current.timer&.kill unless current.timer.equal?(Thread.current)
         raise failure if failure
       end
 
@@ -422,14 +459,13 @@ module Sendproof
         session.define_singleton_method(:end_session) { nil }
       end
 
-      # Aborts the Preview transaction and ends its session, once. The driver ignores abort errors, as the
-      # transactions specification requires; an unacknowledged abort still commits nothing, because no
-      # +commitTransaction+ is ever sent for the Preview session.
+      # Aborts the Preview transaction and ends its session, once; call it holding +state.lock+. The driver
+      # ignores abort errors, as the transactions specification requires; an unacknowledged abort still
+      # commits nothing, because no +commitTransaction+ is ever sent for the Preview session.
       def end_session(state)
         return if state.finished
 
         state.finished = true
-        state.timer&.kill unless state.timer.equal?(Thread.current)
         session = state.session
         internal do
           begin
@@ -447,15 +483,17 @@ module Sendproof
 
       # The Preview outlived its time limit: it can never be confirmed, and its transaction is aborted now.
       def expire(recorder, state)
-        return if state.finished
+        state.lock.synchronize do
+          next if state.finished
 
-        state.expired = true
-        recorder.refuse(PreviewTransactionControl.new("The Preview ran longer than #{@timeout} s, so its MongoDB transaction was aborted."))
-        internal do
-          begin
-            ::Mongo::Session.instance_method(:abort_transaction).bind(state.session).call if state.session.in_transaction?
-          rescue StandardError
-            nil
+          state.expired = true
+          recorder.refuse(PreviewTransactionControl.new("The Preview ran longer than #{@timeout} s, so its MongoDB transaction was aborted."))
+          internal do
+            begin
+              ::Mongo::Session.instance_method(:abort_transaction).bind(state.session).call if state.session.in_transaction?
+            rescue StandardError
+              nil
+            end
           end
         end
       end
