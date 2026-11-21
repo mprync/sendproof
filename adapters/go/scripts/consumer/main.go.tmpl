@@ -1,0 +1,71 @@
+// Command consumer is the throwaway application scripts/verify-release.sh builds
+// in an empty module outside this repository. It imports every released module
+// the way an application would, and proves the workbench embedded in the core
+// module reaches the consumer. {{BASE}} is replaced with the module base.
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+
+	"{{BASE}}/chi"
+	"{{BASE}}/dbsql"
+	"{{BASE}}/echo"
+	"{{BASE}}/gin"
+	"{{BASE}}/gorm"
+	"{{BASE}}/testbench"
+)
+
+func main() {
+	bench, err := testbench.New(testbench.WithEnvironment("Development"))
+	if err != nil {
+		fail("testbench.New: %v", err)
+	}
+
+	// Compile-time use of each released module's public surface.
+	_ = chibench.Preview(bench, http.MethodPost, "/items/{id}")
+	_ = ginbench.Preview(bench, http.MethodPost, "/items/:id")
+	_ = echobench.Preview(bench, http.MethodPost, "/items/:id")
+	_ = gormbench.NewPool
+	_ = dbsql.Wrap
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "pong") })
+	server := httptest.NewServer(bench.Middleware(mux))
+	defer server.Close()
+
+	// The workbench page and one of its embedded scripts come from the core zip.
+	page := get(server.URL + "/bench/")
+	if !strings.Contains(strings.ToLower(page), "<html") {
+		fail("GET /bench/ did not return the workbench page: %.80q", page)
+	}
+	if script := get(server.URL + "/bench/app.js"); len(script) < 1000 {
+		fail("GET /bench/app.js returned %d bytes; the embedded UI is missing", len(script))
+	}
+	if got := get(server.URL + "/ping"); got != "pong" {
+		fail("application route changed: %q", got)
+	}
+	fmt.Println("consumer ok")
+}
+
+func get(url string) string {
+	response, err := http.Get(url)
+	if err != nil {
+		fail("GET %s: %v", url, err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK {
+		fail("GET %s: status %d", url, response.StatusCode)
+	}
+	return string(body)
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "consumer: "+format+"\n", args...)
+	os.Exit(1)
+}

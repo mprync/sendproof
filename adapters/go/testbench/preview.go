@@ -1,0 +1,241 @@
+package testbench
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// previewEnvelope is the confirmed result of a preview, in the wire format of the
+// preview schema.
+type previewEnvelope struct {
+	Status           int               `json:"status"`
+	Headers          map[string]string `json:"headers"`
+	Body             any               `json:"body"`
+	Changes          []Change          `json:"changes"`
+	Effects          []previewEffect   `json:"effects"`
+	Logs             []previewLog      `json:"logs"`
+	RolledBack       bool              `json:"rolledBack"`
+	ChangesTruncated bool              `json:"changesTruncated,omitempty"`
+	EffectsTruncated bool              `json:"effectsTruncated,omitempty"`
+	LogsTruncated    bool              `json:"logsTruncated,omitempty"`
+}
+
+// servePreview handles /bench/_preview/{target}. It validates the transport,
+// dispatches the rewritten request through the application's own handler, and
+// confirms the result only after the provider has rolled back.
+func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.Handler, target string, started time.Time) {
+	switch {
+	case !b.Enabled():
+		reject(w, http.StatusNotFound, "Test Bench previews are unavailable.")
+		return
+	case !hasExactRollbackPreference(r):
+		reject(w, http.StatusBadRequest, "A Test Bench preview requires Prefer: tx=rollback.")
+		return
+	case r.Method == http.MethodHead:
+		reject(w, http.StatusMethodNotAllowed, "A preview requires a response body.")
+		return
+	case !validTarget(target):
+		reject(w, http.StatusBadRequest, "The Test Bench preview target is invalid.")
+		return
+	case !isSameOrigin(r):
+		reject(w, http.StatusForbidden, "Cross-origin preview requests are not allowed.")
+		return
+	}
+	if status := b.authorize(r); status != 0 {
+		title := "Authentication is required for this preview."
+		if status == http.StatusForbidden {
+			title = "This preview is forbidden."
+		}
+		reject(w, status, title)
+		return
+	}
+	if b.provider() == nil {
+		reject(w, http.StatusServiceUnavailable, "Preview requires one available preview provider.")
+		return
+	}
+	// Only routes that were marked for preview may run. Checking before dispatch
+	// keeps an unreviewed handler, with its unrecorded effects, from executing.
+	if !b.hasOperation(r.Method, target) {
+		reject(w, http.StatusConflict, "This operation is unavailable for preview.")
+		return
+	}
+
+	decoded, err := url.PathUnescape(target)
+	if err != nil {
+		reject(w, http.StatusBadRequest, "The Test Bench preview target is invalid.")
+		return
+	}
+	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r), target: decoded}
+	inner := withState(r.Clone(r.Context()), state)
+	inner.URL.Path, inner.URL.RawPath = decoded, ""
+	if inner.URL.EscapedPath() != target {
+		inner.URL.RawPath = target
+	}
+	inner.RequestURI = inner.URL.RequestURI()
+	// An encoding middleware would compress the buffered body the preview must read.
+	inner.Header.Del("Accept-Encoding")
+
+	capture := newCaptureWriter()
+	capture.header.Set("Cache-Control", "no-store")
+	failure := runProtected(func() { next.ServeHTTP(capture, inner) })
+	state.rec.endHandler()
+
+	// Cleanup uses a context that outlives a disconnected client, so rollback and
+	// disposal always complete.
+	cleanup := context.WithoutCancel(r.Context())
+	var envelope *previewEnvelope
+	state.mu.Lock()
+	session, invoked, completed, beginFailure := state.session, state.invoked, state.completed, state.failure
+	state.mu.Unlock()
+	handlerFailure := errors.Join(failure, beginFailure)
+	var cleanupFailure error
+	if session != nil {
+		cleanupFailure = session.Rollback(cleanup)
+		if cleanupFailure == nil && handlerFailure == nil && completed && !capture.exceeded {
+			envelope = b.buildEnvelope(capture, session, state.rec.finish())
+		}
+		if state.rec.isActive() {
+			state.rec.finish()
+		}
+		cleanupFailure = errors.Join(cleanupFailure, session.Close())
+	}
+	if r.Context().Err() != nil {
+		return
+	}
+	// A failed rollback or disposal always withholds confirmation. A response that
+	// is too large is reported as such even if the handler then failed on the write error.
+	if cleanupFailure != nil || handlerFailure != nil && !capture.exceeded {
+		b.cfg.logger.Error("a Test Bench preview failed", "method", r.Method, "path", r.URL.Path,
+			"error", errors.Join(handlerFailure, cleanupFailure))
+		reject(w, http.StatusInternalServerError, "The preview could not be completed safely.")
+		return
+	}
+	if capture.exceeded {
+		reject(w, http.StatusRequestEntityTooLarge, "The preview response exceeds the 1 MiB limit.")
+		return
+	}
+	if envelope == nil {
+		rejectUnexecuted(w, capture, invoked)
+		return
+	}
+
+	serialized := time.Now()
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		b.cfg.logger.Error("a Test Bench preview could not be serialized", "error", err)
+		reject(w, http.StatusInternalServerError, "The preview could not be completed safely.")
+		return
+	}
+	timing := state.rec.timing(float64(time.Since(serialized)) / float64(time.Millisecond))
+	headers := w.Header()
+	headers.Set("Cache-Control", "no-store")
+	headers.Set("Preference-Applied", rollbackPrefer)
+	headers.Set(serverTimingName, timing.header())
+	headers.Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write(encoded)
+}
+
+// buildEnvelope assembles the confirmed result after a successful rollback.
+func (b *Bench) buildEnvelope(capture *captureWriter, session Session, snapshot captureSnapshot) *previewEnvelope {
+	changes, truncated := snapshotChanges(session.Changes())
+	return &previewEnvelope{
+		Status: capture.status, Headers: capture.envelopeHeaders(), Body: capture.envelopeBody(),
+		Changes: changes, Effects: nonNil(snapshot.Effects), Logs: nonNil(snapshot.Logs), RolledBack: true,
+		ChangesTruncated: truncated || session.ChangesTruncated(),
+		EffectsTruncated: snapshot.EffectsTruncated, LogsTruncated: snapshot.LogsTruncated,
+	}
+}
+
+// runProtected runs fn and converts a panic into an error, so a failing handler
+// still reaches rollback.
+func runProtected(fn func()) (failure error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if err, ok := recovered.(error); ok {
+				failure = fmt.Errorf("the handler panicked: %w", err)
+				return
+			}
+			failure = fmt.Errorf("the handler panicked: %v", recovered)
+		}
+	}()
+	fn()
+	return nil
+}
+
+// rejectUnexecuted explains why a preview produced no result: the request was
+// stopped before the marked handler ran, for example by authentication.
+func rejectUnexecuted(w http.ResponseWriter, capture *captureWriter, invoked bool) {
+	if invoked {
+		reject(w, http.StatusInternalServerError, "The preview operation did not finish.")
+		return
+	}
+	status := capture.status
+	if challenge := capture.header.Get("WWW-Authenticate"); challenge != "" {
+		w.Header().Set("WWW-Authenticate", challenge)
+	}
+	var title string
+	switch {
+	case status == http.StatusUnauthorized:
+		title = "Authentication is required for this preview."
+	case status == http.StatusForbidden:
+		title = "This preview is forbidden."
+	case status == http.StatusNotFound || status == http.StatusMethodNotAllowed:
+		title = "The preview target was not found for this method."
+	case status == http.StatusServiceUnavailable:
+		title = "Preview requires one available preview provider."
+	case status >= 300 && status < 400:
+		title = "Preview redirects are disabled. Sign in through the workbench first."
+	case status >= 400 && status < 500 && status != http.StatusConflict:
+		title = "The host rejected the preview request."
+	default:
+		title = "This operation is unavailable for preview."
+	}
+	if status < 400 || status >= 500 && status != http.StatusServiceUnavailable {
+		if status >= 300 && status < 400 {
+			status = http.StatusUnauthorized
+		} else {
+			status = http.StatusConflict
+		}
+	}
+	reject(w, status, title)
+}
+
+// enterPreview is the marker's preview step: it checks the route may run, starts
+// the provider's session and activates the journal. It writes the rejection status
+// and returns false when the handler must not run.
+func (s *requestState) enterPreview(w http.ResponseWriter, r *http.Request, op *Operation) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.invoked || op.method != r.Method {
+		w.WriteHeader(http.StatusConflict)
+		return false
+	}
+	provider := s.bench.provider()
+	if provider == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return false
+	}
+	s.invoked = true
+	session, err := provider.Begin(context.WithoutCancel(r.Context()))
+	if err != nil || session == nil {
+		if errors.Is(err, ErrPreviewUnavailable) {
+			s.invoked = false // nothing ran; report the provider's status as is
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return false
+		}
+		if err == nil {
+			err = errors.New("the preview provider returned no session")
+		}
+		s.failure = err
+		w.WriteHeader(http.StatusInternalServerError)
+		return false
+	}
+	s.session = session
+	s.rec.begin(true)
+	return true
+}

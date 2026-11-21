@@ -1,0 +1,422 @@
+/* =====================================================================
+   Test Bench workbench: rules the live app needs on top of the approved mock stylesheets
+   (styles.css and views.css, which are byte-for-byte copies of mocks/). They cover live-only
+   states the static mocks don't render: real inputs inside the headers grid, lookups, the
+   resizable track sizes, focus rings on native controls, long real values, and coarse
+   pointers. Logical properties only, so right-to-left layouts mirror.
+   ===================================================================== */
+
+/* Resizable tracks on desktop: widths come from the user's last drag, stored per API document.
+   Try it, Docs, Models and the overview all fill these same three columns (the reading panes
+   take the request and result slots), so switching views never moves a divider. */
+@media (min-width: 56.001rem) {
+  .workspace { grid-template-columns: var(--sidebar-width, 15.5rem) minmax(0, var(--request-width, 1fr)) minmax(0, 1fr); }
+}
+@media (min-width: 56.001rem) and (max-width: 80rem) {
+  .workspace { grid-template-columns: var(--sidebar-width, 14.5rem) minmax(0, var(--request-width, 1fr)) minmax(0, 1fr); }
+}
+/* The request tab list sits inside the mock's .tabs row with the Autofill button at its end. */
+.request-tabs { display: flex; align-items: stretch; gap: 0.125rem; flex: none; }
+
+/* Buttons that look like the mock's static rows. */
+.pr-chev { border: 0; padding: 0; background: none; cursor: pointer; block-size: 1.125rem; }
+.pr-chev:empty { cursor: default; }
+button.expect-row { inline-size: 100%; border: 0; background: none; text-align: start; font: inherit; cursor: pointer; }
+.issue-link:focus-visible, .nav-item:focus-visible, .nav-heading:focus-visible, .used-list a:focus-visible, .resp-item > button.head:focus-visible { outline-offset: -2px; }
+.nav-state .state { padding-inline: 0.25rem; }
+
+/* Toggletip triggers and the Generate button sit in the label row and the status slot. */
+.control .slot.wand { color: var(--text-3); opacity: 0; }
+.field:hover .control .slot.wand, .control:focus-within .slot.wand, .control .slot.wand:focus-visible,
+.control .slot.wand[aria-expanded="true"], .control .slot.wand.gen { opacity: 1; }
+@media (pointer: coarse) { .control .slot.wand { opacity: 1; } }
+
+.kv-field { flex: 1; min-inline-size: 0; display: grid; align-items: center; }
+.kv-field > * { grid-area: 1 / 1; }
+.kv-field input { min-inline-size: 0; inline-size: 100%; border: 0; outline: 0; background: none; padding: 0; font: 400 var(--fs-md)/1.4 var(--mono); color: inherit; opacity: 0; }
+.kv-field input:focus { opacity: 1; }
+.kv-field input:focus + .kv-display { visibility: hidden; }
+.kv-display { pointer-events: none; }
+.kv-row .c:focus-visible, .kv-row .c:has(.kv-field input:focus) { outline: none; box-shadow: inset 0 0 0 2px var(--focus); border-radius: 0; background: var(--raised); }
+.kv-row .c.is-invalid:has(input:focus) { box-shadow: inset 0 0 0 2px var(--danger-line); }
+.kv-row.is-disabled .name, .kv-row.is-disabled .val, .kv-row.is-disabled .kv-field input { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.kv-row.is-disabled .var-token { background: var(--sunken); color: var(--text-3); }
+.kv-variable-hint { margin-inline-start: 0.4rem; font: 400 var(--fs-sm)/1.4 var(--font); }
+.kv-invalid-icon { display: none; flex: none; color: var(--danger); }
+.kv-row .is-invalid .kv-invalid-icon { display: flex; }
+.kv-note > svg { flex: none; }
+.kv-note > span { overflow-wrap: anywhere; }
+.kv-note .btn { flex: none; margin-inline-start: auto; }
+.header-editor { min-inline-size: 0; position: relative; }
+.kv-row.group > [role="rowheader"] { display: flex; align-items: center; gap: 0.5rem; inline-size: 100%; }
+.kv-count { font-size: var(--fs-sm); }
+.kv-spec { margin-block-start: 0.6rem; }
+.kv-bulk { margin-block-start: 0.75rem; }
+.kv-bulk textarea { min-block-size: 9rem; margin-block-start: 0.3rem; }
+.kv-suggest { inline-size: min(26rem, 100%); border: 1px solid var(--line); }
+.kv-menu { inline-size: min(12rem, 100%); border: 1px solid var(--line); }
+.kv-menu .opt-row { inline-size: 100%; text-align: start; font: inherit; background: transparent; border: 0; }
+.kv-menu .opt-row:is(:hover, :focus-visible), .kv-suggest .opt-row:hover { background: var(--selected); }
+.kv-add .name-c { padding: 0; }
+.kv-add-button { inline-size: 100%; block-size: 100%; min-block-size: 2.375rem; padding: 0 0.6rem; border: 0; background: none; font: 400 var(--fs-md)/1.4 var(--mono); color: var(--text-3); text-align: start; cursor: pointer; }
+.kv-add-button:hover { color: var(--text); }
+.kv-check { position: relative; display: grid; place-items: center; inline-size: 100%; min-block-size: 100%; cursor: pointer; }
+.kv-check:has(input:disabled) { cursor: default; }
+.kv-check input { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.kv-check input:focus-visible + .checkbox { outline: 2px solid var(--focus); outline-offset: 2px; }
+.kv-check .checkbox:not(.on) svg { visibility: hidden; }
+.response-viewer { display: grid; gap: 0.75rem; min-inline-size: 0; }
+.chain { display: inline-flex; align-items: center; gap: 0.45rem; min-block-size: 1.875rem; max-inline-size: 100%; padding: 0 0.4rem 0 0.3rem; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised); font-size: var(--fs-md); color: var(--text); cursor: pointer; overflow-wrap: anywhere; text-align: start; }
+.chain .method { flex: none; min-inline-size: 0; block-size: 1.25rem; }
+.timing-legend span { display: inline-flex; align-items: center; gap: 0.35rem; min-inline-size: 0; overflow-wrap: anywhere; }
+.timing-legend i { flex: none; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 2px; display: inline-block; }
+.viewer { min-inline-size: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised); overflow: hidden; }
+.viewer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; min-block-size: 2.5rem; padding: 0.25rem 0.35rem 0.25rem 0.5rem; border-block-end: 1px solid var(--line); background: var(--panel); }
+.viewer-empty { padding: 0.5rem 0; font-size: var(--fs-md); }
+.ln .fold { display: grid; place-items: center; justify-self: center; min-block-size: 1.5rem; min-inline-size: 1.5rem; color: var(--text-3); padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; cursor: pointer; }
+.ln .fold:hover { background: var(--sunken); }
+.ln:has(.line-acts):is(:hover, :focus-within) { background: var(--hover); }
+.ln .line-acts { position: absolute; inset-inline-end: 0.4rem; inset-block-start: 50%; z-index: 1; transform: translateY(-50%); display: flex; flex-wrap: wrap; gap: 0.25rem; max-inline-size: calc(100% - 0.8rem); opacity: 0; pointer-events: none; }
+.ln:is(:hover, :focus-within) .line-acts { opacity: 1; pointer-events: auto; }
+.line-acts .btn { block-size: auto; white-space: normal; overflow-wrap: anywhere; justify-content: start; }
+.folded { display: inline-flex; align-items: center; max-inline-size: 100%; min-block-size: 1.15rem; margin: 0 0.3rem; padding: 0.12rem 0.35rem; border-radius: var(--r-sm); background: var(--sunken); border: 1px solid var(--line); color: var(--text-3); font: 400 var(--fs-xs)/1 var(--font); vertical-align: 1px; }
+.response-find { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.35rem 0.5rem; border-block-end: 1px solid var(--line); }
+.response-find .input-sm { flex: 1 1 10rem; }
+.response-find [data-match-count] { font-size: var(--fs-xs); white-space: nowrap; }
+.viewer mark { background: var(--warn-soft); color: var(--text); }
+.viewer mark .tok-k, .viewer mark .tok-s, .viewer mark .tok-n, .viewer mark .tok-b, .viewer mark .tok-p { color: inherit; }
+.viewer mark.is-current { background: var(--warn); color: var(--raised); }
+@media (pointer: coarse) {
+  .response-viewer :is(.chain, .segmented button, .btn) { min-block-size: 44px; }
+  .response-viewer .btn-icon { min-inline-size: 44px; }
+  .response-viewer .ln:not(.is-raw .ln) { grid-template-columns: 2rem 2.75rem minmax(0, 1fr); }
+  .response-viewer .ln .fold { min-block-size: 44px; min-inline-size: 44px; }
+  /* Line actions would crowd every line of an expanded body, so a tap on a line shows its own. */
+  .response-viewer .line-acts { display: none; position: static; grid-column: 3; max-inline-size: 100%; padding: 0.15rem 0.5rem; opacity: 1; pointer-events: auto; transform: none; }
+  .response-viewer .ln:is(.is-active, :focus-within) > .line-acts { display: flex; }
+}
+.fx-head.fx-static { cursor: default; background: none; }
+.fx-head:focus-visible { outline-offset: -2px; }
+.capture-chevron { display: inline-flex; flex: none; }
+.fx.is-open .capture-chevron, .capture-section[open] .capture-chevron, .log-row.is-open .capture-chevron { transform: rotate(90deg); }
+.mail-meta dd { margin: 0; min-inline-size: 0; overflow-wrap: anywhere; }
+.mail-preview p { margin: 0 0 0.5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fx-payload { display: grid; min-inline-size: 0; gap: 0.3rem; }
+.fx-payload pre, .mail-source { margin: 0; max-block-size: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mail-frame { display: block; inline-size: 100%; min-block-size: 15rem; border: 1px solid var(--line); border-radius: var(--r); background: white; }
+.fx-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); }
+.capture-note { margin: 0; font-size: var(--fs-sm); }
+.collapsed-section > span.faint:last-child { margin-inline-start: auto; font-size: var(--fs-sm); }
+.lvl-err .lvl { color: var(--danger); background: var(--danger-soft); }
+.log-row.is-open > :is(.t, .dur, .src) { color: var(--text-2); }
+.log-toggle { border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
+.log-props div { display: flex; gap: 0.4rem; max-inline-size: 100%; }
+.log-props dd { margin: 0; min-inline-size: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+.log-message { overflow-wrap: anywhere; white-space: pre-wrap; }
+.params { display: grid; grid-template-columns: fit-content(25%) minmax(0, 1fr) fit-content(25%) minmax(0, 1fr); gap: 0.15rem 0.6rem; margin: 0; font: 400 var(--fs-sm)/1.5 var(--mono); }
+.params dt { color: var(--text-3); overflow-wrap: anywhere; }
+.params dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.capture-section summary::-webkit-details-marker { display: none; }
+.capture-section-body { padding-block-start: 0.5rem; }
+.hdr dt { padding: 0 0.75rem; font: 500 var(--fs-sm)/1.4 var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
+.hdr-values { display: grid; flex: 1; min-inline-size: 0; }
+.hdr .v { min-inline-size: 0; font: 400 var(--fs-sm)/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hdr-note { font-size: var(--fs-xs); }
+.hdr a.btn { text-decoration: none; }
+@container result (max-width: 33rem) {
+  .log-bar { flex-wrap: wrap; }
+  .log-bar .input-sm { flex-basis: 9rem; }
+  .log-meta { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .hdr { grid-template-columns: minmax(0, 36%) minmax(0, 1fr); }
+  .hdr dd { flex-wrap: wrap; }
+  .hdr-values { flex-basis: 100%; }
+  .hdr .v { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+@container result (max-width: 25rem) {
+  .fx-head .tag { max-inline-size: 40%; block-size: auto; white-space: normal; }
+  .log-bar .segmented { flex-wrap: wrap; }
+  .log-detail { padding-inline-start: 0.75rem; }
+  .params { grid-template-columns: fit-content(40%) minmax(0, 1fr); }
+  .collapsed-section .title { white-space: normal; }
+  .collapsed-section .faint { text-align: end; }
+}
+@media (pointer: coarse) {
+  .fx-acts .btn, .log-bar .btn, .log-bar .segmented button, .log-bar .input-sm, .hdr-section .section-label .btn, .hdr a.btn, .capture-section summary, .log-row:not(.head) { min-block-size: 2.75rem; }
+}
+.palette .pop-search input { min-inline-size: 0; }
+@media (max-width: 56rem) {
+  .kv-row:not(.head, .group) { min-block-size: 2.75rem; }
+  .kv-row .name, .kv-row .val { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+  .kv-row > .c.val-c:has(.kv-field) .kv-field { flex-basis: 100%; }
+  .kv-row > .c.val-c { position: relative; }
+  .kv-row .kv-invalid-icon { margin-inline-start: auto; }
+  .kv-row > .c.acts { flex-direction: column; justify-content: center; padding: 0; }
+  .header-editor :is(.segmented button, .kv-toolbar > .btn, .kv-menu .opt-row, .kv-note .btn, .kv-add-button) { min-block-size: 44px; }
+  .kv-row .acts .btn { inline-size: 100%; min-block-size: 44px; }
+  .kv-row.group > [role="rowheader"] { white-space: nowrap; }
+  .kv-row.group > [role="rowheader"] > span:last-child:not(.spacer) { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+  .header-editor .kv-menu { inset-inline-start: auto !important; inset-inline-end: 0 !important; inline-size: min(12rem, 100%) !important; }
+  .header-editor .kv-suggest { inset-inline-start: 0 !important; inset-inline-end: 0 !important; }
+  .kv-suggest .pop-foot { display: none; }
+  .kv-suggest .opt-row { min-block-size: 44px; flex-wrap: wrap; }
+  .kv-suggest .opt-row > .main { white-space: normal; overflow-wrap: anywhere; }
+}
+.pal-list { padding: 0.35rem; max-block-size: min(26rem, 53vh); overflow: auto; }
+.pal-item { inline-size: 100%; border: 0; background: transparent; text-align: start; }
+.pal-item .main { text-overflow: ellipsis; overflow: hidden; }
+.palette .pop-foot { min-inline-size: 0; }
+.palette .pop-foot .btn { padding: 0; color: var(--text-3); }
+.list-input .add > .keys { margin-inline-start: auto; }
+@media (min-width: 56.001rem) {
+  .workspace[data-sidebar="closed"] { grid-template-columns: 0 minmax(0, var(--request-width, 1fr)) minmax(0, 1fr); }
+  .workspace[data-sidebar="closed"] > :is(.sidebar, .resize-handle[data-layout-divider="sidebar"]) { display: none; }
+  .workspace[data-sidebar="closed"] > .pane:is(.request, .doc-pane) { grid-column: 2; }
+  .workspace[data-sidebar="closed"] > .pane:is(.response, .aside-pane) { grid-column: 3; }
+}
+@media (max-width: 56rem) {
+  .dialog-body { grid-template-columns: minmax(0, 1fr); }
+  .palette .pop-foot { flex-wrap: wrap; gap: 0.25rem 0.5rem; }
+  .palette .opt-row, .palette .pop-foot .btn { min-block-size: 44px; }
+  .palette .opt-row .end { display: none; }
+  .search-trigger .keys { display: none; }
+}
+.code { max-inline-size: 100%; overflow: auto; }
+[hidden] { display: none !important; }
+.control-split:has([aria-invalid="true"]) { border-color: var(--danger); }
+.layout-resizing, .layout-resizing * { cursor: col-resize !important; user-select: none !important; }
+.input-sm:focus-within { outline: 2px solid var(--focus); outline-offset: -1px; }
+.control:focus-within { border-color: var(--focus); box-shadow: var(--ring); }
+.control.is-invalid:focus-within { border-color: var(--danger); box-shadow: var(--ring-danger); }
+.api-switch:not(button, select), .env:not(button) { cursor: default; }
+.api-switch:not(button, select):hover { background: transparent; }
+.api-switch > .name { overflow: hidden; text-overflow: ellipsis; }
+.request .tabs { flex-shrink: 0; }
+.request { position: relative; }
+.assist-icon { display: inline-flex; }
+.list-input .val .field { padding: 0; display: block; }
+.list-input .val .label, .list-input .val .assist { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+.list-input .val .control { block-size: auto; border: 0; box-shadow: none; padding: 0.15rem 0; background: transparent; }
+.list-input .val .control:focus-within { outline: 2px solid var(--focus); }
+.list-input .val .control.is-invalid { color: var(--danger); }
+.list-input:has([aria-invalid="true"]) { border-color: var(--danger-line); }
+.actionbar { position: relative; }
+.actionbar .status .spinner { color: var(--accent-text); }
+.actionbar .btn[aria-busy="true"] { opacity: 1; }
+.issue-link { inline-size: 100%; border: 0; background: none; text-align: start; cursor: pointer; }
+.issue-link:focus-visible { background: var(--selected); outline-offset: -2px; }
+.issues-pop { inset-block-end: calc(100% + 0.375rem); inset-inline-start: 1rem; inline-size: min(27rem, calc(100% - 2rem)); }
+.issues-pop .pop-group { overflow: auto; max-block-size: 50vh; }
+.issues-pop .pop-head .faint { font-weight: 400; font-size: var(--fs-sm); }
+.actionbar .status:has(.issues-btn) { overflow: visible; }
+.issues-btn { max-inline-size: 100%; }
+.issues-btn .issues-label { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+/* In a pane dragged very narrow the keycaps give way, so the labels never clip. */
+@container request (max-width: 30rem) {
+  .actionbar .btn-run .keys { display: none; }
+  /* Content-sized and never shrunk: the status line gives way, so a long label is never clipped. */
+  .actionbar .btn-run { inline-size: auto; min-inline-size: 7em; flex: none; }
+  .run-pair { min-inline-size: 0; }
+}
+.request .pane-scroll { position: relative; }
+.response { container: result / inline-size; }
+.resp-head .result-open { text-decoration: none; }
+.tc-head .name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-head .faint { white-space: nowrap; }
+.more-cols svg { transition: transform 120ms var(--ease); }
+.table-change details[open] .more-cols svg { transform: rotate(180deg); }
+.op-del { color: var(--danger); background: var(--danger-soft); }
+@container result (max-width: 25rem) {
+  .resp-head { gap: 0.4rem; padding-inline: 0.7rem; }
+  .resp-head .status-code { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+.urlbar .token { border: 0; cursor: pointer; font: inherit; }
+@media (max-width: 56rem) {
+  .topbar > [data-action="navigation"], .topbar .persona { min-inline-size: 44px; min-block-size: 44px; }
+  .topbar .search-trigger { inline-size: 44px; block-size: 44px; flex: none; }
+  .nav-heading, .nav-item { min-block-size: 2.75rem; }
+  .mobile-switch .segmented button { position: relative; }
+  .mobile-switch .segmented button::after { content: ""; position: absolute; inset: -4px 0; }
+  .actionbar .status { min-block-size: 1.875rem; }
+  .assist { block-size: var(--assist-h); min-block-size: var(--assist-h); }
+  .assist > .msg { white-space: nowrap; }
+  .issues-pop .issue-link { min-block-size: 2.75rem; }
+  .issues-pop .pop-foot { flex-wrap: wrap; gap: 0.35rem; }
+}
+.response > .progress { block-size: 0; }
+.response[aria-busy="true"] > .progress { block-size: 2px; margin-block-end: -2px; }
+.resp-head .running-label { font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resp-head [data-elapsed] { min-inline-size: 3.5rem; }
+.result-body .kv > div { min-block-size: 1.875rem; }
+.autofill-pop { inline-size: min(22rem, calc(100% - 2rem)); }
+.autofill-pop .opt-row { inline-size: 100%; border: 0; background-color: transparent; text-align: start; }
+.autofill-pop .opt-row:hover, .autofill-pop .opt-row.is-active { background-color: var(--selected); }
+.autofill-pop .pop-foot { gap: 0.5rem; }
+@media (max-width: 56rem) {
+  .autofill-pop .opt-row { min-block-size: 2.75rem; }
+  .autofill-pop .keys { display: none; }
+  .autofill-pop .opt-row .main { white-space: normal; }
+}
+
+/* Long spec descriptions in the documented-responses list wrap; codes and types never do. */
+.expect-row > span[lang] { flex: 1; min-inline-size: 0; }
+.expect-row > .spacer { display: none; }
+.expect-row > :is(.code, .type-link, .faint:last-child) { flex: none; white-space: nowrap; }
+.expect-row { padding-block: 0.4rem; }
+
+/* Sign-in methods beyond the password form (single sign-on links, other enabled methods). */
+.sign-page .stack { display: grid; gap: 0.5rem; }
+.sign-page .sso { justify-content: flex-start; gap: 0.65rem; padding: 0 0.85rem; }
+.sign-page .sso .grow { flex: 1; text-align: start; }
+.sign-page .sso .via { color: var(--text-3); font-weight: 400; font-size: var(--fs-sm); }
+.sign-page .glyph { inline-size: 1.25rem; block-size: 1.25rem; border-radius: 0.25rem; display: grid; place-items: center; font-size: 0.625rem; font-weight: 700; flex: none; }
+.sign-page .g-ms { background: oklch(0.93 0.03 240); color: oklch(0.4 0.12 240); }
+.sign-page .g-okta { background: oklch(0.93 0.02 268); color: oklch(0.35 0.05 268); }
+.sign-page .g-saml { background: var(--sunken); color: var(--text-2); }
+[data-theme="dark"] .sign-page .g-ms { background: oklch(0.3 0.06 240); color: oklch(0.88 0.06 240); }
+[data-theme="dark"] .sign-page .g-okta { background: oklch(0.3 0.03 268); color: oklch(0.9 0.02 268); }
+.sign-page .or { display: flex; align-items: center; gap: 0.75rem; margin: 1.25rem 0; color: var(--text-3); font-size: var(--fs-sm); }
+.sign-page .or::before, .sign-page .or::after { content: ""; flex: 1; block-size: 1px; background: var(--line); }
+.sign-page .others { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-block-start: 1.25rem; align-items: center; }
+.sign-page .others .lbl { font-size: var(--fs-sm); color: var(--text-3); margin-inline-end: 0.25rem; }
+.sign-page .others .btn { min-block-size: 1.9rem; font-size: var(--fs-sm); }
+.sign-page .discovered { margin-block-start: 1.25rem; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.6; }
+.sign-page .discovered code { color: var(--text-2); }
+.sign-page .sso { min-block-size: var(--control-h); }
+#signin-problem:empty { display: none; }
+@media (max-width: 56rem) {
+  .sign-page .sso { min-block-size: 2.75rem; min-inline-size: 0; white-space: normal; padding-block: 0.5rem; }
+  .sign-page .sso .grow { min-inline-size: 0; overflow-wrap: anywhere; }
+}
+
+/* Links styled as buttons, and the native search field's own clear button (the filter has one). */
+a.btn { text-decoration: none; }
+#filter::-webkit-search-cancel-button { appearance: none; }
+/* Long translations wrap to the status line's second line instead of collapsing to "4 Feld…". */
+.actionbar .status > span:not(.spinner) { min-inline-size: 7em; }
+/* On mobile the search label is visually hidden but stays the button's accessible name. */
+@media (max-width: 56rem) {
+  .topbar .search-trigger .grow { display: block !important; position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* Disclosures use the mock's chevron, not the browser's marker. */
+summary.collapsed-section, .capture-section > summary { list-style: none; }
+summary.collapsed-section::marker { content: ""; }
+/* The issues button keeps one line; a narrow pane ellipsises its label instead of wrapping. */
+.issues-btn { white-space: nowrap; }
+/* Sign-in errors can be a sentence long; the assist line wraps there instead of clipping it. */
+.sign-page .assist { block-size: auto; min-block-size: var(--assist-h); }
+.sign-page .assist > .msg { white-space: normal; }
+
+/* The one Back control of a model page: a long target name ellipsises instead of pushing the crumbs out. */
+.ctx-bar .back-btn { max-inline-size: 100%; min-inline-size: 0; }
+.ctx-bar .back-btn .back-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-bar .end { min-inline-size: 0; }
+button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-text); text-decoration: underline; cursor: pointer; }
+/* Used-by and overview rows are links to operations and models. */
+.used-list a { cursor: pointer; }
+.drawer-scrim { display: none; }
+@media (max-width: 56rem) { .drawer-scrim { display: block; } }
+/* Authentication cards: the Sign in button wraps under the text on a narrow pane instead of overflowing. */
+.req { flex-wrap: wrap; }
+.req > .grow { flex: 1 1 12rem; min-inline-size: 0; overflow-wrap: anywhere; }
+.req > .btn { margin-inline-start: auto; }
+/* A status code in a response header is a label, not a scrollable code block (app.css's generic .code scrolls). */
+.resp-item .code, .expect-row .code { overflow: visible; flex: none; }
+/* Head row (the mocks' styles.css is kept byte for byte, so these rules override it here).
+   It is one tab tall while the trail and the Try it | Docs switch fit side by side. When they
+   can't (a long translation, large text, a narrow pane) the switch drops to a second row instead of
+   squeezing the trail. The trail never gets less than --crumb-min for the page plus
+   --crumb-parent-min for each earlier crumb (`--parents`, set by context-bar.js), so no crumb is
+   cut below a readable stub. Within the trail the earlier crumbs give way first (a far higher shrink
+   weight), then the page title; each ends in an ellipsis and carries a title attribute with its full
+   text. Logical properties only, so the same rules serve right-to-left. */
+.ctx-bar { --crumb-min: 7rem; --crumb-parent-min: 5rem; block-size: auto; min-block-size: calc(var(--tab-h) + 1px); flex-wrap: wrap; align-content: center; row-gap: 0; }
+.ctx-bar .crumbs { min-block-size: var(--tab-h); flex: 1 1 calc(var(--crumb-min) + var(--parents, 0) * var(--crumb-parent-min)); }
+.ctx-bar .crumbs ol { flex: 1 1 auto; }
+.ctx-bar { container: ctxbar / inline-size; }
+.ctx-bar .end { min-block-size: var(--tab-h); flex: 0 1 auto; max-inline-size: 100%; }
+/* The Try it | Docs switch fits the row at any text size: it may shrink, a label may wrap as a last
+   resort (never clip), and below 19rem of row width (a phone at large text) the icons give way. */
+.ctx-bar .view-switch { flex: 0 1 auto; max-inline-size: 100%; }
+.ctx-bar .view-switch button { min-inline-size: 0; flex: 0 1 auto; block-size: auto; min-block-size: calc(var(--btn-sm-h) - 0.375rem); padding-block: 0.1875rem;
+  line-height: 1.2; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+@container ctxbar (max-width: 19rem) {
+  .ctx-bar .view-switch button { padding-inline: 0.5rem; }
+  .ctx-bar .view-switch .i { display: none; }
+}
+.ctx-bar .crumbs li:not(:last-child) { flex: 0 1000 auto; min-inline-size: var(--crumb-parent-min); }
+.ctx-bar .crumbs li:last-child { flex: 0 1 auto; min-inline-size: var(--crumb-min); }
+.ctx-bar .crumbs li:only-child { min-inline-size: min(var(--crumb-min), 100%); }
+@media (max-width: 56rem) {
+  /* A phone shows only the page itself (styles.css hides the earlier crumbs), so none needs room reserved. */
+  .ctx-bar .crumbs { --parents: 0 !important; flex-grow: 1; }
+}
+
+/* ---------- Layout fix: the sidebar list scrolls inside itself ---------- */
+/* Positioned so the visually hidden .sr-only labels inside the list stay in its scroll box instead of
+   stretching the page (the mocks' styles.css is kept byte for byte, so the rule lives here). */
+.nav { position: relative; }
+
+/* ---------- Code samples and viewers ---------- */
+/* Syntax colours for request samples. k, s, n, b and p come from views.css. Every colour here is
+   at least 4.5:1 on the lightest and darkest code backgrounds (ui/token-contrast.test.mjs checks it). */
+.tok-kw { color: oklch(0.48 0.17 350); }
+.tok-f { color: oklch(0.46 0.11 225); }
+.tok-fl { color: oklch(0.48 0.11 85); }
+.tok-u { color: oklch(0.45 0.12 255); text-decoration: underline; text-decoration-color: color-mix(in oklch, currentColor 35%, transparent); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
+.tok-v { color: oklch(0.48 0.13 25); }
+.tok-t { color: oklch(0.47 0.09 190); }
+.tok-c { color: var(--text-3); font-style: italic; }
+[data-theme="dark"] .tok-kw { color: oklch(0.82 0.12 350); }
+[data-theme="dark"] .tok-f { color: oklch(0.82 0.10 225); }
+[data-theme="dark"] .tok-fl { color: oklch(0.84 0.11 90); }
+[data-theme="dark"] .tok-u { color: oklch(0.82 0.10 250); }
+[data-theme="dark"] .tok-v { color: oklch(0.82 0.11 25); }
+[data-theme="dark"] .tok-t { color: oklch(0.82 0.09 190); }
+
+/* Samples never wrap: they scroll sideways, like the log viewer. */
+.sample-card pre, .code-block { white-space: pre; overflow-wrap: normal; overflow-x: auto; tab-size: 4; }
+.sample-card pre { min-inline-size: 0; }
+
+/* Line numbers are generated content, so they are not text: nothing can select or copy them. */
+.ln .no[data-n]::before { content: attr(data-n); }
+/* Selecting code selects code: the gutter, fold buttons and line actions are never part of a selection. */
+.ln .no, .ln .fold, .ln .line-acts, .code-view .ln .folded { -webkit-user-select: none; user-select: none; }
+
+/* ---------- Language picker ---------- */
+.code-picker { --picker-w: 15.5rem; display: inline-flex; flex: 0 1 var(--picker-w); min-inline-size: 0; max-inline-size: 100%; }
+/* A fixed width, so the trigger is the same size for every language. */
+.code-picker-trigger { inline-size: 100%; justify-content: flex-start; gap: 0.5rem; padding-inline: 0.55rem 0.4rem; font-weight: 500; min-inline-size: 0; }
+.code-picker-trigger .lang-name { flex: none; }
+.code-picker-trigger .lang-lib { flex: 1 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.lang-lib { font: 400 var(--fs-sm)/1.2 var(--mono); color: var(--text-3); }
+.code-picker-trigger .lang-chev { flex: none; margin-inline-start: auto; color: var(--text-3); }
+.lang-ico { flex: none; inline-size: 1rem; block-size: 1rem; overflow: visible; }
+.code-picker-trigger[aria-expanded="true"] { background: var(--hover); }
+.code-pop { min-inline-size: 21rem; max-inline-size: calc(100vw - 1.5rem); }
+.code-pop .pop-group { max-block-size: 28rem; overflow-y: auto; }
+.code-pop .lang-row { gap: 0.6rem; min-block-size: var(--btn-sm-h); inline-size: 100%; }
+.code-pop .lang-row .main { flex: none; margin-inline-end: 1.25rem; } /* the name and the library never touch */
+.code-pop .lang-row .end { flex: 0 1 auto; min-inline-size: 0; margin-inline-start: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--fs-sm)/1.2 var(--mono); }
+.code-pop .lang-row .lang-check { flex: none; inline-size: 1rem; block-size: 1rem; color: var(--accent-text); display: grid; place-items: center; }
+.code-pop .lang-row:hover, .code-pop .lang-row.is-active { background: var(--selected); }
+.code-pop .lang-row[aria-selected="true"]:not(.is-active):not(:hover) { background: transparent; }
+.code-pop .lang-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.code-pop .lang-ico { color: var(--text-2); }
+@media (pointer: coarse) { .code-picker-trigger, .code-pop .lang-row { min-block-size: 2.75rem; } }
+
+/* ---------- Send and Preview at any width ---------- */
+/* The confirmation's Cancel and Confirm send share the room Send and Preview had, and grow beyond
+   it when a translation needs more (widths are measured for Send and Preview only; see
+   tools/measure-widths.mjs). Cancel keeps its own width and Confirm send takes the rest. */
+.run-pair { display: flex; align-items: center; gap: 0.625rem; flex: none; font-size: var(--fs-base);
+  min-inline-size: calc(var(--w-send, 9.5em) + var(--w-preview, 10em) + 0.625rem); }
+.run-pair .btn-run { inline-size: auto; flex: none; }
+.run-pair .btn-primary { flex: 1 0 auto; }
+@media (max-width: 56rem) {
+  /* A phone's buttons share the row equally, never narrower than their label: a translation too
+     long for one row wraps the button to a second row (the bar wraps) instead of clipping. */
+  .actionbar .btn-run { flex: 1 1 0; min-inline-size: max-content; }
+  /* The confirmation pair wraps the same way; a label longer than a whole row wraps its own text. */
+  .run-pair { flex: 1 1 100%; flex-wrap: wrap; min-inline-size: 0; }
+  .run-pair .btn-run { flex: 1 1 auto; min-inline-size: 0; white-space: normal; overflow-wrap: anywhere; text-align: center; line-height: 1.3; padding-block: 0.375rem; }
+}

@@ -1,0 +1,28 @@
+// Local development workspace. The modules require each other at released
+// semantic versions (see each go.mod); no go.mod carries a replace directive.
+//
+// The replace block below maps exactly those required versions to the checked-out
+// directories, so the workspace builds before anything is tagged. Without it Go
+// asks the module proxy for the unpublished versions as soon as two modules pull
+// different third-party versions. Consumers and release tooling ignore this file:
+// it is never part of a module zip. Bump the version here and in the go.mod
+// requirements together (scripts/package.sh checks they agree).
+go 1.26.0
+
+use (
+	.
+	./chi
+	./echo
+	./examples
+	./gin
+	./gorm
+	./tools/modzip
+)
+
+replace (
+	github.com/test-bench/test-bench/adapters/go v0.1.0-alpha.1 => ./
+	github.com/test-bench/test-bench/adapters/go/chi v0.1.0-alpha.1 => ./chi
+	github.com/test-bench/test-bench/adapters/go/echo v0.1.0-alpha.1 => ./echo
+	github.com/test-bench/test-bench/adapters/go/gin v0.1.0-alpha.1 => ./gin
+	github.com/test-bench/test-bench/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
+)
