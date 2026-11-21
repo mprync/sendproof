@@ -46,7 +46,7 @@ type DataStore interface {
 
 // DataStoreInfo is one entry of the capabilities `dataStores` list.
 type DataStoreInfo struct {
-	// System is the store id: "mongodb", "redis" or "dynamodb".
+	// System is the store id: "mongodb", "redis", "dynamodb", "cassandra", "elasticsearch", "opensearch", "cosmosdb" or "firestore".
 	System string `json:"system"`
 	// Name is an optional host-chosen display label.
 	Name string `json:"name,omitempty"`
@@ -95,7 +95,11 @@ func WithFramework(name string) Option {
 
 // StoreNames are the display names used in "Preview unavailable: this operation
 // writes to <Store>".
-var storeNames = map[string]string{"mongodb": "MongoDB", "redis": "Redis", "dynamodb": "DynamoDB"}
+var storeNames = map[string]string{
+	"mongodb": "MongoDB", "redis": "Redis", "dynamodb": "DynamoDB",
+	"cassandra": "Cassandra", "elasticsearch": "Elasticsearch", "opensearch": "OpenSearch",
+	"cosmosdb": "Cosmos DB", "firestore": "Firestore",
+}
 
 // StoreName returns the display name of a store id; an unknown id is returned as given.
 func StoreName(store string) string {

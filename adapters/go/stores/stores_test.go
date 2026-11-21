@@ -24,7 +24,10 @@ func readSpec(t *testing.T, name string) []byte {
 
 // TestEmbeddedTablesMatchSpec fails when a generated copy differs from spec/data-stores/.
 func TestEmbeddedTablesMatchSpec(t *testing.T) {
-	for _, name := range []string{"redis.json", "mongodb.json", "dynamodb.json"} {
+	for _, name := range []string{
+		"redis.json", "mongodb.json", "dynamodb.json",
+		"cassandra.json", "elasticsearch.json", "cosmosdb.json", "firestore.json",
+	} {
 		embedded, err := tableFiles.ReadFile("tables/" + name)
 		if err != nil {
 			t.Fatal(err)

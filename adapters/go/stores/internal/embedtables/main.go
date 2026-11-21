@@ -11,8 +11,11 @@ import (
 	"path/filepath"
 )
 
-// tables are the files copied from spec/data-stores/.
-var tables = []string{"redis.json", "mongodb.json", "dynamodb.json"}
+// tables are the files copied from spec/data-stores/: batch one, then batch two.
+var tables = []string{
+	"redis.json", "mongodb.json", "dynamodb.json",
+	"cassandra.json", "elasticsearch.json", "cosmosdb.json", "firestore.json",
+}
 
 func main() {
 	if len(os.Args) != 3 {
