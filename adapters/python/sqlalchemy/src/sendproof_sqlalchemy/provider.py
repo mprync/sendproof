@@ -180,6 +180,9 @@ class SQLAlchemyPreview(PreviewProvider):
         self.database = database
         self._async = {e.sync_engine for e in engines if isinstance(e, AsyncEngine)}
         self._engines = frozenset(e.sync_engine if isinstance(e, AsyncEngine) else e for e in engines)
+        first = (engines[0].sync_engine if isinstance(engines[0], AsyncEngine) else engines[0]).dialect
+        #: The SQL provider id the workbench shows a store mark for.
+        self.system = "mariadb" if first.name == "mysql" and getattr(first, "is_mariadb", False) else first.name
         self._instrumentation = [
             _Instrumentation(engine) for engine in self._engines if "raw_connection" not in engine.__dict__
         ]

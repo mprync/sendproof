@@ -17,11 +17,11 @@ from sendproof_core import Identity, PreviewUnavailable, RequestScope, protocol
 from sendproof_core.capture import Capture
 from sendproof_core.provider import run_in_thread
 from sendproof_core.scope import activate, deactivate
-from sendproof_core.workbench import Response, Workbench, json_response, problem_response, trace_owner
+from sendproof_core.workbench import Response, Workbench, blocked_response, json_response, problem_response, trace_owner
 
 from .capture_send import BufferedResponse
-from .marker import is_marked
-from .routing import find_route, preview_operations, route_path
+from .marker import is_marked, is_previewable
+from .routing import find_route, preview_operations, route_path, unavailable_operations
 
 logger = logging.getLogger("sendproof_fastapi")
 ASGIApp = Callable[..., Awaitable[None]]
@@ -113,9 +113,16 @@ class SendproofMiddleware:
             response = workbench.asset("index.html")
         elif path == "/sendproof/_api/capabilities":
             app = scope["app"]
+            described = []
+            for store in bench.stores:
+                try:
+                    described.append(await store.adescribe())
+                except Exception:
+                    logger.warning("Sendproof could not describe a data store.", exc_info=True)
             response = workbench.capabilities(
                 root, identity, preview_operations(app.router.routes),
                 getattr(app, "openapi_url", None) or "/openapi.json", getattr(app, "title", "API"),
+                unavailable_operations(app.router.routes), described,
             )
         elif path.startswith("/sendproof/_api/traces/"):
             headers = Headers(scope=scope)
@@ -168,7 +175,7 @@ class SendproofMiddleware:
         if found is None or found[1] != Match.FULL:
             await _send(send, problem_response(404 if found is None else 405, "The preview target was not found for this method."))
             return
-        if not is_marked(getattr(found[0], "endpoint", None)):
+        if not is_previewable(getattr(found[0], "endpoint", None)):
             await _send(send, problem_response(409, "This operation is unavailable for preview."))
             return
         inner[PREVIEW_ROUTE] = found[0]
@@ -205,10 +212,12 @@ class SendproofMiddleware:
         token = activate(request_scope)
         buffered = BufferedResponse()
         failure: BaseException | None = None
+        unsafe = False  # a store abort or the SQL rollback failed: the Preview can never be confirmed
         envelope: dict[str, Any] | None = None
         session = None
         response: Response | None = None
         interrupted: BaseException | None = None
+        begun: list[Any] = []
         try:
             try:
                 session = provider.begin(request_scope)
@@ -220,6 +229,9 @@ class SendproofMiddleware:
                 response = problem_response(500, "The preview could not be completed safely.")
             if session is not None:
                 try:
+                    for store in bench.stores:
+                        begun.append(store)  # finish runs for a store whose begin failed halfway, too
+                        await store.abegin(request_scope)
                     # Dispatch through the whole application, as .NET does: the host middleware
                     # (authentication, path-based policies, method override) sees the target path
                     # rather than /sendproof/_preview, and _inner_preview re-checks the route last.
@@ -229,35 +241,58 @@ class SendproofMiddleware:
                 except BaseException as error:  # cancellation or client abort: roll back first
                     failure = interrupted = error
                 capture.handler_finished()
+                # Pipeline order (spec/data-stores.md): abort every preview-mode store transaction,
+                # then roll back SQL. A failure of either withholds confirmation.
                 with anyio.CancelScope(shield=True):
+                    for store in reversed(begun):
+                        try:
+                            await store.afinish(request_scope)
+                        except Exception as error:
+                            unsafe = True
+                            logger.error("A Sendproof data store could not finish the preview.", exc_info=error)
                     try:
                         await session.arollback()
-                        if failure is None and not buffered.exceeded and buffered.started and _is_application(request_scope, buffered):
+                        if (not unsafe and failure is None and not buffered.exceeded and buffered.started
+                                and _is_application(request_scope, buffered)):
                             envelope = workbench.preview_envelope(
                                 buffered.status, buffered.headers, buffered.body,
-                                list(session.changes), session.changes_truncated, capture.finish(),
+                                [*session.changes, *request_scope.store_changes],
+                                session.changes_truncated or request_scope.store_changes_truncated, capture.finish(),
                             )
                     except Exception as error:
-                        failure = _first(failure, error)
+                        unsafe = True
+                        logger.error("A Sendproof preview could not roll back for %s %s.", method, path, exc_info=error)
                     finally:
                         capture.finish()
                         try:
                             await session.aclose()
                         except Exception as error:
-                            failure = _first(failure, error)
+                            unsafe = True
+                            logger.error("A Sendproof preview could not release its transaction.", exc_info=error)
         finally:
             deactivate(token)
 
         if interrupted is not None:
             raise interrupted
         if response is None:
-            response = self._finish_preview(request_scope, buffered, failure, envelope, method, path)
+            response = self._finish_preview(request_scope, buffered, failure, envelope, method, path, unsafe)
         await _send(send, response)
 
     def _finish_preview(
         self, scope: RequestScope, buffered: BufferedResponse, failure: BaseException | None,
-        envelope: dict[str, Any] | None, method: str, path: str,
+        envelope: dict[str, Any] | None, method: str, path: str, unsafe: bool = False,
     ) -> Response:
+        blocked, fault = scope.capture.blocked, scope.capture.fault
+        if unsafe or fault is not None:
+            # A failed rollback or abort, a handler COMMIT, or a write that escaped the MongoDB
+            # session: nothing can be confirmed, and that outranks a blocked write.
+            if fault is not None:
+                logger.error("A Sendproof preview was not confirmed for %s %s: %s", method, path, fault)
+            return problem_response(500, "The preview could not be completed safely.")
+        if blocked is not None:
+            # The mark decides, whatever the handler did with the refusal: it may have caught the
+            # error and returned 200, or let it escape as a 500.
+            return blocked_response(blocked)
         if failure is not None or buffered.exceeded:
             if failure is not None:
                 logger.error("A Sendproof preview failed for %s %s.", method, path, exc_info=failure)
@@ -355,14 +390,6 @@ class SendproofMiddleware:
                 except Exception:
                     logger.warning("Sendproof could not release the send observation.", exc_info=True)
         return True
-
-
-def _first(previous: BaseException | None, error: BaseException) -> BaseException:
-    """Keep the first failure and log later ones, so cleanup problems are never hidden."""
-    if previous is None:
-        return error
-    logger.error("A later Sendproof cleanup step also failed.", exc_info=error)
-    return previous
 
 
 def _is_application(scope: RequestScope, buffered: BufferedResponse) -> bool:

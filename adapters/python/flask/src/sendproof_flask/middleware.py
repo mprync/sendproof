@@ -11,7 +11,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.routing import RequestRedirect
 
 from sendproof_core import Identity, limits, protocol
-from sendproof_core.marker import is_marked, marked_methods
+from sendproof_core.marker import is_marked, is_previewable, marked_methods
 from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_response
 from sendproof_core.workbench import Response, problem_response
 
@@ -117,7 +117,7 @@ class SendproofWsgi:
             method=environ["REQUEST_METHOD"], path=path, path_base=environ.get("SCRIPT_NAME", ""),
             query=environ.get("QUERY_STRING", ""), identity=identity, authorized=self._authorized(environ, identity),
             origin_ok=self._origin_ok(environ, headers), operations=bench.operations,
-            default_openapi_url="/openapi.json", default_api_name=bench.app.name,
+            default_openapi_url="/openapi.json", default_api_name=bench.app.name, unavailable=bench.unavailable,
         )
 
     # ------------------------------------------------------------------ preview
@@ -134,7 +134,7 @@ class SendproofWsgi:
         if view is None:
             return problem_response(404 if failure in (404, None) else 405 if failure == 405 else 404,
                                     "The preview target was not found for this method.")
-        if not is_marked(view) or method not in marked_methods(view):
+        if not is_previewable(view) or method not in marked_methods(view):
             return problem_response(409, "This operation is unavailable for preview.")
         identity = self._identity(environ)
         if not self._authorized(environ, identity):

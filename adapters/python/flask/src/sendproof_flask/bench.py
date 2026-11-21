@@ -12,8 +12,9 @@ from werkzeug.routing import Rule
 
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
-from sendproof_core.marker import is_marked, mark, marked_methods
+from sendproof_core.marker import apply_marker, is_previewable, marked_methods, unavailable_info
 from sendproof_core.scope import current_scope, install_logging_capture
+from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
 from sendproof_core.sync_engine import SyncBench
 from sendproof_core.workbench import Workbench
 
@@ -24,16 +25,34 @@ IdentityResolver = Callable[[Request], "Identity | None"]
 Authorizer = Callable[[Request, "Identity | None"], bool]
 
 
-def preview(view: F) -> F:
-    """Mark a Flask view function as eligible for Sendproof previews.
+def preview(
+    view: Any = True, *, reason: str | None = None, stores: Iterable[str] | None = None,
+    methods: Iterable[str] | None = None,
+) -> Any:
+    """Mark a Flask view function as eligible for Sendproof previews, or as ``preview: false``.
 
     Apply it below the route decorator::
 
         @app.post("/items")
         @preview
         def create_item(): ...
+
+    An operation you know writes to a store a Preview cannot roll back, such as one that clears a
+    Redis session, can be marked ``preview: false``. The workbench then shows "Preview
+    unavailable" with your reason before anyone tries, a Preview of it is refused (never
+    confirmed) without running the view, and Send still runs it::
+
+        @app.delete("/sessions/<id>")
+        @preview(False, reason="Clears the Redis session", stores=["redis"])
+        def delete_session(id): ...
+
+    Without ``reason`` the published reason names the first of ``stores``. The binding never
+    infers the mark: without it the operation is advertised and the write guard decides at run time.
+
+    A view is previewable for its write methods (``POST``, ``PUT``, ``PATCH``, ``DELETE``) unless
+    ``methods`` lists others, for example ``@preview(methods=["GET"])`` for a read that touches a store.
     """
-    return mark(view)
+    return apply_marker(view, True, reason=reason, stores=stores, methods=methods)
 
 
 def _template(rule: Rule) -> str:
@@ -52,6 +71,11 @@ class Sendproof:
         app: The Flask application. Create the ``Sendproof`` after registering your routes or
             before; operations are discovered per request.
         provider: A data-layer provider such as ``sendproof_sqlalchemy.SQLAlchemyPreview``.
+        data_stores: Hooked data stores (``mongo_store``, ``redis_store``, ``dynamodb_store`` from
+            ``sendproof_core.stores``). MongoDB rolls back in its own transaction, and Redis and
+            DynamoDB block a write during a Preview. They also let an app with no SQL ``provider``
+            Preview: a SQL database you give no provider for is then not covered. Only hooked
+            clients are covered. Use synchronous clients (PyMongo, redis-py, boto3).
         identity: ``(request) -> Identity | None``. Runs inside a request context, so
             ``flask.session`` and ``flask_login`` work. Used for discovery and to own traces.
         authorize: Optional ``(request, identity) -> bool`` policy for the workbench.
@@ -67,6 +91,7 @@ class Sendproof:
         app: Flask,
         *,
         provider: PreviewProvider | None = None,
+        data_stores: Iterable[DataStore] = (),
         identity: IdentityResolver | None = None,
         authorize: Authorizer | None = None,
         api_name: str | None = None,
@@ -82,14 +107,19 @@ class Sendproof:
         assets: UiAssets | None = None,
     ) -> None:
         self.app = app
+        stores = validate_stores(data_stores)
+        # Without a SQL provider, hooked stores alone can carry a Preview (see sendproof_fastapi).
+        if provider is None and stores:
+            provider = StoresOnlyProvider()
         self.provider = provider
         self.options = BenchOptions(
             api_name=api_name, openapi_url=openapi_url, documents=list(documents), environment=environment,
             environments=tuple(environments), auth_providers=list(auth_providers), field_modules=list(field_modules),
             include_sql_parameter_values=include_sql_parameter_values, trace_ttl=trace_ttl, clock=clock, identity=identity,
+            framework="Flask",
         )
         self.workbench = Workbench(self.options, provider, assets)
-        self.engine = SyncBench(self.options, provider, self.workbench, authorize)
+        self.engine = SyncBench(self.options, provider, self.workbench, authorize, stores)
         app.wsgi_app = SendproofWsgi(app.wsgi_app, self)  # type: ignore[method-assign]
         # First in line, so no host hook or view runs for a preview that no longer targets the
         # marked view it was checked against.
@@ -122,15 +152,27 @@ class Sendproof:
         )
 
     def operations(self) -> list[tuple[str, str]]:
-        """Method and OpenAPI path of every marked view."""
+        """Method and OpenAPI path of every view a Preview may run."""
         found = []
         for rule in self.app.url_map.iter_rules():
             view = self.app.view_functions.get(rule.endpoint)
-            if view is None or not is_marked(view):
+            if view is None or not is_previewable(view):
                 continue
             allowed = set(marked_methods(view))
             for method in sorted((rule.methods or set()) & allowed):
                 found.append((method, _template(rule)))
+        return found
+
+    def unavailable(self) -> list[tuple[str, str, str, tuple[str, ...]]]:
+        """Method, path, reason and stores of every view marked ``preview: false``."""
+        found = []
+        for rule in self.app.url_map.iter_rules():
+            marked = unavailable_info(self.app.view_functions.get(rule.endpoint))
+            if marked is None:
+                continue
+            allowed = set(marked_methods(self.app.view_functions[rule.endpoint]))
+            for method in sorted((rule.methods or set()) & allowed):
+                found.append((method, _template(rule), marked.reason, marked.stores))
         return found
 
 

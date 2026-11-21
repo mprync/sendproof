@@ -6,7 +6,7 @@ from typing import Any, Iterable
 
 from starlette.routing import Match, Mount
 
-from .marker import is_marked
+from .marker import is_previewable, unavailable_info
 
 
 def route_path(scope: dict[str, Any]) -> str:
@@ -37,14 +37,28 @@ def find_route(routes: Iterable[Any], scope: dict[str, Any]) -> tuple[Any, Match
 
 
 def preview_operations(routes: Iterable[Any]) -> list[tuple[str, str]]:
-    """Method and OpenAPI path template of every marked operation."""
+    """Method and OpenAPI path template of every operation a Preview may run."""
     operations = []
     for route in routes:
         endpoint = getattr(route, "endpoint", None)
-        if endpoint is None or not is_marked(endpoint):
+        if endpoint is None or not is_previewable(endpoint):
             continue
         path = getattr(route, "path_format", None) or route.path
         for method in sorted(route.methods or ()):
             if method not in ("HEAD", "OPTIONS"):
                 operations.append((method, path))
+    return operations
+
+
+def unavailable_operations(routes: Iterable[Any]) -> list[tuple[str, str, str, tuple[str, ...]]]:
+    """Method, path, reason and stores of every operation marked ``preview: false``."""
+    operations = []
+    for route in routes:
+        marked = unavailable_info(getattr(route, "endpoint", None))
+        if marked is None:
+            continue
+        path = getattr(route, "path_format", None) or route.path
+        for method in sorted(route.methods or ()):
+            if method not in ("HEAD", "OPTIONS"):
+                operations.append((method, path, marked.reason, marked.stores))
     return operations

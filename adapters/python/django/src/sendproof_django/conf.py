@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils.module_loading import import_string
 
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument
+from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
 from sendproof_core.sync_engine import SyncBench
 from sendproof_core.workbench import Workbench
 
@@ -17,7 +18,7 @@ _bench: "DjangoBench | None" = None
 
 KEYS = {
     "API_NAME", "OPENAPI_URL", "DOCUMENTS", "ENVIRONMENT", "ENVIRONMENTS", "PROVIDER", "IDENTITY",
-    "AUTHORIZE", "AUTH_PROVIDERS", "FIELD_MODULES", "INCLUDE_SQL_PARAMETER_VALUES", "TRACE_TTL",
+    "AUTHORIZE", "AUTH_PROVIDERS", "FIELD_MODULES", "INCLUDE_SQL_PARAMETER_VALUES", "TRACE_TTL", "DATA_STORES",
 }
 
 
@@ -44,6 +45,14 @@ class DjangoBench:
         provider = _resolve(config.get("PROVIDER"))
         if callable(provider) and not hasattr(provider, "begin"):
             provider = provider()
+        stores = []
+        for entry in config.get("DATA_STORES", ()):
+            store = _resolve(entry)
+            stores.append(store() if callable(store) and not isinstance(store, DataStore) else store)
+        stores = validate_stores(stores)
+        # Without a SQL provider, hooked stores alone can carry a Preview (see sendproof_fastapi).
+        if provider is None and stores:
+            provider = StoresOnlyProvider()
         self.identity: Callable[[Any], Identity | None] = _resolve(config.get("IDENTITY")) or default_identity
         authorize = _resolve(config.get("AUTHORIZE"))
         providers = [
@@ -59,11 +68,11 @@ class DjangoBench:
             environment=config.get("ENVIRONMENT"), environments=tuple(config.get("ENVIRONMENTS", ("Development",))),
             auth_providers=providers, field_modules=list(config.get("FIELD_MODULES", [])),
             include_sql_parameter_values=config.get("INCLUDE_SQL_PARAMETER_VALUES"),
-            trace_ttl=float(config.get("TRACE_TTL", 300.0)), identity=self.identity,
+            trace_ttl=float(config.get("TRACE_TTL", 300.0)), identity=self.identity, framework="Django",
         )
         self.provider = provider
         self.workbench = Workbench(self.options, provider)
-        self.engine = SyncBench(self.options, provider, self.workbench, authorize)
+        self.engine = SyncBench(self.options, provider, self.workbench, authorize, stores)
 
 
 def get_bench() -> DjangoBench:

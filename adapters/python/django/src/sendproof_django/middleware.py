@@ -22,7 +22,7 @@ from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_r
 from sendproof_core.workbench import Response, problem_response
 
 from . import conf
-from .discovery import preview_operations, view_methods
+from .discovery import preview_operations, unavailable_operations, view_methods
 
 logger = logging.getLogger("sendproof_django")
 
@@ -154,6 +154,7 @@ class SendproofMiddleware:
             query=request.META.get("QUERY_STRING", ""), identity=identity,
             authorized=self._authorized(request, bench, identity), origin_ok=self._origin_ok(request, headers),
             operations=lambda: preview_operations(get_resolver(conf_module).url_patterns),
+            unavailable=lambda: unavailable_operations(get_resolver(conf_module).url_patterns),
             default_openapi_url="/openapi.json", default_api_name="API",
         )
 
@@ -206,7 +207,7 @@ class SendproofMiddleware:
         if not bench.engine.provider_available or not self._origin_ok(request, headers):
             return None
         match, _ = self._match(request, request.path_info)
-        if match is None or (request.method or "") not in view_methods(match.func):
+        if match is None or (request.method or "") not in view_methods(match.func, observed=True):
             return None
         identity = self._identity(request, bench)
         return bench.engine.begin_observed(

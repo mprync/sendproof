@@ -245,6 +245,14 @@ class DjangoOrmPreview(PreviewProvider):
         self.database = database
         install_signals()
 
+    @property
+    def system(self) -> str | None:  # type: ignore[override]
+        """The SQL provider id the workbench shows a store mark for: Django's ``vendor`` of the first database."""
+        try:
+            return str(connections[self.aliases[0]].vendor)
+        except Exception:
+            return None
+
     def begin(self, scope: RequestScope) -> PreviewSession:
         state = _State(self.aliases, rollback=True)
         scope.extensions[STATE_KEY] = state

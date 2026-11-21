@@ -11,6 +11,7 @@ from starlette.requests import Request
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
 from sendproof_core.scope import install_logging_capture
+from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
 from sendproof_core.workbench import Workbench
 
 from .middleware import SendproofMiddleware
@@ -29,7 +30,13 @@ class Sendproof:
     Args:
         app: The application. Create the ``Sendproof`` before the first request is served.
         provider: A data-layer provider such as ``sendproof_sqlalchemy.SQLAlchemyPreview``.
-            Without one, no operation is advertised and previews answer 503.
+            Without one, and without ``data_stores``, no operation is advertised and previews
+            answer 503.
+        data_stores: Hooked data stores (``mongo_store``, ``redis_store``, ``dynamodb_store`` from
+            ``sendproof_core.stores``). MongoDB rolls back in its own transaction, and Redis and
+            DynamoDB block a write during a Preview. They also let an app with no SQL ``provider``
+            Preview: a SQL database you give no provider for is then not covered. Only hooked
+            clients are covered.
         identity: Returns the caller's :class:`~sendproof_core.Identity` for a request, or
             ``None``. Used for the capabilities ``identity`` and to own observed-send traces.
             It reads what your authentication already established, such as a session.
@@ -53,6 +60,7 @@ class Sendproof:
         app: Any,
         *,
         provider: PreviewProvider | None = None,
+        data_stores: Iterable[DataStore] = (),
         identity: IdentityResolver | None = None,
         authorize: Authorizer | None = None,
         api_name: str | None = None,
@@ -67,6 +75,11 @@ class Sendproof:
         clock: Callable[[], float] = time.monotonic,
         assets: UiAssets | None = None,
     ) -> None:
+        self.stores = validate_stores(data_stores)
+        # Without a SQL provider, hooked stores alone can carry a Preview: MongoDB aborts its own
+        # transaction and the guarded stores block writes, so no SQL transaction is needed.
+        if provider is None and self.stores:
+            provider = StoresOnlyProvider()
         self.provider = provider
         self.authorize = authorize
         self.options = BenchOptions(
@@ -81,6 +94,7 @@ class Sendproof:
             trace_ttl=trace_ttl,
             clock=clock,
             identity=identity,
+            framework="FastAPI",
         )
         self.workbench = Workbench(self.options, provider, assets)
         if getattr(app, "middleware_stack", None) is not None:
