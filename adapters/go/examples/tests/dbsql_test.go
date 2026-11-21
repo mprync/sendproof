@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mprync/sendproof/adapters/go/dbsql"
+	"github.com/mprync/sendproof/adapters/go/examples/fixture"
 	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
@@ -329,6 +331,51 @@ func TestMySQLCommitBackstop(t *testing.T) {
 		}
 	})
 }
+
+// TestCancellationRunsTheWholeCleanup is review finding 5 of docs/plans/data-stores.md:
+// a request whose context is cancelled mid-Preview (a client that disconnects)
+// still rolls back and releases its connection and, on MySQL, its Preview turn,
+// so the next Preview runs instead of waiting forever.
+func TestCancellationRunsTheWholeCleanup(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		db := newItems(t, e, pool)
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES ('cancelled', 'Preview')")
+			if cancel, ok := r.Context().Value(cancelKey{}).(context.CancelFunc); ok {
+				cancel()
+			}
+			_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES ('after-cancel', 'Preview')")
+			w.WriteHeader(201)
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		request := httptest.NewRequest("POST", "/sendproof/_preview/run", nil).WithContext(context.WithValue(ctx, cancelKey{}, cancel))
+		request.Header.Set("Prefer", "tx=rollback")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		if count(t, pool, "items") != 0 {
+			t.Fatal("a cancelled Preview left rows behind")
+		}
+		done := make(chan int, 1)
+		go func() {
+			status, _ := preview(t, app(t, db, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES ('next', 'Preview')")
+				w.WriteHeader(201)
+			}), "/run")
+			done <- status
+		}()
+		select {
+		case status := <-done:
+			if status != 200 {
+				t.Errorf("the next Preview answered %d", status)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the next Preview waited: the cancelled one kept its turn or connection")
+		}
+	})
+}
+
+// cancelKey carries the request's cancel function to the handler of TestCancellationRunsTheWholeCleanup.
+type cancelKey struct{}
 
 func TestSecretColumnsAndSessionsAreRedacted(t *testing.T) {
 	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
@@ -675,6 +722,43 @@ func TestSecretParametersAreRedacted(t *testing.T) {
 		}
 		if !strings.Contains(string(encoded), `"fixture_secret"`) || !strings.Contains(string(encoded), "[REDACTED]") {
 			t.Errorf("expected the redacted secret parameter in %s", encoded)
+		}
+	})
+}
+
+// TestInlinedParametersStayRedacted is review finding 6 of docs/plans/data-stores.md:
+// with go-sql-driver's interpolateParams=true the driver inlines parameters into
+// the SQL text it sends, but the logged statement is the application's text with
+// its placeholders, and a secret-named value is still a redacted parameter.
+func TestInlinedParametersStayRedacted(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, _ *sql.DB) {
+		if e.name != "mysql" {
+			t.Skip("interpolateParams is a go-sql-driver/mysql setting")
+		}
+		driver, dsn, err := fixture.DataSource(fixture.Database{Engine: "mysql", URL: freshDatabase(t, e, os.Getenv(e.variable))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pool, err := sql.Open(driver, dsn+"&interpolateParams=true")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { pool.Close() })
+		db := newItems(t, e, pool)
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			rows, err := db.QueryContext(r.Context(), "SELECT ?, ?", sql.Named("fixture_secret", "s3cr3t-value"), sql.Named("visible", "shown"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows.Close()
+		})
+		_, envelope := preview(t, handler, "/run")
+		encoded, _ := json.Marshal(envelope)
+		if strings.Contains(string(encoded), "s3cr3t-value") {
+			t.Errorf("an inlined secret leaked: %s", encoded)
+		}
+		if !strings.Contains(logs(envelope), `SELECT ?, ?`) || !strings.Contains(string(encoded), "[REDACTED]") {
+			t.Errorf("expected the placeholder text and a redacted parameter: %s", encoded)
 		}
 	})
 }
