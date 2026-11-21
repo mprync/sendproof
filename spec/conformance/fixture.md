@@ -60,6 +60,16 @@ Enable Preview for `POST /accounts` and `POST /items/{id}/commit`.
 - **`secret-columns`:** in the Preview envelope and in the observed-Send trace, the `accounts` change's `after.password_hash` is `"[REDACTED]"`, and neither the password nor `hashed:<password>` appears anywhere else, including SQL log parameters.
 - **`raw-commit`:** the Preview answers 500 without confirmation, because the provider refuses transaction-control statements during a Preview ([data-stores.md](../data-stores.md#transaction-control-statements-from-the-handler)). A normal read afterwards finds no item.
 
+### MySQL and MariaDB: `mysql-escape`
+
+Entries on MySQL or MariaDB also list `"mysql-escape"` in `sharedRules`. At startup the fixture creates, if missing, a procedure that commits: `CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END`. It declares no procedure as safe.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `POST /items/{id}/escape` | Accept `{name, via}`, insert the item, then on the same connection run, by `via`: `"ddl"` runs `CREATE TABLE sendproof_escape_<id> (n INT)`, which commits implicitly; `"call"` runs `CALL sendproof_commit_probe()`. Return 201 and `{id,name}`. Enable Preview for it. |
+
+- **`mysql-escape`:** for each `via`, the Preview answers 500 without confirmation, because the provider refuses the statement before sending ([data-stores.md](../data-stores.md#transaction-control-statements-from-the-handler)). A normal read afterwards finds no item, and for `"ddl"` no table `sendproof_escape_<id>` exists.
+
 ## Data store routes
 
 A manifest entry that lists `"stores"` (any of `mongodb`, `redis` and `dynamodb`) adds the routes for those stores, hooks each store's client as its binding documents, and advertises the stores in capabilities `dataStores`. The runner provisions a fresh namespace per fixture process, passes it in these variables, and removes it after stopping the fixture. The services are the ones in [compose.yml](../../tests/conformance/compose.yml).
