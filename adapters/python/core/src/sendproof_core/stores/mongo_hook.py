@@ -839,11 +839,24 @@ class _SessionView:
     def __init__(self, state: PreviewState) -> None:
         object.__setattr__(self, "_sp_state", state)
 
+    #: What the handler may read from the real session. Anything else fails closed: Motor's ``delegate``
+    #: and any private member would hand handler code the driver session itself, whose
+    #: ``commit_transaction`` would commit the Preview's writes.
+    _READABLE = frozenset({
+        "session_id", "cluster_time", "operation_time", "in_transaction", "has_ended", "options",
+        "advance_cluster_time", "advance_operation_time",
+    })
+
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._sp_state.session, name)
+        state = self._sp_state
+        if name == "client":
+            return state.engine.guarded
+        if name in self._READABLE:
+            return getattr(state.session, name)
+        raise AttributeError(f"The Preview owns this MongoDB session, so '{name}' is not available during Preview.")
 
     def __setattr__(self, name: str, value: Any) -> None:
-        setattr(self._sp_state.session, name, value)
+        raise AttributeError("The Preview owns this MongoDB session.")
 
     # -- joining
     def start_transaction(self, *args: Any, **kwargs: Any) -> Any:

@@ -312,6 +312,24 @@ def test_a_commit_sent_around_the_hook_is_caught_by_monitoring_even_after_it_rea
     raw.close()
 
 
+def test_the_handlers_session_never_exposes_the_driver_session(hooked, reader):
+    """A session handed to handler code must not reach the real one: its commit would persist the Preview."""
+    store, documents, _ = hooked
+
+    def handler(scope):
+        session = store.client.start_session()
+        assert session.client is store.client  # the guarded client, never the raw one
+        assert session.session_id["id"] and session.in_transaction is True
+        for name in ("delegate", "_server_session", "_transaction", "_client", "commit_transaction_raw"):
+            with pytest.raises(AttributeError):
+                getattr(session, name)
+        with pytest.raises(AttributeError):
+            session.foo = 1
+        return 200, {}
+
+    assert run_preview(sync_bench(store), handler).status == 200
+
+
 def test_with_transaction_and_start_transaction_join_the_preview_transaction(hooked, reader):
     store, documents, _ = hooked
 
@@ -592,6 +610,19 @@ async def test_async_blocked_commands_session_calls_and_escapes(ahooked, reader,
     assert "archive" not in reader.list_collection_names()
     reader["documents"].delete_many({})
     raw.close()
+
+
+async def test_motors_session_wrapper_does_not_expose_its_delegate(ahooked):
+    store, documents, flavor = ahooked
+
+    async def handler(scope):
+        session = store.client.start_session()
+        session = await session if flavor == "motor" and hasattr(session, "__await__") else session
+        with pytest.raises(AttributeError):
+            session.delegate  # Motor's driver session: commit_transaction on it would persist the Preview
+
+    scope, error = await arun_preview([store], handler)
+    assert error is None
 
 
 async def test_an_async_escape_is_caught_where_the_context_carries(database, reader):
