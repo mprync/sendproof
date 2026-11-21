@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Http;
+namespace Sendproof\Laravel\Http;
 
 use Closure;
 use Illuminate\Auth\AuthenticationException;
@@ -23,19 +23,19 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use TestBench\Core\Preview\CapturedResponse;
-use TestBench\Core\Preview\ObservedRunner;
-use TestBench\Core\Preview\PreviewResult;
-use TestBench\Core\Preview\PreviewRunner;
-use TestBench\Core\Preview\PreviewState;
-use TestBench\Core\Protocol;
-use TestBench\Laravel\TestBenchManager;
+use Sendproof\Core\Preview\CapturedResponse;
+use Sendproof\Core\Preview\ObservedRunner;
+use Sendproof\Core\Preview\PreviewResult;
+use Sendproof\Core\Preview\PreviewRunner;
+use Sendproof\Core\Preview\PreviewState;
+use Sendproof\Core\Protocol;
+use Sendproof\Laravel\SendproofManager;
 use Throwable;
 
 /**
  * Global middleware that implements the Preview and Observed Send transport.
  *
- * A preview request `/bench/_preview/items/12` is rewritten to `/items/12` and dispatched through
+ * A preview request `/sendproof/_preview/items/12` is rewritten to `/items/12` and dispatched through
  * the rest of the application's real pipeline in the same process. Routing, authentication,
  * validation and the handler therefore behave exactly as for a normal request. The result is
  * buffered, the database transaction is rolled back, and only then is a confirmed envelope built.
@@ -51,7 +51,7 @@ final class PreviewMiddleware
     public function __construct(
         private readonly Application $app,
         private readonly Router $router,
-        private readonly TestBenchManager $manager,
+        private readonly SendproofManager $manager,
     ) {
     }
 
@@ -71,15 +71,15 @@ final class PreviewMiddleware
             }
 
             return Protocol::requestsRollback($prefer)
-                ? $this->problem(400, 'Use the Test Bench preview URL for rollback requests.')
+                ? $this->problem(400, 'Use the Sendproof preview URL for rollback requests.')
                 : $next($request);
         }
 
         if (!$this->manager->enabled()) {
-            return $this->problem(404, 'Test Bench previews are unavailable.');
+            return $this->problem(404, 'Sendproof previews are unavailable.');
         }
         if (!Protocol::hasExactPreference($prefer)) {
-            return $this->problem(400, 'A Test Bench preview requires Prefer: tx=rollback.');
+            return $this->problem(400, 'A Sendproof preview requires Prefer: tx=rollback.');
         }
         if ($request->isMethod('HEAD')) {
             return $this->problem(405, 'A preview requires a response body.');
@@ -87,7 +87,7 @@ final class PreviewMiddleware
 
         $target = substr($path, $offset + strlen(Protocol::PREFIX));
         if (!Protocol::isValidTarget($target)) {
-            return $this->problem(400, 'The Test Bench preview target is invalid.');
+            return $this->problem(400, 'The Sendproof preview target is invalid.');
         }
 
         $inner = $this->rewrite($request, substr($path, 0, $offset) . $target);
@@ -187,7 +187,7 @@ final class PreviewMiddleware
         }
 
         if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse || $response->getContent() === false) {
-            throw new \RuntimeException('Test Bench previews require a buffered response.');
+            throw new \RuntimeException('Sendproof previews require a buffered response.');
         }
 
         $headers = [];
@@ -255,7 +255,7 @@ final class PreviewMiddleware
     {
         return function (Throwable $error): void {
             if ($this->app->bound(LoggerInterface::class)) {
-                $this->app->make(LoggerInterface::class)->error('A Test Bench preview failed: ' . $error->getMessage(), ['exception' => $error]);
+                $this->app->make(LoggerInterface::class)->error('A Sendproof preview failed: ' . $error->getMessage(), ['exception' => $error]);
             }
         };
     }

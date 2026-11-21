@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Tests;
+namespace Sendproof\Core\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Trace\FileTraceStore;
-use TestBench\Core\Trace\TraceOwner;
+use Sendproof\Core\Trace\FileTraceStore;
+use Sendproof\Core\Trace\TraceOwner;
 
 final class TraceStoreTest extends TestCase
 {
@@ -15,7 +15,7 @@ final class TraceStoreTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->directory = sys_get_temp_dir() . '/testbench-core-' . bin2hex(random_bytes(4));
+        $this->directory = sys_get_temp_dir() . '/sendproof-core-' . bin2hex(random_bytes(4));
     }
 
     protected function tearDown(): void

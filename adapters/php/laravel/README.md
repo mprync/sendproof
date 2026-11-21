@@ -1,6 +1,6 @@
-# Test Bench for Laravel
+# Sendproof for Laravel
 
-Test Bench adds an API workbench to a Laravel application: browse your OpenAPI document, edit requests, **Send** them, **Preview** a write with a real database rollback, and read the SQL, logs, effects and row changes that an **Observed Send** produced.
+Sendproof adds an API workbench to a Laravel application: browse your OpenAPI document, edit requests, **Send** them, **Preview** a write with a real database rollback, and read the SQL, logs, effects and row changes that an **Observed Send** produced.
 
 The package implements [Bench protocol v1](../../../spec/README.md). Preview dispatches the real request through your own routing, middleware, validation and handler in the same process, inside a transaction that is always rolled back.
 
@@ -9,13 +9,13 @@ The package implements [Bench protocol v1](../../../spec/README.md). Preview dis
 ## Install
 
 ```sh
-composer require testbench/laravel
+composer require sendproof/laravel
 ```
 
-The service provider and `TestBench` facade are auto-discovered. Publish the configuration if you want to edit it:
+The service provider and `Sendproof` facade are auto-discovered. Publish the configuration if you want to edit it:
 
 ```sh
-php artisan vendor:publish --tag=testbench-config
+php artisan vendor:publish --tag=sendproof-config
 ```
 
 ## Turn it on
@@ -23,22 +23,22 @@ php artisan vendor:publish --tag=testbench-config
 The workbench is **off by default** and refuses to run in production. It is mounted only when both conditions hold:
 
 ```dotenv
-TESTBENCH_ENABLED=true
-TESTBENCH_ENVIRONMENTS=local   # comma-separated APP_ENV values, default "local"
+SENDPROOF_ENABLED=true
+SENDPROOF_ENVIRONMENTS=local   # comma-separated APP_ENV values, default "local"
 ```
 
-Open `/bench/`. With the switch off, or in an unlisted environment, no workbench route exists and `/bench/_preview/...` returns 404.
+Open `/sendproof/`. With the switch off, or in an unlisted environment, no workbench route exists and `/sendproof/_preview/...` returns 404.
 
-Do not list `production` unless you have also restricted access with `testbench.authorize` and understand that previews run real application code.
+Do not list `production` unless you have also restricted access with `sendproof.authorize` and understand that previews run real application code.
 
 ## Opt operations in
 
-Preview and Observed Send are explicit per route. Add `->testbenchPreview()` (or the `testbench.preview` middleware) **after** your authentication and authorization middleware:
+Preview and Observed Send are explicit per route. Add `->sendproofPreview()` (or the `sendproof.preview` middleware) **after** your authentication and authorization middleware:
 
 ```php
 Route::middleware(['auth:sanctum', 'can:manage-items'])->group(function () {
-    Route::post('/items', [ItemController::class, 'store'])->testbenchPreview();
-    Route::patch('/items/{item}', [ItemController::class, 'update'])->testbenchPreview();
+    Route::post('/items', [ItemController::class, 'store'])->sendproofPreview();
+    Route::patch('/items/{item}', [ItemController::class, 'update'])->sendproofPreview();
 });
 ```
 
@@ -46,8 +46,8 @@ Unmarked routes still work normally with Send. A preview of an unmarked route re
 
 ## What Preview guarantees
 
-- The request `POST /bench/_preview/items` is rewritten to `POST /items` and dispatched in-process. Method, query, headers and body are preserved. Nothing leaves the application.
-- A transaction opens on every connection in `testbench.connections` before routing starts, and is rolled back afterwards. The result is confirmed only if rollback is verified. If the handler commits or closes the preview transaction, or rollback fails, you get an error response and no envelope.
+- The request `POST /sendproof/_preview/items` is rewritten to `POST /items` and dispatched in-process. Method, query, headers and body are preserved. Nothing leaves the application.
+- A transaction opens on every connection in `sendproof.connections` before routing starts, and is rolled back afterwards. The result is confirmed only if rollback is verified. If the handler commits or closes the preview transaction, or rollback fails, you get an error response and no envelope.
 - Responses of 401 or 403, redirects before the handler, unhandled exceptions, responses over 1 MiB, unavailable providers and missing preferences never produce a confirmed envelope.
 - Cookies and `Location` from the inner response are dropped.
 - Outgoing mail is captured and **not sent**. Everything else you deliver yourself must call the effect API below.
@@ -57,9 +57,9 @@ Unmarked routes still work normally with Send. A preview of an unmarked route re
 Call the facade before sending anything outside the database. It returns `true` during a preview, so skip the effect then:
 
 ```php
-use TestBench\Laravel\Facades\TestBench;
+use Sendproof\Laravel\Facades\Sendproof;
 
-if (! TestBench::tryRecordHttp('Notify billing', 'POST', $url, body: $payload)) {
+if (! Sendproof::tryRecordHttp('Notify billing', 'POST', $url, body: $payload)) {
     Http::post($url, $payload);
 }
 ```
@@ -80,7 +80,7 @@ Limits match the .NET adapter: 500 logs, 100 effects, 200 changes, 32 log proper
 ## Known limits
 
 - **Bulk and raw writes are not row changes.** `Model::where()->update()`, `DB::insert()`, `upsert()` and triggers fire no model events. They still run inside the transaction, are rolled back, and appear in the SQL log, but are missing from `changes`.
-- **Only listed connections are rolled back.** Add every connection a previewed operation writes to in `testbench.connections`. Other connections, caches, queues, files and external services are not undone.
+- **Only listed connections are rolled back.** Add every connection a previewed operation writes to in `sendproof.connections`. Other connections, caches, queues, files and external services are not undone.
 - **Implicit commits.** MySQL and MariaDB commit on DDL. A migration or `ALTER TABLE` inside a preview ends the transaction, and the preview is then withheld, but the schema change has happened.
 - **Sessions and rate limiters** that use a store outside the listed connections are not rolled back.
 - **`rowsAffected`** is not reported because Laravel's `QueryExecuted` does not expose it.
@@ -90,7 +90,7 @@ Limits match the .NET adapter: 500 logs, 100 effects, 200 changes, 32 log proper
 
 ## Configuration
 
-See [`config/testbench.php`](config/testbench.php). The common settings:
+See [`config/sendproof.php`](config/sendproof.php). The common settings:
 
 | Key | Purpose |
 | --- | --- |
@@ -105,13 +105,13 @@ See [`config/testbench.php`](config/testbench.php). The common settings:
 Customise the identity shown in the workbench or the authorization check from a service provider:
 
 ```php
-TestBench::identifyUsing(fn ($request, $user) => $user ? ['name' => $user->email, 'role' => $user->role] : null);
-TestBench::authorizeUsing(fn ($request) => $request->user()?->isStaff() === true);
+Sendproof::identifyUsing(fn ($request, $user) => $user ? ['name' => $user->email, 'role' => $user->role] : null);
+Sendproof::authorizeUsing(fn ($request) => $request->user()?->isStaff() === true);
 ```
 
 ## Observed Send
 
-Send an operation with `Prefer: trace`. The response is untouched, plus an `X-TestBench-Trace` header when an authenticated user with a stable identifier made the call. The trace is readable at `/bench/_api/traces/{id}` only by that user, for `testbench.trace.ttl` seconds, with at most 8 traces per user and 32 in total. Traces are files in `storage/framework/testbench-traces`, so they work across PHP-FPM workers.
+Send an operation with `Prefer: trace`. The response is untouched, plus an `X-Sendproof-Trace` header when an authenticated user with a stable identifier made the call. The trace is readable at `/sendproof/_api/traces/{id}` only by that user, for `sendproof.trace.ttl` seconds, with at most 8 traces per user and 32 in total. Traces are files in `storage/framework/sendproof-traces`, so they work across PHP-FPM workers.
 
 ## Tests
 

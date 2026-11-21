@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Preview;
+namespace Sendproof\Core\Preview;
 
-use TestBench\Core\Capture\Clock;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Limits;
-use TestBench\Core\Protocol;
-use TestBench\Core\Trace\TraceStore;
+use Sendproof\Core\Capture\Clock;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Limits;
+use Sendproof\Core\Protocol;
+use Sendproof\Core\Trace\TraceStore;
 
 /**
  * Watches an ordinary send, which commits normally, and stores an owner-only trace of it.

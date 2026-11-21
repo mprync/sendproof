@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Tests;
+namespace Sendproof\Core\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Ui\UiBundle;
+use Sendproof\Core\Ui\UiBundle;
 
 final class UiBundleTest extends TestCase
 {
@@ -13,9 +13,9 @@ final class UiBundleTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->directory = sys_get_temp_dir() . '/testbench-ui-' . bin2hex(random_bytes(4));
+        $this->directory = sys_get_temp_dir() . '/sendproof-ui-' . bin2hex(random_bytes(4));
         mkdir($this->directory);
-        file_put_contents($this->directory . '/index.html', '<title>Test Bench</title>');
+        file_put_contents($this->directory . '/index.html', '<title>Sendproof</title>');
         file_put_contents($this->directory . '/app.js', 'export {}');
         file_put_contents($this->directory . '/stray.js', 'not listed');
         $files = [];

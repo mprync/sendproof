@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Eloquent;
+namespace Sendproof\Laravel\Eloquent;
 
 use Illuminate\Database\Connection;
-use TestBench\Core\Contracts\PreviewSession;
+use Sendproof\Core\Contracts\PreviewSession;
 
 /**
  * A rollback-only transaction on one or more connections.

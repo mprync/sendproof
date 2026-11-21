@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Preview;
+namespace Sendproof\Core\Preview;
 
 /** A buffered inner response produced by dispatching a preview request in-process. */
 final class CapturedResponse

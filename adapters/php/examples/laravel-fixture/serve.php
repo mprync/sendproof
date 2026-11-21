@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 $port = (int) (getenv('PORT') ?: 5361);
 $scenario = getenv('BENCH_SCENARIO') ?: 'standard';
-$directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'testbench-php-fixture-' . $port;
+$directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'sendproof-php-fixture-' . $port;
 
 // A new process always starts with an empty table and no stored traces.
 if (is_dir($directory)) {
@@ -31,7 +31,7 @@ $environment = [
     'BENCH_SCENARIO' => $scenario,
     'BENCH_PATH_BASE' => getenv('BENCH_PATH_BASE') ?: '',
     'FIXTURE_DIR' => $directory,
-    'APP_NAME' => 'Test Bench Conformance',
+    'APP_NAME' => 'Sendproof Conformance',
     'APP_KEY' => 'base64:' . base64_encode(random_bytes(32)),
     'APP_ENV' => $scenario === 'disabled' ? 'production' : 'local',
     'APP_DEBUG' => 'false',
@@ -42,9 +42,9 @@ $environment = [
     'QUEUE_CONNECTION' => 'sync',
     'MAIL_MAILER' => 'array',
     'LOG_CHANNEL' => 'null',
-    'TESTBENCH_ENABLED' => 'true',
-    'TESTBENCH_ENVIRONMENTS' => 'local',
-    'TESTBENCH_TRACE_TTL' => getenv('TESTBENCH_TRACE_TTL') ?: '5',
+    'SENDPROOF_ENABLED' => 'true',
+    'SENDPROOF_ENVIRONMENTS' => 'local',
+    'SENDPROOF_TRACE_TTL' => getenv('SENDPROOF_TRACE_TTL') ?: '5',
     'PHP_CLI_SERVER_WORKERS' => '1',
 ];
 $arguments = [PHP_BINARY, '-d', 'memory_limit=512M', '-S', "127.0.0.1:{$port}", __DIR__ . '/router.php'];

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Preview;
+namespace Sendproof\Core\Preview;
 
-use TestBench\Core\Capture\Clock;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Limits;
+use Sendproof\Core\Capture\Clock;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Limits;
 
 /**
  * Runs one operation inside a rollback-only session and builds the confirmed envelope.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Http;
+namespace Sendproof\Symfony\Http;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,8 +12,8 @@ use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
-use TestBench\Core\Preview\PreviewState;
-use TestBench\Symfony\TestBenchManager;
+use Sendproof\Core\Preview\PreviewState;
+use Sendproof\Symfony\SendproofManager;
 
 /**
  * Marks the moments that matter inside a previewed or observed request.
@@ -25,11 +25,11 @@ use TestBench\Symfony\TestBenchManager;
  */
 final class ExecutionListener
 {
-    private const FAILURE = '_testbench_failure';
+    private const FAILURE = '_sendproof_failure';
     /** Exception types that are ordinary application outcomes rather than failures. */
     private const HANDLED = [HttpExceptionInterface::class, AccessDeniedException::class, AuthenticationException::class, 'Symfony\Component\Validator\Exception\ValidationFailedException'];
 
-    public function __construct(private readonly TestBenchManager $manager)
+    public function __construct(private readonly SendproofManager $manager)
     {
     }
 

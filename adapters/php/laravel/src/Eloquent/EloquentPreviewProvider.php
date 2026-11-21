@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Eloquent;
+namespace Sendproof\Laravel\Eloquent;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DatabaseManager;
-use TestBench\Core\Contracts\PreviewObservation;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Contracts\PreviewSession;
+use Sendproof\Core\Contracts\PreviewObservation;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Contracts\PreviewSession;
 
 /**
  * Preview provider for Laravel's database layer.

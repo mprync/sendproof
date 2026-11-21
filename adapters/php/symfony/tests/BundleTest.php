@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests;
+namespace Sendproof\Symfony\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Processor;
@@ -12,15 +12,15 @@ use Symfony\Component\Routing\Loader\ClosureLoader;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
 use Symfony\Component\Routing\Router;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Symfony\Attribute\AllowPreview;
-use TestBench\Symfony\DependencyInjection\Configuration;
-use TestBench\Symfony\DependencyInjection\TestBenchExtension;
-use TestBench\Symfony\Http\RouteCatalog;
-use TestBench\Symfony\Identity\DefaultIdentityResolver;
-use TestBench\Symfony\TestBenchBundle;
-use TestBench\Symfony\TestBenchManager;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Symfony\Attribute\AllowPreview;
+use Sendproof\Symfony\DependencyInjection\Configuration;
+use Sendproof\Symfony\DependencyInjection\SendproofExtension;
+use Sendproof\Symfony\Http\RouteCatalog;
+use Sendproof\Symfony\Identity\DefaultIdentityResolver;
+use Sendproof\Symfony\SendproofBundle;
+use Sendproof\Symfony\SendproofManager;
 
 final class BundleTest extends TestCase
 {
@@ -35,9 +35,9 @@ final class BundleTest extends TestCase
         $this->assertSame(300, $config['trace']['ttl']);
     }
 
-    public function testTheBundleUsesTheTestbenchAlias(): void
+    public function testTheBundleUsesTheSendproofAlias(): void
     {
-        $this->assertSame('testbench', (new TestBenchBundle())->getContainerExtension()->getAlias());
+        $this->assertSame('sendproof', (new SendproofBundle())->getContainerExtension()->getAlias());
     }
 
     /** @param array<string,mixed> $config */
@@ -46,7 +46,7 @@ final class BundleTest extends TestCase
         $container = new ContainerBuilder();
         $container->setParameter('kernel.environment', 'dev');
         $container->setParameter('kernel.project_dir', sys_get_temp_dir());
-        (new TestBenchExtension())->load([$config], $container);
+        (new SendproofExtension())->load([$config], $container);
 
         return $container;
     }
@@ -55,8 +55,8 @@ final class BundleTest extends TestCase
     {
         $container = $this->container(['enabled' => true]);
 
-        $this->assertSame('TestBench\Symfony\Doctrine\DoctrinePreviewProvider', (string) $container->getAlias(PreviewProvider::class));
-        $this->assertSame('TestBench\Symfony\Identity\DefaultIdentityResolver', (string) $container->getAlias('testbench.identity'));
+        $this->assertSame('Sendproof\Symfony\Doctrine\DoctrinePreviewProvider', (string) $container->getAlias(PreviewProvider::class));
+        $this->assertSame('Sendproof\Symfony\Identity\DefaultIdentityResolver', (string) $container->getAlias('sendproof.identity'));
     }
 
     public function testAProviderCanBeDisabledOrReplaced(): void
@@ -65,24 +65,24 @@ final class BundleTest extends TestCase
         $custom = $this->container(['provider' => 'app.provider', 'identity' => 'app.identity']);
 
         $this->assertFalse($none->hasAlias(PreviewProvider::class));
-        $this->assertNull($none->getDefinition('testbench.manager')->getArgument(5));
+        $this->assertNull($none->getDefinition('sendproof.manager')->getArgument(5));
         $this->assertSame('app.provider', (string) $custom->getAlias(PreviewProvider::class));
-        $this->assertSame('app.identity', (string) $custom->getAlias('testbench.identity'));
+        $this->assertSame('app.identity', (string) $custom->getAlias('sendproof.identity'));
     }
 
     /** @param array<string,mixed> $overrides */
-    private function manager(array $overrides): TestBenchManager
+    private function manager(array $overrides): SendproofManager
     {
         $config = (new Processor())->processConfiguration(new Configuration(), [$overrides]);
 
-        return new TestBenchManager($config, $overrides['_env'] ?? 'dev', sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver());
+        return new SendproofManager($config, $overrides['_env'] ?? 'dev', sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver());
     }
 
     public function testTheWorkbenchRequiresTheSwitchAndAnAllowListedEnvironment(): void
     {
         $this->assertFalse($this->manager([])->enabled());
         $this->assertTrue($this->manager(['enabled' => true])->enabled());
-        $this->assertFalse((new TestBenchManager(
+        $this->assertFalse((new SendproofManager(
             (new Processor())->processConfiguration(new Configuration(), [['enabled' => true]]),
             'prod', sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver(),
         ))->enabled());
@@ -91,7 +91,7 @@ final class BundleTest extends TestCase
     public function testSqlValuesAreShownInDevAndTestOnlyUnlessConfigured(): void
     {
         $settings = static fn (array $extra) => (new Processor())->processConfiguration(new Configuration(), [$extra]);
-        $make = static fn (string $env, array $extra = []) => new TestBenchManager($settings($extra), $env, sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver());
+        $make = static fn (string $env, array $extra = []) => new SendproofManager($settings($extra), $env, sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver());
 
         $this->assertTrue($make('dev')->showSqlValues());
         $this->assertFalse($make('prod')->showSqlValues());
@@ -117,7 +117,7 @@ final class BundleTest extends TestCase
         $collection = new RouteCollection();
         $collection->add('marked', (new Route('/widgets', ['_controller' => MarkedController::class . '::create']))->setMethods(['POST']));
         $collection->add('class_marked', (new Route('/all/{id}', ['_controller' => ClassMarkedController::class]))->setMethods(['PATCH', 'HEAD']));
-        $collection->add('default_marked', (new Route('/legacy', ['_controller' => 'x::y', '_testbench_preview' => true]))->setMethods(['DELETE']));
+        $collection->add('default_marked', (new Route('/legacy', ['_controller' => 'x::y', '_sendproof_preview' => true]))->setMethods(['DELETE']));
         $collection->add('plain', (new Route('/widgets/plain', ['_controller' => MarkedController::class . '::plain']))->setMethods(['POST']));
         $catalog = new RouteCatalog(new Router(new ClosureLoader(), static fn () => $collection, ['resource_type' => 'closure']));
 

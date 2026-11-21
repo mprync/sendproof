@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Eloquent;
+namespace Sendproof\Laravel\Eloquent;
 
 use Illuminate\Database\Eloquent\Model;
-use TestBench\Core\Capture\SqlRedactor;
-use TestBench\Core\Limits;
+use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Core\Limits;
 
 /**
  * Records row changes made through Eloquent models while a preview or observed send runs.

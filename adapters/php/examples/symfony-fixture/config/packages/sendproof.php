@@ -6,10 +6,10 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 
 return static function (ContainerConfigurator $container): void {
     $scenario = getenv('BENCH_SCENARIO') ?: 'standard';
-    $container->extension('testbench', [
+    $container->extension('sendproof', [
         'enabled' => true,
         'environments' => ['dev'],
-        'api_name' => 'Test Bench Conformance',
+        'api_name' => 'Sendproof Conformance',
         'identity' => FixtureIdentity::class,
         'provider' => match ($scenario) {
             'no-provider' => null,
@@ -20,6 +20,6 @@ return static function (ContainerConfigurator $container): void {
             ['label' => 'Fixture password', 'kind' => 'cookie', 'url' => '/auth/sign-in'],
             ['label' => 'Fixture personas', 'kind' => 'personas', 'url' => '/auth/personas'],
         ],
-        'trace' => ['ttl' => (int) (getenv('TESTBENCH_TRACE_TTL') ?: 5), 'path' => getenv('FIXTURE_DIR') . '/traces'],
+        'trace' => ['ttl' => (int) (getenv('SENDPROOF_TRACE_TTL') ?: 5), 'path' => getenv('FIXTURE_DIR') . '/traces'],
     ]);
 };

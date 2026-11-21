@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Identity;
+namespace Sendproof\Symfony\Identity;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\User\UserInterface;

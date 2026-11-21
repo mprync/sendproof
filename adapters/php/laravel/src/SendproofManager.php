@@ -2,27 +2,27 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel;
+namespace Sendproof\Laravel;
 
 use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Trace\FileTraceStore;
-use TestBench\Core\Trace\TraceOwner;
-use TestBench\Core\Trace\TraceStore;
-use TestBench\Core\Ui\UiBundle;
-use TestBench\Laravel\Eloquent\EloquentPreviewProvider;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Trace\FileTraceStore;
+use Sendproof\Core\Trace\TraceOwner;
+use Sendproof\Core\Trace\TraceStore;
+use Sendproof\Core\Ui\UiBundle;
+use Sendproof\Laravel\Eloquent\EloquentPreviewProvider;
 
 /**
- * Application-level services for Test Bench: opt-in, identity, authorization, provider and effects.
+ * Application-level services for Sendproof: opt-in, identity, authorization, provider and effects.
  *
- * Effect recording is forwarded to the request's recorder, so `TestBench::tryRecordEmail(...)`
+ * Effect recording is forwarded to the request's recorder, so `Sendproof::tryRecordEmail(...)`
  * works from any handler.
  */
-final class TestBenchManager
+final class SendproofManager
 {
     private ?Closure $identity = null;
     private ?Closure $authorizer = null;
@@ -105,7 +105,7 @@ final class TestBenchManager
     public function traces(): TraceStore
     {
         return $this->store ??= new FileTraceStore(
-            $this->config('trace.path') ?? $this->app->storagePath('framework/testbench-traces'),
+            $this->config('trace.path') ?? $this->app->storagePath('framework/sendproof-traces'),
             max(1, (int) $this->config('trace.ttl', 300)),
             (int) $this->config('trace.per_owner', 8),
             (int) $this->config('trace.total', 32),
@@ -133,7 +133,7 @@ final class TestBenchManager
 
     public function config(string $key, mixed $default = null): mixed
     {
-        return $this->app->make('config')->get('testbench.' . $key, $default);
+        return $this->app->make('config')->get('sendproof.' . $key, $default);
     }
 
     public function guardName(): string

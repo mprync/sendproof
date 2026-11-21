@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Preview;
+namespace Sendproof\Core\Preview;
 
-use TestBench\Core\Capture\Clock;
+use Sendproof\Core\Capture\Clock;
 
 /**
  * Shared between a framework's dispatcher and the route marker that runs just before the handler.

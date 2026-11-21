@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Ui;
+namespace Sendproof\Core\Ui;
 
 /**
  * Reads the shared workbench UI bundle embedded in a package.

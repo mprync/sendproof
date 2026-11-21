@@ -3,18 +3,18 @@
 declare(strict_types=1);
 
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Symfony\Capture\LogProcessor;
-use TestBench\Symfony\Capture\MailListener;
-use TestBench\Symfony\Controller\WorkbenchController;
-use TestBench\Symfony\Doctrine\CaptureMiddleware;
-use TestBench\Symfony\Doctrine\DoctrinePreviewProvider;
-use TestBench\Symfony\Doctrine\OrmChangeCollector;
-use TestBench\Symfony\Http\ExecutionListener;
-use TestBench\Symfony\Http\PreviewListener;
-use TestBench\Symfony\Http\RouteCatalog;
-use TestBench\Symfony\Identity\DefaultIdentityResolver;
-use TestBench\Symfony\TestBenchManager;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Symfony\Capture\LogProcessor;
+use Sendproof\Symfony\Capture\MailListener;
+use Sendproof\Symfony\Controller\WorkbenchController;
+use Sendproof\Symfony\Doctrine\CaptureMiddleware;
+use Sendproof\Symfony\Doctrine\DoctrinePreviewProvider;
+use Sendproof\Symfony\Doctrine\OrmChangeCollector;
+use Sendproof\Symfony\Http\ExecutionListener;
+use Sendproof\Symfony\Http\PreviewListener;
+use Sendproof\Symfony\Http\RouteCatalog;
+use Sendproof\Symfony\Identity\DefaultIdentityResolver;
+use Sendproof\Symfony\SendproofManager;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -29,39 +29,39 @@ return static function (ContainerConfigurator $container): void {
     $services->set(DefaultIdentityResolver::class);
 
     $services->set(CaptureMiddleware::class)
-        ->args([service(Recorder::class), param('testbench.sql_values'), param('kernel.environment')])
+        ->args([service(Recorder::class), param('sendproof.sql_values'), param('kernel.environment')])
         ->tag('doctrine.middleware');
 
     $services->set(DoctrinePreviewProvider::class)
-        ->args([service('doctrine'), service(OrmChangeCollector::class), param('testbench.connections'), param('testbench.database_label')]);
+        ->args([service('doctrine'), service(OrmChangeCollector::class), param('sendproof.connections'), param('sendproof.database_label')]);
 
-    $services->set('testbench.manager', TestBenchManager::class)
+    $services->set('sendproof.manager', SendproofManager::class)
         ->args([
-            param('testbench.settings'),
+            param('sendproof.settings'),
             param('kernel.environment'),
             param('kernel.project_dir'),
             service(Recorder::class),
-            service('testbench.identity'),
-            null, // PreviewProvider: replaced by the extension according to `testbench.provider`
+            service('sendproof.identity'),
+            null, // PreviewProvider: replaced by the extension according to `sendproof.provider`
             service('security.token_storage')->nullOnInvalid(),
             service('security.authorization_checker')->nullOnInvalid(),
         ]);
-    $services->alias(TestBenchManager::class, 'testbench.manager');
+    $services->alias(SendproofManager::class, 'sendproof.manager');
 
     $services->set(RouteCatalog::class)->args([service('router')]);
 
     $services->set(PreviewListener::class)
-        ->args([service('http_kernel'), service('testbench.manager'), service(RouteCatalog::class), service('security.token_storage')->nullOnInvalid(), service('logger')->nullOnInvalid()])
+        ->args([service('http_kernel'), service('sendproof.manager'), service(RouteCatalog::class), service('security.token_storage')->nullOnInvalid(), service('logger')->nullOnInvalid()])
         ->tag('kernel.event_listener', ['event' => 'kernel.request', 'method' => 'onRequest', 'priority' => 4096]);
 
     $services->set(ExecutionListener::class)
-        ->args([service('testbench.manager')])
+        ->args([service('sendproof.manager')])
         ->tag('kernel.event_listener', ['event' => 'kernel.controller', 'method' => 'onController', 'priority' => -4096])
         ->tag('kernel.event_listener', ['event' => 'kernel.exception', 'method' => 'onException', 'priority' => 4096])
         ->tag('kernel.event_listener', ['event' => 'kernel.response', 'method' => 'onResponse', 'priority' => 4096]);
 
     $services->set(WorkbenchController::class)
-        ->args([service('testbench.manager'), service(RouteCatalog::class)])
+        ->args([service('sendproof.manager'), service(RouteCatalog::class)])
         ->public()
         ->tag('controller.service_arguments');
 

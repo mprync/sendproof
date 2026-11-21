@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Capture;
+namespace Sendproof\Laravel\Capture;
 
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
@@ -12,9 +12,9 @@ use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Log\Events\MessageLogged;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Capture\SqlRedactor;
-use TestBench\Laravel\Eloquent\ChangeCollector;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Laravel\Eloquent\ChangeCollector;
 
 /**
  * Subscribes once to Laravel's events and feeds the current request's recorder.
@@ -146,7 +146,7 @@ final class CaptureListeners
 
     private function showValues(): bool
     {
-        $configured = $this->app->make('config')->get('testbench.include_sql_parameter_values');
+        $configured = $this->app->make('config')->get('sendproof.include_sql_parameter_values');
 
         return $configured ?? $this->app->environment('local', 'development', 'testing');
     }

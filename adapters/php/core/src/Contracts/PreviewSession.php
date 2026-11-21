@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Contracts;
+namespace Sendproof\Core\Contracts;
 
 /** A transaction that is never committed. Changes accumulate until it is rolled back. */
 interface PreviewSession extends PreviewObservation

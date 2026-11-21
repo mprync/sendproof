@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Facades;
+namespace Sendproof\Laravel\Facades;
 
 use Closure;
 use Illuminate\Support\Facades\Facade;
-use TestBench\Laravel\TestBenchManager;
+use Sendproof\Laravel\SendproofManager;
 
 /**
  * Entry point for recording effects and customising identity and authorization.
@@ -20,12 +20,12 @@ use TestBench\Laravel\TestBenchManager;
  * @method static void identifyUsing(Closure $resolver)
  * @method static void authorizeUsing(Closure $authorizer)
  *
- * @see TestBenchManager
+ * @see SendproofManager
  */
-final class TestBench extends Facade
+final class Sendproof extends Facade
 {
     protected static function getFacadeAccessor(): string
     {
-        return TestBenchManager::class;
+        return SendproofManager::class;
     }
 }

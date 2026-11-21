@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Capture;
+namespace Sendproof\Core\Capture;
 
-use TestBench\Core\Limits;
+use Sendproof\Core\Limits;
 
 /**
  * Builds the protocol's SQL log entry and hides parameter values that may be secret.

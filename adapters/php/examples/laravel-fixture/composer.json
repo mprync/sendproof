@@ -1,14 +1,14 @@
 {
-  "name": "testbench/laravel-fixture",
-  "description": "Conformance fixture: a disposable Laravel app for the Test Bench protocol runner.",
+  "name": "sendproof/laravel-fixture",
+  "description": "Conformance fixture: a disposable Laravel app for the Sendproof protocol runner.",
   "type": "project",
   "license": "MIT",
   "require": {
     "php": "^8.2",
     "ext-pdo_sqlite": "*",
     "laravel/framework": "^11.0|^12.0|^13.0",
-    "testbench/core": "*@dev",
-    "testbench/laravel": "*@dev"
+    "sendproof/core": "*@dev",
+    "sendproof/laravel": "*@dev"
   },
   "autoload": { "psr-4": { "Fixture\\": "app/" } },
   "repositories": [

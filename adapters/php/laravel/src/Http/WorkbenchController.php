@@ -2,22 +2,22 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Http;
+namespace Sendproof\Laravel\Http;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Symfony\Component\HttpFoundation\Response;
-use TestBench\Core\Capabilities;
-use TestBench\Core\Protocol;
-use TestBench\Laravel\TestBenchManager;
+use Sendproof\Core\Capabilities;
+use Sendproof\Core\Protocol;
+use Sendproof\Laravel\SendproofManager;
 
-/** Serves the embedded workbench UI, discovery and observed-send traces under `/bench`. */
+/** Serves the embedded workbench UI, discovery and observed-send traces under `/sendproof`. */
 final class WorkbenchController
 {
     public function __construct(
-        private readonly TestBenchManager $manager,
+        private readonly SendproofManager $manager,
         private readonly Router $router,
         private readonly Application $app,
     ) {
@@ -28,7 +28,7 @@ final class WorkbenchController
         if (!str_ends_with($request->getPathInfo(), '/')) {
             $query = (string) $request->server->get('QUERY_STRING', '');
 
-            return new Response('', 302, ['Location' => $request->getBaseUrl() . '/bench/' . ($query === '' ? '' : '?' . $query)]);
+            return new Response('', 302, ['Location' => $request->getBaseUrl() . '/sendproof/' . ($query === '' ? '' : '?' . $query)]);
         }
 
         return $this->asset('index.html');
@@ -38,7 +38,7 @@ final class WorkbenchController
     {
         $bundle = $this->manager->ui();
         if (!$bundle->isAvailable()) {
-            return $this->problem(503, 'The Test Bench UI bundle is not embedded. Run `composer embed-ui` in testbench/core.');
+            return $this->problem(503, 'The Sendproof UI bundle is not embedded. Run `composer embed-ui` in sendproof/core.');
         }
         $found = $bundle->asset($asset);
         if ($found === null) {

@@ -2,32 +2,32 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Tests;
+namespace Sendproof\Laravel\Tests;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
-use TestBench\Laravel\Facades\TestBench;
+use Sendproof\Laravel\Facades\Sendproof;
 
 /** Regression tests from the security review: authorization, secrets in captures and rollback integrity. */
 final class SecurityTest extends TestCase
 {
     public function testAnAuthorizeUsingClosureGatesEveryWorkbenchRoute(): void
     {
-        TestBench::authorizeUsing(fn (): bool => false);
+        Sendproof::authorizeUsing(fn (): bool => false);
 
-        $this->getJson('/bench/_api/capabilities')->assertStatus(401);
+        $this->getJson('/sendproof/_api/capabilities')->assertStatus(401);
         $this->signIn();
-        $this->getJson('/bench/_api/capabilities')->assertStatus(403);
-        $this->get('/bench/app.js')->assertStatus(403);
+        $this->getJson('/sendproof/_api/capabilities')->assertStatus(403);
+        $this->get('/sendproof/app.js')->assertStatus(403);
     }
 
     public function testDiscoveryRefusesUrlsThatLeaveTheApplication(): void
     {
-        $this->app['config']->set('testbench.field_modules', ['//evil.example/fields.js']);
+        $this->app['config']->set('sendproof.field_modules', ['//evil.example/fields.js']);
 
-        $this->getJson('/bench/_api/capabilities')->assertStatus(500);
+        $this->getJson('/sendproof/_api/capabilities')->assertStatus(500);
     }
 
     public function testSessionTableStatementsNeverExposeTheSessionId(): void
@@ -44,7 +44,7 @@ final class SecurityTest extends TestCase
             DB::select('select ? as value', ['visible-value']);
 
             return response()->json(['id' => $id]);
-        })->testbenchPreview();
+        })->sendproofPreview();
         $this->signIn();
 
         $envelope = $this->preview('/widgets/w1/session')->assertOk()->json();
@@ -63,7 +63,7 @@ final class SecurityTest extends TestCase
             DB::unprepared('COMMIT');
 
             return response()->json(['id' => $id]);
-        })->testbenchPreview();
+        })->sendproofPreview();
         $this->signIn();
 
         $response = $this->preview('/widgets/w1/raw-commit');
@@ -82,7 +82,7 @@ final class SecurityTest extends TestCase
             AccessToken::create(['token' => 'plain-token-value', 'label' => 'CLI']);
 
             return response()->json(['ok' => true], 201);
-        })->testbenchPreview();
+        })->sendproofPreview();
         $this->signIn();
 
         $envelope = $this->preview('/tokens')->assertOk()->json();
@@ -98,7 +98,7 @@ final class SecurityTest extends TestCase
 
             return response()->noContent();
         });
-        Route::middleware([RequireUser::class])->post('/widgets/{id}/unmarked', fn () => response()->json(['ok' => true]))->testbenchPreview();
+        Route::middleware([RequireUser::class])->post('/widgets/{id}/unmarked', fn () => response()->json(['ok' => true]))->sendproofPreview();
         $this->signIn();
 
         $response = $this->preview('/widgets/w1/unmarked', ['_method' => 'DELETE']);

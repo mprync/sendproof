@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core;
+namespace Sendproof\Core;
 
 /** Builds the protocol v1 discovery document. */
 final class Capabilities
@@ -64,7 +64,7 @@ final class Capabilities
     public static function withBase(string $pathBase, string $url): string
     {
         if (!self::isLocalUrl($url)) {
-            throw new \InvalidArgumentException('Test Bench URLs must be application-relative paths such as /openapi/v1.json.');
+            throw new \InvalidArgumentException('Sendproof URLs must be application-relative paths such as /openapi/v1.json.');
         }
 
         return $pathBase . $url;

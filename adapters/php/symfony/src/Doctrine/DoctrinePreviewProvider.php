@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\Persistence\ManagerRegistry;
-use TestBench\Core\Contracts\PreviewObservation;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Contracts\PreviewSession;
+use Sendproof\Core\Contracts\PreviewObservation;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Contracts\PreviewSession;
 
 /**
  * Preview provider for Doctrine DBAL and ORM.

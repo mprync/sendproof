@@ -2,29 +2,29 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony;
+namespace Sendproof\Symfony;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Trace\FileTraceStore;
-use TestBench\Core\Trace\TraceOwner;
-use TestBench\Core\Trace\TraceStore;
-use TestBench\Core\Ui\UiBundle;
-use TestBench\Symfony\Identity\IdentityResolver;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Trace\FileTraceStore;
+use Sendproof\Core\Trace\TraceOwner;
+use Sendproof\Core\Trace\TraceStore;
+use Sendproof\Core\Ui\UiBundle;
+use Sendproof\Symfony\Identity\IdentityResolver;
 
 /**
- * Application-level services for Test Bench: opt-in, identity, authorization, provider and storage.
+ * Application-level services for Sendproof: opt-in, identity, authorization, provider and storage.
  */
-final class TestBenchManager
+final class SendproofManager
 {
     private ?TraceStore $store = null;
 
     /**
-     * @param array<string,mixed> $settings The processed `testbench` configuration
+     * @param array<string,mixed> $settings The processed `sendproof` configuration
      */
     public function __construct(
         private readonly array $settings,
@@ -98,7 +98,7 @@ final class TestBenchManager
         $trace = $this->settings['trace'];
 
         return $this->store ??= new FileTraceStore(
-            $trace['path'] ?? $this->projectDir . '/var/testbench-traces',
+            $trace['path'] ?? $this->projectDir . '/var/sendproof-traces',
             $trace['ttl'],
             $trace['per_owner'],
             $trace['total'],

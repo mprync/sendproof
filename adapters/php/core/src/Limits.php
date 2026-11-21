@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core;
+namespace Sendproof\Core;
 
 /**
  * Capture limits shared by every adapter. They mirror the .NET adapters so one UI renders any host.

@@ -2,28 +2,28 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Http;
+namespace Sendproof\Laravel\Http;
 
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use TestBench\Core\Preview\PreviewState;
-use TestBench\Laravel\TestBenchManager;
+use Sendproof\Core\Preview\PreviewState;
+use Sendproof\Laravel\SendproofManager;
 
 /**
  * Route middleware that opts an operation in to Preview and Observed Send.
  *
- * Add it with `->testbenchPreview()` or the `testbench.preview` alias, after authentication
+ * Add it with `->sendproofPreview()` or the `sendproof.preview` alias, after authentication
  * and authorization middleware. It does nothing for ordinary requests. During a preview or an
  * observed send it marks the moment the request was admitted and the handler finished, which is
  * what lets the transport tell a real application result from an auth rejection.
  */
 final class AllowPreview
 {
-    public const STATE = 'testbench.state';
-    public const MODE = 'testbench.mode';
+    public const STATE = 'sendproof.state';
+    public const MODE = 'sendproof.mode';
 
-    public function __construct(private readonly TestBenchManager $manager)
+    public function __construct(private readonly SendproofManager $manager)
     {
     }
 

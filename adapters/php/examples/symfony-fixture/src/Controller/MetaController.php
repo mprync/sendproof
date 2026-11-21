@@ -28,7 +28,7 @@ final class MetaController
 
         return new JsonResponse([
             'openapi' => '3.1.0',
-            'info' => ['title' => 'Test Bench Conformance', 'version' => '1.0.0'],
+            'info' => ['title' => 'Sendproof Conformance', 'version' => '1.0.0'],
             'paths' => [
                 '/items' => ['post' => $operation('Create item', ['requestBody' => ['required' => true] + $json($item), 'responses' => ['201' => ['description' => 'Created'] + $json($item)]])],
                 '/items/{id}' => [

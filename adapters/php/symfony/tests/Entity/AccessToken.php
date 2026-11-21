@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests\Entity;
+namespace Sendproof\Symfony\Tests\Entity;
 
 use Doctrine\ORM\Mapping as ORM;
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Contracts;
+namespace Sendproof\Core\Contracts;
 
 /** Reports row changes made while a request ran, and releases listeners on disposal. */
 interface PreviewObservation

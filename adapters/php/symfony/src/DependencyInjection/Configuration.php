@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\DependencyInjection;
+namespace Sendproof\Symfony\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
 
-/** The `testbench:` configuration tree. Everything is off unless `enabled` is true. */
+/** The `sendproof:` configuration tree. Everything is off unless `enabled` is true. */
 final class Configuration implements ConfigurationInterface
 {
     public function getConfigTreeBuilder(): TreeBuilder
     {
-        $tree = new TreeBuilder('testbench');
+        $tree = new TreeBuilder('sendproof');
         $root = $tree->getRootNode();
         $root
             ->children()
@@ -41,7 +41,7 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('authorize')->defaultNull()
                     ->info('Security attribute (such as ROLE_ADMIN) required to use the workbench, previews and traces.')->end()
                 ->scalarNode('identity')->defaultNull()
-                    ->info('Service id of a TestBench\Symfony\Identity\IdentityResolver. Defaults to the user identifier.')->end()
+                    ->info('Service id of a Sendproof\Symfony\Identity\IdentityResolver. Defaults to the user identifier.')->end()
                 ->scalarNode('provider')->defaultValue('doctrine')
                     ->info('"doctrine", null to disable previews, or the id of a PreviewProvider service.')->end()
                 ->arrayNode('connections')->scalarPrototype()->end()->defaultValue(['default'])
@@ -53,9 +53,9 @@ final class Configuration implements ConfigurationInterface
                     ->integerNode('ttl')->defaultValue(300)->min(1)->info('Seconds an observed-send trace stays readable.')->end()
                     ->integerNode('per_owner')->defaultValue(8)->end()
                     ->integerNode('total')->defaultValue(32)->end()
-                    ->scalarNode('path')->defaultNull()->info('Private directory for traces. Defaults to var/testbench-traces.')->end()
+                    ->scalarNode('path')->defaultNull()->info('Private directory for traces. Defaults to var/sendproof-traces.')->end()
                 ->end()->end()
-                ->scalarNode('ui_path')->defaultNull()->info('Directory of the embedded UI bundle. Defaults to the testbench/core copy.')->end()
+                ->scalarNode('ui_path')->defaultNull()->info('Directory of the embedded UI bundle. Defaults to the sendproof/core copy.')->end()
             ->end();
 
         return $tree;

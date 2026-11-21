@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests;
+namespace Sendproof\Symfony\Tests;
 
 use Doctrine\Persistence\ManagerRegistry;
-use TestBench\Symfony\Doctrine\DoctrinePreviewProvider;
-use TestBench\Symfony\Tests\Entity\Widget;
+use Sendproof\Symfony\Doctrine\DoctrinePreviewProvider;
+use Sendproof\Symfony\Tests\Entity\Widget;
 
 final class ProviderTest extends DoctrineTestCase
 {
@@ -145,7 +145,7 @@ final class ProviderTest extends DoctrineTestCase
 
     public function testTheDatabaseLabelNeverIncludesAPath(): void
     {
-        $this->assertMatchesRegularExpression('/^testbench-symfony-.*\.sqlite$/', (string) $this->provider()->database());
+        $this->assertMatchesRegularExpression('/^sendproof-symfony-.*\.sqlite$/', (string) $this->provider()->database());
         $this->assertSame('inventory', (new DoctrinePreviewProvider($this->createStub(ManagerRegistry::class), $this->collector, ['default'], 'inventory'))->database());
     }
 }

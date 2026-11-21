@@ -14,8 +14,8 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\Routing\Attribute\Route;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Symfony\Attribute\AllowPreview;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Symfony\Attribute\AllowPreview;
 
 /** The items API the conformance runner exercises. Authorization lives in security access control. */
 final class ItemController

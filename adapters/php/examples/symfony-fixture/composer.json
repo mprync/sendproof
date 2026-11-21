@@ -1,6 +1,6 @@
 {
-  "name": "testbench/symfony-fixture",
-  "description": "Conformance fixture: a disposable Symfony + Doctrine app for the Test Bench protocol runner.",
+  "name": "sendproof/symfony-fixture",
+  "description": "Conformance fixture: a disposable Symfony + Doctrine app for the Sendproof protocol runner.",
   "type": "project",
   "license": "MIT",
   "require": {
@@ -13,8 +13,8 @@
     "symfony/monolog-bundle": "^3.10|^4.0",
     "symfony/security-bundle": "^7.0|^8.0",
     "symfony/yaml": "^7.0|^8.0",
-    "testbench/core": "*@dev",
-    "testbench/symfony": "*@dev"
+    "sendproof/core": "*@dev",
+    "sendproof/symfony": "*@dev"
   },
   "autoload": { "psr-4": { "Fixture\\": "src/" } },
   "repositories": [

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Fixture\Support;
 
-use TestBench\Core\Contracts\PreviewSession;
-use TestBench\Laravel\Eloquent\EloquentPreviewProvider;
+use Sendproof\Core\Contracts\PreviewSession;
+use Sendproof\Laravel\Eloquent\EloquentPreviewProvider;
 
 /** Rolls back for real, then reports a failure, so the transport must withhold confirmation. */
 final class FailingRollbackProvider extends EloquentPreviewProvider

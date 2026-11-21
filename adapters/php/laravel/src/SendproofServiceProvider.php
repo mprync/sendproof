@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel;
+namespace Sendproof\Laravel;
 
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Route as RouteDefinition;
@@ -10,40 +10,40 @@ use Illuminate\Routing\Router;
 use Illuminate\Routing\RouteRegistrar;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Laravel\Capture\CaptureListeners;
-use TestBench\Laravel\Eloquent\ChangeCollector;
-use TestBench\Laravel\Eloquent\EloquentPreviewProvider;
-use TestBench\Laravel\Http\AllowPreview;
-use TestBench\Laravel\Http\AuthorizeWorkbench;
-use TestBench\Laravel\Http\PreviewMiddleware;
-use TestBench\Laravel\Http\WorkbenchController;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Laravel\Capture\CaptureListeners;
+use Sendproof\Laravel\Eloquent\ChangeCollector;
+use Sendproof\Laravel\Eloquent\EloquentPreviewProvider;
+use Sendproof\Laravel\Http\AllowPreview;
+use Sendproof\Laravel\Http\AuthorizeWorkbench;
+use Sendproof\Laravel\Http\PreviewMiddleware;
+use Sendproof\Laravel\Http\WorkbenchController;
 
 /**
- * Registers Test Bench. The package installs the preview transport as global middleware, but
+ * Registers Sendproof. The package installs the preview transport as global middleware, but
  * mounts the workbench routes and accepts previews only when enabled in an allow-listed environment.
  */
-final class TestBenchServiceProvider extends ServiceProvider
+final class SendproofServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/testbench.php', 'testbench');
-        $this->app->singleton(TestBenchManager::class);
+        $this->mergeConfigFrom(__DIR__ . '/../config/sendproof.php', 'sendproof');
+        $this->app->singleton(SendproofManager::class);
         $this->app->scoped(Recorder::class);
         $this->app->scoped(ChangeCollector::class);
         $this->app->bind(EloquentPreviewProvider::class, fn ($app) => new EloquentPreviewProvider(
             $app->make('db'),
             $app->make(ChangeCollector::class),
-            (array) $app['config']->get('testbench.connections', [null]),
-            $app['config']->get('testbench.database_label'),
+            (array) $app['config']->get('sendproof.connections', [null]),
+            $app['config']->get('sendproof.database_label'),
         ));
     }
 
     public function boot(): void
     {
-        $this->publishes([__DIR__ . '/../config/testbench.php' => $this->app->configPath('testbench.php')], 'testbench-config');
+        $this->publishes([__DIR__ . '/../config/sendproof.php' => $this->app->configPath('sendproof.php')], 'sendproof-config');
 
-        $this->app->make('router')->aliasMiddleware('testbench.preview', AllowPreview::class);
+        $this->app->make('router')->aliasMiddleware('sendproof.preview', AllowPreview::class);
         $this->registerMacros();
         (new CaptureListeners($this->app))->register($this->app->make('events'));
 
@@ -52,19 +52,19 @@ final class TestBenchServiceProvider extends ServiceProvider
             $kernel->prependMiddleware(PreviewMiddleware::class);
         }
 
-        if ($this->app->make(TestBenchManager::class)->enabled() && !$this->app->routesAreCached()) {
+        if ($this->app->make(SendproofManager::class)->enabled() && !$this->app->routesAreCached()) {
             $this->mountRoutes();
         }
     }
 
-    /** Adds `->testbenchPreview()` to routes and route groups. */
+    /** Adds `->sendproofPreview()` to routes and route groups. */
     private function registerMacros(): void
     {
-        RouteDefinition::macro('testbenchPreview', function () {
+        RouteDefinition::macro('sendproofPreview', function () {
             /** @var RouteDefinition $this */
             return $this->middleware(AllowPreview::class);
         });
-        RouteRegistrar::macro('testbenchPreview', function () {
+        RouteRegistrar::macro('sendproofPreview', function () {
             /** @var RouteRegistrar $this */
             return $this->middleware(AllowPreview::class);
         });
@@ -73,12 +73,12 @@ final class TestBenchServiceProvider extends ServiceProvider
     private function mountRoutes(): void
     {
         $router = $this->app->make(Router::class);
-        $middleware = $this->app['config']->get('testbench.middleware');
+        $middleware = $this->app['config']->get('sendproof.middleware');
         $middleware = (array) ($middleware ?? ($router->hasMiddlewareGroup('web') ? ['web'] : []));
         // Applies the gate ability and any authorizeUsing() closure to every workbench route.
         $middleware[] = AuthorizeWorkbench::class;
 
-        Route::middleware($middleware)->prefix('bench')->group(function (): void {
+        Route::middleware($middleware)->prefix('sendproof')->group(function (): void {
             Route::get('/', [WorkbenchController::class, 'index']);
             Route::get('signin.html', [WorkbenchController::class, 'index']);
             Route::get('_api/capabilities', [WorkbenchController::class, 'capabilities']);

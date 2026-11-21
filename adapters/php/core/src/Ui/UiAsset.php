@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Ui;
+namespace Sendproof\Core\Ui;
 
 /** A verified file from the embedded workbench bundle. */
 final class UiAsset

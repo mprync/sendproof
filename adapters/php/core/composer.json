@@ -1,10 +1,10 @@
 {
-  "name": "testbench/core",
-  "description": "Framework-neutral Test Bench protocol core for PHP: preview, observed send, capture and embedded workbench assets.",
+  "name": "sendproof/core",
+  "description": "Framework-neutral Sendproof protocol core for PHP: preview, observed send, capture and embedded workbench assets.",
   "type": "library",
   "license": "MIT",
-  "authors": [{ "name": "Test Bench contributors" }],
-  "keywords": ["testbench", "openapi", "api", "preview", "rollback"],
+  "authors": [{ "name": "Sendproof contributors" }],
+  "keywords": ["sendproof", "openapi", "api", "preview", "rollback"],
   "require": {
     "php": "^8.2",
     "ext-json": "*",
@@ -14,10 +14,10 @@
     "phpunit/phpunit": "^11.0"
   },
   "autoload": {
-    "psr-4": { "TestBench\\Core\\": "src/" }
+    "psr-4": { "Sendproof\\Core\\": "src/" }
   },
   "autoload-dev": {
-    "psr-4": { "TestBench\\Core\\Tests\\": "tests/" }
+    "psr-4": { "Sendproof\\Core\\Tests\\": "tests/" }
   },
   "scripts": {
     "test": "phpunit",

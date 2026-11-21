@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Doctrine\ORM\Event\PostFlushEventArgs;
 use Doctrine\ORM\Mapping\ClassMetadata;
-use TestBench\Core\Capture\SqlRedactor;
-use TestBench\Core\Limits;
+use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Core\Limits;
 
 /**
  * Records row changes made through the Doctrine ORM while a preview or observed send runs.

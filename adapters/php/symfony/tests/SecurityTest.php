@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests;
+namespace Sendproof\Symfony\Tests;
 
 use Doctrine\Persistence\ManagerRegistry;
 use Symfony\Component\Config\Definition\Processor;
@@ -16,27 +16,27 @@ use Symfony\Component\Routing\Router;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\User\InMemoryUser;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Preview\PreviewState;
-use TestBench\Symfony\Controller\WorkbenchController;
-use TestBench\Symfony\DependencyInjection\Configuration;
-use TestBench\Symfony\Doctrine\DoctrinePreviewProvider;
-use TestBench\Symfony\Http\ExecutionListener;
-use TestBench\Symfony\Http\PreviewListener;
-use TestBench\Symfony\Http\RouteCatalog;
-use TestBench\Symfony\Identity\DefaultIdentityResolver;
-use TestBench\Symfony\TestBenchManager;
-use TestBench\Symfony\Tests\Entity\AccessToken;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Preview\PreviewState;
+use Sendproof\Symfony\Controller\WorkbenchController;
+use Sendproof\Symfony\DependencyInjection\Configuration;
+use Sendproof\Symfony\Doctrine\DoctrinePreviewProvider;
+use Sendproof\Symfony\Http\ExecutionListener;
+use Sendproof\Symfony\Http\PreviewListener;
+use Sendproof\Symfony\Http\RouteCatalog;
+use Sendproof\Symfony\Identity\DefaultIdentityResolver;
+use Sendproof\Symfony\SendproofManager;
+use Sendproof\Symfony\Tests\Entity\AccessToken;
 
 /** Regression tests from the security review: authorization, owner scoping, secrets and rollback integrity. */
 final class SecurityTest extends DoctrineTestCase
 {
     /** @param array<string,mixed> $overrides */
-    private function manager(array $overrides, ?TokenStorage $tokens = null): TestBenchManager
+    private function manager(array $overrides, ?TokenStorage $tokens = null): SendproofManager
     {
         $config = (new Processor())->processConfiguration(new Configuration(), [['enabled' => true] + $overrides]);
 
-        return new TestBenchManager($config, 'dev', sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver(), null, $tokens);
+        return new SendproofManager($config, 'dev', sys_get_temp_dir(), new Recorder(), new DefaultIdentityResolver(), null, $tokens);
     }
 
     private function controllerEvent(string $mode, PreviewState $state): ControllerEvent

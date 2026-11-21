@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Tests;
+namespace Sendproof\Core\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Capabilities;
-use TestBench\Core\Protocol;
+use Sendproof\Core\Capabilities;
+use Sendproof\Core\Protocol;
 
 final class ProtocolTest extends TestCase
 {
@@ -52,9 +52,9 @@ final class ProtocolTest extends TestCase
 
     public function testReservedOffsetFindsThePrefixOnASegmentBoundary(): void
     {
-        $this->assertSame(0, Protocol::reservedOffset('/bench/_preview/items'));
-        $this->assertSame(0, Protocol::reservedOffset('/BENCH/_PREVIEW'));
-        $this->assertNull(Protocol::reservedOffset('/bench/_preview2'));
+        $this->assertSame(0, Protocol::reservedOffset('/sendproof/_preview/items'));
+        $this->assertSame(0, Protocol::reservedOffset('/SENDPROOF/_PREVIEW'));
+        $this->assertNull(Protocol::reservedOffset('/sendproof/_preview2'));
         $this->assertNull(Protocol::reservedOffset('/items'));
     }
 
@@ -72,8 +72,8 @@ final class ProtocolTest extends TestCase
         yield ['//items', false];
         yield ['/%2e%2e/secret', false];
         yield ['/a/../b', false];
-        yield ['/bench/_api/capabilities', false];
-        yield ['/Bench', false];
+        yield ['/sendproof/_api/capabilities', false];
+        yield ['/Sendproof', false];
         yield ['/a\\b', false];
         yield ["/a\nb", false];
     }

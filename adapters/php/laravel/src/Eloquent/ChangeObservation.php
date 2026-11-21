@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Eloquent;
+namespace Sendproof\Laravel\Eloquent;
 
-use TestBench\Core\Contracts\PreviewObservation;
+use Sendproof\Core\Contracts\PreviewObservation;
 
 /** Watches Eloquent changes during an ordinary send without touching its transaction. */
 final class ChangeObservation implements PreviewObservation

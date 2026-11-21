@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests;
+namespace Sendproof\Symfony\Tests;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\ORMSetup;
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Symfony\Doctrine\CaptureMiddleware;
-use TestBench\Symfony\Doctrine\OrmChangeCollector;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Symfony\Doctrine\CaptureMiddleware;
+use Sendproof\Symfony\Doctrine\OrmChangeCollector;
 
 /** A real SQLite file, a real DBAL connection with the capture middleware, and a real ORM. */
 abstract class DoctrineTestCase extends TestCase
@@ -24,7 +24,7 @@ abstract class DoctrineTestCase extends TestCase
 
     protected function setUp(): void
     {
-        $this->file = sys_get_temp_dir() . '/testbench-symfony-' . bin2hex(random_bytes(4)) . '.sqlite';
+        $this->file = sys_get_temp_dir() . '/sendproof-symfony-' . bin2hex(random_bytes(4)) . '.sqlite';
         $this->recorder = new Recorder();
         $this->collector = new OrmChangeCollector();
 

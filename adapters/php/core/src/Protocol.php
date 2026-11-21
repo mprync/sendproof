@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core;
+namespace Sendproof\Core;
 
 /** Parsing and validation rules of Bench protocol v1 that do not depend on a web framework. */
 final class Protocol
 {
-    public const PREFIX = '/bench/_preview';
+    public const PREFIX = '/sendproof/_preview';
     public const ROLLBACK_PREFERENCE = 'tx=rollback';
-    public const TRACE_HEADER = 'X-TestBench-Trace';
+    public const TRACE_HEADER = 'X-Sendproof-Trace';
 
     /** True when any Prefer value asks for `tx=rollback`, possibly among other preferences. */
     public static function requestsRollback(array $preferValues): bool
@@ -110,7 +110,7 @@ final class Protocol
         }
         $first = strtolower(explode('/', ltrim($decoded, '/'), 2)[0]);
 
-        return $first !== 'bench';
+        return $first !== 'sendproof';
     }
 
     private static function defaultPort(string $scheme): int

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Laravel\Tests;
+namespace Sendproof\Laravel\Tests;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -113,14 +113,14 @@ final class PreviewTest extends TestCase
     {
         $this->signIn();
 
-        $this->json('POST', '/bench/_preview/widgets', ['id' => 'x', 'name' => 'x'])->assertStatus(400);
-        $this->json('POST', '/bench/_preview/widgets', [], ['Prefer' => 'tx="rollback"'])->assertStatus(400);
-        $this->json('POST', '/bench/_preview/widgets', [], ['Prefer' => 'trace, tx=rollback'])->assertStatus(400);
+        $this->json('POST', '/sendproof/_preview/widgets', ['id' => 'x', 'name' => 'x'])->assertStatus(400);
+        $this->json('POST', '/sendproof/_preview/widgets', [], ['Prefer' => 'tx="rollback"'])->assertStatus(400);
+        $this->json('POST', '/sendproof/_preview/widgets', [], ['Prefer' => 'trace, tx=rollback'])->assertStatus(400);
         $this->preview('/widgets', [], 'POST', ['Origin' => 'https://elsewhere.example.test'])->assertStatus(403);
         $this->preview('/widgets', [], 'POST', ['Sec-Fetch-Site' => 'cross-site'])->assertStatus(403);
-        $this->call('HEAD', '/bench/_preview/widgets', [], [], [], ['HTTP_PREFER' => 'tx=rollback'])->assertStatus(405);
+        $this->call('HEAD', '/sendproof/_preview/widgets', [], [], [], ['HTTP_PREFER' => 'tx=rollback'])->assertStatus(405);
         $this->preview('//widgets')->assertStatus(400);
-        $this->preview('/bench/_api/capabilities')->assertStatus(400);
+        $this->preview('/sendproof/_api/capabilities')->assertStatus(400);
         $this->json('POST', '/widgets', ['id' => 'x', 'name' => 'x'], ['Prefer' => 'tx=rollback'])->assertStatus(400);
         $this->assertSame(0, $this->widgetCount());
     }
@@ -133,7 +133,7 @@ final class PreviewTest extends TestCase
         $this->preview('/missing')->assertStatus(404);
         $this->assertSame(0, $this->widgetCount());
         $this->json('POST', '/widgets/x/ordinary', [], ['Prefer' => 'trace'])->assertCreated();
-        $this->assertNull($this->json('POST', '/widgets/y/ordinary', [], ['Prefer' => 'trace'])->headers->get('X-TestBench-Trace'));
+        $this->assertNull($this->json('POST', '/widgets/y/ordinary', [], ['Prefer' => 'trace'])->headers->get('X-Sendproof-Trace'));
     }
 
     public function testAnonymousCallersDoNotGetAnEnvelope(): void

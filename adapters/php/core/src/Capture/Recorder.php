@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Capture;
+namespace Sendproof\Core\Capture;
 
-use TestBench\Core\Limits;
+use Sendproof\Core\Limits;
 
 /**
  * Collects logs, effects and SQL for one request while a preview or observed send is running.

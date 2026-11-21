@@ -19,9 +19,9 @@ final class FixtureServiceProvider extends ServiceProvider
         $scenario = getenv('BENCH_SCENARIO') ?: 'standard';
         $this->app->booting(function () use ($scenario): void {
             if ($scenario === 'no-provider') {
-                config(['testbench.provider' => null]);
+                config(['sendproof.provider' => null]);
             } elseif ($scenario === 'rollback-failure') {
-                config(['testbench.provider' => FailingRollbackProvider::class]);
+                config(['sendproof.provider' => FailingRollbackProvider::class]);
             }
         });
     }

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Capture;
+namespace Sendproof\Symfony\Capture;
 
 use Monolog\LogRecord;
-use TestBench\Core\Capture\Recorder;
+use Sendproof\Core\Capture\Recorder;
 
 /**
  * Monolog processor that copies each record into the request's recorder and leaves it unchanged.

@@ -29,6 +29,6 @@ final class Kernel extends BaseKernel
 
     private function fixtureDir(): string
     {
-        return (string) (getenv('FIXTURE_DIR') ?: sys_get_temp_dir() . '/testbench-symfony-fixture');
+        return (string) (getenv('FIXTURE_DIR') ?: sys_get_temp_dir() . '/sendproof-symfony-fixture');
     }
 }

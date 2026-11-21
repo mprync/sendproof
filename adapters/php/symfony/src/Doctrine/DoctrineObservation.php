@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
-use TestBench\Core\Contracts\PreviewObservation;
+use Sendproof\Core\Contracts\PreviewObservation;
 
 /** Watches ORM changes during an ordinary send without touching its transaction. */
 final class DoctrineObservation implements PreviewObservation

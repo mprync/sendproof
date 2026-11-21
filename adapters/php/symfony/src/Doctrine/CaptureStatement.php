@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Driver\Middleware\AbstractStatementMiddleware;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
 use Doctrine\DBAL\ParameterType;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Capture\SqlRedactor;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Capture\SqlRedactor;
 
 /** Remembers bound values and reports the statement, with timing and rows affected, when it executes. */
 final class CaptureStatement extends AbstractStatementMiddleware

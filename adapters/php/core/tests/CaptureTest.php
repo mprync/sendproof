@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Tests;
+namespace Sendproof\Core\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Capture\SqlRedactor;
-use TestBench\Core\Limits;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Core\Limits;
 
 final class CaptureTest extends TestCase
 {

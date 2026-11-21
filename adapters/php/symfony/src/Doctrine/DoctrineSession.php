@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Connection;
-use TestBench\Core\Contracts\PreviewSession;
+use Sendproof\Core\Contracts\PreviewSession;
 
 /**
  * A rollback-only transaction on one or more DBAL connections.

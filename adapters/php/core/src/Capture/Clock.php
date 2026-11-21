@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Capture;
+namespace Sendproof\Core\Capture;
 
 /** Measures the `auth`, `handler`, `db` and `serialize` timing metrics reported through Server-Timing. */
 final class Clock

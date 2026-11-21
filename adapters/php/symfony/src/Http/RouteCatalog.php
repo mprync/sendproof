@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Http;
+namespace Sendproof\Symfony\Http;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouterInterface;
-use TestBench\Symfony\Attribute\AllowPreview;
+use Sendproof\Symfony\Attribute\AllowPreview;
 
 /** Finds the routes that opted in to Preview and matches rewritten requests against them. */
 final class RouteCatalog
@@ -65,7 +65,7 @@ final class RouteCatalog
 
     private function marked(Route $route): bool
     {
-        if ($route->getDefault('_testbench_preview') === true) {
+        if ($route->getDefault('_sendproof_preview') === true) {
             return true;
         }
         $controller = $route->getDefault('_controller');

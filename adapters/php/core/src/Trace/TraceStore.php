@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Trace;
+namespace Sendproof\Core\Trace;
 
 /** Holds observed-send traces for a short time so the workbench can read them after the response. */
 interface TraceStore

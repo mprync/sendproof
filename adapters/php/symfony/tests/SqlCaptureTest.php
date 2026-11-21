@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Tests;
+namespace Sendproof\Symfony\Tests;
 
-use TestBench\Core\Limits;
+use Sendproof\Core\Limits;
 
 final class SqlCaptureTest extends DoctrineTestCase
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Driver as DriverInterface;
 use Doctrine\DBAL\Driver\Connection as ConnectionInterface;
 use Doctrine\DBAL\Driver\Middleware\AbstractDriverMiddleware;
-use TestBench\Core\Capture\Recorder;
+use Sendproof\Core\Capture\Recorder;
 
 /** Wraps each new driver connection so its statements are captured. */
 final class CaptureDriver extends AbstractDriverMiddleware

@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Tests;
+namespace Sendproof\Core\Tests;
 
 use PHPUnit\Framework\TestCase;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Contracts\PreviewObservation;
-use TestBench\Core\Contracts\PreviewProvider;
-use TestBench\Core\Contracts\PreviewSession;
-use TestBench\Core\Limits;
-use TestBench\Core\Preview\CapturedResponse;
-use TestBench\Core\Preview\PreviewRunner;
-use TestBench\Core\Preview\PreviewState;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Contracts\PreviewObservation;
+use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Contracts\PreviewSession;
+use Sendproof\Core\Limits;
+use Sendproof\Core\Preview\CapturedResponse;
+use Sendproof\Core\Preview\PreviewRunner;
+use Sendproof\Core\Preview\PreviewState;
 
 final class PreviewRunnerTest extends TestCase
 {
@@ -81,7 +81,7 @@ final class PreviewRunnerTest extends TestCase
         };
     }
 
-    private function preview(object $provider, CapturedResponse|\Throwable $response, bool $completed = true, bool $reached = true): \TestBench\Core\Preview\PreviewResult
+    private function preview(object $provider, CapturedResponse|\Throwable $response, bool $completed = true, bool $reached = true): \Sendproof\Core\Preview\PreviewResult
     {
         $state = new PreviewState(hrtime(true));
         $runner = new PreviewRunner(new Recorder());

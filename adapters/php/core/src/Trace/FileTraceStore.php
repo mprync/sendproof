@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Trace;
+namespace Sendproof\Core\Trace;
 
 /**
  * File-backed trace store that works across PHP-FPM workers and `php -S` workers.

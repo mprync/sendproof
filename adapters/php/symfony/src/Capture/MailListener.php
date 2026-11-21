@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Capture;
+namespace Sendproof\Symfony\Capture;
 
 use Symfony\Component\Mailer\Event\MessageEvent;
 use Symfony\Component\Mime\Email;
-use TestBench\Core\Capture\Recorder;
+use Sendproof\Core\Capture\Recorder;
 
 /** Records outgoing mail and rejects it while a preview is running. */
 final class MailListener

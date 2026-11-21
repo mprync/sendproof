@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpFoundation\Cookie;
-use TestBench\Laravel\Facades\TestBench;
+use Sendproof\Laravel\Facades\Sendproof;
 
 Route::get('/ready', fn () => response('ok'));
 
@@ -22,7 +22,7 @@ Route::get('/openapi/v1.json', function () {
 
     return response()->json([
         'openapi' => '3.1.0',
-        'info' => ['title' => 'Test Bench Conformance', 'version' => '1.0.0'],
+        'info' => ['title' => 'Sendproof Conformance', 'version' => '1.0.0'],
         'paths' => [
             '/items' => ['post' => $operation('Create item', ['requestBody' => ['required' => true] + $json($item), 'responses' => ['201' => ['description' => 'Created'] + $json($item)]])],
             '/items/{id}' => [
@@ -85,7 +85,7 @@ Route::middleware('fixture.user')->group(function () use ($insert): void {
         Route::post('/items', function (Request $request) use ($insert) {
             $data = $request->validate(['id' => 'required|string|max:64', 'name' => 'required|string|max:200']);
             $item = $insert($data['id'], $data['name']);
-            $suppressed = TestBench::tryRecordEmail('Created item', 'bench@example.test', ['owner@example.test'], [], 'Item ' . $item->id, 'An item was created.');
+            $suppressed = Sendproof::tryRecordEmail('Created item', 'bench@example.test', ['owner@example.test'], [], 'Item ' . $item->id, 'An item was created.');
             if (!$suppressed) {
                 // A real application would deliver the email here.
             }
@@ -93,7 +93,7 @@ Route::middleware('fixture.user')->group(function () use ($insert): void {
             DB::select('select :fixture_secret as value', ['fixture_secret' => 'fixture-secret-value']);
 
             return response()->json($item->only(['id', 'name']), 201);
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::patch('/items/{id}', function (Request $request, string $id) {
             $data = $request->validate(['name' => 'required|string|max:200']);
@@ -105,13 +105,13 @@ Route::middleware('fixture.user')->group(function () use ($insert): void {
             }
 
             return $response;
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::delete('/items/{id}', function (string $id) {
             Item::query()->findOrFail($id)->delete();
 
             return response()->noContent();
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::post('/items/{id}/fail', function (Request $request, string $id) use ($insert) {
             $insert($id);
@@ -120,13 +120,13 @@ Route::middleware('fixture.user')->group(function () use ($insert): void {
             }
 
             return response()->json(['title' => 'Conflict'], 409);
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::post('/items/{id}/large', function (string $id) use ($insert) {
             $insert($id);
 
             return response(str_repeat('x', 1024 * 1024 + 1024), 200, ['Content-Type' => 'text/plain']);
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::post('/items/{id}/redirect', function (Request $request, string $id) use ($insert) {
             $insert($id);
@@ -134,20 +134,20 @@ Route::middleware('fixture.user')->group(function () use ($insert): void {
             $response->headers->setCookie(new Cookie('inner_cookie', 'must-not-leak'));
 
             return $response;
-        })->testbenchPreview();
+        })->sendproofPreview();
 
         Route::post('/items/{id}/capture', function (string $id) {
             for ($i = 0; $i < 201; $i++) {
                 Item::create(['id' => $id . '-' . $i, 'name' => 'Bulk ' . $i]);
             }
             for ($i = 0; $i < 101; $i++) {
-                TestBench::tryRecordEffect('message', 'Bulk effect ' . $i, ['topic' => 'bulk', 'payload' => $i]);
+                Sendproof::tryRecordEffect('message', 'Bulk effect ' . $i, ['topic' => 'bulk', 'payload' => $i]);
             }
             for ($i = 0; $i < 501; $i++) {
                 Log::info('bulk log ' . $i);
             }
 
             return response()->json(['id' => $id, 'name' => 'captured'], 201);
-        })->testbenchPreview();
+        })->sendproofPreview();
     });
 });

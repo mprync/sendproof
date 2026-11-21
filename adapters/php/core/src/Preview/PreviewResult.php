@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Preview;
+namespace Sendproof\Core\Preview;
 
 /** Either a confirmed preview envelope or a rejection the transport must send as a problem response. */
 final class PreviewResult

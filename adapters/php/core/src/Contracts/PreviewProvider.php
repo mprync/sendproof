@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Contracts;
+namespace Sendproof\Core\Contracts;
 
 /**
  * Connects the preview protocol to a data layer.

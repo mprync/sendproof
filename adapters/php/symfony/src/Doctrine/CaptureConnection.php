@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Driver\Connection as ConnectionInterface;
 use Doctrine\DBAL\Driver\Middleware\AbstractConnectionMiddleware;
 use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
-use TestBench\Core\Capture\Recorder;
-use TestBench\Core\Capture\SqlRedactor;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Capture\SqlRedactor;
 
 /** Records statements that run without prepared parameters, and wraps prepared ones. */
 final class CaptureConnection extends AbstractConnectionMiddleware

@@ -6,7 +6,7 @@ namespace Fixture\Security;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\User\UserInterface;
-use TestBench\Symfony\Identity\IdentityResolver;
+use Sendproof\Symfony\Identity\IdentityResolver;
 
 /** Shows the persona's display name and role. */
 final class FixtureIdentity implements IdentityResolver

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Http;
+namespace Sendproof\Symfony\Http;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -13,18 +13,18 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\Routing\Exception\MethodNotAllowedException;
 use Symfony\Component\Routing\Exception\ResourceNotFoundException;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
-use TestBench\Core\Preview\CapturedResponse;
-use TestBench\Core\Preview\ObservedRunner;
-use TestBench\Core\Preview\PreviewResult;
-use TestBench\Core\Preview\PreviewRunner;
-use TestBench\Core\Preview\PreviewState;
-use TestBench\Core\Protocol;
-use TestBench\Symfony\TestBenchManager;
+use Sendproof\Core\Preview\CapturedResponse;
+use Sendproof\Core\Preview\ObservedRunner;
+use Sendproof\Core\Preview\PreviewResult;
+use Sendproof\Core\Preview\PreviewRunner;
+use Sendproof\Core\Preview\PreviewState;
+use Sendproof\Core\Protocol;
+use Sendproof\Symfony\SendproofManager;
 
 /**
  * Implements the Preview and Observed Send transport as the first `kernel.request` listener.
  *
- * A preview request `/bench/_preview/items/12` is rewritten to `/items/12` and handled by the
+ * A preview request `/sendproof/_preview/items/12` is rewritten to `/items/12` and handled by the
  * real HTTP kernel in the same process as a main request, so the firewall, access control,
  * listeners, argument resolvers and the controller all run exactly as for a normal request. The
  * result is buffered, the database transaction is rolled back, and only then is a confirmed
@@ -32,12 +32,12 @@ use TestBench\Symfony\TestBenchManager;
  */
 final class PreviewListener
 {
-    public const STATE = '_testbench_state';
-    public const MODE = '_testbench_mode';
+    public const STATE = '_sendproof_state';
+    public const MODE = '_sendproof_mode';
 
     public function __construct(
         private readonly HttpKernelInterface $kernel,
-        private readonly TestBenchManager $manager,
+        private readonly SendproofManager $manager,
         private readonly RouteCatalog $catalog,
         private readonly ?TokenStorageInterface $tokens = null,
         private readonly ?LoggerInterface $logger = null,
@@ -73,15 +73,15 @@ final class PreviewListener
             }
 
             return Protocol::requestsRollback($prefer)
-                ? $this->problem(400, 'Use the Test Bench preview URL for rollback requests.')
+                ? $this->problem(400, 'Use the Sendproof preview URL for rollback requests.')
                 : null;
         }
 
         if (!$this->manager->enabled()) {
-            return $this->problem(404, 'Test Bench previews are unavailable.');
+            return $this->problem(404, 'Sendproof previews are unavailable.');
         }
         if (!Protocol::hasExactPreference($prefer)) {
-            return $this->problem(400, 'A Test Bench preview requires Prefer: tx=rollback.');
+            return $this->problem(400, 'A Sendproof preview requires Prefer: tx=rollback.');
         }
         if ($request->isMethod('HEAD')) {
             return $this->problem(405, 'A preview requires a response body.');
@@ -89,7 +89,7 @@ final class PreviewListener
 
         $target = substr($path, $offset + strlen(Protocol::PREFIX));
         if (!Protocol::isValidTarget($target)) {
-            return $this->problem(400, 'The Test Bench preview target is invalid.');
+            return $this->problem(400, 'The Sendproof preview target is invalid.');
         }
 
         $inner = $this->rewrite($request, substr($path, 0, $offset) . $target);
@@ -182,7 +182,7 @@ final class PreviewListener
 
         $content = $response->getContent();
         if ($content === false) {
-            throw new \RuntimeException('Test Bench previews require a buffered response.');
+            throw new \RuntimeException('Sendproof previews require a buffered response.');
         }
         $headers = [];
         foreach ($response->headers->all() as $name => $values) {
@@ -230,7 +230,7 @@ final class PreviewListener
     private function reporter(): callable
     {
         return function (\Throwable $error): void {
-            $this->logger?->error('A Test Bench preview failed: ' . $error->getMessage(), ['exception' => $error]);
+            $this->logger?->error('A Sendproof preview failed: ' . $error->getMessage(), ['exception' => $error]);
         };
     }
 }

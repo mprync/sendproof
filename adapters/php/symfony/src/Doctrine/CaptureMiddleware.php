@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Doctrine;
+namespace Sendproof\Symfony\Doctrine;
 
 use Doctrine\DBAL\Driver as DriverInterface;
 use Doctrine\DBAL\Driver\Middleware;
-use TestBench\Core\Capture\Recorder;
+use Sendproof\Core\Capture\Recorder;
 
 /**
  * DBAL middleware that reports every executed statement to the request's recorder.

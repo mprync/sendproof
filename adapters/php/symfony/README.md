@@ -1,6 +1,6 @@
-# Test Bench for Symfony
+# Sendproof for Symfony
 
-Test Bench adds an API workbench to a Symfony application: browse your OpenAPI document, edit requests, **Send** them, **Preview** a write with a real Doctrine rollback, and read the SQL, logs, effects and row changes that an **Observed Send** produced.
+Sendproof adds an API workbench to a Symfony application: browse your OpenAPI document, edit requests, **Send** them, **Preview** a write with a real Doctrine rollback, and read the SQL, logs, effects and row changes that an **Observed Send** produced.
 
 The bundle implements [Bench protocol v1](../../../spec/README.md). Preview hands the rewritten request to the real HTTP kernel in the same process, as a main request, inside a transaction that is always rolled back. The firewall, access control, listeners, argument resolvers and your controller all run exactly as for a normal request.
 
@@ -9,20 +9,20 @@ The bundle implements [Bench protocol v1](../../../spec/README.md). Preview hand
 ## Install
 
 ```sh
-composer require testbench/symfony
+composer require sendproof/symfony
 ```
 
 Register the bundle (Flex does this for you) and import the workbench routes:
 
 ```php
 // config/bundles.php
-TestBench\Symfony\TestBenchBundle::class => ['all' => true],
+Sendproof\Symfony\SendproofBundle::class => ['all' => true],
 ```
 
 ```yaml
-# config/routes/testbench.yaml
-testbench:
-    resource: '@TestBenchBundle/config/routes.php'
+# config/routes/sendproof.yaml
+sendproof:
+    resource: '@SendproofBundle/config/routes.php'
 ```
 
 ## Turn it on
@@ -30,21 +30,21 @@ testbench:
 The workbench is **off by default** and refuses to run in production. It answers only when both conditions hold:
 
 ```yaml
-# config/packages/testbench.yaml
-testbench:
+# config/packages/sendproof.yaml
+sendproof:
     enabled: true
     environments: ['dev']      # kernel environments, default ['dev']
     openapi_url: /api/doc.json
 ```
 
-With the switch off, or in an unlisted environment, `/bench/...` and `/bench/_preview/...` return 404. Do not list `prod` unless you have also restricted access with `testbench.authorize` and understand that previews run real application code.
+With the switch off, or in an unlisted environment, `/sendproof/...` and `/sendproof/_preview/...` return 404. Do not list `prod` unless you have also restricted access with `sendproof.authorize` and understand that previews run real application code.
 
 ## Opt operations in
 
-Preview and Observed Send are explicit per action. Add `#[AllowPreview]` to the controller method (or class), or set the route default `_testbench_preview: true`:
+Preview and Observed Send are explicit per action. Add `#[AllowPreview]` to the controller method (or class), or set the route default `_sendproof_preview: true`:
 
 ```php
-use TestBench\Symfony\Attribute\AllowPreview;
+use Sendproof\Symfony\Attribute\AllowPreview;
 
 #[Route('/items', methods: ['POST'])]
 #[AllowPreview]
@@ -55,15 +55,15 @@ Unmarked routes still work normally with Send. A preview of an unmarked route re
 
 ## What Preview guarantees
 
-- `POST /bench/_preview/items` is rewritten to `POST /items` and handled in-process. Method, query, headers and body are preserved. Nothing leaves the application.
-- A transaction opens on every connection in `testbench.connections` before the request is handled, and is rolled back afterwards. The result is confirmed only if rollback is verified. If the controller commits or closes the preview transaction, or rollback fails, you get an error response and no envelope.
+- `POST /sendproof/_preview/items` is rewritten to `POST /items` and handled in-process. Method, query, headers and body are preserved. Nothing leaves the application.
+- A transaction opens on every connection in `sendproof.connections` before the request is handled, and is rolled back afterwards. The result is confirmed only if rollback is verified. If the controller commits or closes the preview transaction, or rollback fails, you get an error response and no envelope.
 - Responses of 401 or 403, redirects before the controller, unhandled exceptions, responses over 1 MiB, unavailable providers and missing preferences never produce a confirmed envelope.
 - Cookies and `Location` from the inner response are dropped.
 - Outgoing Symfony Mailer messages are captured and **not sent**. Deliver anything else through the recorder (below).
 
 ### Record external effects
 
-Inject `TestBench\Core\Capture\Recorder` and ask before delivering anything outside the database. It returns `true` during a preview, so skip the effect then:
+Inject `Sendproof\Core\Capture\Recorder` and ask before delivering anything outside the database. It returns `true` during a preview, so skip the effect then:
 
 ```php
 if (!$this->recorder->tryRecordHttp('Notify billing', 'POST', $url, body: $payload)) {
@@ -88,7 +88,7 @@ Limits match the .NET adapter: 500 logs, 100 effects, 200 changes, 32 log proper
 
 - **Bulk and raw writes are not row changes.** DQL `UPDATE`/`DELETE`, `executeStatement()`, raw SQL, triggers and association join columns produce no ORM change. They still run inside the transaction, are rolled back, and appear in the SQL log.
 - **Named parameters passed to `executeQuery($sql, ['name' => $v])` reach the driver as positional `?`.** DBAL rewrites them before any middleware sees them, so they are reported as `p0`, `p1`, … and redaction falls back to the statement text (which still catches secret column names). Use `$connection->prepare()` and `bindValue('name', …)` when the parameter name matters.
-- **Only listed connections are rolled back.** Add every connection a previewed operation writes to in `testbench.connections`. Other connections, caches, messenger transports, files and external services are not undone.
+- **Only listed connections are rolled back.** Add every connection a previewed operation writes to in `sendproof.connections`. Other connections, caches, messenger transports, files and external services are not undone.
 - **Implicit commits.** MySQL and MariaDB commit on DDL. A migration inside a preview ends the transaction and the preview is then withheld, but the schema change has happened.
 - **Sessions** stored outside the listed connections are not rolled back.
 - **Messenger, HTTP client and notifier calls** are not captured automatically. Record them with the recorder.
@@ -104,14 +104,14 @@ Limits match the .NET adapter: 500 logs, 100 effects, 200 changes, 32 log proper
 | `openapi_url`, `documents` | Where your OpenAPI document lives. |
 | `auth_providers` | Sign-in methods shown by the workbench: `[{label: Staff, kind: oidc, url: /login}]`. |
 | `authorize` | Security attribute (such as `ROLE_ADMIN`) required to open the workbench, and to preview or observe. |
-| `identity` | Service implementing `TestBench\Symfony\Identity\IdentityResolver` for the name and role shown. Defaults to the user identifier. |
+| `identity` | Service implementing `Sendproof\Symfony\Identity\IdentityResolver` for the name and role shown. Defaults to the user identifier. |
 | `provider` | `doctrine` (default), `null` to disable previews, or the id of your own `PreviewProvider` service. |
 | `connections` | Doctrine connections enrolled in a preview. Default `['default']`. |
 | `trace.ttl` | Seconds an observed-send trace stays readable. Default 300. |
 
 ## Observed Send
 
-Send an operation with `Prefer: trace`. The response is untouched, plus an `X-TestBench-Trace` header when an authenticated user with a stable identifier made the call. The trace is readable at `/bench/_api/traces/{id}` only by that user, for `testbench.trace.ttl` seconds, with at most 8 traces per user and 32 in total. Traces are files in `var/testbench-traces`, so they work across PHP-FPM workers.
+Send an operation with `Prefer: trace`. The response is untouched, plus an `X-Sendproof-Trace` header when an authenticated user with a stable identifier made the call. The trace is readable at `/sendproof/_api/traces/{id}` only by that user, for `sendproof.trace.ttl` seconds, with at most 8 traces per user and 32 in total. Traces are files in `var/sendproof-traces`, so they work across PHP-FPM workers.
 
 ## Tests
 

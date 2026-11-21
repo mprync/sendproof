@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Core\Trace;
+namespace Sendproof\Core\Trace;
 
 /** Identifies who may read a trace: a stable authenticated subject within one authentication context. */
 final class TraceOwner

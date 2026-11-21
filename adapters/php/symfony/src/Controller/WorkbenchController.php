@@ -2,33 +2,33 @@
 
 declare(strict_types=1);
 
-namespace TestBench\Symfony\Controller;
+namespace Sendproof\Symfony\Controller;
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use TestBench\Core\Capabilities;
-use TestBench\Core\Protocol;
-use TestBench\Symfony\Http\RouteCatalog;
-use TestBench\Symfony\TestBenchManager;
+use Sendproof\Core\Capabilities;
+use Sendproof\Core\Protocol;
+use Sendproof\Symfony\Http\RouteCatalog;
+use Sendproof\Symfony\SendproofManager;
 
-/** Serves the embedded workbench UI, discovery and observed-send traces under `/bench`. */
+/** Serves the embedded workbench UI, discovery and observed-send traces under `/sendproof`. */
 final class WorkbenchController
 {
-    public function __construct(private readonly TestBenchManager $manager, private readonly RouteCatalog $catalog)
+    public function __construct(private readonly SendproofManager $manager, private readonly RouteCatalog $catalog)
     {
     }
 
-    /** `/bench/` serves the UI; `/bench` redirects to it, keeping the query string. */
+    /** `/sendproof/` serves the UI; `/sendproof` redirects to it, keeping the query string. */
     public function index(Request $request): Response
     {
-        if (!str_ends_with($request->getPathInfo(), '/') && $request->getPathInfo() !== '/bench/signin.html') {
+        if (!str_ends_with($request->getPathInfo(), '/') && $request->getPathInfo() !== '/sendproof/signin.html') {
             if (!$this->open()) {
                 return $this->notFound();
             }
             $query = (string) $request->server->get('QUERY_STRING', '');
 
-            return new Response('', 302, ['Location' => $request->getBaseUrl() . '/bench/' . ($query === '' ? '' : '?' . $query)]);
+            return new Response('', 302, ['Location' => $request->getBaseUrl() . '/sendproof/' . ($query === '' ? '' : '?' . $query)]);
         }
 
         return $this->asset('index.html');
@@ -41,7 +41,7 @@ final class WorkbenchController
         }
         $bundle = $this->manager->ui();
         if (!$bundle->isAvailable()) {
-            return $this->problem(503, 'The Test Bench UI bundle is not embedded. Run `composer embed-ui` in testbench/core.');
+            return $this->problem(503, 'The Sendproof UI bundle is not embedded. Run `composer embed-ui` in sendproof/core.');
         }
         $found = $bundle->asset($asset);
         if ($found === null) {

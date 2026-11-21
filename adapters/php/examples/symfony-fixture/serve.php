@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 $port = (int) (getenv('PORT') ?: 5374);
 $scenario = getenv('BENCH_SCENARIO') ?: 'standard';
-$directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'testbench-symfony-fixture-' . $port;
+$directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'sendproof-symfony-fixture-' . $port;
 
 // A new process always starts with an empty table, no stored traces and a cold container cache.
 if (is_dir($directory)) {
@@ -34,7 +34,7 @@ $environment = [
     'APP_ENV' => $scenario === 'disabled' ? 'prod' : 'dev',
     'APP_DEBUG' => '0',
     'DB_DATABASE' => $database,
-    'TESTBENCH_TRACE_TTL' => getenv('TESTBENCH_TRACE_TTL') ?: '5',
+    'SENDPROOF_TRACE_TTL' => getenv('SENDPROOF_TRACE_TTL') ?: '5',
     'PHP_CLI_SERVER_WORKERS' => '1',
 ];
 $arguments = [PHP_BINARY, '-d', 'memory_limit=512M', '-S', "127.0.0.1:{$port}", __DIR__ . '/router.php'];
