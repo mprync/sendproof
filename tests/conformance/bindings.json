@@ -303,6 +303,8 @@
     {
       "id": "go-net-http",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5366,
       "readiness": "/ready",
@@ -318,6 +320,8 @@
     {
       "id": "go-chi",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5368,
       "readiness": "/ready",
@@ -332,6 +336,8 @@
     {
       "id": "go-gin",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5369,
       "readiness": "/ready",
@@ -346,6 +352,8 @@
     {
       "id": "go-echo",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5370,
       "readiness": "/ready",
@@ -360,6 +368,8 @@
     {
       "id": "go-gorm",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5373,
       "readiness": "/ready",
@@ -374,6 +384,7 @@
     {
       "id": "go-net-http-postgresql",
       "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5410,
       "readiness": "/ready",
@@ -385,6 +396,7 @@
     {
       "id": "go-net-http-mysql",
       "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5411,
       "readiness": "/ready",
@@ -396,6 +408,7 @@
     {
       "id": "go-net-http-sqlserver",
       "database": "sqlserver",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5412,
       "readiness": "/ready",
@@ -407,6 +420,7 @@
     {
       "id": "go-gorm-postgresql",
       "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5413,
       "readiness": "/ready",
@@ -417,6 +431,7 @@
     {
       "id": "go-gorm-mysql",
       "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5414,
       "readiness": "/ready",
@@ -427,6 +442,7 @@
     {
       "id": "go-gorm-sqlserver",
       "database": "sqlserver",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5415,
       "readiness": "/ready",
