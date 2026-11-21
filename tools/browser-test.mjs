@@ -836,6 +836,12 @@ const clipProblems = (checkPageScroll = true) => {
     const readable = Math.min(text.scrollWidth, (here ? 5 : 3) * rem);
     if (text.clientWidth < readable - 0.5) problems.push(`crumb ${name(text)} shows only ${text.clientWidth}px of ${text.scrollWidth}px`);
     if (text.getAttribute('title') !== text.textContent.trim()) problems.push(`crumb ${name(text)} has no title with its full text`);
+    // A short earlier crumb sits tight against the next chevron: its box is no wider than its text
+    // (the 5 rem floor applies only to a crumb whose text is longer). Needs calc-size(), as in Chromium.
+    const gap = item.getBoundingClientRect().width - text.getBoundingClientRect().width;
+    if (!here && CSS.supports('min-inline-size', 'calc-size(max-content, size)') && text.scrollWidth < 4.5 * rem && gap > 1.5) {
+      problems.push(`crumb ${name(text)} leaves a ${gap.toFixed(1)}px gap before the chevron`);
+    }
   });
   // The sidebar's controls (the Operations | Models tabs, the signed-out notice's Sign in and seeded-account
   // buttons, the foot bar) keep their whole label, inside their own box and inside the sidebar.
