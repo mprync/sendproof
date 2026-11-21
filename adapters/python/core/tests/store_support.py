@@ -122,3 +122,55 @@ def new_mongo(**options):
     from pymongo import MongoClient
 
     return MongoClient(MONGODB_URL, serverSelectionTimeoutMS=3000, **options)
+
+
+# ------------------------------------------------------------------ driving the Preview pipeline
+def sync_bench(*stores):
+    """The synchronous Preview engine (Flask and Django use it) over the given stores, with no SQL provider."""
+    import json  # noqa: F401  (kept local: only these helpers need it)
+
+    from sendproof_core import BenchOptions
+    from sendproof_core.stores import StoresOnlyProvider
+    from sendproof_core.sync_engine import SyncBench
+    from sendproof_core.workbench import Workbench
+
+    options = BenchOptions(environment="Development", framework="Test")
+    provider = StoresOnlyProvider()
+    return SyncBench(options, provider, Workbench(options, provider), None, stores)
+
+
+def run_preview(engine, handler):
+    """Run ``handler(scope) -> (status, body)`` as a Preview and return the pipeline's response."""
+    import json
+
+    from sendproof_core.sync_engine import Inner
+
+    def dispatch(scope):
+        scope.entered = True
+        status, body = handler(scope)
+        return Inner(status, [("content-type", "application/json")], json.dumps(body).encode())
+
+    return engine.preview(dispatch=dispatch, started=0.0, method="POST", path="/sendproof/_preview/x")
+
+
+async def arun_preview(stores, handler):
+    """The asynchronous pipeline of the ASGI adapter, without HTTP: returns ``(scope, handler_error)``.
+
+    Begin every store, run ``handler(scope)`` (a coroutine function), then finish every store in
+    reverse, as ``SendproofMiddleware`` does. ``scope.capture.blocked`` and ``.fault`` hold the outcome.
+    """
+    scope = preview_scope()
+    error = None
+    with active(scope):
+        begun = []
+        try:
+            for store in stores:
+                begun.append(store)
+                await store.abegin(scope)
+            await handler(scope)
+        except Exception as caught:  # noqa: BLE001 - the tests inspect it
+            error = caught
+        scope.capture.handler_finished()
+        for store in reversed(begun):
+            await store.afinish(scope)
+    return scope, error
