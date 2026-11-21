@@ -118,6 +118,38 @@ final class RedisStoreTest extends TestCase
         $this->assertTrue($read->isConfirmed());
     }
 
+    public function testClusterAndReplicationClientsRefuseRawAndHandBuiltWritesToo(): void
+    {
+        $redis = Services::redis();
+        $node = ['scheme' => 'tcp', 'host' => $redis['host'], 'port' => $redis['port'], 'password' => $redis['password'], 'timeout' => 2.0, 'read_write_timeout' => 2.0];
+        foreach ([
+            'predis cluster' => static fn (): Client => new Client([$node], ['cluster' => 'predis']),
+            'replication' => static fn (): Client => new Client([$node + ['role' => 'master']], ['replication' => 'predis']),
+        ] as $label => $make) {
+            $recorder = new Recorder();
+            $client = $make();
+            PredisGuard::install($client, new RedisHook(new Guard(static fn () => $recorder), null, '0'));
+            $store = new GuardOnlyStore('redis');
+            foreach ([
+                'raw' => fn () => $client->executeRaw(['SET', $this->prefix . 'aggregate-raw', '1']),
+                'hand-built' => fn () => $client->executeCommand(new \Predis\Command\RawCommand('SET', [$this->prefix . 'aggregate-built', '1'])),
+            ] as $path => $call) {
+                $result = $this->preview($recorder, [$store], function () use ($call): void {
+                    try {
+                        $call();
+                    } catch (PreviewWriteBlockedException) {
+                    }
+                });
+                $this->assertSame(409, $result->status, "{$label}, {$path}");
+            }
+            $this->assertNull($this->reader->get($this->prefix . 'aggregate-raw'), "{$label}: executeRaw must not reach Redis");
+            $this->assertNull($this->reader->get($this->prefix . 'aggregate-built'), "{$label}: a hand-built command must not reach Redis");
+            $read = $this->preview($recorder, [$store], fn () => $client->executeRaw(['GET', $this->prefix . 'seeded']));
+            $this->assertTrue($read->isConfirmed(), "{$label}: reads still run");
+            $this->assertSame('5', $client->get($this->prefix . 'seeded'));
+        }
+    }
+
     public function testAPipelineOfReadsRunsAndIsLogged(): void
     {
         [$recorder, $client, $store] = $this->hooked();

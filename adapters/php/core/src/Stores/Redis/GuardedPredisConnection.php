@@ -23,9 +23,17 @@ use Sendproof\Core\Stores\PreviewWriteBlockedException;
  */
 final class GuardedPredisConnection implements NodeConnectionInterface
 {
+    /**
+     * Read-only topology commands a cluster or replication connection sends on its nodes by itself
+     * (Predis's `RedisCluster` asks `CLUSTER SLOTS`, Sentinel replication asks the sentinels). They
+     * report where data lives and change nothing, so a node inside an aggregate lets them through.
+     */
+    private const TOPOLOGY = ['CLUSTER|SLOTS', 'SENTINEL|GET-MASTER-ADDR-BY-NAME', 'SENTINEL|SENTINELS', 'SENTINEL|REPLICAS', 'SENTINEL|SLAVES'];
+
     private bool $inMulti = false;
 
-    public function __construct(private readonly NodeConnectionInterface $inner, private readonly RedisHook $hook)
+    /** @param bool $aggregateNode Whether the connection is a node of a cluster or replication connection */
+    public function __construct(private readonly NodeConnectionInterface $inner, private readonly RedisHook $hook, private readonly bool $aggregateNode = false)
     {
     }
 
@@ -165,6 +173,9 @@ final class GuardedPredisConnection implements NodeConnectionInterface
     /** @param list<mixed> $args */
     private function classify(string $id, array $args, bool $pipelined): CommandKind
     {
+        if ($this->aggregateNode && $args !== [] && is_string($args[0]) && in_array($id . '|' . strtoupper($args[0]), self::TOPOLOGY, true)) {
+            return CommandKind::Session;
+        }
         try {
             $kind = $this->hook->check($id, $args);
         } catch (PreviewWriteBlockedException $refusal) {

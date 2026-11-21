@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Sendproof\Core\Stores\Redis;
 
 use Predis\Client;
-use Predis\Connection\NodeConnectionInterface;
+use Predis\Connection\AggregateConnectionInterface;
 use Predis\Connection\ConnectionInterface;
+use Predis\Connection\FactoryInterface;
+use Predis\Connection\NodeConnectionInterface;
 
 /**
  * Hooks a Predis client in place (spec/data-stores.md, `guard` mode).
@@ -15,10 +17,12 @@ use Predis\Connection\ConnectionInterface;
  *
  * - a command processor on the client's command factory, which sees every command a pipeline or
  *   transaction callback queues, so a refused write stops the whole batch before `EXEC`;
- * - a connection decorator, which sees `executeRaw()`, hand-built commands and pub/sub.
+ * - a connection decorator on every node connection, which sees `executeRaw()`, hand-built
+ *   commands and pub/sub.
  *
- * Cluster, replication and Relay clients get the processor only: their connections are not plain
- * node (single-server) connections, which the decorator doesn't wrap. `executeRaw()` on such a client is not covered.
+ * A cluster or replication client (`cluster`, `replication`, Sentinel) keeps its own connection
+ * class, which pipelines and transactions depend on; the decorator goes on each node inside it
+ * instead, and on the factory it creates new nodes with, so a node discovered later is guarded too.
  */
 final class PredisGuard
 {
@@ -38,12 +42,52 @@ final class PredisGuard
         $factory->setProcessor(new PredisGuardProcessor($hook, $factory->getProcessor()));
 
         $connection = $client->getConnection();
-        if (!$connection instanceof NodeConnectionInterface) {
+        if ($connection instanceof AggregateConnectionInterface) {
+            self::guardAggregate($connection, $hook);
+
             return;
+        }
+        if (!$connection instanceof NodeConnectionInterface) {
+            throw new \InvalidArgumentException('Sendproof cannot guard a Predis client whose connection is neither a node nor a cluster or replication connection.');
         }
         // Client::$connection is protected and the client has no setter, so rebind it from inside.
         \Closure::bind(function (ConnectionInterface $guarded): void {
             $this->connection = $guarded;
         }, $client, Client::class)(new GuardedPredisConnection($connection, $hook));
+    }
+
+    /**
+     * Guards the node connections an aggregate already holds (re-added through its own `remove()`
+     * and `add()`, so its slot, alias and role bookkeeping stays right) and the factory it creates
+     * new nodes with. Predis keeps both in non-public properties, which are found by type.
+     */
+    private static function guardAggregate(AggregateConnectionInterface $aggregate, RedisHook $hook): void
+    {
+        $nodes = [];
+        for ($class = new \ReflectionClass($aggregate); $class !== false; $class = $class->getParentClass()) {
+            foreach ($class->getProperties() as $property) {
+                if ($property->isStatic() || !$property->isInitialized($aggregate)) {
+                    continue;
+                }
+                $value = $property->getValue($aggregate);
+                if ($value instanceof FactoryInterface && !$value instanceof GuardedPredisFactory) {
+                    $property->setValue($aggregate, new GuardedPredisFactory($value, $hook));
+                } elseif ($property->getName() === 'pool' && is_array($value)) {
+                    $nodes = [...$nodes, ...array_values($value)];
+                } elseif ($value instanceof NodeConnectionInterface) {
+                    $nodes[] = $value;
+                }
+            }
+        }
+        $seen = new \SplObjectStorage();
+        foreach ($nodes as $node) {
+            if (!$node instanceof NodeConnectionInterface || $node instanceof GuardedPredisConnection || $seen->contains($node)) {
+                continue;
+            }
+            $seen->attach($node);
+            if ($aggregate->remove($node)) {
+                $aggregate->add(new GuardedPredisConnection($node, $hook, true));
+            }
+        }
     }
 }
