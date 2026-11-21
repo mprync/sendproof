@@ -335,7 +335,6 @@
       "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"]
     },
     {
-    {
       "id": "php-laravel-sqlserver",
       "database": "sqlserver",
       "toolchain": "php",
@@ -350,6 +349,7 @@
       "traceTtlMs": 5000,
       "sharedRules": ["secret-columns", "raw-commit"]
     },
+    {
       "id": "php-symfony",
       "database": "sqlite",
       "toolchain": "php",
@@ -757,7 +757,6 @@
       ],
       "traceTtlMs": 5000,
       "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q"
-    }
     },
     {
       "id": "dotnet-aspnetcore-mariadb",
@@ -923,5 +922,6 @@
       "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000,
       "startupMs": 120000
+    }
   ]
 }

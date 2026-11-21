@@ -127,12 +127,6 @@ jobs:
         ports:
           - 3306:3306
         options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pbench_local --silent" --health-interval 3s --health-timeout 3s --health-retries 30
-      sqlserver:
-        image: ${{ matrix.database == 'sqlserver' && 'mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718' || '' }}
-        env:
-          ACCEPT_EULA: 'Y'
-          MSSQL_PID: Developer
-          MSSQL_SA_PASSWORD: 'BenchLocal_2026!'
       mariadb:
         image: ${{ matrix.database == 'mariadb' && 'mariadb:12.3@sha256:4aaf88b3106382c8c18e49f0cec60267be618fc22f858c4503afb2a2555afed3' || '' }}
         env:
@@ -141,6 +135,12 @@ jobs:
         ports:
           - 3306:3306
         options: --health-cmd "mariadb-admin ping -h 127.0.0.1 -pbench_local --silent" --health-interval 3s --health-timeout 3s --health-retries 30
+      sqlserver:
+        image: ${{ matrix.database == 'sqlserver' && 'mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718' || '' }}
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: 'BenchLocal_2026!'
         ports:
           - 1433:1433
         options: >-
@@ -149,13 +149,13 @@ jobs:
     env:
       BENCH_POSTGRES_URL: ${{ matrix.database == 'postgresql' && 'postgresql://bench:bench_local@127.0.0.1:5432/postgres' || '' }}
       BENCH_MYSQL_URL: ${{ matrix.database == 'mysql' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
+      BENCH_MARIADB_URL: ${{ matrix.database == 'mariadb' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
       BENCH_SQLSERVER_URL: ${{ matrix.database == 'sqlserver' && 'mssql://sa:BenchLocal_2026%21@127.0.0.1:1433/master?encrypt=false&trustServerCertificate=true' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-      BENCH_MARIADB_URL: ${{ matrix.database == 'mariadb' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
         with:
           node-version: '22'
       - if: matrix.toolchain == 'dotnet'
@@ -176,6 +176,18 @@ jobs:
         with:
           go-version: '1.26.11'
           cache-dependency-path: adapters/go/**/go.sum
+      # PHP reaches SQL Server through Microsoft's ODBC driver, which the sqlsrv and pdo_sqlsrv extensions
+      # need. It comes from Microsoft's apt repository (installing it accepts Microsoft's licence terms)
+      # and is installed only for the entry that uses it; the repository publishes it for the runner's
+      # Ubuntu release.
+      - name: Install the Microsoft ODBC driver for PHP on SQL Server
+        if: matrix.id == 'php-laravel-sqlserver'
+        run: |
+          curl -fsSL -o packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
       - if: matrix.toolchain == 'php'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
         with:
@@ -194,21 +206,10 @@ jobs:
         env:
           DATABASE: ${{ matrix.database }}
         run: |
-      # PHP reaches SQL Server through Microsoft's ODBC driver, which the sqlsrv and pdo_sqlsrv extensions
-      # need. It comes from Microsoft's apt repository (installing it accepts Microsoft's licence terms)
-      # and is installed only for the entry that uses it; the repository publishes it for the runner's
-      # Ubuntu release.
-      - name: Install the Microsoft ODBC driver for PHP on SQL Server
-        if: matrix.id == 'php-laravel-sqlserver'
-        run: |
-          curl -fsSL -o packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
-          sudo dpkg -i packages-microsoft-prod.deb
-          rm packages-microsoft-prod.deb
-          sudo apt-get update
-          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
           case "$DATABASE" in
             postgresql) test -n "$BENCH_POSTGRES_URL" ;;
             mysql) test -n "$BENCH_MYSQL_URL" ;;
+            mariadb) test -n "$BENCH_MARIADB_URL" ;;
             sqlserver) test -n "$BENCH_SQLSERVER_URL" ;;
             sqlite|h2) ;;
             *) echo "No database service for '$DATABASE'; add one to the conformance job" >&2; exit 1 ;;
@@ -217,7 +218,6 @@ jobs:
       # data stores come from compose.yml. Only the stores this entry lists are started.
       - name: Start data stores
         if: matrix.stores != ''
-            mariadb) test -n "$BENCH_MARIADB_URL" ;;
         env:
           STORES: ${{ matrix.stores }}
         run: docker compose -f tests/conformance/compose.yml up -d --wait ${STORES//,/ }
