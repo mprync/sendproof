@@ -52,8 +52,10 @@ module Sendproof
     end
 
     def capabilities(request)
-      provider = @config.provider
+      provider = @config.preview_provider
       operations = provider ? @config.operations : []
+      unavailable = provider ? @config.unavailable_operations : []
+      stores = @config.data_stores.map { |store| store.describe.compact }
       base = request.script_name.to_s
       open_api_url = base + @config.open_api_url
       documents = @config.documents.map { |document| { name: document[:name], url: base + document[:url] } }
@@ -65,14 +67,27 @@ module Sendproof
         fieldModules: @config.field_modules.map { |url| base + url },
         apiName: @config.api_name,
         environment: @config.environment,
-        database: provider&.database,
+        database: database(@config.provider),
+        binding: { language: "ruby", framework: @config.framework },
         identity: identity && { name: identity.name, **(identity.role ? { role: identity.role } : {}) },
         authProviders: @config.auth_providers.map { |p| p.merge(url: p[:url] && base + p[:url]) },
         previewOperations: operations,
         observedSend: !operations.empty?,
         documents:
       }
+      document[:previewUnavailable] = unavailable unless unavailable.empty?
+      document[:dataStores] = stores unless stores.empty?
       Protocol.json(200, document, { "cache-control" => "no-store", "x-content-type-options" => "nosniff" })
+    end
+
+    # The database as discovery shows it: a display name, or +{name:, system:}+ when the provider says
+    # which SQL system it is, so the workbench shows that system's mark.
+    def database(provider)
+      return nil unless provider
+
+      name = provider.database
+      system = provider.respond_to?(:database_system) ? provider.database_system : nil
+      system ? { name: name, system: system } : name
     end
 
     def trace(request, id)

@@ -24,6 +24,18 @@ module Sendproof
       end
     end
 
+    # Replaces the value of every secret-named field with {REDACTED}, at any depth of a nested
+    # document or array. A secret-named field hides its whole value, nested or not.
+    #
+    # @return [Object] a copy; scalars come back as given
+    def deep(value)
+      case value
+      when Hash then value.to_h { |name, inner| [name, looks_secret?(name) ? REDACTED : deep(inner)] }
+      when Array then value.map { |item| deep(item) }
+      else value
+      end
+    end
+
     # Splits at punctuation, underscores, digits-to-letters and camelCase boundaries; lowercases.
     def words(text)
       text.scan(/[[:alnum:]]+/).flat_map do |chunk|

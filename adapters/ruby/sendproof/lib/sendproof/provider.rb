@@ -23,6 +23,13 @@ module Sendproof
       nil
     end
 
+    # @return [String, nil] the SQL provider id, matching the workbench's store marks: +sqlite+,
+    #   +postgresql+, +mysql+, +mariadb+, +mssql+. Capabilities then name the database as
+    #   +{name:, system:}+ so the workbench shows the right mark instead of guessing from the name.
+    def database_system
+      nil
+    end
+
     # Starts the transaction before the handler runs.
     # @param context [ProviderContext]
     # @return [PreviewSession]
@@ -58,6 +65,19 @@ module Sendproof
       def changes = []
       def changes_truncated? = false
       def close; end
+    end
+
+    # The provider used when the host registered data stores but no SQL provider. It opens no
+    # transaction: each store aborts its own and guards its writes, so a Preview needs no database.
+    class None < Provider
+      # A session with nothing to roll back.
+      class Session < PreviewSession
+        def rollback! = nil
+      end
+
+      def begin_preview(_context) = Session.new
+
+      def begin_observation(_context) = Observation.new
     end
   end
 end

@@ -14,6 +14,16 @@ module Sendproof
       Thread.current[KEY]
     end
 
+    # The preview this code runs inside, even after the preview's recorder finished. Store hooks use
+    # it so a write a handler sends late (after its response settled) is still refused, never sent
+    # unguarded.
+    #
+    # @return [Recorder, nil]
+    def preview
+      recorder = current
+      recorder if recorder&.rollback?
+    end
+
     # Makes +recorder+ current for the block, restoring the previous one afterwards.
     def with(recorder)
       previous = Thread.current[KEY]

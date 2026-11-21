@@ -3,9 +3,17 @@
 module Sendproof
   # Collects effects, logs and SQL timing for one preview or observed send. Thread safe.
   class Recorder
-    Snapshot = Struct.new(:effects, :logs, :logs_truncated, :effects_truncated, keyword_init: true)
+    Snapshot = Struct.new(:effects, :logs, :logs_truncated, :effects_truncated, :changes, :changes_truncated,
+                          keyword_init: true)
+
+    # The first write the guard refused during a preview: what the 409 answer names.
+    BlockedWrite = Struct.new(:store, :operation, :detail)
 
     attr_reader :started
+    # @return [BlockedWrite, nil] the first refused write; it decides a preview's 409, whatever the handler returns
+    attr_reader :blocked
+    # @return [Exception, nil] the first transaction-control refusal; it withholds confirmation
+    attr_reader :fault
 
     # @param rollback [Boolean] true for a preview (effects are suppressed), false for an observed send
     # @param include_sql_values [Boolean] whether non-secret SQL parameter values are recorded
@@ -24,6 +32,10 @@ module Sendproof
       @db_ms = 0.0
       @queries = 0
       @serialize_ms = 0.0
+      @blocked = nil
+      @fault = nil
+      @changes = []
+      @changes_truncated = false
     end
 
     def rollback? = @rollback
@@ -60,6 +72,82 @@ module Sendproof
           @effects_truncated = true
         end
         @rollback
+      end
+    end
+
+    # Keeps the first refused write. Only a preview records one; the first block wins.
+    def block(store:, operation:, detail:)
+      return unless @rollback
+
+      @mutex.synchronize do
+        @blocked ||= BlockedWrite.new(Limits.clip(store, Limits::NAME), Limits.clip(operation, Limits::NAME),
+                                      Limits.clip(detail))
+      end
+    end
+
+    # Keeps the first fault: a refused transaction-control command, an escaped write or a timeout.
+    # Only a preview records one; it answers 500 without confirmation, whatever the handler returns.
+    def refuse(error)
+      return unless @rollback
+
+      @mutex.synchronize { @fault ||= error }
+    end
+
+    # Records a row, document, item or key change made through a data-store hook. Secret-named
+    # fields never leave the process, at any depth of a nested document.
+    #
+    # @param change [Hash] +:operation+, +:table+, +:key+, +:before+, +:after+ and optionally
+    #   +:store+, +:namespace+ and +:via+
+    def change(change)
+      @mutex.synchronize do
+        return unless @active
+
+        if @changes.length > Limits::CHANGES
+          @changes_truncated = true
+        else
+          @changes << change.merge(key: Redaction.deep(change[:key]), before: Redaction.deep(change[:before]),
+                                   after: Redaction.deep(change[:after]))
+        end
+      end
+    end
+
+    # Marks the changes as cut short, for example when a hook stopped reading candidates.
+    def truncate_changes
+      @mutex.synchronize { @changes_truncated = true }
+    end
+
+    # Records one data-store command as a +Db+ log entry. The message is the OpenTelemetry span name,
+    # +{operation} {target}+. Hooks pass sanitized statements only; values never reach this method.
+    #
+    # @param system [String] the store id
+    # @param duration_ms [Float, nil]
+    # @param blocked [Boolean] true for the entry of a command the guard refused
+    def db(system:, operation:, target: nil, namespace: nil, statement: nil, rows_affected: nil, blocked: false,
+           error: nil, duration_ms: nil)
+      @mutex.synchronize do
+        return unless @active
+
+        unless blocked
+          @queries += 1
+          @db_ms += duration_ms.to_f
+        end
+        return unless log_room?
+
+        db = { system: clip(system, Limits::NAME), operation: clip(operation, Limits::NAME) }
+        db[:target] = clip(target, Limits::NAME) if target
+        db[:namespace] = clip(namespace, Limits::NAME) if namespace
+        db[:statement] = clip(statement) if statement
+        db[:rowsAffected] = rows_affected if rows_affected.is_a?(Integer) && rows_affected >= 0
+        db[:blocked] = true if blocked
+        db[:error] = clip(error, Limits::NAME) if error
+        entry = { level: "Db", message: db[:target] ? "#{db[:operation]} #{db[:target]}" : db[:operation], db: db }
+        if duration_ms
+          entry[:elapsedMs] = [0.0, duration_ms].max
+          entry[:offsetMs] = [0.0, offset_ms - duration_ms].max
+        else
+          entry[:offsetMs] = offset_ms
+        end
+        add_log(entry)
       end
     end
 
@@ -133,9 +221,11 @@ module Sendproof
       @mutex.synchronize do
         @active = false
         snapshot = Snapshot.new(effects: @effects.dup, logs: @logs.dup,
-                                logs_truncated: @logs_truncated, effects_truncated: @effects_truncated)
+                                logs_truncated: @logs_truncated, effects_truncated: @effects_truncated,
+                                changes: @changes.dup, changes_truncated: @changes_truncated)
         @effects.clear
         @logs.clear
+        @changes.clear
         snapshot
       end
     end
@@ -172,6 +262,9 @@ module Sendproof
       size += entry[:eventId][:name].to_s.length if entry[:eventId]
       entry[:properties]&.each { |name, value| size += name.length + value.length }
       size += entry[:exception][:type].length + entry[:exception][:message].length if entry[:exception]
+      if (db = entry[:db])
+        size += %i[system operation target namespace statement error].sum { |name| db[name].to_s.length }
+      end
       if (sql = entry[:sql])
         size += sql[:text].length
         sql[:parameters].each { |p| size += p[:name].length + p[:value].to_s.length + p[:dbType].length }

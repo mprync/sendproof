@@ -46,7 +46,7 @@ module Sendproof
     end
 
     # Applies the change count, payload budget and per-value limits.
-    # @param changes [Array<Hash>] with :operation, :table, :key, :before, :after
+    # @param changes [Array<Hash>] with :operation, :table, :key, :before, :after and optionally :store, :namespace, :via
     # @return [Array(Array<Hash>, Boolean)] snapshots and a truncated flag
     def snapshot_changes(changes)
       result = []
@@ -67,7 +67,12 @@ module Sendproof
         truncated ||= (key.nil? && !change[:key].nil?) || (before.nil? && !change[:before].nil?) ||
                       (after.nil? && !change[:after].nil?) || operation != change[:operation].to_s ||
                       table != change[:table].to_s
-        result << { operation:, table:, key:, before:, after: }
+        entry = { operation:, table:, key:, before:, after: }
+        # Data-store changes also name their store, database and, for an upsert or replacement, how.
+        entry[:store] = clip(change[:store], NAME) if change[:store]
+        entry[:namespace] = clip(change[:namespace], NAME) if change[:namespace]
+        entry[:via] = change[:via].to_s if change[:via]
+        result << entry
       end
       [result, truncated]
     end

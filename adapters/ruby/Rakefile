@@ -14,6 +14,13 @@ namespace :ui do
   end
 end
 
+namespace :stores do
+  desc "Regenerate the embedded data-store tables from spec/data-stores/ (never edit tables.rb by hand)"
+  task :embed do
+    ruby File.expand_path("sendproof/scripts/embed_store_tables.rb", __dir__)
+  end
+end
+
 %w[sendproof sendproof-activerecord sendproof-rails].each do |gem_dir|
   Rake::TestTask.new("test:#{gem_dir}") do |task|
     task.libs << File.join(gem_dir, "test") << File.join(gem_dir, "lib")

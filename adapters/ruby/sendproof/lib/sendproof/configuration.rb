@@ -30,7 +30,10 @@ module Sendproof
     attr_accessor :ui_directory
     # @return [#warn, #error, nil] where adapter problems are logged
     attr_accessor :logger
-    attr_reader :environments, :documents, :field_modules, :auth_providers, :providers
+    # @return [String] the web framework named in capabilities +binding+, so the workbench shows the
+    #   +preview: false+ snippet in the host's own language ("Rack" unless an adapter says otherwise)
+    attr_writer :framework
+    attr_reader :environments, :documents, :field_modules, :auth_providers, :providers, :data_stores
 
     def initialize(**options)
       @environments = Set.new
@@ -38,7 +41,9 @@ module Sendproof
       @field_modules = []
       @auth_providers = []
       @providers = []
+      @data_stores = []
       @preview_operations = []
+      @preview_unavailable = []
       @trace_ttl = 300
       @trace_clock = Clock.method(:now)
       @environment = "development"
@@ -47,6 +52,7 @@ module Sendproof
 
     def api_name = @api_name || "API"
     def environment = @environment.to_s
+    def framework = @framework || "Rack"
 
     # Replaces the environments in which the workbench and preview are served. Production is never implied.
     def environments=(list)
@@ -85,6 +91,50 @@ module Sendproof
     def use(provider)
       @providers << provider
       provider
+    end
+
+    # Registers a data store hook (+Sendproof::Redis::Store+, +Sendproof::DynamoDB::Store+,
+    # +Sendproof::Mongoid::Store+ ...): any object with the {DataStore} methods. A Preview then also
+    # guards that store, and capabilities list it under +dataStores+.
+    def data_store(store)
+      unless store.respond_to?(:describe) && store.respond_to?(:system)
+        raise ConfigurationError, "A data store needs +system+ and +describe+; use Sendproof::Redis::Store, " \
+                                  "Sendproof::DynamoDB::Store or Sendproof::Mongoid::Store."
+      end
+
+      @data_stores << store
+      store
+    end
+
+    # Replaces the registered data stores.
+    def data_stores=(list)
+      @data_stores = []
+      Array(list).each { |store| data_store(store) }
+    end
+
+    # Operations marked +preview: false+, or a callable returning them. Each is a hash with +:method+,
+    # +:path+, +:reason+ and optionally +:stores+. Rails adapters read them from the controllers.
+    def preview_unavailable=(operations)
+      @preview_unavailable = operations
+    end
+
+    # @return [Array<Hash>] unique, sorted +{method:, path:, reason:, stores:}+ entries advertised in
+    #   capabilities +previewUnavailable+
+    def unavailable_operations
+      source = unavailable_source
+      source = source.call if source.respond_to?(:call)
+      Array(source).map do |entry|
+        operation = { method: entry[:method].to_s.upcase, path: entry[:path], reason: entry[:reason].to_s }
+        operation[:stores] = Array(entry[:stores]).map(&:to_s) if entry[:stores] && !Array(entry[:stores]).empty?
+        operation
+      end.uniq.sort_by { |operation| [operation[:path], operation[:method]] }
+    end
+
+    # The provider that owns a preview: the one available SQL provider, or, when the host registered
+    # data stores but no SQL provider, a provider with no database so the stores alone carry the preview.
+    # @return [#begin_preview, nil]
+    def preview_provider
+      provider || (data_stores.empty? || !providers.empty? ? nil : Provider::None.new)
     end
 
     # Static operations, or a callable returning them. Each is +[verb, path_template]+.
@@ -160,6 +210,11 @@ module Sendproof
     # Raw +[verb, path]+ pairs; adapters override this to discover operations.
     def operations_source
       @preview_operations.respond_to?(:call) ? @preview_operations.call : @preview_operations
+    end
+
+    # The marked operations; adapters override this to discover them from their routes.
+    def unavailable_source
+      @preview_unavailable
     end
 
     # Accepts only application-relative paths. Discovery hands these URLs to the browser, which

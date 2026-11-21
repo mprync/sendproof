@@ -32,7 +32,7 @@ module Sendproof
       return Protocol.problem(404, "The preview target was not found for this method.") if resolution.nil?
       return Protocol.problem(409, "This operation is unavailable for preview.") if resolution == :ineligible
 
-      provider = @config.provider
+      provider = @config.preview_provider
       return Protocol.problem(503, "Preview requires one available preview provider.") unless provider
 
       execute(env, request, provider, rewritten, started)
@@ -71,19 +71,33 @@ module Sendproof
       false
     end
 
+    # Runs one preview in the order spec/data-stores.md fixes: begin the SQL transaction and each
+    # store, run the handler, finish every store (capture changes, abort its transaction), then roll
+    # back SQL. Afterwards a failed step or a recorded fault answers 500, a refused write answers 409,
+    # and only then is the preview confirmed.
     def execute(env, request, provider, rewritten, started)
       recorder = Recorder.new(rollback: true, started:, include_sql_values: @config.sql_parameter_values?)
       preview = PreviewRequest.new(recorder:, clock: Clock::Request.new(started))
-      failure = nil
+      failure = nil         # a begin, finish or rollback step failed: nothing can be confirmed
+      handler_failure = nil # the handler raised, or its response was unusable
       response = nil
       envelope = nil
+      context = ProviderContext.new(env:, request:, config: @config)
 
       Capture.with(recorder) do
         begin
-          preview.session = provider.begin_preview(ProviderContext.new(env:, request:, config: @config))
+          preview.session = provider.begin_preview(context)
           raise "The preview provider returned no session." unless preview.session
 
-          response, failure = dispatch(env, rewritten, preview)
+          @config.data_stores.each { |store| store.begin_preview(context, recorder) if store.respond_to?(:begin_preview) }
+          response, handler_failure = dispatch(env, rewritten, preview)
+        rescue StandardError => error
+          failure = combine(failure, error)
+        end
+
+        # Every store finishes before the SQL rollback, and one that fails never stops the others.
+        @config.data_stores.each do |store|
+          store.finish_preview(recorder) if store.respond_to?(:finish_preview)
         rescue StandardError => error
           failure = combine(failure, error)
         end
@@ -92,7 +106,7 @@ module Sendproof
           begin
             session.rollback!
             session.finalize_capture(recorder) if session.respond_to?(:finalize_capture)
-            if failure.nil? && preview.completed? && response
+            if failure.nil? && handler_failure.nil? && preview.completed? && response && !recorder.fault && !recorder.blocked
               envelope = [response, session, recorder.finish]
             end
           rescue StandardError => error
@@ -110,7 +124,7 @@ module Sendproof
       preview.clock.end_handler
       skip_session_commit(env)
 
-      outcome(request, preview, response, failure, envelope)
+      outcome(request, preview, response, failure, handler_failure, recorder, envelope)
     end
 
     # Runs the inner request. Returns the buffered response and any failure.
@@ -190,16 +204,37 @@ module Sendproof
       end
     end
 
-    def outcome(request, preview, response, failure, envelope)
-      if failure
-        @config.logger&.error("A Sendproof preview failed for #{request.request_method} #{request.path}: " \
-                              "#{failure.class}: #{failure.message}")
-        return failure.is_a?(ResponseTooLarge) ? too_large : Protocol.problem(500, "The preview could not be completed safely.")
+    def outcome(request, preview, response, failure, handler_failure, recorder, envelope)
+      fault = failure || recorder.fault
+      if fault
+        log_failure(request, fault)
+        return Protocol.problem(500, "The preview could not be completed safely.")
+      end
+      # The refused-write mark decides, whatever the handler did with the error or returned.
+      return blocked_response(recorder.blocked) if recorder.blocked
+
+      if handler_failure
+        log_failure(request, handler_failure)
+        return handler_failure.is_a?(ResponseTooLarge) ? too_large : Protocol.problem(500, "The preview could not be completed safely.")
       end
       return reject_unexecuted(preview, response) unless envelope
 
       response, session, capture = envelope
       serialize(response, session, capture, preview)
+    end
+
+    def log_failure(request, failure)
+      @config.logger&.error("A Sendproof preview failed for #{request.request_method} #{request.path}: " \
+                            "#{failure.class}: #{failure.message}")
+    end
+
+    # The blocked-Preview response of spec/data-stores.md: 409 problem+json, never a confirmation. It
+    # carries nothing the handler produced and names the command, never its arguments.
+    def blocked_response(blocked)
+      body = JSON.generate({ type: "about:blank", title: "Preview unavailable", status: 409, code: "preview_unavailable",
+                             detail: blocked.detail, store: blocked.store, operation: blocked.operation, rolledBack: false })
+      [409, { "content-type" => "application/problem+json", "cache-control" => "no-store",
+              "content-length" => body.bytesize.to_s }, [body]]
     end
 
     def too_large = Protocol.problem(413, "The preview response exceeds the 1 MiB limit.")
@@ -226,12 +261,12 @@ module Sendproof
     end
 
     def serialize(response, session, capture, preview)
-      changes, truncated = Limits.snapshot_changes(session.changes)
+      changes, truncated = Limits.snapshot_changes(session.changes + capture.changes)
       headers = response.headers.reject { |name, _| Protocol::PRIVATE_HEADERS.include?(name) || name.length > Limits::NAME }
                         .first(Limits::PARAMETERS).to_h { |name, value| [name, Limits.clip(value)] }
       document = { status: response.status, headers:, body: read_body(response), changes:,
                    effects: capture.effects, logs: capture.logs, rolledBack: true }
-      document[:changesTruncated] = true if truncated || session.changes_truncated?
+      document[:changesTruncated] = true if truncated || session.changes_truncated? || capture.changes_truncated
       document[:effectsTruncated] = true if capture.effects_truncated
       document[:logsTruncated] = true if capture.logs_truncated
       started = Clock.now

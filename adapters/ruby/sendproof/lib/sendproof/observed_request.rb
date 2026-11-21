@@ -54,10 +54,10 @@ module Sendproof
         end
         if completed
           started = Clock.now
-          changes, truncated = Limits.snapshot_changes(@observation.changes)
+          changes, truncated = Limits.snapshot_changes(@observation.changes + capture.changes)
           timing = @recorder.timing(@clock, Clock.elapsed_ms(started))
           trace = { changes:, effects: capture.effects, logs: capture.logs }
-          trace[:changesTruncated] = true if truncated || @observation.changes_truncated?
+          trace[:changesTruncated] = true if truncated || @observation.changes_truncated? || capture.changes_truncated
           trace[:effectsTruncated] = true if capture.effects_truncated
           trace[:logsTruncated] = true if capture.logs_truncated
           trace[:timing] = timing
@@ -88,7 +88,7 @@ module Sendproof
     def begin_observation(request)
       return nil unless @config.authorized?(request)
 
-      provider = @config.provider or return nil
+      provider = @config.preview_provider or return nil
       provider.begin_observation(ProviderContext.new(env: request.env, request:, config: @config))
     rescue StandardError => error
       warn_about("Sendproof could not start observing the send", error)
