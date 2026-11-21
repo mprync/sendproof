@@ -20,12 +20,20 @@ interface Driver {
   store?: DataStore;
 }
 
+/**
+ * Client options that never reconnect: a Redis that drops the connection fails the test instead
+ * of leaving a client retrying forever, which kept the test process alive after the last test.
+ */
+const ioredisOptions = { retryStrategy: () => null, maxRetriesPerRequest: 0, connectTimeout: 2000 };
+const nodeRedisSocket = { reconnectStrategy: false as const, connectTimeout: 2000 };
+
 const clients: Record<string, (hook: boolean, t: test.TestContext) => Promise<Driver>> = {
   async ioredis(hook, t) {
-    const client = new Redis(services.redis, { lazyConnect: true });
+    const client = new Redis(services.redis, { ...ioredisOptions, lazyConnect: true });
     const store = hook ? redisStore(client, { name: 'cache', treatAsRead: ['ECHO'] }) : undefined;
+    // disconnect() closes at once; quit() waits for a connection that may never come.
+    t.after(() => client.disconnect());
     await client.connect();
-    t.after(() => client.quit());
     return {
       store, get: key => client.get(key), incr: key => client.incr(key), getdel: key => client.getdel(key),
       pipelineSetIncr: (a, b) => client.pipeline().set(a, '1').incr(b).exec(),
@@ -34,10 +42,10 @@ const clients: Record<string, (hook: boolean, t: test.TestContext) => Promise<Dr
     };
   },
   async 'node-redis'(hook, t) {
-    const client = createClient({ url: services.redis });
+    const client = createClient({ url: services.redis, socket: nodeRedisSocket });
     const store = hook ? redisStore(client, { name: 'cache', treatAsRead: ['ECHO'] }) : undefined;
+    t.after(() => { if (client.isOpen) client.destroy(); });
     await client.connect();
-    t.after(() => client.quit());
     return {
       store, get: key => client.get(key), incr: key => client.incr(key), getdel: key => client.getDel(key),
       pipelineSetIncr: (a, b) => client.multi().set(a, '1').incr(b).execAsPipeline(),
@@ -49,12 +57,15 @@ const clients: Record<string, (hook: boolean, t: test.TestContext) => Promise<Dr
 
 /** Start an app whose routes use `driver`, with the store registered when `hook` is true. */
 async function app(t: test.TestContext, library: string, hook = true) {
-  const reader = new Redis(services.redis);
+  const reader = new Redis(services.redis, ioredisOptions);
   const prefix = fresh('redis') + ':';
   t.after(async () => {
-    const keys = await reader.keys(prefix + '*');
-    if (keys.length) await reader.del(...keys);
-    await reader.quit();
+    try {
+      const keys = await reader.keys(prefix + '*');
+      if (keys.length) await reader.del(...keys);
+    } finally {
+      reader.disconnect();
+    }
   });
   const driver = await clients[library]!(hook, t);
   const stores = driver.store ? [driver.store] : [];

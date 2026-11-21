@@ -30,21 +30,52 @@ export const services = {
   dynamodb: process.env.BENCH_DYNAMODB_SERVER_URL ?? 'http://127.0.0.1:58000',
 };
 
-/** Whether a TCP service answers within half a second. */
-export function reachable(url: string): Promise<boolean> {
+/**
+ * Whether a TCP service accepts a connection, is sent `request` (when given), and answers with
+ * bytes that satisfy `answer`, all within a second. An open port alone is not enough: Docker
+ * accepts and then drops connections while a container starts, and clients that connect to such
+ * a port retry forever, which kept the test process alive.
+ */
+export function reachable(url: string, request?: string, answer: (reply: Buffer) => boolean = () => true): Promise<boolean> {
   const { hostname, port } = new URL(url);
   return new Promise(resolve => {
     const socket = connect({ host: hostname, port: Number(port) });
     const done = (value: boolean) => { socket.destroy(); resolve(value); };
-    socket.setTimeout(500, () => done(false));
-    socket.once('connect', () => done(true));
+    socket.setTimeout(1000, () => done(false));
+    socket.once('connect', () => { if (request === undefined) done(true); else socket.write(Buffer.from(request, 'latin1')); });
+    socket.once('data', reply => done(answer(reply)));
     socket.once('error', () => done(false));
+    socket.once('close', () => done(false));
   });
 }
 
+/** An OP_MSG `hello` to the admin database, the smallest command every MongoDB server answers. */
+function mongoHello(): string {
+  const elements = Buffer.from([
+    0x10, ...Buffer.from('hello\0'), 1, 0, 0, 0, // hello: 1 (int32)
+    0x02, ...Buffer.from('$db\0'), 6, 0, 0, 0, ...Buffer.from('admin\0'), // $db: "admin"
+    0, // end of document
+  ]);
+  const body = Buffer.concat([Buffer.alloc(4), elements]);
+  body.writeInt32LE(body.length, 0); // document length
+  const header = Buffer.alloc(21);
+  header.writeInt32LE(21 + body.length, 0); // message length
+  header.writeInt32LE(1, 4); // request id
+  header.writeInt32LE(2013, 12); // OP_MSG; flags and section kind 0 stay zero
+  return Buffer.concat([header, body]).toString('latin1');
+}
+
+/** A protocol-level probe per service: the service must answer, not just accept a connection. */
+const probes: Record<keyof typeof services, () => Promise<boolean>> = {
+  // A Redis reply starts with `+` (PONG) or `-` (an error such as NOAUTH): either means Redis is up.
+  redis: () => reachable(services.redis, 'PING\r\n', reply => reply[0] === 0x2b || reply[0] === 0x2d),
+  mongodb: () => reachable(services.mongodb, mongoHello(), reply => reply.length >= 16 && reply.readInt32LE(12) === 2013),
+  dynamodb: () => reachable(services.dynamodb, 'GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n', reply => reply.subarray(0, 5).toString() === 'HTTP/'),
+};
+
 /** The `skip` option for tests that need a compose service. */
 export async function needs(store: keyof typeof services): Promise<{ skip?: string }> {
-  return await reachable(services[store])
+  return await probes[store]()
     ? {} : { skip: `${store} is not running: docker compose -f tests/conformance/compose.yml up -d --wait ${store}` };
 }
 
