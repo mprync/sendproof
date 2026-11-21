@@ -837,7 +837,28 @@ const clipProblems = (checkPageScroll = true) => {
     if (text.clientWidth < readable - 0.5) problems.push(`crumb ${name(text)} shows only ${text.clientWidth}px of ${text.scrollWidth}px`);
     if (text.getAttribute('title') !== text.textContent.trim()) problems.push(`crumb ${name(text)} has no title with its full text`);
   });
-  if (checkPageScroll && document.documentElement.scrollWidth > innerWidth) problems.push(`the page scrolls sideways (${document.documentElement.scrollWidth} > ${innerWidth})`);
+  // The sidebar's controls (the Operations | Models tabs, the signed-out notice's Sign in and seeded-account
+  // buttons, the foot bar) keep their whole label, inside their own box and inside the sidebar.
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar && shown(sidebar)) {
+    const edge = sidebar.getBoundingClientRect();
+    for (const node of sidebar.querySelectorAll('.tab, .auth-notice .btn, .foot button')) {
+      if (!shown(node)) continue;
+      const box = node.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const content = range.getBoundingClientRect();
+      if (content.left < box.left - 0.5 || content.right > box.right + 0.5 || content.top < box.top - 0.5 || content.bottom > box.bottom + 0.5) problems.push(`sidebar ${name(node)} label leaves its button`);
+      // A tab's own box includes empty padding (English's overshoots by a few pixels); what must stay inside is its label and count.
+      const seen = node.matches('.tab') ? content : box;
+      if (seen.left < edge.left - 0.5 || seen.right > edge.right + 0.5) problems.push(`sidebar ${name(node)} leaves the sidebar (${seen.left.toFixed(1)}–${seen.right.toFixed(1)} of ${edge.left.toFixed(1)}–${edge.right.toFixed(1)})`);
+      if (node.scrollWidth > node.clientWidth + 1) problems.push(`sidebar ${name(node)} scrolls (${node.scrollWidth} > ${node.clientWidth})`);
+      for (const label of node.querySelectorAll(':scope > span:not(.n):not(.flag):not(.sr-only)')) {
+        if (label.scrollWidth > label.clientWidth + 1 && node.getAttribute('title') !== label.textContent.trim()) problems.push(`sidebar ${name(node)} shortens its label without a title (${label.scrollWidth} > ${label.clientWidth})`);
+      }
+    }
+  }
+  if (checkPageScroll && document.documentElement.scrollWidth > document.documentElement.clientWidth) problems.push(`the page scrolls sideways (${document.documentElement.scrollWidth} > ${document.documentElement.clientWidth})`);
   return problems;
 };
 
@@ -850,6 +871,50 @@ async function openIn(page, url, hash, language) {
   if (await page.locator('.mobile-switch [data-view="request"]').isVisible()) await page.locator('.mobile-switch [data-view="request"]').click();
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(250);
+}
+
+/**
+ * Every catalogue (one language each; Arabic, Hebrew and Persian are the right-to-left ones), signed
+ * out, at 320, 768, 1100 and 1440 px and at 100 % and 130 % text: no sidebar control may clip (the
+ * navigation drawer is opened where the sidebar is one), and the page may never scroll sideways.
+ * Runs in its own signed-out context, since the signed-out notice (and its Sign in button) only
+ * exists there.
+ */
+async function verifyLocaleLayouts(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
+  await serveUiFromDirectory(context);
+  const sweep = await context.newPage();
+  sweep.setDefaultTimeout(5000);
+  try {
+    await sweep.goto(`${url}/bench/`);
+    const languages = await sweep.evaluate(async () => {
+      const { LANGUAGES, CATALOGUES } = await import('/bench/i18n.js');
+      return CATALOGUES.map(id => LANGUAGES.find(item => item.catalogue === id).id);
+    });
+    assert.ok(languages.length >= 25, 'every catalogue is swept');
+    const failures = [];
+    for (const language of languages) {
+      await openIn(sweep, url, '#op/PaymentsController.Create', language);
+      for (const width of [320, 768, 1100, 1440]) {
+        await sweep.setViewportSize({ width, height: 800 });
+        for (const size of ['100%', '130%']) {
+          await sweep.evaluate(size => { document.documentElement.style.fontSize = size; }, size);
+          const drawer = sweep.locator('[data-action="navigation"]');
+          const opened = await drawer.isVisible();
+          if (opened) await drawer.click();
+          await sweep.evaluate(() => document.fonts.ready);
+          await sweep.waitForTimeout(100);
+          // The head row and run buttons are judged elsewhere (verifyNoClipping); here the sidebar and the page.
+          const problems = (await sweep.evaluate(clipProblems)).filter(problem => problem.startsWith('sidebar ') || problem.startsWith('the page scrolls'));
+          if (problems.length) failures.push(`${language} ${width} px ${size}: ${problems.join('; ')}`);
+          if (opened) await sweep.keyboard.press('Escape');
+        }
+      }
+    }
+    assert.deepEqual(failures, [], 'no sidebar control clips and no page scrolls sideways in any catalogue');
+  } finally {
+    await context.close();
+  }
 }
 
 /**
@@ -884,8 +949,8 @@ async function verifyNoClipping(page, url) {
     await openIn(page, url, '#op/PaymentsController.Create', language);
     await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
     await page.waitForTimeout(150);
-    // Other panes (the response tabs) scroll sideways inside themselves at this size; only the head row is judged here.
-    assert.deepEqual(await page.evaluate(clipProblems, false), [], `${language} at 1100 px and 130% text`);
+    // The response tabs scroll sideways inside their own pane; the page itself must never scroll sideways.
+    assert.deepEqual(await page.evaluate(clipProblems), [], `${language} at 1100 px and 130% text`);
   }
 
   // Every catalogue's fixed Send and Preview widths hold the label, keycaps and padding.
@@ -1247,6 +1312,7 @@ try {
   await verifyCodeSamples(page, url);
   await verifyV5Controls(page, url);
   await verifyNoClipping(page, url);
+  await verifyLocaleLayouts(browser, url);
   await page.setViewportSize({ width: 390, height: 844 });
   await mock.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-action="navigation"]').click();
