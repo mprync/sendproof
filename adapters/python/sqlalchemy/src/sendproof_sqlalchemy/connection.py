@@ -17,6 +17,7 @@ the preview with a genuine rollback and returns the connection to the real pool.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy.pool import StaticPool
@@ -112,6 +113,8 @@ class Hold:
         self.engine = engine
         self.fairy = fairy  # real pooled connection, checked out for the whole preview
         self.unsafe: str | None = None
+        # Hands back the engine's MySQL preview turn once the connection is released (see ``turns``).
+        self.release_turn: Callable[[], None] | None = None
         self.proxy = RollbackOnlyConnection(fairy.dbapi_connection, self)
         # SQLite starts a transaction on SAVEPOINT but would commit it on the final RELEASE. IMMEDIATE takes the write
         # lock up front, so concurrent previews queue behind the driver's busy timeout. A deferred BEGIN lets two

@@ -25,6 +25,7 @@ from sendproof_core.scope import current_scope
 
 from . import changes as change_capture
 from .connection import SAVEPOINT, Hold, ensure_supported
+from .turns import take_turn
 from sendproof_core.redaction import describe_parameters, python_type_name
 from sendproof_core.txguard import escapes_transaction
 
@@ -71,13 +72,25 @@ class _State:
         with self.lock:
             hold = self.holds.get(engine)
             if hold is None:
-                fairy = original()
+                # Wait for a MySQL preview's turn before checking out a connection (see ``turns``).
+                release_turn = take_turn(engine)
+                try:
+                    fairy = original()
+                except BaseException:
+                    if release_turn is not None:
+                        release_turn()
+                    raise
                 try:
                     hold = self.holds[engine] = Hold(engine, fairy)
                 except BaseException:
-                    fairy.invalidate()
-                    fairy.close()
+                    try:
+                        fairy.invalidate()
+                        fairy.close()
+                    finally:
+                        if release_turn is not None:
+                            release_turn()
                     raise
+                hold.release_turn = release_turn
         return hold.connect()
 
 
@@ -267,6 +280,11 @@ class _Session(PreviewSession):
             hold.fairy.close()
         except BaseException as error:  # noqa: BLE001
             return error
+        finally:
+            # The transaction has ended with the connection, so the next MySQL preview may run.
+            release_turn, hold.release_turn = hold.release_turn, None
+            if release_turn is not None:
+                release_turn()
         return None
 
     def close(self) -> None:

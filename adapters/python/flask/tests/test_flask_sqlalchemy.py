@@ -8,6 +8,8 @@ checks on that server. The tests drop and recreate the ``items`` table they use.
 from __future__ import annotations
 
 import os
+import threading
+import time
 
 import pytest
 from flask import Flask, abort, jsonify, request, session
@@ -155,6 +157,16 @@ class Harness:
             db.session.commit()
             return jsonify(ok=True)
 
+        @app.post("/shared")
+        @preview
+        def shared():
+            require("admin")
+            db.session.add(Item(id="shared", name="Shared"))
+            db.session.flush()
+            time.sleep(0.05)  # let concurrent previews reach their insert and wait on this row
+            db.session.commit()
+            return jsonify(ok=True), 201
+
         @app.post("/boom")
         @preview
         def boom():
@@ -218,6 +230,34 @@ def test_preview_rolls_back_a_session_commit_and_suppresses_effects(make):
     assert [(c["operation"], c["table"], c["key"]) for c in body["changes"]] == [("insert", "items", {"id": "a"})]
     assert body["effects"][0]["description"] == "Created"
     assert bench.delivered == [] and bench.stored() == []
+
+
+def test_concurrent_previews_inserting_one_key_all_complete(make):
+    """Previews that insert the same new key at once each report their own insert.
+
+    On MySQL, InnoDB would abort all but one of them with a deadlock when the first rolled back, so the provider
+    lets MySQL previews take turns. Set ``BENCH_DATABASE=mysql`` to run this against a server.
+    """
+    bench = make()
+    clients = [bench.client("admin") for _ in range(8)]
+    barrier = threading.Barrier(len(clients))
+    results: list[tuple[int, dict]] = []
+
+    def run(http):
+        barrier.wait()
+        response = http.post("/sendproof/_preview/shared", headers=ROLLBACK)
+        results.append((response.status_code, response.get_json()))
+
+    threads = [threading.Thread(target=run, args=(http,)) for http in clients]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    assert len(results) == len(clients)
+    for status, body in results:
+        assert status == 200 and body["status"] == 201, body
+        assert [(c["operation"], c["key"]) for c in body["changes"]] == [("insert", {"id": "shared"})]
+    assert bench.stored() == []
 
 
 def test_observed_send_commits_for_real_and_delivers_the_effect(make):

@@ -294,3 +294,29 @@ def test_concurrent_sqlite_previews_wait_for_each_other_instead_of_failing(engin
     assert failures == []
     assert names(engine) == ["Initial"]
     provider.uninstall()
+
+
+def test_mysql_previews_take_turns_and_other_dialects_do_not():
+    """A MySQL preview waits for the one before it; InnoDB would otherwise deadlock same-key inserts."""
+    import threading
+    from types import SimpleNamespace
+
+    from sendproof_sqlalchemy.turns import take_turn
+
+    class FakeEngine:  # engines are held weakly, so the stand-in must support weak references
+        def __init__(self, name: str) -> None:
+            self.dialect = SimpleNamespace(name=name, is_async=False)
+
+    assert take_turn(FakeEngine("sqlite")) is None
+    mysql = FakeEngine("mysql")
+    release = take_turn(mysql)
+    assert release is not None
+    second: list[object] = []
+    waiter = threading.Thread(target=lambda: second.append(take_turn(mysql)))
+    waiter.start()
+    waiter.join(0.2)
+    assert waiter.is_alive() and second == []  # still waiting for the first preview's turn
+    release()
+    waiter.join(5)
+    assert len(second) == 1 and callable(second[0])
+    second[0]()
