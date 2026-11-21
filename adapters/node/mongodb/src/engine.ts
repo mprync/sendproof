@@ -16,12 +16,15 @@
  *   ended. A Preview that outlives `previewTimeoutMs` is aborted early and answers 500.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, refuseInPreview, sanitizeDocument } from '@sendproof/core';
+import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, refuseInPreview, sanitizeDocument, unattributedWrite } from '@sendproof/core';
 import type { CaptureRecorder, DataStoreDescription } from '@sendproof/core';
 import type { ClientSession, MongoClient } from 'mongodb';
 
 /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
 export const standaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions";
+
+/** The reason a client whose command monitoring doesn't reach the engine never runs a Preview. */
+export const unmonitoredReason = "Preview unavailable: MongoDB command monitoring isn't reaching the binding, so a write that bypasses the hook couldn't be detected";
 
 /** The reason for a command MongoDB refuses inside a transaction. */
 export const refusedReason = (operation: string) => `Preview unavailable: MongoDB can't run ${operation} inside a transaction`;
@@ -60,6 +63,8 @@ interface Filter { namespace: string; collection: string; filter: Doc; via?: Via
 export interface PreviewState {
   readonly session: ClientSession;
   readonly lsid: string;
+  /** The driver's own transaction methods, which only the engine calls for this session. */
+  readonly controls: Record<SessionControl, ControlMethod>;
   /** Set once a command carried the session to the server. */
   used: boolean;
   finished: boolean;
@@ -77,6 +82,67 @@ export interface PreviewState {
 
 /** A command seen by monitoring, kept until its reply arrives. */
 interface Pending { capture: CaptureRecorder | undefined; preview: CaptureRecorder | undefined; name: string; namespace: string; target?: string; statement?: string; started: number; command: Doc }
+
+/** The session methods that start, end or commit a transaction, which only the engine may run on a Preview session. */
+type SessionControl = 'startTransaction' | 'withTransaction' | 'commitTransaction' | 'abortTransaction' | 'endSession';
+const sessionControls: readonly SessionControl[] = ['startTransaction', 'withTransaction', 'commitTransaction', 'abortTransaction', 'endSession'];
+type ControlMethod = (this: ClientSession, ...args: unknown[]) => unknown;
+
+/** Each Preview session, mapped to its Preview. Sessions stay here after the Preview, so a late call is still refused. */
+const previewSessions = new WeakMap<object, CaptureRecorder>();
+
+/** The driver's own session methods, per sealed `ClientSession` prototype, for the engine's abort and end. */
+const originalControls = new WeakMap<object, Record<SessionControl, ControlMethod>>();
+
+/**
+ * Set while the engine itself runs a control method. The driver's `endSession` calls
+ * `this.abortTransaction()`, which must reach the driver rather than be refused as the handler's.
+ */
+const engineControl = new AsyncLocalStorage<true>();
+
+/**
+ * What a Preview session does when handler code calls a control method: it joins the Preview
+ * transaction instead of starting or ending one, and a commit or abort fails the Preview with 500.
+ */
+function joinedControl(name: SessionControl, capture: CaptureRecorder, session: ClientSession, args: unknown[]): unknown {
+  switch (name) {
+    case 'startTransaction': return undefined;
+    case 'withTransaction': return Promise.resolve().then(() => (args[0] as (session: ClientSession) => unknown)(session));
+    case 'endSession': return Promise.resolve();
+    default: {
+      const error = new PreviewTransactionControlError(`Preview owns the MongoDB transaction, so the handler's ${name} cannot run during Preview.`);
+      capture.refuse(error);
+      return Promise.reject(error);
+    }
+  }
+}
+
+/**
+ * Seal the `ClientSession` class a Preview session belongs to, once per driver copy (Mongoose
+ * bundles its own). Patching the prototype rather than the session object means handler code that
+ * holds the session, from `startSession()`, `withSession()` or Mongoose's ambient storage, can't
+ * commit or end it even by calling the driver's method directly, such as
+ * `ClientSession.prototype.commitTransaction.call(session)`. Sessions that aren't a Preview's
+ * behave exactly as before.
+ */
+function sealSessionClass(prototype: object): Record<SessionControl, ControlMethod> {
+  const known = originalControls.get(prototype);
+  if (known) return known;
+  const originals = {} as Record<SessionControl, ControlMethod>;
+  for (const name of sessionControls) {
+    const original = (prototype as Record<SessionControl, ControlMethod>)[name];
+    originals[name] = original;
+    Object.defineProperty(prototype, name, {
+      configurable: true, writable: true,
+      value: function control(this: ClientSession, ...args: unknown[]) {
+        const capture = previewSessions.get(this);
+        return capture && !engineControl.getStore() ? joinedControl(name, capture, this, args) : original.apply(this, args);
+      },
+    });
+  }
+  originalControls.set(prototype, originals);
+  return originals;
+}
 
 /** Hex of a session id (`lsid.id`, a BSON UUID), comparable across driver versions. */
 function sessionHex(lsid: unknown): string | undefined {
@@ -145,7 +211,14 @@ export class MongoEngine {
   readonly #states = new WeakMap<CaptureRecorder, PreviewState>();
   readonly #pending = new Map<number | string, Pending>();
   /** Set while the engine itself talks to the server, so monitoring ignores those commands. */
-  readonly #internal = new AsyncLocalStorage<true>();
+  readonly #internal = new AsyncLocalStorage<{ probe?: { seen: boolean } }>();
+  /** The engine's `commandStarted` listener; a Preview checks it is still attached to the client. */
+  readonly #onStarted = (event: unknown) => this.#started(event as MonitorEvent);
+  /**
+   * Whether the engine's own listener saw the detection `hello` it sent through this client: the
+   * proof that the tripwire runs on the guarded client itself. `undefined` until a `hello` succeeds.
+   */
+  #monitored?: boolean;
   #detected?: Promise<Pick<DataStoreDescription, 'mode' | 'reason'>>;
   /** The detected mode; known before any Preview runs, because `begin` awaits detection. */
   mode?: 'preview' | 'guard';
@@ -162,24 +235,32 @@ export class MongoEngine {
       }
       raw.monitorCommands = true;
     }
-    client.on('commandStarted', event => this.#started(event as unknown as MonitorEvent));
+    client.on('commandStarted', this.#onStarted);
     client.on('commandSucceeded', event => this.#succeeded(event as unknown as MonitorEvent));
     client.on('commandFailed', event => this.#failed(event as unknown as MonitorEvent));
   }
 
   /** Run engine-internal commands (topology, change capture, abort) without logging or tripping. */
   internal<T>(work: () => Promise<T>): Promise<T> {
-    return this.#internal.run(true, work);
+    return this.#internal.run({}, work);
   }
 
-  /** Detect the topology once: `preview` on a replica set or mongos with logical sessions. */
+  /**
+   * Detect the topology once: `preview` on a replica set or mongos with logical sessions. The
+   * `hello` doubles as the tripwire's proof: the engine's own listener on this client must see it.
+   * Seeing commands from some other client wouldn't count, and a client whose monitoring is off
+   * never runs a Preview.
+   */
   detect(): Promise<Pick<DataStoreDescription, 'mode' | 'reason'>> {
-    this.#detected ??= this.internal(async () => {
-      const hello = await this.client.db('admin').command({ hello: 1 }) as Doc;
+    this.#detected ??= (async () => {
+      const probe = { seen: false };
+      const hello = await this.#internal.run({ probe }, () => this.client.db('admin').command({ hello: 1 })) as Doc;
+      this.#monitored = probe.seen;
       const transactions = Boolean((hello.setName || hello.msg === 'isdbgrid') && hello.logicalSessionTimeoutMinutes != null);
-      this.mode = transactions ? 'preview' : 'guard';
+      this.mode = transactions && probe.seen ? 'preview' : 'guard';
+      if (!probe.seen) return { mode: 'guard' as const, reason: unmonitoredReason };
       return transactions ? { mode: 'preview' as const } : { mode: 'guard' as const, reason: standaloneReason };
-    }).catch(() => {
+    })().catch(() => {
       // Unreachable or unrecognised: guard mode for now, and ask again next time.
       this.#detected = undefined;
       this.mode ??= 'guard';
@@ -195,30 +276,36 @@ export class MongoEngine {
 
   /**
    * Prepare a Preview: detect the mode and, in `preview` mode, start the Preview's session and
-   * transaction. The session's own transaction methods are replaced so the handler joins the
+   * transaction. The session's class is sealed, so handler code holding the session joins the
    * Preview transaction instead of ending it.
+   *
+   * A Preview never runs without the tripwire: if detection's `hello` never reached the engine's
+   * listener, or the listener has since been removed from the client, the Preview fails with 500
+   * before the handler runs, because a write that bypassed the hook would go unseen.
    */
   async begin(capture: CaptureRecorder): Promise<PreviewState | undefined> {
     const existing = this.#states.get(capture);
     if (existing || this.#modes.has(capture)) return existing;
     const { mode } = await this.detect();
     if (capture.mode !== 'preview') return undefined;
+    if (this.#monitored === false || !this.client.listeners('commandStarted').includes(this.#onStarted)) {
+      const error = new PreviewTransactionControlError(unmonitoredReason);
+      capture.refuse(error);
+      throw error;
+    }
     this.#modes.set(capture, mode);
     if (mode !== 'preview') return undefined;
     const session = this.client.startSession();
-    session.startTransaction({ readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
+    const controls = sealSessionClass(Object.getPrototypeOf(session) as object);
+    controls.startTransaction.call(session, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
     const lsid = sessionHex(session.id);
-    if (!lsid) throw new Error('The MongoDB driver did not expose the Preview session id.');
-    const refuse = (what: string) => new PreviewTransactionControlError(`Preview owns the MongoDB transaction, so the handler's ${what} cannot run during Preview.`);
-    const join = {
-      startTransaction() { /* Already inside the Preview transaction. */ },
-      async withTransaction<T>(callback: (session: ClientSession) => Promise<T>) { return callback(session); },
-      async commitTransaction() { const error = refuse('commitTransaction'); capture.refuse(error); throw error; },
-      async abortTransaction() { const error = refuse('abortTransaction'); capture.refuse(error); throw error; },
-      async endSession() { /* The Preview ends its session after the handler. */ },
-    };
-    for (const [name, method] of Object.entries(join)) Object.defineProperty(session, name, { value: method, configurable: true, writable: true });
-    const state: PreviewState = { session, lsid, used: false, finished: false, candidates: new Map(), filters: [] };
+    if (!lsid) {
+      await (controls.endSession.call(session) as Promise<void>).catch(() => {});
+      throw new Error('The MongoDB driver did not expose the Preview session id.');
+    }
+    // From here on, handler code holding the session joins the Preview transaction and can't end it.
+    previewSessions.set(session, capture);
+    const state: PreviewState = { session, lsid, controls, used: false, finished: false, candidates: new Map(), filters: [] };
     this.#states.set(capture, state);
     // A handler still running at the limit loses its transaction: later commands fail, nothing
     // commits, and the Preview answers 500 when it ends.
@@ -257,7 +344,12 @@ export class MongoEngine {
   // ---- Monitoring ----
 
   #started(event: MonitorEvent) {
-    if (this.#internal.getStore()) return;
+    const internal = this.#internal.getStore();
+    if (internal) {
+      // Detection's hello, seen by this very listener on this very client: the tripwire works.
+      if (internal.probe && event.commandName === 'hello') internal.probe.seen = true;
+      return;
+    }
     const command = event.command ?? {};
     const name = event.commandName;
     const lower = name.toLowerCase();
@@ -268,6 +360,7 @@ export class MongoEngine {
       // the Preview transaction, so the Preview can never be confirmed.
       preview.refuse(new PreviewTransactionControlError(`A MongoDB ${name} reached the server during a Preview; the Preview can't be confirmed.`));
     } else if (preview && kind === 'write') this.#watchWrite(preview, command, event.databaseName, lower);
+    else if (kind === 'write') unattributedWrite('mongodb', name);
     if (kind === 'session' || sensitive.has(lower)) return;
     const target = typeof command[name] === 'string' ? command[name] as string : undefined;
     const body = Object.fromEntries(Object.entries(command).filter(([field]) => !envelope.has(field)));
@@ -401,11 +494,16 @@ export class MongoEngine {
     if (state.finished) return;
     state.finished = true;
     clearTimeout(state.timer);
-    const prototype = Object.getPrototypeOf(state.session) as ClientSession;
-    await this.internal(async () => {
-      if (state.session.inTransaction()) await prototype.abortTransaction.call(state.session).catch(() => {});
-      await prototype.endSession.call(state.session).catch(() => {});
-    });
+    // The session stays sealed: a handler still holding it after this point is refused, not
+    // handed the driver's methods.
+    await this.internal(() => engineControl.run(true, async () => {
+      try {
+        if (state.session.inTransaction()) await state.controls.abortTransaction.call(state.session);
+      } catch { /* Ignored, as the transactions specification requires; nothing was committed. */ }
+      try {
+        await state.controls.endSession.call(state.session);
+      } catch { /* The server ends the session itself once its timeout passes. */ }
+    }));
   }
 
   /**

@@ -4,8 +4,9 @@
 // couldn't see is never confirmed.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MongoClient } from 'mongodb';
+import { ClientSession, MongoClient } from 'mongodb';
 import mongoose from 'mongoose';
+import { detached } from '@sendproof/core';
 import { mongooseStore, mongoStore } from '@sendproof/mongodb';
 import { assertBlocked, assertUnconfirmed, dbEntries, fresh, handle, needs, services, startApp } from './support/stores.mts';
 
@@ -190,6 +191,9 @@ test('Mongoose: models, queries, aggregation and connection.transaction join the
   t.after(() => instance.disconnect());
   const store = mongooseStore(instance, { name: 'catalog' });
   const Doc = instance.model('Doc', new instance.Schema({ _id: String, name: String, profile: { city: String }, password_hash: String }, { collection: 'documents', versionKey: false }));
+  // Mongoose creates collections and indexes in the background, outside any request: let that
+  // finish before serving, or it would fail an open Preview as an unattributed write.
+  await Doc.init();
   const app = await startApp(t, [store], bench => {
     bench.operation('POST', '/documents', handle(async (req, res) => {
       await Doc.create({ _id: req.body.id, name: 'Created', profile: { city: 'York' }, password_hash: 'hashed:mongoose-secret' });
@@ -319,6 +323,124 @@ test('driver: a handler commitTransaction never confirms, before or after it rea
   assert.equal((await documents({ name: 'raw-commit' })).length, 1);
 });
 
+test('driver: the Preview session can\'t be committed or ended, even through the driver\'s own prototype', await needs('mongodb'), async t => {
+  const app = await hookedApp(t, (collection, client) => bench => {
+    bench.operation('POST', '/prototype-commit', handle(async (_req, res) => {
+      const session = client.startSession();
+      await collection().insertOne({ _id: 'prototype-commit' as never }, { session });
+      try { await ClientSession.prototype.commitTransaction.call(session); } catch { /* swallowed on purpose */ }
+      res.status(201).json({ ok: true });
+    }));
+    bench.operation('POST', '/prototype-abort', handle(async (_req, res) => {
+      const session = client.startSession();
+      await collection().insertOne({ _id: 'prototype-abort' as never }, { session });
+      try { await ClientSession.prototype.abortTransaction.call(session); } catch { /* swallowed on purpose */ }
+      // Had the abort run, this write would leave the transaction and commit on its own.
+      await collection().insertOne({ _id: 'after-abort' as never }, { session });
+      res.status(201).json({ ok: true });
+    }));
+    bench.operation('POST', '/prototype-end', handle(async (_req, res) => {
+      await client.withSession(async session => {
+        await collection().insertOne({ _id: 'before-end' as never }, { session });
+        await ClientSession.prototype.endSession.call(session);
+        await (session as unknown as { asyncDispose(): Promise<void> }).asyncDispose();
+      });
+      await collection().insertOne({ _id: 'after-end' as never });
+      res.status(201).json({ ok: true });
+    }));
+  });
+  await assertUnconfirmed(await app.preview('POST', '/prototype-commit'));
+  await assertUnconfirmed(await app.preview('POST', '/prototype-abort'));
+  assert.deepEqual(await app.documents({ _id: { $in: ['prototype-commit', 'prototype-abort', 'after-abort'] } }), [], 'No handler commit or abort reached the server');
+  // Ending the session is the Preview's job: the handler's endSession leaves the transaction open.
+  const ended = await app.confirmed('POST', '/prototype-end');
+  assert.deepEqual(ended.changes.map(change => change.key._id).sort(), ['after-end', 'before-end']);
+  assert.deepEqual(await app.documents({ _id: { $in: ['before-end', 'after-end'] } }), []);
+});
+
+test('Mongoose: the ambient Preview session can\'t be committed, and withSession joins the Preview', await needs('mongodb'), async t => {
+  const { name, documents } = await database(t);
+  const instance = new mongoose.Mongoose();
+  await instance.connect(url(name), { monitorCommands: true });
+  t.after(() => instance.disconnect());
+  const store = mongooseStore(instance);
+  const Doc = instance.model('Doc', new instance.Schema({ _id: String, name: String }, { collection: 'documents', versionKey: false }));
+  await Doc.init();
+  const ambient = () => (instance as unknown as { transactionAsyncLocalStorage: { getStore(): { session: ClientSession } } }).transactionAsyncLocalStorage.getStore().session;
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/ambient-commit', handle(async (_req, res) => {
+      await Doc.create({ _id: 'ambient-commit', name: 'Ambient' });
+      try { await ambient().commitTransaction(); } catch { /* swallowed on purpose */ }
+      res.status(201).json({ ok: true });
+    }));
+    bench.operation('POST', '/prototype-commit', handle(async (_req, res) => {
+      await Doc.create({ _id: 'prototype-commit', name: 'Prototype' });
+      const session = ambient();
+      try { await Object.getPrototypeOf(session).commitTransaction.call(session); } catch { /* swallowed on purpose */ }
+      res.status(201).json({ ok: true });
+    }));
+    bench.operation('POST', '/with-session', handle(async (_req, res) => {
+      await instance.connection.withSession(async session => { await Doc.create([{ _id: 'with-session', name: 'Session' }], { session }); });
+      res.status(201).json({ ok: true });
+    }));
+  });
+  await assertUnconfirmed(await app.preview('POST', '/ambient-commit'));
+  await assertUnconfirmed(await app.preview('POST', '/prototype-commit'));
+  const joined = await app.confirmed('POST', '/with-session');
+  assert(joined.changes.some(change => change.key._id === 'with-session'));
+  assert.equal((await documents()).length, 1, 'Only the seeded document persists');
+});
+
+test('driver: a Preview is never confirmed unless the store\'s own monitor sees the guarded client\'s commands', await needs('mongodb'), async t => {
+  // Monitoring turned off after the hook but before connecting: the client never emits events.
+  const { name } = await database(t);
+  const silent = new MongoClient(url(name));
+  const quiet = await hookedApp(t, collection => bench => {
+    bench.operation('POST', '/documents/{id}/escape', handle(async (req, res) => {
+      await silent.db(name).collection('documents').insertOne({ _id: req.params.id as never });
+      await collection().findOne({});
+      res.status(201).json({ ok: true });
+    }));
+  }, {}, silent);
+  silent.monitorCommands = false;
+  await assertUnconfirmed(await quiet.preview('POST', '/documents/unmonitored/escape'));
+
+  // The monitor removed after detection succeeded.
+  const app = await driverApp(t);
+  assert.equal((await app.capabilities()).dataStores[0].mode, 'preview');
+  app.raw.removeAllListeners('commandStarted');
+  await assertUnconfirmed(await app.preview('POST', '/documents/unwatched/escape'));
+});
+
+test('driver: a write outside any request fails every open Preview unless it is marked detached', await needs('mongodb'), async t => {
+  let started = gate();
+  let resume = gate();
+  const raw = new MongoClient(services.mongodb);
+  const app = await hookedApp(t, collection => bench => {
+    bench.operation('POST', '/hold', handle(async (_req, res) => {
+      await collection().insertOne({ name: 'held' });
+      started.open();
+      await resume.opened;
+      res.json({ ok: true });
+    }));
+  }, {}, raw);
+  const background = () => raw.db(app.name).collection('jobs');
+
+  const stray = app.preview('POST', '/hold');
+  await started.opened;
+  await background().insertOne({ _id: 'stray' as never });
+  resume.open();
+  await assertUnconfirmed(await stray);
+
+  [started, resume] = [gate(), gate()];
+  const marked = app.confirmed('POST', '/hold');
+  await started.opened;
+  await detached(() => background().insertOne({ _id: 'detached' as never }));
+  resume.open();
+  await marked;
+  assert.equal(await app.reader.db(app.name).collection('jobs').countDocuments(), 2, 'Background writes are reported, not blocked');
+});
+
 test('driver: a stage added through the cursor builder is guarded before sending', await needs('mongodb'), async t => {
   // Preview mode: $out can't run in a transaction.
   const app = await hookedApp(t, collection => bench => {
@@ -445,15 +567,20 @@ test('driver: a WriteConflict between two Previews reaches the handler, and both
   assert.equal((await app.documents({ _id: 'seeded' }))[0]?.name, 'Seeded');
 });
 
-/** Make a client answer `hello` like a standalone server; every other command reaches the real server. */
+/**
+ * Make a client answer `hello` like a standalone server. The `hello` still reaches the real
+ * server, so the store's monitor sees it; only the reply is replaced.
+ */
 function standalone(raw: MongoClient): MongoClient {
   const db = raw.db.bind(raw);
   raw.db = ((dbName?: string, options?: never) => {
     const handle = db(dbName, options);
     if (dbName !== 'admin') return handle;
     const command = handle.command.bind(handle);
-    handle.command = (async (document: Record<string, unknown>, ...rest: never[]) =>
-      document.hello ? { isWritablePrimary: true, maxWireVersion: 25 } : command(document as never, ...rest)) as typeof handle.command;
+    handle.command = (async (document: Record<string, unknown>, ...rest: never[]) => {
+      const reply = await command(document as never, ...rest);
+      return document.hello ? { isWritablePrimary: true, maxWireVersion: 25 } : reply;
+    }) as typeof handle.command;
     return handle;
   }) as typeof raw.db;
   return raw;

@@ -28,6 +28,7 @@ export interface MongooseLike {
 interface ConnectionLike {
   getClient(): MongoClient | null | undefined;
   startSession(...args: unknown[]): Promise<ClientSession>;
+  withSession?<T>(executor: (session: ClientSession) => Promise<T>): Promise<T>;
   name?: string;
 }
 
@@ -88,11 +89,21 @@ export function hookMongoose(mongoose: MongooseLike, engine: MongoEngine, databa
     });
   });
 
-  // `connection.transaction()` and `startSession()` hand out the Preview session, whose
-  // withTransaction runs the body inside the Preview transaction.
+  // `connection.transaction()`, `startSession()` and `withSession()` hand out the Preview session,
+  // whose withTransaction runs the body inside the Preview transaction. The session's class is
+  // sealed (see engine.ts), so the handler can't commit, abort or end it.
   const connection = mongoose.connection;
   const startSession = connection.startSession.bind(connection);
   connection.startSession = async (...args: unknown[]) => engine.state()?.session ?? startSession(...args);
+  // Mongoose's own withSession goes straight to the driver client, which would start a session
+  // of its own: one the guard then refuses.
+  const withSession = connection.withSession?.bind(connection);
+  if (withSession) {
+    connection.withSession = async <T>(executor: (session: ClientSession) => Promise<T>) => {
+      const session = engine.state()?.session;
+      return session ? executor(session) : withSession(executor);
+    };
+  }
 
   return <T>(session: ClientSession | undefined, dispatch: () => Promise<T>): Promise<T> => {
     const storage = mongoose.transactionAsyncLocalStorage;
