@@ -267,7 +267,7 @@ The Ruby review found that a MySQL `CALL` can commit the Preview transaction; `s
 
 - checks the whole refused list (explicit and implicit commits, `CALL`) is enforced before sending, with the backstop;
 - adds a shared conformance route and check (for example `POST /items/{id}/ddl`, running `CREATE TABLE` after the insert) that every MySQL entry passes;
-- checks review findings 4-6 above in Node, Go and Rust, which were reviewed before those findings were written.
+- checks review findings 4-6 above in Go and Rust, which were reviewed before those findings were written (Node has been checked).
 
 ### After batch one lands: release tooling
 
