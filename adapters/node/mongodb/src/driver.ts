@@ -10,7 +10,10 @@
  *   transaction can't run (`preview` mode);
  * - a method the table below doesn't know is refused, so a new driver method fails closed;
  * - an aggregation cursor's builder methods (`out`, `merge`, `addStage`) are classified too, so a
- *   stage added after `aggregate()` returned can't slip a write past the guard.
+ *   stage added after `aggregate()` returned can't slip a write past the guard;
+ * - every derived handle stays guarded: `db(name, options)`, `collection(name, options)`,
+ *   `admin()` and an aggregation cursor's `clone()`. The driver has no other method that returns
+ *   a client, database or collection with different options.
  *
  * Outside a Preview every call passes straight through.
  */
@@ -96,6 +99,8 @@ function guardCursor<T extends object>(cursor: T, engine: MongoEngine, name: str
           engine.check({ aggregate: name, pipeline: [...pipeline, stage(args)] }, 'aggregate', database);
         }
         const result = (value as (...a: unknown[]) => unknown).apply(object, args);
+        // `clone()` derives a new cursor (without the Preview session): it stays guarded too.
+        if (property === 'clone' && result && typeof result === 'object') return guardCursor(result, engine, name, database);
         return result === object ? proxy : result;
       };
     },

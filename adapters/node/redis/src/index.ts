@@ -127,11 +127,16 @@ function hookIoredis(client: IoClient, settings: Settings): void {
   const namespace = String(client.options?.db ?? 0);
   const send = client.sendCommand.bind(client);
   let inMulti = false;
+  // Commands already checked. ioredis replays its offline queue through sendCommand after a
+  // reconnect, outside the request that queued them: they were guarded when first sent, and a
+  // second check would see them as writes with no request.
+  const checked = new WeakSet<object>();
 
   // Direct sends: every command that is not part of a pipeline.
   client.sendCommand = function sendCommand(command, stream) {
     // Pipelined commands were classified when they were queued; see guardPipeline.
-    if (stream?.isPipeline) return send(command, stream);
+    if (stream?.isPipeline || checked.has(command)) return send(command, stream);
+    checked.add(command);
     const args = flatten(command.args);
     let kind;
     try {
@@ -243,6 +248,7 @@ interface NodeClient {
   _executeMulti(commands: { args: Arg[] }[], selectedDB?: number): Promise<unknown>;
   _executePipeline(commands: { args: Arg[] }[], selectedDB?: number): Promise<unknown>;
   duplicate?(...args: unknown[]): NodeClient;
+  createPool?(...args: unknown[]): unknown;
   _self?: unknown;
   [method: string]: unknown;
 }
@@ -313,6 +319,31 @@ function hookNodeRedis(facade: NodeClient, settings: Settings): void {
       return copy;
     };
   }
+  // `withTypeMapping()`, `withCommandOptions()` and friends inherit from `_self`, so they are
+  // already hooked. A pool made from the client opens clients of its own: hook those too.
+  if (typeof client.createPool === 'function') {
+    const createPool = client.createPool.bind(client);
+    client.createPool = (...args: unknown[]) => guardPool(createPool(...args) as NodePool, settings);
+  }
+}
+
+/** The part of a node-redis `RedisClientPool` the hook uses: every command, MULTI and pipeline runs through `execute`. */
+interface NodePool { _self?: NodePool; execute<T>(task: (client: NodeClient) => T): Promise<T> }
+
+/** Hook each client a pool hands to a task, once, before the task sends anything. */
+function guardPool(pool: NodePool, settings: Settings): NodePool {
+  const self = pool._self ?? pool;
+  const execute = self.execute.bind(self);
+  const members = new WeakSet<object>();
+  self.execute = <T>(task: (client: NodeClient) => T) => execute(member => {
+    const inner = (member._self as object | undefined) ?? member;
+    if (!members.has(inner)) {
+      members.add(inner);
+      hookNodeRedis(member, settings);
+    }
+    return task(member);
+  });
+  return pool;
 }
 
 /**

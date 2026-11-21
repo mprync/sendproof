@@ -452,6 +452,17 @@ test('driver: a stage added through the cursor builder is guarded before sending
   const problem = await assertBlocked(await app.preview('POST', '/out'), 'mongodb', 'aggregate');
   assert.match(String(problem.detail), /\$out/);
 
+  // A cloned cursor is a derived handle: the driver drops the Preview session from the copy, so
+  // its builder must stay guarded or a $merge would run outside the transaction.
+  const cloned = await hookedApp(t, collection => bench => {
+    bench.operation('POST', '/clone', handle(async (_req, res) => {
+      try { await collection().aggregate([{ $match: {} }]).clone().addStage({ $merge: { into: 'cloned' } }).toArray(); } catch { /* swallowed on purpose */ }
+      res.json({ ok: true });
+    }));
+  });
+  await assertBlocked(await cloned.preview('POST', '/clone'), 'mongodb', 'aggregate');
+  assert.deepEqual(await cloned.reader.db(cloned.name).collection('cloned').find().toArray(), []);
+
   // Guard mode (a standalone server): the write must be refused before it reaches the server.
   const raw = standalone(new MongoClient(services.mongodb));
   const guarded = await hookedApp(t, collection => bench => {

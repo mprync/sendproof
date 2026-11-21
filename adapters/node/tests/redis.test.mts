@@ -136,6 +136,45 @@ for (const library of Object.keys(clients)) {
   });
 }
 
+test('node-redis: derived clients and pools stay guarded', await needs('redis'), async t => {
+  const client = createClient({ url: services.redis, socket: nodeRedisSocket });
+  const store = redisStore(client);
+  t.after(() => { if (client.isOpen) client.destroy(); });
+  await client.connect();
+  const pool = client.createPool();
+  t.after(() => pool.destroy());
+  await pool.connect();
+  const reader = new Redis(services.redis, ioredisOptions);
+  const prefix = fresh('redis') + ':';
+  t.after(async () => {
+    try {
+      const keys = await reader.keys(prefix + '*');
+      if (keys.length) await reader.del(...keys);
+    } finally {
+      reader.disconnect();
+    }
+  });
+  const writers: Record<string, (key: string) => Promise<unknown>> = {
+    typed: key => client.withTypeMapping({}).incr(key),
+    options: key => client.withCommandOptions({}).incr(key),
+    pool: key => pool.incr(key),
+    'pool-multi': key => pool.multi().incr(key).exec(),
+  };
+  const { preview, observed } = await startApp(t, [store], bench => {
+    bench.operation('POST', '/{via}/{key}', handle(async (req, res) => {
+      res.json({ value: await writers[req.params.via as string]!(prefix + req.params.key) });
+    }));
+  });
+  for (const via of Object.keys(writers)) {
+    await assertBlocked(await preview('POST', `/${via}/blocked`), 'redis', 'INCR');
+  }
+  assert.equal(await reader.exists(prefix + 'blocked'), 0, 'No derived client may write during a Preview');
+  // Outside a Preview the pool works as before, and its commands are traced.
+  const { status, trace } = await observed('POST', '/pool/sent');
+  assert.equal(status, 200);
+  assert.equal(dbEntries(trace.logs, 'redis', 'INCR').length, 1);
+});
+
 test('ioredis auto-pipelining is refused at registration and a client is hooked once', () => {
   assert.throws(() => redisStore(new Redis({ lazyConnect: true, enableAutoPipelining: true })), /enableAutoPipelining/);
   const client = new Redis({ lazyConnect: true });
