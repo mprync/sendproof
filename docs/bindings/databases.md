@@ -22,7 +22,7 @@ The [conformance manifest](../../tests/conformance/bindings.json) lists the exac
 | Go net/http and GORM | 11/11 | 11/11 | 11/11 | 11/11 | — |
 | Laravel and Eloquent | 11/11 | — | — | — | — |
 | Symfony and Doctrine | 11/11 | — | — | — | — |
-| Rails and ActiveRecord | 11/11 | — | — | — | — |
+| Rails and ActiveRecord | 11/11 | — | 11/11 | — | — |
 | Axum and Actix Web with SQLx | 11/11 each | 11/11 each | 11/11 each | — | — |
 
 Frameworks can use another provider from their ecosystem. The table identifies the combinations tested together. See each provider's guide for automatic row capture, per-statement behavior, concurrency and limits.
@@ -44,6 +44,7 @@ On MySQL and MariaDB, each provider lets one preview run at a time in each proce
 | Prisma | 11 | 11 | 12 | — | 15 |
 | Flask-SQLAlchemy | 13 | 13 | 13 | — | — |
 | Go database/sql and GORM | 27 | 27 | 27 | 26, 1 skipped | 2 |
+| Rails ActiveRecord | 35, 1 skipped | — | 35, 1 skipped | — | — |
 | SQLx | 8 | 10 | 11 | — | 22 unit |
 
 Other local suites passed as follows:
@@ -52,9 +53,9 @@ Other local suites passed as follows:
 - **Python, 80:** core 29, FastAPI 10, Django 8, Flask 20 (including 13 extension tests on SQLite) and SQLAlchemy 13. The PostgreSQL and MySQL extension runs are listed separately above.
 - **JVM, 79:** core 30, Spring Boot 27, JPA 9, Ktor 7 and JDBC 6.
 - **PHP, 95:** core 49, Laravel 22 and Symfony 24.
-- **Ruby, 119:** core 66, ActiveRecord 26, Rails 22 and the Rails fixture 5.
+- **Ruby, 233:** core 163 (95 of them data-store tests: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 36 (listed above for SQLite and MySQL), Rails 26 and the Rails fixture 8.
 
-The Go counts exclude parent tests that group subtests. The SQL Server case for a single-statement upsert is skipped because SQL Server uses `MERGE`, which is outside keyed capture. The Go packages also pass vet, race checks and the 15 module-path rewrite tests. The Rust workspace includes 82 local tests in total.
+The Rails ActiveRecord suite skips one test on each database: the MySQL-only regression test for concurrent Previews on SQLite, and the bound-parameter test on MySQL, which has no prepared statements through Trilogy. The Go counts exclude parent tests that group subtests. The SQL Server case for a single-statement upsert is skipped because SQL Server uses `MERGE`, which is outside keyed capture. The Go packages also pass vet, race checks and the 15 module-path rewrite tests. The Rust workspace includes 82 local tests in total.
 
 ## Run database conformance
 

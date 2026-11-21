@@ -1,6 +1,6 @@
 # sendproof-rails
 
-Rails engine for [Sendproof](../README.md). Tested with Rails 8.0.5.2 (API mode, cookie sessions, Puma).
+Rails engine for [Sendproof](../README.md). Tested with Rails 8.0.5.2 (API mode, cookie sessions, Puma). Discovery also names the binding (`{language: "ruby", framework: "Rails"}`). Data stores: [data-stores.md](../data-stores.md).
 
 ```ruby
 # config/initializers/sendproof.rb
@@ -19,6 +19,15 @@ end
 ```ruby
 class ItemsController < ApplicationController
   sendproof_preview only: %i[create update]    # or except: [...], or bare for every action
+end
+```
+
+Mark an action you know writes to a store Sendproof can only guard (Redis, DynamoDB) as `preview: false`, with the reason the workbench shows before anyone tries. Send still works; a Preview of it is refused without running the action:
+
+```ruby
+class SessionsController < ApplicationController
+  sendproof_preview only: %i[create update]
+  sendproof_no_preview only: :destroy, reason: "Clears the Redis session"   # or stores: :redis
 end
 ```
 

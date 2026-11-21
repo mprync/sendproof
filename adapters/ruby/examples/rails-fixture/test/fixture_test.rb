@@ -84,4 +84,31 @@ class FixtureTest < Minitest::Test
     assert_nil last_response["preference-applied"]
     assert_empty durable_ids
   end
+
+  def test_discovery_names_the_binding_and_the_sql_system
+    get "/sendproof/_api/capabilities"
+    assert_equal({ "language" => "ruby", "framework" => "Rails" }, json["binding"])
+    assert_equal({ "name" => "fixture", "system" => "sqlite" }, json["database"])
+    assert_nil json["dataStores"], "No store is hooked without its variables"
+  end
+
+  # The shared secret-columns rule: password_hash is [REDACTED] and the password appears nowhere.
+  def test_an_account_preview_hides_the_password_hash_everywhere
+    sign_in
+    post "/sendproof/_preview/accounts", JSON.generate(id: "a", email: "a@example.test", password: "fixture-password-value"), ROLLBACK
+    assert_equal 200, last_response.status, last_response.body
+    change = json["changes"].find { |entry| entry["table"] == "accounts" }
+    assert_equal "[REDACTED]", change["after"]["password_hash"]
+    refute_includes last_response.body, "fixture-password-value"
+    assert_equal 0, Fixture::Account.count
+  end
+
+  # The shared raw-commit rule: the handler's COMMIT is refused, the Preview answers 500 and nothing persists.
+  def test_a_handler_commit_fails_the_preview_and_persists_nothing
+    sign_in
+    post "/sendproof/_preview/items/c/commit", JSON.generate(name: "Committed"), ROLLBACK
+    assert_equal 500, last_response.status
+    assert_nil last_response["preference-applied"]
+    assert_empty durable_ids
+  end
 end

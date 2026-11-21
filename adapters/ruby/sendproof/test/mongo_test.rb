@@ -5,6 +5,15 @@ require "sendproof/mongo"
 
 # The MongoDB engine and plain-driver store against the compose replica set
 # (docker compose -f tests/conformance/compose.yml up -d --wait mongodb).
+# Lets one test stand in for a driver that swallows an exception raised from a command subscriber.
+Sendproof::Mongo::Subscriber.prepend(Module.new do
+  def started(event)
+    super
+  rescue Sendproof::PreviewWriteBlocked
+    raise unless Thread.current[:swallow_refusals]
+  end
+end)
+
 class MongoHookTest < Minitest::Test
   include StoreHelpers
   include Rack::Test::Methods
@@ -299,6 +308,21 @@ class MongoHookTest < Minitest::Test
     assert_equal "Preview unavailable: this operation writes to MongoDB", recorder.blocked.detail
     assert_empty stored(_id: "guarded")
     assert_empty captured(recorder).changes
+  end
+
+  # The pre-send refusal relies on the driver propagating an exception from a command subscriber. Were a
+  # future driver to swallow it, the refused command would be sent: the Preview must then never be confirmed.
+  def test_a_refused_command_that_reaches_the_server_fails_the_preview
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(@raw, hello: -> { { "ismaster" => true } })
+    Thread.current[:swallow_refusals] = true
+    recorder = preview([@store]) { |_| @store.client[:documents].insert_one(_id: "leaked") }
+    refute_nil recorder.blocked
+    refute_nil recorder.fault, "A refused command that was sent can never be a confirmed Preview"
+    assert_match(/reached the server/, recorder.fault.message)
+    assert_equal 1, stored(_id: "leaked").length, "The driver sent it, which is why the Preview cannot be confirmed"
+  ensure
+    Thread.current[:swallow_refusals] = nil
   end
 
   # --- outside a Preview, discovery, coverage ----------------------------------------------------------
