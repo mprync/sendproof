@@ -77,6 +77,10 @@ final class DoctrineSession implements PreviewSession
         foreach ($this->enrolled as [$connection, $before]) {
             try {
                 $this->unwind($connection, $before);
+                // A refused or failed commit can leave DBAL at the starting level with the driver still inside the transaction.
+                if ($before === 0 && $this->nativeTransactionOpen($connection)) {
+                    $connection->getNativeConnection()->rollBack();
+                }
             } catch (\Throwable) {
                 // Best effort. The preview was already withheld when rollback failed earlier.
             }
