@@ -103,6 +103,9 @@ internal class GuardedMongo : DispatchProxy
         ["List"] = Simple("listIndexes"),
     };
 
+    /// <summary>The reason a Preview blocks direct access to the client's cluster.</summary>
+    internal const string ClusterReason = "Preview unavailable: GridFS and other direct cluster access can't join the Preview's MongoDB session";
+
     /// <summary>Methods that return another handle: they are wrapped, never guarded.</summary>
     private static bool ReturnsHandle(string name) => name is "GetDatabase" or "GetCollection" or "WithReadConcern" or "WithReadPreference" or "WithWriteConcern" or "OfType";
 
@@ -121,6 +124,12 @@ internal class GuardedMongo : DispatchProxy
             // The decorator owns both the instrumented client and the one the host registered.
             _engine.DisposeClients();
             return null;
+        }
+
+        if (preview is not null && _kind == Kind.Client && method.Name == "get_Cluster")
+        {
+            // The cluster sends commands with no session and no guard (GridFS works this way): block before anything is sent.
+            capture.Check("mongodb", "Cluster", CommandKind.Write, ClusterReason);
         }
 
         // Properties and handle factories: wrap what they return, so a collection fetched once keeps its guard.
@@ -313,6 +322,12 @@ internal class GuardedMongo : DispatchProxy
         {
             // collection.Database.Client: hand back the guarded client, not the instrumented one.
             return _engine.GuardedClient ?? result;
+        }
+
+        if (type == typeof(IMongoClient) && _kind == Kind.Client)
+        {
+            // client.WithReadPreference(...) and the other With* copies: a new client with other options, guarded too.
+            return Wrap(_engine, type, result, Kind.Client, null, "");
         }
 
         if (type == typeof(IMongoDatabase))

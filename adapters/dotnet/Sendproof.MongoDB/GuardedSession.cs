@@ -36,6 +36,9 @@ internal class GuardedSession : DispatchProxy
             case "Dispose":
                 // The Preview ends its session after the handler.
                 return null;
+            case "get_Client":
+                // The real session's client is the instrumented one, with no guard: hand back the guarded client instead.
+                return _engine.GuardedClient;
             case "CommitTransaction" or "CommitTransactionAsync" or "AbortTransaction" or "AbortTransactionAsync":
                 var verb = method.Name.StartsWith("Commit", StringComparison.Ordinal) ? "commitTransaction" : "abortTransaction";
                 var error = new PreviewTransactionControlException(

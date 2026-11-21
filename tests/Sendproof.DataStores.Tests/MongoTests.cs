@@ -260,6 +260,27 @@ public sealed class MongoTests
             await Documents(client, database).InsertOneAsync(new BsonDocument("_id", "redetected"));
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/derived/{via}", async (string via, IMongoClient client) =>
+        {
+            // Handles that come back from the guarded ones, with other options or through a back-reference, stay guarded.
+            using var session = await client.StartSessionAsync();
+            var derived = via switch
+            {
+                "session" => session.Client,
+                "read-preference" => client.WithReadPreference(ReadPreference.Primary),
+                "write-concern" => client.WithWriteConcern(WriteConcern.WMajority),
+                "read-concern" => client.WithReadConcern(ReadConcern.Majority),
+                _ => client.GetDatabase(database).Client
+            };
+            await Documents(derived, database).InsertOneAsync(new BsonDocument("_id", "derived-" + via));
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/gridfs", async (IMongoClient client) =>
+        {
+            // GridFS sends its commands through the cluster directly, never through a collection handle.
+            await new global::MongoDB.Driver.GridFS.GridFSBucket(client.GetDatabase(database)).UploadFromBytesAsync("file.txt", [1, 2, 3]);
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/unguarded", async () =>
         {
             // A client the hook never saw: not covered, so the write is neither blocked nor rolled back.
@@ -398,6 +419,29 @@ public sealed class MongoTests
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/list-indexes"), "mongodb", "listIndexes");
         var names = await (await f.Raw.GetDatabase(f.Database).ListCollectionNamesAsync()).ToListAsync();
         Assert.DoesNotContain("made", names);
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task DerivedClientsAndTheSessionsClientStayGuardedSoTheirWritesRollBack()
+    {
+        await using var f = await Fixture.StartAsync();
+        foreach (var via in new[] { "session", "read-preference", "write-concern", "read-concern", "database" })
+        {
+            var envelope = await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", $"/derived/{via}"));
+            Assert.Equal("derived-" + via, Assert.Single(Changes(envelope, "insert")).GetProperty("key").GetProperty("_id").GetString());
+            Assert.Null(await f.FindAsync("derived-" + via));
+        }
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task GridFsIsBlockedBeforeItWritesBecauseItBypassesThePreviewSession()
+    {
+        await using var f = await Fixture.StartAsync();
+        var problem = await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/gridfs"), "mongodb", "Cluster");
+        Assert.Contains("GridFS", problem.GetProperty("detail").GetString());
+        var names = await (await f.Raw.GetDatabase(f.Database).ListCollectionNamesAsync()).ToListAsync();
+        Assert.DoesNotContain("fs.files", names);
+        Assert.DoesNotContain("fs.chunks", names);
     }
 
     [ServiceFact("mongodb")]
