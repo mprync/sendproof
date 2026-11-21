@@ -129,25 +129,43 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 		if _, err := s.tx.ExecContext(ctx, "INSERT INTO "+s.sentinel+" VALUES (1)"); err != nil {
 			return nil, err
 		}
-		// The commit backstop: finishPreview releases this savepoint, which any commit erases.
-		if _, err := s.tx.ExecContext(ctx, "SAVEPOINT "+previewSavepoint); err != nil {
-			return nil, err
-		}
+	}
+	// The commit backstop, on every dialect: finishPreview checks this savepoint,
+	// which any commit erases. SQL Server names savepoints with SAVE TRANSACTION.
+	set := "SAVEPOINT " + previewSavepoint
+	if d.dialect == DialectSQLServer {
+		set = "SAVE TRANSACTION " + previewSavepoint
+	}
+	if _, err := s.tx.ExecContext(ctx, set); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
 
-// neverCommitted is the MySQL backstop of spec/data-stores.md "Transaction-control
-// statements from the handler": it releases the savepoint open() set when the
-// preview started. Any commit, explicit or implicit, erases every savepoint, so
-// a failure means something committed the preview transaction, even under
-// autocommit=0, where MySQL opens a new transaction implicitly after a commit.
+// neverCommitted is the backstop of spec/data-stores.md "Transaction-control
+// statements from the handler", on every dialect. It releases the savepoint
+// open() set when the preview started: any commit, explicit or implicit, erases
+// every savepoint, so a failure means something the guard didn't see committed
+// the preview transaction, even under MySQL autocommit=0, where a new
+// transaction opens after a commit. SQL Server can't release a savepoint, so
+// @@TRANCOUNT must still count the preview transaction. A PostgreSQL transaction
+// a failed statement aborted is still the open preview transaction.
 func (s *scope) neverCommitted(ctx context.Context) error {
-	if s.dialect != DialectMySQL || s.tx == nil {
+	if s.tx == nil {
 		return nil
 	}
-	if _, err := s.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+previewSavepoint); err != nil {
-		return fmt.Errorf("dbsql: the savepoint set when the preview started was gone, so something committed the MySQL transaction: %w", err)
+	gone := func(err error) error {
+		return fmt.Errorf("dbsql: the savepoint set when the preview started was gone, so something committed the preview transaction: %w", err)
+	}
+	if s.dialect == DialectSQLServer {
+		var open int
+		if err := s.tx.QueryRowContext(ctx, "SELECT @@TRANCOUNT").Scan(&open); err != nil || open < 1 {
+			return gone(fmt.Errorf("@@TRANCOUNT is %d: %v", open, err))
+		}
+		return nil
+	}
+	if _, err := s.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+previewSavepoint); err != nil && !(s.dialect == DialectPostgres && abortedTransaction(err)) {
+		return gone(err)
 	}
 	return nil
 }

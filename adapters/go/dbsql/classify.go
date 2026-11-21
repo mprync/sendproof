@@ -253,7 +253,8 @@ func checkStatement(text string, statement []token, dialect Dialect, safe map[st
 		return nil
 	}
 	if op, ok := savepointStatement(statement, words, dialect); ok {
-		if dialect == DialectMySQL && op.name == strings.ToUpper(previewSavepoint) {
+		// Every dialect's backstop relies on this savepoint, so a handler may not touch it.
+		if op.name == strings.ToUpper(previewSavepoint) {
 			return refuse(statement, "the preview's own savepoint proves nothing committed it")
 		}
 		return nil
