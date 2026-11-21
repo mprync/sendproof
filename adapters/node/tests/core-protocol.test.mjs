@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import test from 'node:test';
-import { Capture, createBench, currentCapture, deliverEffect } from '@test-bench/core';
+import { Capture, createBench, currentCapture, deliverEffect, endsTransaction, looksSecret, mayWrite } from '@test-bench/core';
 
 const origin = 'http://localhost:8000';
 const identity = { name: 'Robin', role: 'editor', subject: '42', scheme: 'cookie' };
@@ -243,4 +243,95 @@ test('interleaved sends isolate effects and only attach logs from their async sc
     assert.deepEqual(result.logs.map(log => log.message), [String(index)]);
     assert.deepEqual(result.effects.map(effect => [effect.description, effect.delivered]), [[String(index), true]]);
   }
+});
+
+test('secret names are judged by whole words, as in the reference adapter', () => {
+  for (const name of ['password', 'PasswordHash', 'password_hash', 'passwd', 'pwd', 'client_secret', 'refreshToken',
+    'salt', 'credentials', 'apikey', 'api_key', 'x-api-key', 'privateKey', 'signing_key', 'AccessKey', 'encryption-key']) {
+    assert.equal(looksSecret(name), true, name);
+  }
+  for (const name of ['idempotency_key', 'monkey', 'primary_key', 'key', 'passage', 'tokenizer_id', 'status', 'hashtag']) {
+    assert.equal(looksSecret(name), false, name);
+  }
+});
+
+test('SQL values are hidden for secret names and for any statement that names a secret', async () => {
+  const capture = new Capture('send', {}, true);
+  capture.run(() => {
+    const recorder = currentCapture();
+    const parameters = [{ name: '$1', value: 'fixture-hash', dbType: 'text' }, { name: '$2', value: '7', dbType: 'text' }];
+    recorder.sql({ text: 'UPDATE users SET password_hash = $1 WHERE id = $2', parameters });
+    recorder.sql({ text: 'UPDATE users SET name = $1 WHERE id = $2', parameters });
+    recorder.sql({ text: 'select 1', parameters: [{ name: 'pwd', value: 'fixture-pwd', dbType: 'text' }] });
+  });
+  const [secretStatement, plain, named] = capture.finish().capture.logs.map(log => log.sql.parameters.map(p => p.value));
+  assert.deepEqual(secretStatement, ['[REDACTED]', '[REDACTED]']);
+  assert.deepEqual(plain, ['fixture-hash', '7']);
+  assert.deepEqual(named, ['[REDACTED]']);
+});
+
+test('change snapshots never carry secret-named column values', () => {
+  const capture = new Capture('preview');
+  capture.run(() => {
+    currentCapture().change({ operation: 'update', table: 'users', key: { id: 1 },
+      before: { id: 1, email: 'a@example.test', password_hash: 'fixture-old-hash' },
+      after: { id: 1, email: 'a@example.test', passwordHash: 'fixture-new-hash', apiKey: 'fixture-key' } });
+    currentCapture().change({ operation: 'delete', table: 'sessions', key: { session_token: 'fixture-token' },
+      before: { session_token: 'fixture-token', password_digest: 'fixture-digest', user_id: 1 }, after: null });
+  });
+  const [change, session] = capture.finish().capture.changes;
+  assert.deepEqual(session.key, { session_token: '[REDACTED]' });
+  assert.deepEqual(session.before, { session_token: '[REDACTED]', password_digest: '[REDACTED]', user_id: 1 });
+  assert.doesNotMatch(JSON.stringify(session), /fixture-/);
+  assert.deepEqual(change.before, { id: 1, email: 'a@example.test', password_hash: '[REDACTED]' });
+  assert.deepEqual(change.after, { id: 1, email: 'a@example.test', passwordHash: '[REDACTED]', apiKey: '[REDACTED]' });
+  assert.doesNotMatch(JSON.stringify(change), /fixture-/);
+});
+
+test('log entries keep at most 32 properties and clip names and text', () => {
+  const capture = new Capture('send');
+  const properties = Object.fromEntries(Array.from({ length: 40 }, (_, index) => ['p' + index, 'v']));
+  properties['{OriginalFormat}'] = 'template';
+  capture.run(() => {
+    currentCapture().log({ level: 'Information', message: 'x'.repeat(5000), category: 'c'.repeat(300), properties, unexpected: 'dropped' });
+    currentCapture().log({ level: 'Information', message: 'long property', properties: { ['n'.repeat(300)]: 'y'.repeat(5000) } });
+  });
+  const [log, long] = capture.finish().capture.logs;
+  assert.equal(Object.keys(log.properties).length, 32);
+  assert.equal(Object.hasOwn(log.properties, '{OriginalFormat}'), false);
+  assert.equal(log.message.length, 4096);
+  assert.equal(log.category.length, 256);
+  assert.equal(log.unexpected, undefined);
+  assert.equal(Object.keys(long.properties)[0].length, 256);
+  assert.equal(Object.values(long.properties)[0].length, 4096);
+});
+
+test('trace ids carry 128 random bits and owners include the token issuer', async () => {
+  const bench = protocol({ resolveIdentity: ({ raw }) => raw });
+  const issued = { ...identity, issuer: 'https://issuer-a.test' };
+  const id = (await bench.observation(request('/items', { method: 'POST', headers: { prefer: 'trace' }, raw: issued }))).complete(201);
+  assert.match(id, /^[0-9a-f]{32}$/);
+  const read = raw => bench.lookup(request('/bench/_api/traces/' + id, { raw }));
+  assert.equal((await read(issued)).status, 200);
+  assert.equal((await read({ ...issued, issuer: 'https://issuer-b.test' })).status, 404);
+  assert.equal((await read(identity)).status, 404);
+});
+
+test('the database label must be a display name, never connection details', async () => {
+  for (const value of ['postgres://user:pass@db.internal:5432/app', 'Server=db;Password=x', '/var/data/app.sqlite',
+    ':memory:', 'C:\\data\\app.db', 'db.internal:5432', '', 'x'.repeat(129), 42]) {
+    assert.throws(() => protocol({ database: value }), TypeError, String(value));
+  }
+  const response = await protocol({ database: 'SQL Server (inventory)' }).lookup(request(lookup));
+  assert.equal(parse(response).database, 'SQL Server (inventory)');
+});
+
+test('the shared statement classifier sees MySQL executable comments and implicit commits', () => {
+  assert.equal(endsTransaction('/*!COMMIT*/', 'mysql'), true);
+  assert.equal(endsTransaction('SELECT 1; /*!50000 COMMIT */', 'mysql'), true);
+  assert.equal(endsTransaction('/*M!100100 ROLLBACK */', 'mysql'), true);
+  assert.equal(endsTransaction('/* COMMIT */ SELECT 1', 'mysql'), false);
+  assert.equal(endsTransaction('LOAD XML INFILE "x" INTO TABLE t', 'mysql'), true);
+  assert.equal(endsTransaction("SELECT 'commit; rollback'", 'postgres'), false);
+  assert.equal(mayWrite('/*!INSERT INTO t VALUES (1)*/'), true);
 });

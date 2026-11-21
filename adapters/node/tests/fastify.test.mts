@@ -341,7 +341,7 @@ test('Send with Prefer: trace records an owner-bound trace that other subjects c
   const sent = await h.app.inject({ method: 'POST', url: '/items', headers: { 'x-user': 'admin', prefer: 'trace' }, payload: { id: 'traced', name: 'T' } });
   assert.equal(sent.statusCode, 201);
   const id = sent.headers['x-testbench-trace'];
-  assert.match(String(id), /^[0-9a-f-]{36}$/);
+  assert.match(String(id), /^[0-9a-f]{32}$/);
   assert.equal(await exists(h.db, 'traced'), true, 'observed Send is a normal, committed request');
 
   const trace = await h.app.inject({ url: `/bench/_api/traces/${id}`, headers: { 'x-user': 'admin' } });

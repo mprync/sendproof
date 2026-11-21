@@ -1,11 +1,36 @@
-import type { CaptureCollection, CaptureLimits, CaptureMode, CaptureSnapshot, CaptureRecorder, Change, Effect, RecordedLog, SqlEntry, Timing } from './types.js';
+import type { CaptureCollection, CaptureLimits, CaptureMode, CaptureSnapshot, CaptureRecorder, Change, Effect, Log, RecordedLog, SqlEntry, Timing } from './types.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
+import { looksSecret, redacted, redactRow } from './secrets.js';
 
 const current = new AsyncLocalStorage<Capture>();
 const defaults = { changes: 200, effects: 100, logs: 500, bytes: 1024 * 1024, valueBytes: 8192 };
-const secretName = /password|passphrase|secret|token|api.?key|authorization|credential|private.?key/i;
-const clip = (value: unknown) => String(value).slice(0, 2048);
+/** Longest captured text value, and longest captured name (parameter, property, category, type). */
+const textLimit = 4096;
+const nameLimit = 256;
+/** Most SQL parameters and log properties kept for one entry. */
+const parameterLimit = 64;
+const propertyLimit = 32;
+const clip = (value: unknown, limit = textLimit) => String(value).slice(0, limit);
+
+/** Bound a structured log's optional fields before it is serialized. */
+function boundedLog({ category, eventId, properties, exception }: Log): Partial<Log> {
+  const bounded: Partial<Log> = {};
+  if (category !== undefined) bounded.category = clip(category, nameLimit);
+  if (eventId !== undefined) bounded.eventId = { id: Number(eventId.id), ...(eventId.name === undefined ? {} : { name: clip(eventId.name, nameLimit) }) };
+  if (exception !== undefined) bounded.exception = { type: clip(exception.type, nameLimit), message: clip(exception.message) };
+  if (properties !== undefined && properties !== null && typeof properties === 'object') {
+    const kept: Record<string, string> = {};
+    let count = 0;
+    for (const name in properties) {
+      if (!Object.hasOwn(properties, name) || name === '{OriginalFormat}') continue;
+      if (count++ >= propertyLimit) break;
+      kept[clip(name, nameLimit)] = clip(properties[name]);
+    }
+    bounded.properties = kept;
+  }
+  return bounded;
+}
 
 /** Capture methods are request-scoped, including across awaited I/O. */
 export function currentCapture(): CaptureRecorder | undefined {
@@ -55,7 +80,13 @@ export class Capture implements CaptureRecorder {
     this.#values[truncated] = true;
   }
 
-  change(value: Change) { this.#append('changes', value); }
+  /** Record a row change. Secret-named columns (for example `password_hash`) never leave the process. */
+  change(value: Change) {
+    if (!this.active) return;
+    const key = value.key !== null && typeof value.key === 'object' && !Array.isArray(value.key)
+      ? redactRow(value.key as Record<string, unknown>) : value.key;
+    this.#append('changes', { ...value, key, before: redactRow(value.before), after: redactRow(value.after) });
+  }
 
   truncate(name: CaptureCollection) {
     if (this.active) this.#values[`${name}Truncated`] = true;
@@ -67,21 +98,33 @@ export class Capture implements CaptureRecorder {
   }
 
   log(value: RecordedLog) {
-    this.#append('logs', { ...value, level: clip(value.level), message: clip(value.message),
-      offsetMs: performance.now() - this.#started });
+    if (!this.active) return;
+    const { level, message, elapsedMs, sql } = value;
+    this.#append('logs', {
+      level: clip(level, nameLimit), message: clip(message), ...boundedLog(value),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }), ...(sql === undefined ? {} : { sql }),
+      offsetMs: performance.now() - this.#started,
+    });
   }
 
+  /**
+   * Record one statement. Values are shown only when parameter values are enabled, never for a
+   * secret-named parameter, and never for any parameter of a statement whose text names a secret
+   * (generated placeholders such as `$1` carry no column name to judge).
+   */
   sql({ text, parameters = [], rowsAffected, elapsedMs = 0 }: SqlEntry) {
     if (!this.active) return;
     this.#timing.queryCount++;
     this.#timing.db += elapsedMs;
-    if (parameters.length > 64) this.#values.logsTruncated = true;
+    const statement = String(text);
+    if (parameters.length > parameterLimit || statement.length > textLimit) this.#values.logsTruncated = true;
+    const hideAll = !this.parameterValues || looksSecret(statement);
     this.log({ level: 'Sql', message: 'Executed SQL', elapsedMs, sql: {
-      text: clip(text),
-      parameters: parameters.slice(0, 64).map(({ name, value, dbType }) => ({
-        name: clip(name),
-        value: secretName.test(name) || !this.parameterValues ? '[REDACTED]' : value == null ? null : clip(value),
-        dbType: clip(dbType),
+      text: clip(statement),
+      parameters: parameters.slice(0, parameterLimit).map(({ name, value, dbType }) => ({
+        name: clip(name, nameLimit),
+        value: hideAll || looksSecret(String(name)) ? redacted : value == null ? null : clip(value),
+        dbType: clip(dbType, nameLimit),
       })),
       ...(rowsAffected === undefined ? {} : { rowsAffected: Number(rowsAffected) }),
     } });

@@ -6,7 +6,7 @@ import { currentCapture } from '@test-bench/core';
 import type { Change, PreviewProvider } from '@test-bench/core';
 import { dialectOf, isTransient } from './dialect.js';
 import { compareKeys, insertedRows, keysFromData, keysFromResult, normalizeKey, readPrimaryKey, rowsOf } from './keys.js';
-import { resolveTable, trackClient } from './tracked.js';
+import { guardPreview, resolveTable, trackClient } from './tracked.js';
 import type { BuilderState, TableName } from './tracked.js';
 import type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
 
@@ -26,6 +26,8 @@ interface Scope {
   tail: Promise<void>;
   /** 0 for an outermost transaction, 1 for a savepoint inside it, and so on. */
   depth: number;
+  /** Set when a Preview refused a statement that would have ended its transaction. */
+  refused?: boolean;
 }
 
 type Row = Record<string, unknown>;
@@ -205,7 +207,7 @@ export class KnexPreview implements PreviewProvider {
     if (this.#transaction.getStore()) throw new Error('Nested Knex previews are unavailable.');
     const connection = await this.#database.transaction(undefined as never, { doNotRejectOnRollback: true });
     const completion = connection.executionPromise.then(() => true as const, (error: unknown) => ({ error }));
-    const scope = this.#scope(connection, 0);
+    const scope = this.#scope(connection, 0, undefined, true);
     try {
       return await this.#transaction.run(scope, dispatch);
     } finally {
@@ -216,6 +218,8 @@ export class KnexPreview implements PreviewProvider {
       await connection.rollback();
       const outcome = await completion;
       if (outcome !== true) throw new Error('Knex did not acknowledge the rollback.', { cause: outcome.error });
+      // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
+      if (scope.refused) throw new Error('The Knex preview was not contained: the operation tried to end the Preview transaction.');
     }
   }
 
@@ -236,13 +240,19 @@ export class KnexPreview implements PreviewProvider {
     return buffer ? change => { buffer.push(change); } : change => { recorder.change(change); };
   }
 
-  #scope(connection: Knex.Transaction, depth: number, parent?: Scope): Scope {
-    const scope: Scope = { connection, client: connection, active: true, tail: Promise.resolve(), depth };
+  /**
+   * Create a scope. A Preview scope hands the operation a guarded transaction that cannot commit
+   * or end itself; the provider keeps the unguarded one for its own reads and the rollback.
+   */
+  #scope(trx: Knex.Transaction, depth: number, parent?: Scope, preview = false): Scope {
+    const scope: Scope = { connection: trx, client: trx, active: true, tail: Promise.resolve(), depth };
+    const connection = preview ? guardPreview(trx, this.#dialect, () => { scope.refused = true; }) : trx;
+    scope.connection = connection;
     if (parent) {
       scope.parent = parent;
       scope.buffer = [];
     }
-    scope.client = trackClient(connection, (builder, state, execute) => this.#mutation(connection, scope, builder, state, execute));
+    scope.client = trackClient(connection, (builder, state, execute) => this.#mutation(trx, scope, builder, state, execute));
     return scope;
   }
 

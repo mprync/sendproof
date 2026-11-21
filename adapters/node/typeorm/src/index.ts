@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { currentCapture } from '@test-bench/core';
+import { currentCapture, endsTransaction, mayWrite } from '@test-bench/core';
 import type { PreviewProvider } from '@test-bench/core';
 import type { DataSource, EntityManager, EntityTarget, FindOptionsWhere, Logger, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { ChangeTracker } from './changes.js';
@@ -31,7 +31,15 @@ type QueryFunction = (text: string, parameters?: unknown[], useStructuredResult?
 interface Scope {
   readonly manager: EntityManager;
   open: boolean;
+  /** The Preview's own query runner. Absent for ordinary requests. */
+  readonly preview?: QueryRunner;
 }
+
+/** Drivers whose implicit commits (DDL, LOCK TABLES) must also be refused during Preview. */
+const mysqlDrivers = new Set(['mysql', 'mariadb', 'aurora-mysql']);
+
+const previewOwnsMessage = 'Preview owns the transaction and must roll it back. Use manager.transaction() for a nested unit of work.';
+const endedMessage = 'The TypeORM request scope has ended.';
 
 /**
  * Test Bench data provider for a host-owned TypeORM DataSource.
@@ -48,6 +56,10 @@ export class TypeOrmPreview implements PreviewProvider {
   readonly #scopes = new AsyncLocalStorage<Scope>();
   readonly #labels = new AsyncLocalStorage<readonly string[]>();
   readonly #hidden = new AsyncLocalStorage<true>();
+  /** Preview runners whose handler tried to end the transaction; such a Preview is never confirmed. */
+  readonly #refused = new WeakSet<QueryRunner>();
+  /** Set while TypeORM's own transaction methods run, so their BEGIN, COMMIT and ROLLBACK pass the guard. */
+  readonly #control = new AsyncLocalStorage<true>();
   readonly #previousLogger: Logger;
   readonly #createQueryRunner: DataSource['createQueryRunner'];
   readonly #wrappers = new WeakMap<QueryRunner, { wrapper: QueryFunction; ownQuery: QueryRunner['query'] | undefined }>();
@@ -91,7 +103,7 @@ export class TypeOrmPreview implements PreviewProvider {
   async run<T>(operation: (manager: EntityManager) => T): Promise<Awaited<T>> {
     const scope = this.#scopes.getStore();
     if (!scope) return this.#lease.run(() => this.#withManager(this.#source.manager, operation));
-    if (!scope.open) throw new Error('The TypeORM request scope has ended.');
+    if (!scope.open) throw new Error(endedMessage);
     return await operation(scope.manager);
   }
 
@@ -128,10 +140,18 @@ export class TypeOrmPreview implements PreviewProvider {
       try {
         await runner.connect();
         await runner.startTransaction();
+        this.#refused.delete(runner);
+        const restore = this.#guardCommit(runner);
         try {
-          return await this.#withManager(runner.manager, dispatch);
+          return await this.#withManager(runner.manager, dispatch, runner);
         } finally {
+          restore();
           await this.#rollBack(runner);
+          // Rolled back, but the handler tried to end the transaction itself: never confirm that Preview.
+          if (this.#refused.has(runner)) {
+            this.#refused.delete(runner);
+            throw new Error('The TypeORM preview was not contained: the handler tried to end the Preview transaction.');
+          }
         }
       } finally {
         try {
@@ -155,8 +175,54 @@ export class TypeOrmPreview implements PreviewProvider {
     }
   }
 
-  async #withManager<T>(manager: EntityManager, operation: (manager: EntityManager) => T): Promise<Awaited<T>> {
-    const scope: Scope = { manager, open: true };
+  /**
+   * Refuse to commit the Preview transaction itself. A nested `manager.transaction()` still works:
+   * TypeORM commits it by releasing its savepoint. BEGIN, COMMIT and ROLLBACK issued by TypeORM's
+   * own transaction methods are marked so the statement guard lets them through.
+   */
+  #guardCommit(runner: QueryRunner): () => void {
+    type Method = 'startTransaction' | 'commitTransaction' | 'rollbackTransaction';
+    const methods: Method[] = ['startTransaction', 'commitTransaction', 'rollbackTransaction'];
+    const owned = methods.map(name => [name, Object.hasOwn(runner, name) ? runner[name] : undefined] as const);
+    const original = Object.fromEntries(methods.map(name => [name, runner[name]])) as Pick<QueryRunner, Method>;
+    const depth = () => (runner as unknown as { transactionDepth: number }).transactionDepth;
+    runner.startTransaction = (...args) => this.#control.run(true, () => original.startTransaction.apply(runner, args));
+    runner.rollbackTransaction = () => this.#control.run(true, () => original.rollbackTransaction.apply(runner));
+    runner.commitTransaction = () => {
+      if (depth() > 1) return this.#control.run(true, () => original.commitTransaction.apply(runner));
+      this.#refused.add(runner);
+      return Promise.reject(new Error(previewOwnsMessage));
+    };
+    return () => {
+      for (const [name, own] of owned) {
+        if (own) runner[name] = own as never;
+        else delete (runner as Partial<QueryRunner>)[name];
+      }
+    };
+  }
+
+  /**
+   * Refuse a statement that would let a Preview escape its transaction: any statement after the
+   * Preview scope ended (an operation still running after the response settled early), raw SQL that
+   * ends the transaction, and a write through any connection other than the Preview's own.
+   */
+  #guardStatement(runner: QueryRunner, text: string): void {
+    const scope = this.#scopes.getStore();
+    if (!scope?.preview || this.#control.getStore()) return;
+    if (!scope.open) throw new Error(endedMessage);
+    const provider = mysqlDrivers.has(this.#source.options.type) ? 'mysql' : this.#source.options.type;
+    if (runner === scope.preview) {
+      if (endsTransaction(text, provider)) {
+        this.#refused.add(runner);
+        throw new Error(previewOwnsMessage);
+      }
+    } else if (mayWrite(text)) {
+      throw new Error('The TypeORM preview was not contained: a write was attempted outside the Preview transaction. Use provider.run().');
+    }
+  }
+
+  async #withManager<T>(manager: EntityManager, operation: (manager: EntityManager) => T, preview?: QueryRunner): Promise<Awaited<T>> {
+    const scope: Scope = preview ? { manager, open: true, preview } : { manager, open: true };
     try {
       return await this.#scopes.run(scope, operation, manager);
     } finally {
@@ -195,6 +261,13 @@ export class TypeOrmPreview implements PreviewProvider {
     const original = runner.query.bind(runner) as QueryFunction;
     const read = (sql: string): Promise<unknown> => this.#hidden.run(true, () => this.#inspect(runner, original, sql));
     const wrapper: QueryFunction = (text, parameters, useStructuredResult) => {
+      if (!this.#disposed && !this.#hidden.getStore()) {
+        try {
+          this.#guardStatement(runner, text);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
       const capture = currentCapture();
       if (this.#disposed || !capture || this.#hidden.getStore()) return original(text, parameters, useStructuredResult);
       return this.#tracker.around(capture, text, read, () => original(text, parameters, useStructuredResult));

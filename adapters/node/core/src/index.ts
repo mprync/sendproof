@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import type { BenchIdentity, BenchOptions, BenchRequest, DispatchResponse, LookupResponse, Observation, PreviewOperation, Trace, TransportResponse } from './types.js';
@@ -9,6 +9,8 @@ import { hasPreference, localPath, requireLocalPath, requestsRollback, sameOrigi
 
 export type * from './types.js';
 export { Capture, currentCapture, deliverEffect } from './capture.js';
+export { looksSecret, redacted, redactRow } from './secrets.js';
+export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
 
 const prefix = '/bench/_preview';
 const tracePrefix = '/bench/_api/traces/';
@@ -71,9 +73,22 @@ class TraceStore {
   }
 }
 
+/** Trace owner: path base, authentication scheme, token issuer and subject. */
 function owner(identity: BenchIdentity | null, basePath = '') {
   if (typeof identity?.subject !== 'string' || !identity.subject) return undefined;
-  return JSON.stringify([basePath, identity.scheme ?? '', identity.subject]);
+  const text = (value: unknown) => typeof value === 'string' ? value : '';
+  return JSON.stringify([basePath, text(identity.scheme), text(identity.issuer), identity.subject]);
+}
+
+/**
+ * The database label is shown to anyone who can open discovery, so it must be a bare display
+ * name: never a connection string, URL, host:port, credentials or file path.
+ */
+function requireDatabaseLabel(value: unknown): void {
+  if (value === null) return;
+  if (typeof value !== 'string' || !value.trim() || value.length > 128 || /[\p{Cc}/\\@=;:?#%]/u.test(value)) {
+    throw new TypeError('database must be a display name such as "PostgreSQL", not a connection string, URL or path.');
+  }
 }
 
 function publicIdentity(identity: BenchIdentity | null) {
@@ -96,6 +111,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
     if (typeof value !== 'string' || !value.trim()) throw new TypeError('API and environment names must be nonempty strings.');
   }
   requireLocalPath(openApiUrl);
+  requireDatabaseLabel(database);
   for (const { url } of [...documents, ...authProviders]) if (url !== null) requireLocalPath(url);
   fieldModules.forEach(requireLocalPath);
   for (const limit of [maxResponseBytes, traceTtlMs, ...Object.values(captureLimits)]) {
@@ -205,7 +221,8 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
         if (!capture.active) return undefined;
         const { capture: recorded, timing } = capture.finish();
         if (status === 401 || status === 403 || status >= 500 || status < 200) return undefined;
-        const id = randomUUID();
+        // 128 random bits from the CSPRNG, URL-safe.
+        const id = randomBytes(16).toString('hex');
         store.save(id, subject, { ...recorded, timing });
         return id;
       },

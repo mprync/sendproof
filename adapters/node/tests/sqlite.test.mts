@@ -170,9 +170,15 @@ test('SQL capture redacts positional bindings, secret names and, by default, nam
   assert.deepEqual(positional?.parameters.map(parameter => [parameter.name, parameter.value]), [['$1', '[REDACTED]']]);
   assert.doesNotMatch(JSON.stringify(captured), /fixture-secret-value|positional-value|Dublin/);
 
-  const shown = await capturing(() => database.get('SELECT :fixture_secret AS value, :city AS city',
-    { fixture_secret: 'fixture-secret-value', city: 'Dublin' }), { parameterValues: true });
-  assert.deepEqual(sqlEntries(shown.captured)[0]?.parameters.map(parameter => parameter.value), ['[REDACTED]', 'Dublin']);
+  // With values enabled, a statement that names a secret anywhere hides every value it binds.
+  const shown = await capturing(async () => {
+    await database.get('SELECT :fixture_secret AS value, :city AS city', { fixture_secret: 'fixture-secret-value', city: 'Dublin' });
+    await database.get('SELECT :city AS city, :pin AS pin', { city: 'Dublin', pin: 'fixture-pin' });
+  }, { parameterValues: true });
+  const [secretStatement, plainStatement] = sqlEntries(shown.captured);
+  assert.deepEqual(secretStatement?.parameters.map(parameter => parameter.value), ['[REDACTED]', '[REDACTED]']);
+  assert.deepEqual(plainStatement?.parameters.map(parameter => parameter.value), ['Dublin', 'fixture-pin']);
+  assert.doesNotMatch(JSON.stringify(secretStatement), /fixture-secret-value|Dublin/);
   await database.close();
 });
 
@@ -208,4 +214,20 @@ test('the constructor validates its options and closes the connection when the s
   assert.throws(() => open({ retries: -1 }), /retries must be a non-negative integer/);
   assert.throws(() => open({ busyTimeoutMs: 1.5 }), RangeError);
   assert.throws(() => new SQLiteDatabase(':memory:', { schema: 'CREATE TABLE broken (' }), /incomplete input|syntax error/);
+});
+
+test('change snapshots and SQL hide secret-named columns, including a secret primary key', async () => {
+  const database = new SQLiteDatabase(':memory:', {
+    schema: 'CREATE TABLE sessions (session_token TEXT PRIMARY KEY, password_digest TEXT, user_name TEXT)',
+  });
+  const { captured } = await capturing(() => database.preview(() => database.write(
+    'INSERT INTO sessions (session_token, password_digest, user_name) VALUES (:t, :d, :u)',
+    { t: 'fixture-session-id', d: 'fixture-digest', u: 'robin' },
+    { table: 'sessions', keys: [{ session_token: 'fixture-session-id' }] })), { parameterValues: true });
+  const [change] = captured.changes;
+  assert.deepEqual(change?.key, { session_token: '[REDACTED]' });
+  assert.deepEqual(change?.after, { session_token: '[REDACTED]', password_digest: '[REDACTED]', user_name: 'robin' });
+  assert.deepEqual(sqlEntries(captured)[0]?.parameters.map(parameter => parameter.value), ['[REDACTED]', '[REDACTED]', '[REDACTED]']);
+  assert.doesNotMatch(JSON.stringify(captured), /fixture-/);
+  await database.close();
 });

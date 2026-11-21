@@ -14,6 +14,8 @@ export interface Scope {
    * released, and dropped when it rolls back, so the capture never shows rows that were undone.
    */
   changes?: Change[];
+  /** Set when the Preview refused a statement that would have ended its transaction. */
+  refused?: boolean;
 }
 
 export const endedMessage = 'The Drizzle transaction has ended.';

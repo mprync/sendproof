@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { currentCapture } from '@test-bench/core';
+import { currentCapture, endsTransaction, splitStatements } from '@test-bench/core';
 import { is, Placeholder } from 'drizzle-orm';
 import type { DrizzleDialect } from './metadata.js';
 import { endedMessage, isInternal, parameterNames } from './scope.js';
@@ -20,14 +20,6 @@ type PreparedMethod = (...args: unknown[]) => unknown;
 const sessionScopes = new WeakMap<object, Scope>();
 const instrumented = new WeakSet<object>();
 
-/** Statements that would end the transaction a Preview must roll back. Savepoints stay allowed. */
-const transactionControl =
-  /^(?:begin|start\s+transaction|commit|end|abort|rollback(?!\s+to\b)|prepare\s+transaction|xa)\b/i;
-/** MySQL statements that commit the open transaction implicitly. Temporary tables are exempt. */
-const implicitCommit = new RegExp('^(?:create|alter|drop|rename|truncate|grant|revoke|install|uninstall|' +
-  'lock\\s+tables?|unlock\\s+tables?|load\\s+(?:data|xml)|flush|reset|analyze|optimize|repair|cache\\s+index|' +
-  'set\\s+(?:(?:session|local)\\s+|@@(?:session\\.|local\\.)?)?autocommit)\\b', 'i');
-const temporaryTable = /^(?:create|drop)\s+temporary\s+table\b/i;
 const mutation = /^\s*(?:insert|update|delete|replace|merge)\b/i;
 
 /**
@@ -96,19 +88,13 @@ function guard(text: string, session: object, dialect: DrizzleDialect): void {
   if (!scope) return;
   if (!scope.open) throw new Error(endedMessage);
   if (!scope.preview) return;
-  for (const statement of statementsOf(text)) {
-    if (transactionControl.test(statement)
-      || (dialect === 'mysql' && implicitCommit.test(statement) && !temporaryTable.test(statement))) {
-      throw new Error('Preview owns the transaction and must roll it back, so "' + statement.slice(0, 40) +
-        '" cannot run during Preview. Use client.transaction() for a nested unit of work.');
-    }
-  }
-}
-
-/** Split statement text on semicolons after removing comments. A literal containing `;` errs on the safe side. */
-function statementsOf(text: string): string[] {
-  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
-    .split(';').map(part => part.trim()).filter(Boolean);
+  // The shared classifier also covers MySQL's implicit commits and executable comments.
+  if (!endsTransaction(text, dialect)) return;
+  const statement = splitStatements(text).find(part => endsTransaction(part, dialect)) ?? text;
+  // The Preview fails even if the operation catches this error.
+  scope.refused = true;
+  throw new Error('Preview owns the transaction and must roll it back, so "' + statement.slice(0, 40) +
+    '" cannot run during Preview. Use client.transaction() for a nested unit of work.');
 }
 
 function fill(params: unknown[], placeholders: unknown): unknown[] {

@@ -1,23 +1,49 @@
 /**
- * Lightweight SQL statement classification used to decide whether a Preview stayed inside
- * its rolled-back transaction. The checks are deliberately conservative: an unrecognised
- * statement that might write is treated as a write, which can only withhold confirmation.
+ * Lightweight SQL statement classification shared by the database providers to decide whether
+ * a Preview stayed inside its rolled-back transaction. The checks are deliberately
+ * conservative: an unrecognised statement that might write is treated as a write, which can
+ * only withhold confirmation or refuse the statement.
  */
 
-/** Database families reported by Prisma driver adapters through `provider`. */
+/**
+ * Database family of a connection. Only `mysql` changes the rules (implicit commits); the
+ * other names are accepted for readability at the call site.
+ */
 export type AdapterProvider = 'sqlite' | 'postgres' | 'mysql' | 'sqlserver' | (string & {});
 
-/** Split SQL text into statements, ignoring separators inside quotes and comments. */
+/** MySQL and MariaDB run the body of `/*! ... *\/` and `/*M! ... *\/` comments as SQL. */
+const executableComment = /^\/\*M?!\d*/;
+
+/**
+ * Split SQL text into statements, ignoring separators inside quotes and comments.
+ *
+ * The body of a MySQL executable comment is kept as statement text, because the server runs it:
+ * `/*!COMMIT*\/` is a COMMIT, not a comment.
+ */
 export function splitStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = '';
   let index = 0;
+  let executable = false;
   while (index < sql.length) {
     const char = sql[index]!;
     const next = sql[index + 1];
+    if (executable && char === '*' && next === '/') {
+      executable = false;
+      index += 2;
+      current += ' ';
+      continue;
+    }
     if (char === '-' && next === '-') {
       const end = sql.indexOf('\n', index);
       index = end === -1 ? sql.length : end + 1;
+      current += ' ';
+      continue;
+    }
+    const opener = char === '/' && next === '*' && !executable ? executableComment.exec(sql.slice(index, index + 16))?.[0] : undefined;
+    if (opener) {
+      executable = true;
+      index += opener.length;
       current += ' ';
       continue;
     }
@@ -86,7 +112,7 @@ const transactionControl =
 // MySQL commits the open transaction before (and after) these statements.
 // https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html
 const mysqlImplicitCommit =
-  /^(?:ALTER|CREATE|DROP|RENAME|TRUNCATE|GRANT|REVOKE|LOCK\s+TABLES?|UNLOCK\s+TABLES?|ANALYZE|OPTIMIZE|REPAIR|FLUSH|INSTALL|UNINSTALL|LOAD\s+(?:INDEX|DATA)|CACHE\s+INDEX|RESET|SET\s+PASSWORD|START\s+REPLICA|STOP\s+REPLICA|CHANGE\s+REPLICATION)\b/i;
+  /^(?:ALTER|CREATE|DROP|RENAME|TRUNCATE|GRANT|REVOKE|LOCK\s+TABLES?|UNLOCK\s+TABLES?|ANALYZE|OPTIMIZE|REPAIR|FLUSH|INSTALL|UNINSTALL|LOAD\s+(?:INDEX|DATA|XML)|CACHE\s+INDEX|RESET|SET\s+PASSWORD|START\s+REPLICA|STOP\s+REPLICA|CHANGE\s+REPLICATION)\b/i;
 const mysqlTemporaryTable = /^(?:CREATE|DROP)\s+TEMPORARY\s+TABLE\b/i;
 
 const readOnly = /^(?:SELECT|SHOW|EXPLAIN|DESCRIBE|DESC|PRAGMA|VALUES|SET\s+(?:SESSION\s+)?TRANSACTION\b)/i;

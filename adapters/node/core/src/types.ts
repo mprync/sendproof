@@ -3,7 +3,10 @@ export interface BenchIdentity {
   role?: string;
   /** Stable authenticated subject, required for observed Send. */
   subject?: string;
+  /** Authentication scheme; part of the trace owner. */
   scheme?: string;
+  /** Token issuer, when subjects are only unique per issuer; part of the trace owner. */
+  issuer?: string;
 }
 
 export interface BenchRequest<Raw = unknown> {
@@ -34,6 +37,7 @@ export interface BenchOptions<Raw = unknown> {
   openApiUrl?: string;
   documents?: { name: string; url: string }[];
   fieldModules?: string[];
+  /** Display name of the database, such as `PostgreSQL`. Connection strings, URLs and paths are rejected. */
   database?: string | null;
   authProviders?: AuthProvider[];
   resolveIdentity?: (request: BenchRequest<Raw>) => BenchIdentity | null | Promise<BenchIdentity | null>;

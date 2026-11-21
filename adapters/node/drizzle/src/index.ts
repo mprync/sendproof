@@ -162,10 +162,12 @@ async function preview<T>(state: ProviderState, dispatch: () => Promise<T>): Pro
   if (currentScope()?.preview) throw new Error('Nested Drizzle previews are unavailable.');
   const rollback = new PreviewRollback();
   let outcome: { value: T } | undefined;
+  let opened: Scope | undefined;
   try {
     // Drizzle rethrows the error only after its ROLLBACK succeeds, which confirms the rollback.
     await asInternal(() => state.base.transaction(async transaction => {
       const scope: Scope = { target: transaction, preview: true, open: true };
+      opened = scope;
       instrumentSession(transaction.session, state.dialect, scope);
       try {
         outcome = { value: await asCaller(() => inScope(scope, async () => await dispatch())) };
@@ -178,6 +180,8 @@ async function preview<T>(state: ProviderState, dispatch: () => Promise<T>): Pro
   } catch (error) {
     if (error !== rollback) throw error;
   }
+  // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
+  if (opened?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');
   if (!outcome) throw new Error('Drizzle did not run the Preview operation.');
   return outcome.value;
 }

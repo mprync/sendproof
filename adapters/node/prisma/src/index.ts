@@ -10,15 +10,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
-import { currentCapture, type PreviewProvider } from '@test-bench/core';
+import { controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, type PreviewProvider } from '@test-bench/core';
 import type { SqlDriverAdapter, SqlDriverAdapterFactory, SqlQuery, Transaction } from '@prisma/driver-adapter-utils';
 import { ChangeCapture, isWrite, type ModelOperation } from './capture.js';
 import { normalizeModels, type PrismaModels } from './metadata.js';
-import { controlsTransaction, endsTransaction, isRollback, mayWrite } from './statements.js';
 
 export { fromDmmf, normalizeModels, type DmmfDocument, type DmmfModel, type PrismaModelKeys,
   type PrismaModelMetadata, type PrismaModels } from './metadata.js';
-export { controlsTransaction, endsTransaction, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
+// The statement classifier lives in @test-bench/core so every provider applies the same rules.
+export { controlsTransaction, endsTransaction, mayWrite, splitStatements, type AdapterProvider } from '@test-bench/core';
 
 /** Options passed to the Preview `$transaction`. */
 export interface TransactionOptions {

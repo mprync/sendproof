@@ -1,4 +1,6 @@
 import type { Knex } from 'knex';
+import { endsTransaction } from '@test-bench/core';
+import type { AdapterProvider } from '@test-bench/core';
 
 /**
  * What the application told one query builder, captured from public builder calls so the provider
@@ -98,4 +100,35 @@ export function resolveTable(spec: unknown): TableName | undefined {
     if (entries.length === 1 && entry && typeof entry[1] === 'string') return { name: entry[1], qualifier: entry[0] };
   }
   return undefined;
+}
+
+/** Why a Preview refuses to let the operation end its transaction. */
+export const previewOwnsMessage = 'Preview owns the transaction and must roll it back. Use provider.transaction() for a nested unit of work.';
+
+/**
+ * Wrap the Preview transaction so the operation cannot end it: `commit()` is refused, and so is
+ * raw SQL that would commit, roll back or otherwise end the transaction (including MySQL's
+ * implicit commits). `refused` is told of every refusal, so the Preview fails even if the
+ * operation catches the error. Savepoints and `transaction()` nesting stay available. Everything else,
+ * including calling the transaction as a query builder, passes through untouched.
+ */
+export function guardPreview<Client extends Knex>(connection: Client, provider: AdapterProvider, refused: () => void): Client {
+  const refuse = () => {
+    refused();
+    return new Error(previewOwnsMessage);
+  };
+  return new Proxy(connection, {
+    get(target, property, receiver: unknown) {
+      if (property === 'commit') return () => Promise.reject(refuse());
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (property === 'raw' && typeof value === 'function') {
+        return (...args: unknown[]) => {
+          const [text] = args;
+          if (typeof text === 'string' && endsTransaction(text, provider)) throw refuse();
+          return (value as (...a: unknown[]) => unknown).apply(receiver, args);
+        };
+      }
+      return value;
+    },
+  });
 }

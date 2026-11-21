@@ -324,7 +324,7 @@ test('Send with Prefer: trace records an owner-bound trace that other subjects c
   });
   assert.equal(sent.status, 201);
   const id = sent.headers.get('x-testbench-trace');
-  assert.match(id ?? '', /^[0-9a-f-]{36}$/);
+  assert.match(id ?? '', /^[0-9a-f]{32}$/);
   assert.equal(await exists(h.db, 'traced'), true, 'observed Send is a normal, committed request');
 
   const trace = await fetch(`${h.url}/bench/_api/traces/${id}`, { headers: { 'x-user': 'admin' } });

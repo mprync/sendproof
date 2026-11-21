@@ -197,6 +197,15 @@ for (const target of targets()) {
       }), failure(target.dialect === 'sqlite' ? /SELECT or data mutation/ : /Preview owns the transaction/));
       if (target.dialect === 'mysql') {
         await assert.rejects(opened.provider.preview(() => raw(sql`create table implicit_commit (id int)`)), /Preview owns the transaction/);
+        await assert.rejects(opened.provider.preview(() => raw(sql.raw('/*!COMMIT*/'))), /Preview owns the transaction/);
+      }
+      if (target.dialect !== 'sqlite') {
+        // A refused COMMIT that the operation swallows still fails the Preview: it is never confirmed.
+        await assert.rejects(opened.provider.preview(async () => {
+          await client.insert(t.items).values({ id: 'swallowed', name: 'Swallowed' });
+          await raw(sql`commit`).catch(() => {});
+          return 'looks fine';
+        }), /not contained/);
       }
       await assert.rejects(opened.provider.preview(() => opened.provider.preview(async () => 'nested')), /Nested/);
       assert.deepEqual(await opened.ids(), []);
@@ -224,7 +233,7 @@ for (const target of targets()) {
     it('logs statements with redacted positional parameters and names only where labelled', async () => {
       const { captured } = await capturing(() => opened.provider.preview(async () => {
         await opened.provider.withParameterNames(['fixture_secret', 'label'],
-          () => raw(sql`select ${'fixture-secret-value'} as secret, ${'shown'} as label`));
+          () => raw(sql`select ${'fixture-secret-value'} as hidden, ${'shown'} as label`));
         await client.insert(t.items).values({ id: 'logged', name: 'Logged' });
       }), { parameterValues: true });
       const entries = sqlEntries(captured);

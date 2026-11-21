@@ -203,6 +203,69 @@ for (const dialect of dialects) {
       }
     });
 
+    await suite.test('refuses to let the handler commit or end the Preview transaction, and nothing persists', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        let response = {};
+        // Even though the handler swallows every refusal, the Preview is never confirmed.
+        const failure = await previewed(provider, () => provider.run(async manager => {
+          await items(manager).insert({ id: 'escaped', name: 'Must roll back' });
+          const attempts = {};
+          const attempt = async (name, run) => {
+            try { await run(); attempts[name] = 'ran'; } catch (error) { attempts[name] = error.message; }
+          };
+          await attempt('commitTransaction', () => manager.queryRunner.commitTransaction());
+          await attempt('raw COMMIT', () => manager.query('COMMIT'));
+          await attempt('raw END after a comment', () => manager.query('/* done */ END'));
+          // A nested unit of work still commits, as a released savepoint inside the Preview.
+          await manager.transaction(nested => items(nested).insert({ id: 'nested', name: 'Nested' }));
+          response = attempts;
+          return attempts;
+        })).catch(error => error);
+        assert.match(failure.message, /not contained/);
+        assert.equal(Object.keys(response).length, 3);
+        for (const [name, message] of Object.entries(response)) assert.match(message, /Preview owns the transaction/, name);
+        assert.deepEqual(await provider.run(manager => items(manager).find()), []);
+      } finally {
+        await source.destroy();
+      }
+    });
+
+    await suite.test('work that outlives an early-settled Preview cannot write after the rollback', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        let late;
+        // Models a response that settled early (size limit, client abort) while the handler kept running.
+        const { response } = await previewed(provider, () => provider.run(async manager => {
+          late = (async () => {
+            await new Promise(resolve => setTimeout(resolve, 25));
+            await items(manager).insert({ id: 'late', name: 'Late' });
+          })();
+          late.catch(() => {});
+          return 'settled';
+        }));
+        assert.equal(response, 'settled');
+        await assert.rejects(late, /request scope has ended/);
+        assert.deepEqual(await provider.run(manager => items(manager).find()), []);
+      } finally {
+        await source.destroy();
+      }
+    });
+
+    if (dialect !== 'sqlite') await suite.test('a write through another pooled connection during a Preview is refused', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        const failure = await previewed(provider, () => provider.run(async () => {
+          await source.manager.find(Item);
+          await source.getRepository(Item).insert({ id: 'pooled', name: 'Pooled' });
+        })).catch(error => error);
+        assert.match(failure.message, /not contained/);
+        assert.deepEqual(await provider.run(manager => items(manager).find()), []);
+      } finally {
+        await source.destroy();
+      }
+    });
+
     await suite.test('an ordinary write made while a Preview is open commits independently', async () => {
       const { source, provider, items } = await harness(database);
       try {

@@ -55,6 +55,30 @@ for (const target of targets()) {
       assert.equal(captured.changesTruncated, undefined);
     });
 
+    it('refuses to let the operation commit or end the Preview transaction, and nothing it wrote persists', async () => {
+      provider = provide();
+      let outcomes: Record<string, string> = {};
+      // Even though the operation swallows every refusal, the Preview is never confirmed.
+      await assert.rejects(provider.preview(async () => {
+        await provider.client('items').insert({ id: 'escaped', name: 'Must roll back' });
+        const attempts: Record<string, string> = {};
+        const attempt = async (name: string, run: () => PromiseLike<unknown>) => {
+          try { await run(); attempts[name] = 'ran'; } catch (error) { attempts[name] = (error as Error).message; }
+        };
+        await attempt('commit', () => (provider.client as Knex.Transaction).commit());
+        await attempt('untracked commit', () => (provider.untracked as Knex.Transaction).commit());
+        await attempt('raw COMMIT', () => provider.client.raw('COMMIT'));
+        await attempt('raw END', () => provider.untracked.raw('/* finish */ END'));
+        // A nested unit of work is still a savepoint inside the Preview.
+        await provider.transaction(async trx => { await trx('items').insert({ id: 'nested', name: 'Nested' }); });
+        outcomes = attempts;
+        return attempts;
+      }), /not contained/);
+      assert.equal(Object.keys(outcomes).length, 4);
+      for (const [name, message] of Object.entries(outcomes)) assert.match(message, /Preview owns the transaction/, name);
+      assert.deepEqual(await ids(), []);
+    });
+
     it('derives the rows of conditional, aliased and counter updates from the builder, in key order', async () => {
       provider = provide();
       await database('items').insert(['a', 'b', 'c', 'd'].map(id => ({ id, name: 'old-' + id })));
