@@ -101,7 +101,8 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
                 }
                 catch (PreviewWriteBlockedException error)
                 {
-                    return TaskFault.Create(method.ReturnType, error) ?? throw error;
+                    if (TaskFault.Create(method.ReturnType, error) is { } fault) return fault;
+                    throw;
                 }
             }
 
@@ -150,7 +151,8 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
         catch (PreviewWriteBlockedException error)
         {
             // Fail the way the method fails: a faulted task for an async method, a throw for a synchronous one.
-            return TaskFault.Create(method.ReturnType, error) ?? throw error;
+            if (TaskFault.Create(method.ReturnType, error) is { } fault) return fault;
+            throw;
         }
 
         // Session commands (PING, AUTH) are allowed and never logged; so are commands outside any Preview or send.

@@ -195,7 +195,7 @@ internal sealed class MongoEngine
         if (!succeeded)
         {
             // Unreachable or unrecognised: guard mode for now, and ask again next time.
-            Interlocked.CompareExchange(ref _detected, null, detection);
+            _ = Interlocked.CompareExchange(ref _detected, null, detection);
         }
 
         return (mode, reason);
