@@ -263,8 +263,7 @@ export class KnexPreview implements PreviewProvider {
 
   /**
    * The backstop of spec/data-stores.md "Transaction-control statements from the handler", on every
-   * dialect Knex names: release the savepoint set when the Preview started (on SQL Server, check
-   * `@@TRANCOUNT`). A statement the guard didn't see, such as one sent through the driver directly,
+   * dialect Knex names: roll back to the savepoint set when the Preview started. A statement the guard didn't see, such as one sent through the driver directly,
    * or a procedure wrongly declared safe, may have committed the transaction, which erases it. An
    * unknown dialect answers true.
    */
@@ -272,7 +271,7 @@ export class KnexPreview implements PreviewProvider {
     if (this.#dialect === 'other') return true;
     const dialect = this.#dialect;
     return this.#internal.run(true, () => this.#ending.run(true, () =>
-      previewSavepointHeld(async sql => await connection.raw(sql), dialect, result => rowsOf(dialect, result))));
+      previewSavepointHeld(async sql => await connection.raw(sql), dialect)));
   }
 
   /** Remove the SQL listener while leaving the host's connection pool open. */

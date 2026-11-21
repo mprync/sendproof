@@ -273,7 +273,7 @@ export class TypeOrmPreview implements PreviewProvider {
 
   /**
    * The backstop of spec/data-stores.md "Transaction-control statements from the handler", on every
-   * driver: release the savepoint set when the Preview started (on SQL Server, check `@@TRANCOUNT`).
+   * driver: roll back to the savepoint set when the Preview started.
    * Any commit erases it, including one sent through the driver connection directly, one by a
    * statement the guard didn't recognise, or one by a procedure wrongly declared safe.
    */

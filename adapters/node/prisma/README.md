@@ -71,7 +71,7 @@ The provider confirms a Preview only when all of the following hold:
 1. The driver performed the physical rollback. The provider checks this in one of two ways:
    - Adapters with `usePhantomQuery` (MariaDB) roll back in `rollback()`.
    - Other adapters (pg, better-sqlite3) must complete Prisma's `ROLLBACK` statement before `rollback()` releases the connection.
-2. Nothing committed the Preview transaction. The provider sets the savepoint `sendproof_preview` when the Preview starts and releases it before the rollback (on SQL Server, `SAVE TRANSACTION` and a `@@TRANCOUNT` check); any commit, even one below the driver adapter, erases it, so a missing savepoint fails the Preview.
+2. Nothing committed the Preview transaction. The provider sets the savepoint `sendproof_preview` when the Preview starts and rolls back to it before the rollback (on SQL Server, `SAVE TRANSACTION` and `ROLLBACK TRANSACTION`); any commit, even one below the driver adapter, erases it, so a missing savepoint fails the Preview.
 3. No statement inside the transaction ended it early. The provider checks for:
    - `COMMIT`, `ROLLBACK`, `BEGIN`, `END` and `SET autocommit` anywhere in a `SET` list
    - on MySQL, statements that commit implicitly, such as `CREATE TABLE`, `TRUNCATE` and `LOCK TABLES`, SQL-level `PREPARE` and `EXECUTE`, and statements touching `sendproof_preview`

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import knex from 'knex';
 import type { Knex } from 'knex';
+import { Request } from 'tedious';
+import type { Connection as TediousConnection } from 'tedious';
 import { KnexPreview } from '@sendproof/knex';
 import { capturing, sqlEntries } from './support/capture.mts';
 import { deadlockPreview } from './support/deadlock.mts';
@@ -115,6 +117,46 @@ for (const target of targets()) {
       assert.deepEqual(await ids(), []);
       if (provider.dialect === 'mysql') assert.equal(await database.schema.hasTable('escape_ddl'), false);
     });
+
+    if (target.name === 'SQL Server') {
+      it('fails a Preview committed on the driver under IMPLICIT_TRANSACTIONS ON, where @@TRANCOUNT reads 1 again', async () => {
+        provider = provide();
+        let driver: ((sql: string) => Promise<void>) | undefined;
+        try {
+          await assert.rejects(provider.preview(async () => {
+            await provider.client('items').insert({ id: 'committed', name: 'Committed on the driver' });
+            // The tedious connection under the Preview transaction, used directly as careless code might.
+            const connection = await (provider.client as Knex.Transaction).client.acquireConnection() as TediousConnection;
+            // A plain batch: sp_executesql (execSql) would fail a COMMIT on its transaction count check.
+            driver = sql => new Promise((resolve, reject) => {
+              connection.execSqlBatch(new Request(sql, error => { if (error) reject(error); else resolve(); }));
+            });
+            await driver('SET IMPLICIT_TRANSACTIONS ON');
+            await driver('COMMIT');
+            // This statement opens a new transaction implicitly, so the count of open transactions is 1 again.
+            await provider.client('items').insert({ id: 'after', name: 'In the implicit transaction' });
+            assert.equal((await provider.client.raw('SELECT @@TRANCOUNT AS n'))[0].n, 1);
+          }), /savepoint set when the Preview started was gone/);
+        } finally {
+          await driver?.('SET IMPLICIT_TRANSACTIONS OFF');
+        }
+        assert.deepEqual(await ids(), ['committed']);
+      });
+
+      it('allows SET IMPLICIT_TRANSACTIONS OFF during a Preview and refuses ON', async () => {
+        provider = provide();
+        let refusal = '';
+        await provider.preview(async () => {
+          await provider.client.raw('SET IMPLICIT_TRANSACTIONS OFF');
+          await provider.client('items').insert({ id: 'kept-open', name: 'Rolled back' });
+        });
+        await assert.rejects(provider.preview(async () => {
+          try { await provider.client.raw('SET IMPLICIT_TRANSACTIONS ON'); } catch (error) { refusal = (error as Error).message; }
+        }), /tried to end the Preview transaction/);
+        assert.match(refusal, /Preview owns the transaction/);
+        assert.deepEqual(await ids(), []);
+      });
+    }
 
     if (target.name === 'MySQL') {
       it('refuses CALL during a MySQL Preview unless the procedure is declared safe, and catches a declared one that commits', async () => {

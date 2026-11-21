@@ -182,7 +182,16 @@ function closingComment(sql: string, start: number, nested: boolean): number {
 }
 
 const transactionControl =
-  /^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:WORK\s+|TRANSACTION\s+)?TO\b)|PREPARE\s+TRANSACTION|XA\b|SET\s+IMPLICIT_TRANSACTIONS\b)/i;
+  /^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ABORT|ROLLBACK(?!\s+(?:WORK\s+|TRANSACTION\s+)?TO\b)|PREPARE\s+TRANSACTION|XA\b)/i;
+
+/**
+ * SQL Server's `SET IMPLICIT_TRANSACTIONS ON` makes the statement after a commit open a new transaction, which hides
+ * the commit from a count of open transactions. Any `SET` naming it is refused (it may share a list with other options,
+ * `SET NOCOUNT, IMPLICIT_TRANSACTIONS ON`), except exactly `SET IMPLICIT_TRANSACTIONS OFF`, which leaves the open
+ * transaction alone and which EF Core sends at the start of its batches.
+ */
+const setImplicitTransactions = /^SET\b[\s\S]*\bIMPLICIT_TRANSACTIONS\b/i;
+const implicitTransactionsOff = /^SET\s+IMPLICIT_TRANSACTIONS\s+OFF$/i;
 
 /**
  * `SET autocommit = 1` commits and leaves every later statement outside a transaction. It can appear anywhere in a
@@ -243,6 +252,7 @@ export function safeProcedureNames(names: Iterable<string> = []): ReadonlySet<st
 /** Whether one statement, already split, would end or escape the Preview transaction. */
 function refuses(statement: string, provider: AdapterProvider, safeProcedures: ReadonlySet<string>): boolean {
   if (transactionControl.test(statement) || setAutocommit.test(statement)) return true;
+  if (setImplicitTransactions.test(statement) && !implicitTransactionsOff.test(statement)) return true;
   // Every provider's backstop relies on its own savepoint, so a handler may not touch it.
   if (previewSavepointStatement.test(statement)) return true;
   if (provider !== 'mysql') return false;
@@ -326,26 +336,17 @@ export async function setPreviewSavepoint(run: (sql: string) => Promise<unknown>
  * Whether nothing committed the Preview transaction since {@link setPreviewSavepoint}. Any failure answers false, since
  * it can't confirm the transaction is the Preview's, and the Preview then answers 500.
  *
- * MySQL, MariaDB, PostgreSQL and SQLite roll back to the savepoint set when the Preview started: any commit, explicit or
- * implicit, erases every savepoint, so the release fails. Checking the start savepoint, rather than whether some
- * transaction is open now, also holds under MySQL `autocommit=0`, where a new transaction opens after a commit.
- *
- * SQL Server can't release a savepoint, so `@@TRANCOUNT` must still count the Preview transaction. `rows` reads the
- * result rows from what `run` answers for that query.
+ * Every provider rolls back to the savepoint set when the Preview started: any commit, explicit or implicit, erases
+ * every savepoint, so the rollback fails. Checking the start savepoint, rather than whether some transaction is open
+ * now, also holds when a new transaction opens after a commit: under MySQL `autocommit=0`, and under SQL Server
+ * `IMPLICIT_TRANSACTIONS ON`, where `@@TRANCOUNT` reads 1 again.
  */
-export async function previewSavepointHeld(
-  run: (sql: string) => Promise<unknown>,
-  provider: AdapterProvider,
-  rows: (result: unknown) => readonly Record<string, unknown>[] = result => result as Record<string, unknown>[],
-): Promise<boolean> {
+export async function previewSavepointHeld(run: (sql: string) => Promise<unknown>, provider: AdapterProvider): Promise<boolean> {
   try {
-    if (isSqlServer(provider)) {
-      const [row] = rows(await run('SELECT @@TRANCOUNT AS open_transactions, XACT_STATE() AS state'));
-      return Number(row?.['open_transactions']) >= 1;
-    }
     // ROLLBACK TO, not RELEASE: it also succeeds on a PostgreSQL transaction an ordinary handler error aborted, and it
-    // discards any savepoint the handler left open after it. The whole transaction rolls back next anyway.
-    await run('ROLLBACK TO SAVEPOINT ' + previewSavepoint);
+    // discards any savepoint the handler left open after it. The whole transaction rolls back next anyway. SQL Server
+    // can't release a savepoint at all.
+    await run(isSqlServer(provider) ? 'ROLLBACK TRANSACTION ' + previewSavepoint : 'ROLLBACK TO SAVEPOINT ' + previewSavepoint);
     return true;
   } catch {
     return false;
@@ -389,6 +390,6 @@ export function controlsTransaction(sql: string, provider?: AdapterProvider): bo
   return readingsOf(provider).every(reading => {
     const statements = splitWith(sql, reading);
     return statements.length > 0 && statements.every(statement => transactionControl.test(statement)
-      || setAutocommit.test(statement) || savepoint.test(statement));
+      || setAutocommit.test(statement) || setImplicitTransactions.test(statement) || savepoint.test(statement));
   });
 }

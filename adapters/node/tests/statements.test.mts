@@ -66,6 +66,13 @@ describe('Transaction-control classifier', () => {
     assert.ok(endsTransaction('SAVE TRANSACTION sendproof_preview', 'mssql'));
     assert.ok(endsTransaction('SAVE TRAN [sendproof_preview]', 'mssql'));
     assert.ok(!endsTransaction('SAVE TRANSACTION knex_sp1', 'mssql'));
+    assert.ok(endsTransaction('ROLLBACK TRANSACTION sendproof_preview', 'mssql'));
+    // IMPLICIT_TRANSACTIONS ON would hide a commit behind a new implicit transaction; OFF leaves the transaction alone.
+    assert.ok(!endsTransaction('SET IMPLICIT_TRANSACTIONS OFF', 'mssql'));
+    assert.ok(!endsTransaction('set implicit_transactions off;', 'mssql'));
+    for (const sql of ['SET IMPLICIT_TRANSACTIONS ON', 'SET NOCOUNT, IMPLICIT_TRANSACTIONS ON', 'SET IMPLICIT_TRANSACTIONS OFF; SET IMPLICIT_TRANSACTIONS ON']) {
+      assert.ok(endsTransaction(sql, 'mssql'), sql);
+    }
   });
 
   it('reads MySQL text as the server does: # and -- comments, executable comments, both string readings, no $$ quoting', () => {
