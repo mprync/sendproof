@@ -167,6 +167,9 @@ module Sendproof
       # sent for the Preview session.
       def finish_preview(recorder)
         current = recorder.store_state(self)
+        # Bookkeeping for commands this thread never saw finish (a refused command is never sent).
+        Thread.current[:sendproof_mongo_refused]&.clear
+        Thread.current[:sendproof_mongo_pending]&.clear
         return unless current&.session && !current.finished
 
         failure = nil
@@ -188,10 +191,18 @@ module Sendproof
       def command_started(event)
         return unless @active && !internal?
 
-        command = event.command || {}
         name = event.command_name
         lower = name.downcase
-        classification = Stores::Classify.mongo(command, @reads)
+        command = event.command
+        # The driver redacts a security-sensitive command to an empty document, which would classify as an
+        # unknown command, so a write. Classify by the command's name instead: an authentication exchange on
+        # a new pooled connection must never block a Preview.
+        command = { name => 1 } if command.nil? || command.empty?
+        classification = if SENSITIVE.include?(lower)
+                           Stores::Classify::MongoResult.new(:session, nil)
+                         else
+                           Stores::Classify.mongo(command, @reads)
+                         end
         preview = Capture.preview
         if preview
           begin

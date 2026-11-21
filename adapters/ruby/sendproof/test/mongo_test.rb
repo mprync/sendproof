@@ -325,6 +325,22 @@ class MongoHookTest < Minitest::Test
     Thread.current[:swallow_refusals] = nil
   end
 
+  Event = Struct.new(:command_name, :database_name, :command, :request_id)
+
+  # An authentication exchange on a connection opened during a Preview: the driver redacts the command to an
+  # empty document, which must not be classified as an unknown command (a write) and block the Preview.
+  def test_a_redacted_authentication_command_never_blocks_a_preview
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(@raw, hello: -> { { "ismaster" => true } }) # guard mode blocks every write
+    recorder = preview([@store]) do |_|
+      %w[saslStart saslContinue authenticate getnonce].each do |name|
+        @store.engine.command_started(Event.new(name, "admin", {}, 1))
+      end
+      assert_raises(Sendproof::PreviewWriteBlocked) { @store.engine.command_started(Event.new("insert", "x", { "insert" => "c" }, 2)) }
+    end
+    assert_equal "insert", recorder.blocked.operation
+  end
+
   # --- outside a Preview, discovery, coverage ----------------------------------------------------------
 
   def test_observed_send_commits_once_and_traces_the_insert
