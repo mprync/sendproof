@@ -176,6 +176,13 @@ jobs:
         if: matrix.toolchain == 'rust'
         run: rustup toolchain install stable --profile minimal
       - run: npm ci --prefix tests/conformance
+      # MongoDB needs a replica-set command line, which service containers can't set, so the
+      # data stores come from compose.yml. Only the stores this entry lists are started.
+      - name: Start data stores
+        if: matrix.stores != ''
+        env:
+          STORES: ${{ matrix.stores }}
+        run: docker compose -f tests/conformance/compose.yml up -d --wait ${STORES//,/ }
       - name: Prepare fixture
         if: matrix.prepare != ''
         env:
@@ -193,6 +200,14 @@ jobs:
         env:
           BINDING: ${{ matrix.id }}
         run: node tests/conformance/run.mjs "$BINDING"
+      - name: Prove the data-store checks catch a missing guard
+        if: matrix.id == 'data-stores-reference'
+        run: |
+          node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs
+          node tests/conformance/fixtures/data-stores-reference/negative.mjs
+      - name: Stop data stores
+        if: always() && matrix.stores != ''
+        run: docker compose -f tests/conformance/compose.yml down -v
 
   # One job per registry and host OS. Each builds that registry's packages, installs them into a fresh
   # consumer application and serves the workbench (the release dry run: no upload), and on Windows and

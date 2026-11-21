@@ -265,7 +265,7 @@ Another helper will mock these; they must keep the current layout and every exis
 
 ## CI additions
 
-`.github/` is not edited by this change. These are the exact additions for the lead to apply to `.github/workflows/check.yml`. `node tests/conformance/run.mjs --matrix` now emits a comma-separated `stores` field for each entry.
+The batch-one steps below are applied in `.github/workflows/check.yml`; the batch-two jobs are added with batch two. `node tests/conformance/run.mjs --matrix` now emits a comma-separated `stores` field for each entry.
 
 In the `conformance` job, after `npm ci --prefix tests/conformance`:
 
@@ -358,7 +358,7 @@ docker compose -f tests/conformance/compose.yml down -v
 
 The runner defaults to the compose ports; set `BENCH_MONGODB_SERVER_URL`, `BENCH_REDIS_SERVER_URL` or `BENCH_DYNAMODB_SERVER_URL` to use other services.
 
-## Decisions to confirm
+## Decisions (approved 2026-11-21)
 
 - The blocked-Preview status is 409, with an RFC 9457 problem body.
 - A handler COMMIT (SQL) or `commitTransaction` (MongoDB) answers 500 without confirmation, not 409.
@@ -366,4 +366,8 @@ The runner defaults to the compose ports; set `BENCH_MONGODB_SERVER_URL`, `BENCH
 - Host-declared reads (`TreatAsRead`) are allowed, by exact name only.
 - `preview: false` publishes a reason in capabilities, and a binding never infers it.
 - Batch two is guard-only for all four stores.
-- Vendor logos versus neutral glyphs for store icons.
+- Store icons are vendor logos, using each vendor's official SVG, with the store name always beside them.
+- Change records carry an optional `via` field (`"upsert"`, `"replace"`) so the UI can label upserts and whole-document replacements.
+- Updates open on Diff with "Changes only" off.
+- The .NET attribute is `[SendproofPreview(Enabled = false, Reason = "...")]`.
+- The UI follows the approved v6 mocks (`mocks/screens/113-131`, `m26-m31`; `mocks/README.md`, v6 section).

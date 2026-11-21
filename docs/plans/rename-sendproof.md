@@ -16,7 +16,7 @@ Approved by the person on 2026-11-21. The repository stays under the GitHub acco
 | PyPI | current names | `sendproof-core`, `sendproof-fastapi`, …; import package `sendproof` / `sendproof_*` |
 | Maven | current group and artifacts | group `io.github.mprync`, artifacts `sendproof-*`, Java package `io.github.mprync.sendproof` |
 | crates.io | `testbench-*` | `sendproof-core`, `sendproof-axum`, …; crate idents `sendproof_*` |
-| RubyGems | current names | `sendproof`, `sendproof-rails`, …; Ruby module `Sendproof` |
+| RubyGems | current names | `sendproof-core`, `sendproof-rails`, … (matching the `-core` name on every other registry); Ruby module `Sendproof` |
 | Packagist | current names | `sendproof/core`, `sendproof/laravel`, `sendproof/symfony`; PHP namespace `Sendproof\` ; mirror repos `mprync/sendproof-*` |
 | Go | current module path | `github.com/mprync/sendproof/...`; package names `sendproof*` |
 | Repository URLs | anything pointing at the old repo name | `github.com/mprync/sendproof` |
