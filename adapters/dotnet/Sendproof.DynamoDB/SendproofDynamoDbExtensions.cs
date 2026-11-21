@@ -41,8 +41,9 @@ public static class SendproofDynamoDbExtensions
     /// <summary>
     /// Guards DynamoDB in Previews. DynamoDB has no rollback, so reads run and the first write blocks the Preview before
     /// it is sent. This adds a pipeline handler to every <c>AmazonDynamoDBClient</c> created after it runs, including
-    /// the one under <c>DynamoDBContext</c>. A client created earlier, or by code that never saw this registration, is
-    /// not covered.
+    /// the one under <c>DynamoDBContext</c>. A client created earlier is still checked through the SDK's global tracer
+    /// provider: a write is blocked before it is sent, and a PartiQL request (whose statements the tracer can't read)
+    /// fails the Preview with 500. A client given its own <c>TelemetryProvider</c> bypasses the global one and is not covered.
     /// </summary>
     public static SendproofBuilder AddDynamoDB(this SendproofBuilder builder, Action<DynamoStoreBuilder>? configure = null)
     {
@@ -52,16 +53,35 @@ public static class SendproofDynamoDbExtensions
         var reads = options.Reads.Count == 0 ? null : new HashSet<string>(options.Reads, StringComparer.Ordinal);
         var guard = new DynamoGuard(builder.Capture, reads);
         guard.Install();
-        builder.Services.AddSingleton<IPreviewDataStore>(new DynamoStore(options.Name));
+        builder.Services.AddSingleton<IPreviewDataStore>(new DynamoStore(options.Name, guard));
         return builder;
     }
 }
 
-/// <summary>The DynamoDB data store: its discovery entry. The guard itself lives in the SDK pipeline.</summary>
-internal sealed class DynamoStore(string? name) : IPreviewDataStore
+/// <summary>The DynamoDB data store: its discovery entry. The guard itself lives in the SDK pipeline and tracer.</summary>
+internal sealed class DynamoStore(string? name, DynamoGuard? guard = null) : IPreviewDataStore
 {
     public string System => "dynamodb";
 
     public ValueTask<DataStoreDescription> DescribeAsync(CancellationToken cancellationToken) =>
         ValueTask.FromResult(new DataStoreDescription("dynamodb", name, "guard"));
+
+    public ValueTask BeginPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken)
+    {
+        // A tracer provider the host registered after AddDynamoDB is wrapped, so clients created earlier stay checked.
+        guard?.EnsureTracer();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask FinishPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken)
+    {
+        // A PartiQL request through a client the pipeline handler isn't on was sent unchecked: never claim it was safe.
+        if (guard?.UnseenIn(preview).FirstOrDefault() is { } operation)
+        {
+            throw new PreviewTransactionControlException(
+                $"A DynamoDB {operation} ran through a client created before AddDynamoDB, so the Preview can't vouch for it.");
+        }
+
+        return ValueTask.CompletedTask;
+    }
 }

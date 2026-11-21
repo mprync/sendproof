@@ -14,4 +14,5 @@ builder.Services.AddSingleton<IAmazonDynamoDB>(new AmazonDynamoDBClient());
 ```
 
 The guard is a pipeline handler added to every `AmazonDynamoDBClient` created after `AddDynamoDB` runs, which also covers
-`DynamoDBContext`. A client created earlier is not covered.
+`DynamoDBContext`. A client created earlier is checked through the SDK's global tracer provider instead: its writes are
+blocked before they are sent and its PartiQL requests fail the Preview with 500, but its reads aren't logged.

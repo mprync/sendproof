@@ -14,7 +14,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client the hook sees. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a `MongoClient` or `IMongoCollection<T>` the application created itself, a second multiplexer for the same Redis, an `AmazonDynamoDBClient` created **before** `AddDynamoDB` ran, a client created inside a handler, and a raw socket. Register every client through the container, at startup, before the `Add…` call for its store.
+> The binding covers a store only through the client the hook sees. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a `MongoClient` or `IMongoCollection<T>` the application created itself, a second multiplexer for the same Redis, an `AmazonDynamoDBClient` with its own `TelemetryProvider`, and a raw socket. (A DynamoDB client created before `AddDynamoDB` is still checked, with limits; see [DynamoDB](#dynamodb).) Register every client through the container, at startup, before the `Add…` call for its store.
 
 Writes from code that belongs to no request (a hosted service, a timer) are not hooked clients' business, but they cannot be told apart from a Preview's own write that lost its request context. While a Preview is open, such a write fails every open Preview with 500 (it never claims a rollback it can't vouch for). Wrap genuinely independent background work in `using var _ = DetachedWork.Begin();` to exempt it. Ordinary and observed requests are attributed through the async context and never trigger this.
 
@@ -84,6 +84,8 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 `AddDynamoDB` adds one pipeline handler, before the marshaller, to every `AmazonDynamoDBClient` created after it runs, through `RuntimePipelineCustomizerRegistry`. The operation is the request type without its `Request` suffix. A refused request is never serialized or signed, so credentials, the `Authorization` header and signatures never reach a capture. `DynamoDBContext` shares the client and is covered with it.
 
+A client created **before** `AddDynamoDB` has no pipeline handler, but it still asks the SDK's global tracer provider (`AWSConfigs.TelemetryProvider`) for a span on every request, before sending it. The guard wraps that provider, delegating to whatever was registered, so such a client never writes silently: an action that is a write by name is blocked there (409, nothing sent), and a PartiQL request, whose statements the tracer can't read, fails the Preview with 500. Its reads run but aren't logged. A tracer provider the host registers after `AddDynamoDB` (an OpenTelemetry instrumentation, say) is wrapped again before the next Preview. A client given its own `TelemetryProvider` in its config bypasses the global one and is not covered; create clients after `AddDynamoDB` so the pipeline handler covers them fully.
+
 `UpdateItem`, `PutItem` and `DeleteItem` are writes whatever their conditions or `ReturnValues`; `TransactWriteItems` and `BatchWriteItem` are writes even when they hold only condition checks. `ExecuteStatement`, `BatchExecuteStatement` and `ExecuteTransaction` are a read only when every statement is a `SELECT` (after whitespace and comments); anything else, or text it can't parse, is a write. PartiQL literals in `Db` entries become `?`.
 
 ## Mark an operation `preview: false`
@@ -124,7 +126,7 @@ On MySQL and MariaDB the EF Core provider lets one Preview run at a time per pro
 
 - Redis, DynamoDB and a standalone MongoDB only block writes: they can't roll back.
 - A client, collection or connection the hooks never saw is not covered. See [Coverage](#coverage-only-hooked-clients-are-covered).
-- `AddDynamoDB` must run before the client is created. It cannot hook a client that already exists.
+- A DynamoDB client created before `AddDynamoDB` is checked only through the global tracer: its writes block and its PartiQL fails the Preview, but its reads aren't logged. Create clients after `AddDynamoDB`.
 - `AddMongoDB` creates a second client from the registered one's settings; the registered one stays idle, and disposing the decorator disposes both.
 - MongoDB transactions need a replica set or sharded cluster, are limited to 16 MB per document and the server's cache, and fail on the commands listed above.
 - Reading the unattributed-write rule: it needs `AsyncLocal` flow. Code that suppresses the execution context (`ExecutionContext.SuppressFlow`) looks unattributed.

@@ -188,8 +188,22 @@ public sealed class DynamoDbTests
         }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/orders/{id}/early", async (string id) =>
         {
-            // A client created before the guard was registered: not covered, so this write is neither blocked nor rolled back.
+            // A client created before the guard was registered: its pipeline has no handler, but its requests still pass
+            // through the SDK's global tracer, where the guard refuses a write before it is sent.
             await earlier.PutItemAsync(table, new() { ["id"] = new AttributeValue { S = id }, ["status"] = new AttributeValue { S = "early" } });
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapGet("/orders/{id}/early", async (string id) =>
+            (await earlier.GetItemAsync(table, new() { ["id"] = new AttributeValue { S = id } })).Item is { Count: > 0 } ? Results.Ok() : Results.NotFound())
+            .AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/orders/{id}/early-partiql", async (string id) =>
+        {
+            // The tracer can't read PartiQL statements, so a statement through an unhooked client fails the Preview instead.
+            await earlier.ExecuteStatementAsync(new ExecuteStatementRequest
+            {
+                Statement = $"UPDATE \"{table}\" SET status = 'early' WHERE id = ?",
+                Parameters = [new AttributeValue { S = id }]
+            });
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
     }
@@ -269,14 +283,51 @@ public sealed class DynamoDbTests
         Assert.Throws<ArgumentException>(() => new DynamoStoreBuilder().TreatAsRead("Describe*"));
     }
 
-    [ServiceFact("dynamodb")]
-    public async Task AClientCreatedBeforeTheRegistrationIsNotCovered()
+    /// <summary>A host's own tracer provider that replaces the global one, the way an OpenTelemetry instrumentation does.</summary>
+    private sealed class HostTracerProvider(Amazon.Runtime.Telemetry.Tracing.TracerProvider inner) : Amazon.Runtime.Telemetry.Tracing.TracerProvider
     {
-        // The documented limit: the guard is a pipeline handler added to clients created after AddDynamoDB.
+        // Skips the guard's wrappers, as a provider registered from scratch would.
+        private readonly Amazon.Runtime.Telemetry.Tracing.TracerProvider _root = Root(inner);
+
+        public override Amazon.Runtime.Telemetry.Tracing.Tracer GetTracer(string scope) => _root.GetTracer(scope);
+
+        public override Amazon.Runtime.Telemetry.Tracing.Tracer GetTracer(string scope, Amazon.Runtime.Telemetry.Attributes attributes) => _root.GetTracer(scope, attributes);
+
+        private static Amazon.Runtime.Telemetry.Tracing.TracerProvider Root(Amazon.Runtime.Telemetry.Tracing.TracerProvider provider)
+        {
+            while (provider.GetType().GetProperty("Inner", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(provider) is Amazon.Runtime.Telemetry.Tracing.TracerProvider inner)
+            {
+                provider = inner;
+            }
+
+            return provider;
+        }
+    }
+
+    [ServiceFact("dynamodb")]
+    public async Task AClientCreatedBeforeTheRegistrationNeverWritesSilently()
+    {
+        // The pipeline handler only reaches clients created after AddDynamoDB; the tracer reaches the older ones.
         await using var f = await Fixture.StartAsync();
-        var response = await f.App.PreviewAsync("POST", "/orders/early/early");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("early", (await f.ItemAsync("early"))!["status"].S);
+        await f.SeedAsync("seeded", "open", 0);
+        await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/orders/early/early"), "dynamodb", "PutItem");
+        Assert.Null(await f.ItemAsync("early"));
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("GET", "/orders/seeded/early"));
+        Expect.Unconfirmed(await f.App.PreviewAsync("POST", "/orders/seeded/early-partiql"), HttpStatusCode.InternalServerError);
+
+        // A tracer provider the host registers later (OpenTelemetry's, say) is wrapped again before the next Preview.
+        var telemetry = Amazon.AWSConfigs.TelemetryProvider;
+        var previous = telemetry.TracerProvider;
+        telemetry.RegisterTracerProvider(new HostTracerProvider(previous));
+        try
+        {
+            await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/orders/later/early"), "dynamodb", "PutItem");
+            Assert.Null(await f.ItemAsync("later"));
+        }
+        finally
+        {
+            telemetry.RegisterTracerProvider(previous);
+        }
     }
 
     [ServiceFact("dynamodb")]

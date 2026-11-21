@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Reflection;
+using Amazon;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Runtime;
 using Amazon.Runtime.Internal;
+using Amazon.Runtime.Telemetry;
+using Amazon.Runtime.Telemetry.Tracing;
 using Sendproof.AspNetCore;
 
 namespace Sendproof.DynamoDB;
@@ -13,10 +16,115 @@ namespace Sendproof.DynamoDB;
 /// serialized, signed or sent, and credentials, the <c>Authorization</c> header and signatures never reach the hook.
 /// The operation is the request type's name without its <c>Request</c> suffix, such as <c>UpdateItem</c>.
 /// </summary>
+/// <remarks>
+/// The pipeline handler only reaches clients created after <see cref="Install"/>. A client created earlier still asks the
+/// SDK's global tracer provider for a span on every request, before it is sent, so the guard also wraps that provider:
+/// a write by name through any DynamoDB client is blocked there, and a PartiQL request the handler never saw (its
+/// statements can't be read from the span) fails the Preview with 500 when it ends.
+/// </remarks>
 internal sealed class DynamoGuard(CaptureContext capture, IReadOnlySet<string>? treatAsRead)
 {
-    /// <summary>Registers the handler with every <see cref="AmazonDynamoDBClient"/> created from now on.</summary>
-    internal void Install() => RuntimePipelineCustomizerRegistry.Instance.Register(new Customizer(this));
+    /// <summary>The tracer scope the AWS SDK uses for DynamoDB requests.</summary>
+    private const string TracerScope = "AWSSDK.DynamoDB";
+
+    /// <summary>The PartiQL request a span opened in this async flow, until the pipeline handler marks it seen.</summary>
+    private readonly AsyncLocal<Unseen?> _unseen = new();
+
+    /// <summary>Registers the handler with every <see cref="AmazonDynamoDBClient"/> created from now on, and the tracer for older ones.</summary>
+    internal void Install()
+    {
+        RuntimePipelineCustomizerRegistry.Instance.Register(new Customizer(this));
+        EnsureTracer();
+    }
+
+    /// <summary>
+    /// Puts the guard's tracer provider in front of the SDK's global one, delegating to it. Runs again before each Preview,
+    /// so a provider the host registered later (OpenTelemetry's, say) is wrapped instead of silently replacing the guard.
+    /// </summary>
+    internal void EnsureTracer()
+    {
+        var telemetry = AWSConfigs.TelemetryProvider;
+        lock (telemetry)
+        {
+            for (var current = telemetry.TracerProvider; current is GuardTracerProvider guarded; current = guarded.Inner)
+            {
+                if (ReferenceEquals(guarded.Guard, this))
+                {
+                    return;
+                }
+            }
+
+            telemetry.RegisterTracerProvider(new GuardTracerProvider(this, telemetry.TracerProvider));
+        }
+    }
+
+    /// <summary>A PartiQL request seen only by the tracer so far, and the Preview it ran in.</summary>
+    internal sealed class Unseen(string operation)
+    {
+        internal string Operation { get; } = operation;
+
+        internal volatile bool Seen;
+    }
+
+    /// <summary>The PartiQL requests of one Preview that the pipeline handler never saw.</summary>
+    internal sealed class UnseenRequests
+    {
+        internal System.Collections.Concurrent.ConcurrentQueue<Unseen> Requests { get; } = new();
+    }
+
+    /// <summary>
+    /// Checks a request from the tracer, before it is sent. Runs for every DynamoDB client, hooked or not: an action that is
+    /// a write by name is refused here; a PartiQL action is left to the pipeline handler, which reads its statements.
+    /// </summary>
+    private void BeforeSend(string spanName)
+    {
+        // A request's span is "DynamoDB.{Action}"; the SDK's inner spans (credentials, signing) are not requests.
+        if (!spanName.StartsWith("DynamoDB.", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var operation = spanName["DynamoDB.".Length..];
+        if (!StoreTables.Dynamo.PartiQl.Contains(operation))
+        {
+            capture.Check("dynamodb", operation, StoreClassifier.ClassifyDynamo(operation, null, treatAsRead));
+            return;
+        }
+
+        _unseen.Value = null;
+        if (capture.Current is { InPreview: true } preview)
+        {
+            var unseen = new Unseen(operation);
+            ((UnseenRequests)preview.State.GetOrAdd(this, _ => new UnseenRequests())).Requests.Enqueue(unseen);
+            _unseen.Value = unseen;
+        }
+    }
+
+    /// <summary>The PartiQL requests of a Preview that ran through a client the pipeline handler isn't installed on.</summary>
+    internal IEnumerable<string> UnseenIn(SendproofPreview preview) =>
+        preview.State.TryGetValue(this, out var value) ? ((UnseenRequests)value).Requests.Where(item => !item.Seen).Select(item => item.Operation) : [];
+
+    private sealed class GuardTracerProvider(DynamoGuard guard, TracerProvider inner) : TracerProvider
+    {
+        internal DynamoGuard Guard => guard;
+
+        internal TracerProvider Inner => inner;
+
+        public override Tracer GetTracer(string scope) => Wrap(scope, inner.GetTracer(scope));
+
+        public override Tracer GetTracer(string scope, Attributes attributes) => Wrap(scope, inner.GetTracer(scope, attributes));
+
+        private Tracer Wrap(string scope, Tracer tracer) => scope == TracerScope ? new GuardTracer(guard, tracer) : tracer;
+    }
+
+    private sealed class GuardTracer(DynamoGuard guard, Tracer inner) : Tracer
+    {
+        public override TraceSpan CreateSpan(string name, Attributes? initialAttributes = null, SpanKind spanKind = SpanKind.INTERNAL, SpanContext? parentContext = null)
+        {
+            guard.BeforeSend(name);
+            return inner.CreateSpan(name, initialAttributes, spanKind, parentContext);
+        }
+    }
 
     private sealed class Customizer(DynamoGuard guard) : IRuntimePipelineCustomizer
     {
@@ -71,6 +179,13 @@ internal sealed class DynamoGuard(CaptureContext capture, IReadOnlySet<string>? 
     /// <summary>Checks one request before it is sent, and records it as a <c>Db</c> entry when it finishes.</summary>
     private Call Begin(AmazonWebServiceRequest request)
     {
+        if (_unseen.Value is { } unseen)
+        {
+            // The request the tracer opened a span for reached the handler: its statements are checked here.
+            unseen.Seen = true;
+            _unseen.Value = null;
+        }
+
         var operation = OperationOf(request);
         var statements = StatementsOf(request);
         capture.Check("dynamodb", operation, StoreClassifier.ClassifyDynamo(operation, statements, treatAsRead));
