@@ -1,4 +1,11 @@
 import { expectTypeOf } from 'expect-type';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { Redis } from 'ioredis';
+import { MongoClient } from 'mongodb';
+import type { DataStore } from '@sendproof/core';
+import { dynamoStore } from '@sendproof/dynamodb';
+import { mongoStore } from '@sendproof/mongodb';
+import { redisStore } from '@sendproof/redis';
 import express from 'express';
 import type { Request } from 'express';
 import Fastify from 'fastify';
@@ -74,3 +81,19 @@ new Hono().route('/tenant', hono);
 hono.operation('POST', '/items', context => context.json({ id: 1 }));
 expectTypeOf(SendproofModule.forRoot({ previewProvider: sqlite })).toEqualTypeOf<DynamicModule>();
 expectTypeOf(SendproofPreview('POST', '/items')).toEqualTypeOf<MethodDecorator>();
+
+// Data stores: one registration per store, and preview:false marks in every framework.
+
+const catalog = mongoStore(new MongoClient('mongodb://localhost/catalog'), { name: 'catalog' });
+expectTypeOf(catalog.client).toEqualTypeOf<MongoClient>();
+const cache = redisStore(new Redis({ lazyConnect: true }), { name: 'cache', treatAsRead: ['MYMODULE.GET'] });
+expectTypeOf(cache.client).toEqualTypeOf<Redis>();
+const orders = dynamoStore(new DynamoDBClient({}));
+expectTypeOf(orders).toMatchTypeOf<DataStore>();
+const withStores = expressBench({ previewProvider: sqlite, dataStores: [catalog, cache, orders] });
+withStores.unavailable('DELETE', '/sessions/{id}', { reason: 'Clears the Redis session', stores: ['redis'] }, (_request, response) => { response.end(); });
+// @ts-expect-error The preview:false mark takes its options before the handlers.
+withStores.unavailable('DELETE', '/sessions/{id}', (_request: Request, response: express.Response) => { response.end(); });
+fastify.sendproof.unavailable('DELETE', '/sessions/{id}', { stores: ['redis'] }, async () => ({}));
+hono.unavailable('DELETE', '/sessions/{id}', { reason: 'Clears the Redis session' }, context => context.body(null, 204));
+expectTypeOf(SendproofPreview('DELETE', '/sessions/{id}', { enabled: false, reason: 'Clears the Redis session' })).toEqualTypeOf<MethodDecorator>();
