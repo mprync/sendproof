@@ -53,6 +53,11 @@ final class Harness {
             }
             outcome = execution.finish(new Response(200), failure);
         }
+        if (failure instanceof AssertionError assertion) {
+            // An assertion inside the handler is the test's own failure, not the handler's: never let a blocked
+            // outcome hide it.
+            throw assertion;
+        }
         return outcome;
     }
 

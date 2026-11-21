@@ -26,9 +26,9 @@ import org.springframework.util.ClassUtils;
  */
 final class SpringRedis {
     /** Methods that are neither commands nor command groups. */
-    private static final Set<String> INERT = Set.of("close", "isClosed", "getNativeConnection", "isQueueing", "isPipelined",
+    private static final Set<String> INERT = Set.of("close", "isClosed", "isQueueing", "isPipelined",
             "openPipeline", "closePipeline", "isSubscribed", "getSubscription", "hashCode", "equals", "toString",
-            "getSentinelConnection", "commands", "getDelegate");
+            "getSentinelConnection", "getDelegate");
 
     /** Methods whose Redis command is not their upper-cased name: command, then sub-command. */
     private static final Map<String, String[]> ALIASES = Map.ofEntries(
@@ -65,17 +65,51 @@ final class SpringRedis {
             }
             Object result = invocation.proceed();
             if ((name.equals("getConnection") || name.equals("getClusterConnection")) && result instanceof RedisConnection connection) {
-                return connection(store, connection);
+                return connection(store, connection, new Queue(connection));
             }
             return result;
         });
         return (F) proxies.getProxy(factory.getClass().getClassLoader());
     }
 
-    /** Wraps a connection, or any command group it returns, in a guarding {@link Proxy}. */
-    private static <T> T connection(RedisStore store, T target) {
+    /**
+     * Wraps a connection, or any command group it returns, in a guarding {@link Proxy}. A connection and its command
+     * groups share one {@link Queue}, so a write refused through a group still discards the connection's {@code MULTI}.
+     */
+    private static <T> T connection(RedisStore store, T target, Queue queue) {
         Class<?>[] interfaces = ClassUtils.getAllInterfacesForClass(target.getClass(), target.getClass().getClassLoader());
-        return castProxy(Proxy.newProxyInstance(target.getClass().getClassLoader(), interfaces, new Guarding(store, target)));
+        return castProxy(Proxy.newProxyInstance(target.getClass().getClassLoader(), interfaces, new Guarding(store, target, queue)));
+    }
+
+    /** The {@code MULTI} state of one connection, shared by the proxies of the connection and its command groups. */
+    private static final class Queue {
+        private final Object connection;
+        /** Whether a {@code MULTI} is open on the connection and not yet executed or discarded. */
+        private boolean multi;
+
+        Queue(Object connection) {
+            this.connection = connection;
+        }
+
+        /** A refused write inside {@code MULTI}: nothing queued runs until {@code EXEC}, so discard what was queued. */
+        synchronized void discardIfQueueing() {
+            if (multi) {
+                multi = false;
+                try {
+                    connection.getClass().getMethod("discard").invoke(connection);
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // The caller closes the connection after the refusal, which discards the queue as well.
+                }
+            }
+        }
+
+        synchronized void transaction(String method) {
+            if (method.equals("multi")) {
+                multi = true;
+            } else if (method.equals("exec") || method.equals("discard")) {
+                multi = false;
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -86,12 +120,12 @@ final class SpringRedis {
     private static final class Guarding implements InvocationHandler {
         private final RedisStore store;
         private final Object target;
-        /** Whether a {@code MULTI} is open on this connection and not yet executed or discarded. */
-        private boolean multi;
+        private final Queue queue;
 
-        Guarding(RedisStore store, Object target) {
+        Guarding(RedisStore store, Object target, Queue queue) {
             this.store = store;
             this.target = target;
+            this.queue = queue;
         }
 
         @Override
@@ -107,9 +141,20 @@ final class SpringRedis {
             if (INERT.contains(name)) {
                 return call(method, args);
             }
+            if (name.equals("getNativeConnection")) {
+                // The raw Lettuce or Jedis connection sends commands around this guard.
+                if (StoreGuard.currentPreview() != null) {
+                    throw StoreGuard.refuseInPreview("The native Redis connection isn't guarded, so the Preview can't be confirmed.");
+                }
+                return call(method, args);
+            }
+            if (name.equals("commands") && (args == null || args.length == 0)) {
+                // RedisConnection.commands() returns the connection itself: hand back this guarded view, never the target.
+                return proxy;
+            }
             if (name.endsWith("Commands") && (args == null || args.length == 0) && method.getReturnType().isInterface()) {
                 Object group = call(method, args);
-                return group == null ? null : connection(store, group);
+                return group == null ? null : group == target ? proxy : connection(store, group, queue);
             }
             String command;
             List<Object> arguments = flatten(args);
@@ -129,18 +174,14 @@ final class SpringRedis {
             try {
                 kind = store.check(command, arguments);
             } catch (RuntimeException refused) {
-                discardIfQueueing();
+                queue.discardIfQueueing();
                 throw refused;
             }
             if (kind == CommandKind.SESSION) {
                 return call(method, args);
             }
             if (kind == CommandKind.TRANSACTION) {
-                if (name.equals("multi")) {
-                    multi = true;
-                } else if (name.equals("exec") || name.equals("discard")) {
-                    multi = false;
-                }
+                queue.transaction(name);
             }
             var capture = RedisStore.capture();
             long started = System.nanoTime();
@@ -151,18 +192,6 @@ final class SpringRedis {
             } catch (Throwable failure) {
                 RedisStore.record(capture, command, arguments, started, failure);
                 throw failure;
-            }
-        }
-
-        /** A refused write inside {@code MULTI}: nothing queued runs until {@code EXEC}, so discard what was queued. */
-        private void discardIfQueueing() {
-            if (multi) {
-                multi = false;
-                try {
-                    target.getClass().getMethod("discard").invoke(target);
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // The caller closes the connection after the refusal, which discards the queue as well.
-                }
             }
         }
 

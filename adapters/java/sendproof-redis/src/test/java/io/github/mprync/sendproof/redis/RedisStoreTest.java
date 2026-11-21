@@ -83,6 +83,10 @@ class RedisStoreTest {
 
     /** Every hook under test, as a function from the template the handler uses. */
     private record Client(String name, StringRedisTemplate template, Runnable close) {
+        /** A connection straight from the hooked factory, as code that skips the template gets it. */
+        org.springframework.data.redis.connection.RedisConnection connection() {
+            return template.getRequiredConnectionFactory().getConnection();
+        }
     }
 
     private List<Client> clients() {
@@ -197,6 +201,73 @@ class RedisStoreTest {
                 })).isInstanceOf(PreviewWriteBlockedException.class), store);
                 assertThat(outcome.blocked()).as(client.name()).isTrue();
                 assertThat(checker.get(prefix + "queued")).isNull();
+            } finally {
+                client.close().run();
+            }
+        }
+    }
+
+    @Test
+    void aWriteRefusedThroughACommandGroupDiscardsTheOpenMulti() throws Exception {
+        for (Client client : clients()) {
+            try {
+                var queueing = new java.util.concurrent.atomic.AtomicBoolean(true);
+                PreviewOutcome outcome = Harness.preview(() -> {
+                    var connection = client.connection();
+                    connection.multi();
+                    assertThatThrownBy(() -> connection.stringCommands().incr((prefix + "grouped").getBytes()))
+                            .isInstanceOf(PreviewWriteBlockedException.class);
+                    // The MULTI the connection opened is discarded with the refusal, wherever the command came from.
+                    queueing.set(connection.isQueueing());
+                    connection.close();
+                }, store);
+                assertThat(queueing.get()).as(client.name() + " still queueing after the refusal").isFalse();
+                assertThat(outcome.blocked()).as(client.name()).isTrue();
+                assertThat(checker.get(prefix + "grouped")).isNull();
+            } finally {
+                client.close().run();
+            }
+        }
+    }
+
+    @Test
+    void theConnectionsCommandsViewIsGuardedToo() throws Exception {
+        for (Client client : clients()) {
+            try {
+                // RedisConnection.commands() returns the connection itself; on the guarded proxy it must stay guarded.
+                PreviewOutcome outcome = Harness.preview(() -> {
+                    var connection = client.connection();
+                    try {
+                        assertThatThrownBy(() -> connection.commands().incr((prefix + "commands").getBytes()))
+                                .isInstanceOf(PreviewWriteBlockedException.class);
+                    } finally {
+                        connection.close();
+                    }
+                }, store);
+                assertThat(outcome.blocked()).as(client.name()).isTrue();
+                assertThat(checker.get(prefix + "commands")).as(client.name()).isNull();
+            } finally {
+                client.close().run();
+            }
+        }
+    }
+
+    @Test
+    void theNativeConnectionIsNeverHandedOutInAPreview() throws Exception {
+        for (Client client : clients()) {
+            try {
+                PreviewOutcome outcome = Harness.preview(() -> {
+                    var connection = client.connection();
+                    try {
+                        connection.getNativeConnection();
+                    } catch (RuntimeException swallowed) {
+                        // The handler catches the refusal; the Preview still can't be confirmed.
+                    } finally {
+                        connection.close();
+                    }
+                }, store);
+                assertThat(outcome.confirmed()).as(client.name()).isFalse();
+                assertThat(outcome.status()).isEqualTo(500);
             } finally {
                 client.close().run();
             }
