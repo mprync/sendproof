@@ -272,6 +272,15 @@ The Ruby review found that a MySQL `CALL` can commit the Preview transaction; `s
 - PHP: checks Laravel Octane on Swoole/OpenSwoole, where one worker runs requests concurrently in coroutines, so "every write in the process belongs to the Preview" doesn't hold; either attribute writes per coroutine or refuse Preview under concurrent workers, with a test;
 - makes sure CI gives every new MySQL entry (`ruby-rails-mysql`, `php-laravel-mysql`, `java-spring-mysql`, the .NET one) the `BENCH_MYSQL_URL` and database it needs.
 
+### Closing batch one
+
+Once the last MySQL-escape helpers finish:
+
+- Make `--max-connections=1000` permanent for the compose `mysql` service (raised at runtime during the parallel runs; changing compose then would have recreated the container under running helpers).
+- Ruby on PostgreSQL: add the `pg` gem (libpq is installed) and run the ActiveRecord provider tests on PostgreSQL, since the backstop code there is untested.
+- PHP on SQL Server: untested, because `pdo_sqlsrv` needs Microsoft's ODBC driver, whose install asks to accept Microsoft's licence. Ask the person first.
+- One full run of every suite and the whole conformance matrix, then a demo rebuild.
+
 ### After batch one lands: release tooling
 
 `tools/release/*.mjs` lists packages per registry by hand and knows none of the new store packages (Node `@sendproof/redis`, `/dynamodb`, `/mongodb`; Go `redisbench`, `dynamobench`, `mongobench`; the Rust, Python, .NET, Java, Ruby and PHP store packages). Once every language is reviewed, one pass adds them to each registry script, the CI publish jobs, the consumer smoke tests and, for PHP, the split mirror repos, then runs `pack-all --verify`. The Rust review adds its three crates to `crates.mjs` already.
