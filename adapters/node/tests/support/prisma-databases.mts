@@ -23,6 +23,10 @@ export interface TestDatabase {
   models: PrismaModelMetadata;
   /** A fresh driver adapter factory for the database. */
   adapter(): Promise<SqlDriverAdapterFactory>;
+  /** MySQL only: an adapter factory whose connections run with `autocommit=0`, as JDBC-style drivers do. */
+  manualCommitAdapter?(): Promise<SqlDriverAdapterFactory>;
+  /** MySQL only: run SQL the prepared-statement protocol refuses, such as `CREATE PROCEDURE`, on the test database. */
+  textQuery?(sql: string): Promise<void>;
   /** Construct a generated Prisma client over an adapter. */
   client(adapter: SqlDriverAdapterFactory): Client;
   /** Recreate the test tables, empty. */
@@ -136,12 +140,24 @@ function mysql(raw: string): Target {
       const url = new URL(raw);
       url.pathname = '/' + created;
       url.searchParams.set('allowPublicKeyRetrieval', 'true');
-      return database('MySQL', 'mysql', modules,
-        async () => new PrismaMariaDb(url.toString()),
-        async () => {
-          await admin.query(`DROP DATABASE \`${created}\``);
-          await admin.end();
-        });
+      const manual = {
+        host: url.hostname, port: Number(url.port || 3306), user: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password), database: created, allowPublicKeyRetrieval: true,
+        initSql: 'SET autocommit = 0', connectionLimit: 2,
+      };
+      return {
+        ...database('MySQL', 'mysql', modules,
+          async () => new PrismaMariaDb(url.toString()),
+          async () => {
+            await admin.query(`DROP DATABASE \`${created}\``);
+            await admin.end();
+          }),
+        manualCommitAdapter: async () => new PrismaMariaDb(manual),
+        async textQuery(sql) {
+          const connection = await createConnection(url.toString());
+          try { await connection.query(sql); } finally { await connection.end(); }
+        },
+      };
     },
   };
 }

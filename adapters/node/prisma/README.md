@@ -71,10 +71,11 @@ The provider confirms a Preview only when all of the following hold:
 1. The driver performed the physical rollback. The provider checks this in one of two ways:
    - Adapters with `usePhantomQuery` (MariaDB) roll back in `rollback()`.
    - Other adapters (pg, better-sqlite3) must complete Prisma's `ROLLBACK` statement before `rollback()` releases the connection.
-2. Nothing committed the Preview transaction.
+2. Nothing committed the Preview transaction. On MySQL and MariaDB the provider sets the savepoint `sendproof_preview` when the Preview starts and releases it before the rollback; any commit erases it, so a missing savepoint fails the Preview.
 3. No statement inside the transaction ended it early. The provider checks for:
-   - `COMMIT`, `ROLLBACK`, `BEGIN`, `END` and `SET autocommit`
-   - on MySQL, statements that commit implicitly, such as `CREATE TABLE`, `TRUNCATE` and `LOCK TABLES`
+   - `COMMIT`, `ROLLBACK`, `BEGIN`, `END` and `SET autocommit` anywhere in a `SET` list
+   - on MySQL, statements that commit implicitly, such as `CREATE TABLE`, `TRUNCATE` and `LOCK TABLES`, SQL-level `PREPARE` and `EXECUTE`, and statements touching `sendproof_preview`
+   - on MySQL, `CALL`, because a stored procedure can commit. Declare procedures that never commit with `safeProcedures: ['name', 'schema.name']` (exact names, no wildcards). **Warning:** a declared procedure that does commit keeps the handler's writes; the Preview still fails.
 
    Savepoints are allowed, so nested `$transaction` calls roll back with the Preview.
 4. On pooled databases (PostgreSQL, MySQL), nothing wrote through another connection or a separate transaction during the Preview. Reads through the root client are allowed. SQLite adapters share one connection, so their root-client statements run inside the Preview transaction.

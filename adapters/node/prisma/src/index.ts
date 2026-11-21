@@ -10,7 +10,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
-import { controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, type PreviewProvider } from '@sendproof/core';
+import {
+  controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, previewSavepoint, previewSavepointHeld,
+  safeProcedureNames, setPreviewSavepoint, type PreviewProvider,
+} from '@sendproof/core';
 import type { SqlDriverAdapter, SqlDriverAdapterFactory, SqlQuery, Transaction } from '@prisma/driver-adapter-utils';
 import { ChangeCapture, isWrite, type ModelOperation } from './capture.js';
 import { normalizeModels, type PrismaModels } from './metadata.js';
@@ -37,6 +40,15 @@ export interface PrismaPreviewOptions {
   models?: PrismaModels;
   /** Most rows read for one bulk write before capture is marked incomplete. Defaults to 1000. */
   maxTrackedRows?: number;
+  /**
+   * MySQL and MariaDB stored procedures that never commit, by exact name (`name` or `schema.name`, no
+   * wildcards). During a Preview every other `CALL` is refused, because a procedure can run `COMMIT`
+   * or an implicitly committing statement inside the Preview transaction.
+   *
+   * **Warning:** listing a procedure is your statement that it never commits. One that does would
+   * commit the handler's writes; the Preview still fails, but the writes stay.
+   */
+  safeProcedures?: readonly string[];
 }
 
 /** A Prisma client that can open an interactive transaction. */
@@ -59,6 +71,8 @@ interface Probe {
   rolledBack: boolean;
   committed: boolean;
   escaped?: string;
+  /** The Preview's driver transaction, undecorated, for the provider's own savepoint statements. */
+  transaction?: Transaction;
 }
 
 interface Scope {
@@ -91,6 +105,8 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   readonly #labels = new AsyncLocalStorage<string[]>();
   readonly #internal = new AsyncLocalStorage<boolean>();
   readonly #manual = new AsyncLocalStorage<boolean>();
+  /** MySQL stored procedures the host declared never commit; every other `CALL` is refused in a Preview. */
+  readonly #safeProcedures: ReadonlySet<string>;
   readonly #provider: string;
   readonly #singleConnection: boolean;
   readonly #transactionOptions: TransactionOptions | undefined;
@@ -108,6 +124,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
 
   constructor(factory: SqlDriverAdapterFactory, options: PrismaPreviewOptions = {}) {
     this.#provider = factory.provider;
+    this.#safeProcedures = safeProcedureNames(options.safeProcedures);
     this.#singleConnection = factory.provider === 'sqlite';
     this.#serialPreviews = factory.provider === 'mysql';
     this.#transactionOptions = options.transactionOptions;
@@ -200,10 +217,15 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       let failure: { error: unknown } | undefined;
       try {
         await this.#probe.run(probe, () => client.$transaction(async transaction => {
+          // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
+          if (this.#serialPreviews) await this.#ownStatement(probe, set => setPreviewSavepoint(set));
           try {
             response = await this.#withClient(transaction, dispatch);
           } catch (error) {
             failure = { error };
+          }
+          if (this.#serialPreviews && !probe.escaped && !await this.#ownStatement(probe, held => previewSavepointHeld(held))) {
+            probe.escaped = 'the savepoint set when the Preview started was gone, so something committed the MySQL transaction.';
           }
           probe.settled = true;
           throw rollback;
@@ -222,6 +244,21 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       this.#invalid = true;
       throw new Error('The Prisma preview transaction was not rolled back.');
     }));
+  }
+
+  /**
+   * Runs the provider's own savepoint statements on the Preview's driver transaction itself, out of the capture and past
+   * the guard that refuses a handler's statements naming that savepoint. MySQL refuses `SAVEPOINT` in the prepared
+   * statement protocol most adapters use, so the adapter's savepoint methods, which send plain text, come first.
+   */
+  async #ownStatement<T>(probe: Probe, use: (run: (sql: string) => Promise<unknown>) => Promise<T>): Promise<T> {
+    const transaction = probe.transaction;
+    if (!transaction) throw new Error('The Prisma preview transaction was not started through the provider adapter.');
+    return use(async sql => {
+      if (sql.startsWith('SAVEPOINT ') && transaction.createSavepoint) return transaction.createSavepoint(previewSavepoint);
+      if (sql.startsWith('RELEASE SAVEPOINT ') && transaction.releaseSavepoint) return transaction.releaseSavepoint(previewSavepoint);
+      return transaction.executeRaw({ sql, args: [], argTypes: [] });
+    });
   }
 
   /** Run a MySQL Preview once every earlier one has settled; other databases run previews at once. */
@@ -287,6 +324,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     if (!probe || probe.settled) return decorate(transaction, this.#queries(transaction, 'plain'));
     if (probe.started) return decorate(transaction, this.#queries(transaction, 'foreign'));
     probe.started = true;
+    probe.transaction = transaction;
     let wireRollback = false;
     return decorate(transaction, {
       ...this.#queries(transaction, 'preview', sql => {
@@ -337,7 +375,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     if (!probe || probe.settled || kind === 'plain') return;
     if (probe.escaped) throw new Error('The Prisma preview was not contained: ' + probe.escaped);
     if (kind === 'preview') {
-      if (!endsTransaction(sql, this.#provider)) return;
+      if (!endsTransaction(sql, this.#provider, this.#safeProcedures)) return;
       probe.escaped = 'a statement would end the Preview transaction early.';
     } else {
       // SQLite shares one connection. Other databases can run reads on a pooled connection.

@@ -102,7 +102,8 @@ describe('Prisma rollback acknowledgment', () => {
   it('confirms phantom-query adapters through their rollback method', async () => {
     const { provider, executed } = scripted({ provider: 'mysql', phantom: true });
     assert.equal(await provider.preview(async () => 'result'), 'result');
-    assert.deepEqual(executed, ['BEGIN', 'ROLLBACK (phantom)']);
+    // On MySQL the Preview savepoint is set first and released before the rollback (the commit backstop).
+    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'RELEASE SAVEPOINT sendproof_preview', 'ROLLBACK (phantom)']);
   });
 
   it('leaves a release without ROLLBACK unconfirmed and retires the client', async () => {

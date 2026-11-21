@@ -218,6 +218,50 @@ for (const target of targets()) {
         })), /not contained/);
         assert.deepEqual(await names(client), []);
       });
+
+      it('refuses CALL and the Preview savepoint, and catches a declared procedure that commits', async () => {
+        const { preview, client } = await provide();
+        await db.textQuery!('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+        await db.textQuery!('CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END');
+        await assert.rejects(preview.preview(() => preview.run(async (tx: Client) => {
+          await tx.item.create({ data: { id: 'called', name: 'Called' } });
+          await tx.$executeRawUnsafe('CALL sendproof_commit_probe()');
+        })), /not contained/);
+        await assert.rejects(preview.preview(() => preview.run(async (tx: Client) => {
+          await tx.$executeRawUnsafe('RELEASE SAVEPOINT sendproof_preview');
+        })), /not contained/);
+        assert.deepEqual(await names(client), []);
+
+        // Wrongly declared safe, the procedure commits; the savepoint set when the Preview started is then gone.
+        // These two clients disconnect at once: each holds a pool, and the suite runs close to the server's connection limit.
+        const trusting = new PrismaPreview(await db.adapter(), { models: db.models, safeProcedures: ['sendproof_commit_probe'] });
+        trusting.attach(db.client(trusting.adapter));
+        try {
+          await assert.rejects(trusting.preview(() => trusting.run(async (tx: Client) => {
+            await tx.item.create({ data: { id: 'declared', name: 'Committed' } });
+            await tx.$executeRawUnsafe('CALL sendproof_commit_probe()');
+          })), /savepoint set when the Preview started was gone/);
+        } finally {
+          await trusting.client.$disconnect();
+        }
+        assert.deepEqual(await names(client), ['declared:Committed']);
+
+        // Under autocommit=0 MySQL opens a new transaction after the COMMIT, which only the start savepoint sees through.
+        const manual = new PrismaPreview(await db.manualCommitAdapter!(), { models: db.models, safeProcedures: ['sendproof_commit_probe'] });
+        manual.attach(db.client(manual.adapter));
+        try {
+          assert.equal(Number((await manual.client.$queryRawUnsafe('SELECT @@autocommit AS a'))[0].a), 0);
+          await assert.rejects(manual.preview(() => manual.run(async (tx: Client) => {
+            await tx.item.create({ data: { id: 'manual', name: 'Committed' } });
+            await tx.$executeRawUnsafe('CALL sendproof_commit_probe()');
+            await tx.item.create({ data: { id: 'after', name: 'Implicit' } });
+          })), /savepoint set when the Preview started was gone/);
+        } finally {
+          await manual.client.$disconnect();
+        }
+        assert.deepEqual(await names(client), ['declared:Committed', 'manual:Committed']);
+        await db.textQuery!('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+      });
     }
 
     if (target.name !== 'SQLite') {
