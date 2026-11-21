@@ -211,6 +211,39 @@ async fn a_failed_abort_answers_500_and_every_session_is_still_closed() {
     assert_eq!(counts.closes.load(Ordering::SeqCst), 1);
 }
 
+/// Every cleanup step runs: a store whose abort fails skips neither the SQL rollback nor the other
+/// stores, and the Preview answers 500.
+#[tokio::test]
+async fn a_failed_abort_skips_no_other_rollback_or_close() {
+    struct Sql(Arc<Counts>);
+    impl PreviewProvider for Sql {
+        fn begin_preview<'a>(&'a self, _: &'a mut Extensions) -> BoxFuture<'a, Result<Box<dyn PreviewSession>, BoxError>> {
+            let session = FakeSession { counts: self.0.clone(), fail_rollback: false };
+            Box::pin(async move { Ok(Box::new(session) as Box<dyn PreviewSession>) })
+        }
+    }
+    let (sql, failing, other) = (Arc::new(Counts::default()), Arc::new(Counts::default()), Arc::new(Counts::default()));
+    let config = Config::builder("Test")
+        .environment("Development")
+        .enable_in(["Development"])
+        .preview_operation("POST", "/things")
+        .provider(Sql(sql.clone()))
+        .data_store(FakeStore { counts: failing.clone(), fail_rollback: true })
+        .data_store(FakeStore { counts: other.clone(), fail_rollback: false })
+        .build()
+        .unwrap();
+    let core = Core::new(config);
+    let reply = run(&core, || async { handler_response(201) }).await;
+    assert_eq!(reply.status, 500);
+    for (name, counts) in [("SQL", &sql), ("failing store", &failing), ("other store", &other)] {
+        assert_eq!(
+            (counts.rollbacks.load(Ordering::SeqCst), counts.closes.load(Ordering::SeqCst)),
+            (1, 1),
+            "the {name} session was rolled back and closed"
+        );
+    }
+}
+
 /// The negative test: with the hook removed, the Preview is confirmed, so the shared checks that
 /// expect a 409 would fail. This is what "the checks fail when the guard is off" means here.
 #[tokio::test]
