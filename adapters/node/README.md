@@ -14,6 +14,9 @@ Serve the shared workbench at `/sendproof/` in an API that already exposes OpenA
 | [`@sendproof/knex`](knex) | Knex transaction enlistment and row capture |
 | [`@sendproof/typeorm`](typeorm) | TypeORM manager enlistment and row capture |
 | [`@sendproof/prisma`](prisma) | Prisma driver-acknowledged rollback and row capture |
+| [`@sendproof/mongodb`](mongodb) | MongoDB Preview for the driver and Mongoose, with document changes |
+| [`@sendproof/redis`](redis) | Redis write guard for ioredis and node-redis |
+| [`@sendproof/dynamodb`](dynamodb) | DynamoDB write guard for the AWS SDK v3 clients |
 
 Run a local fixture with Node 22.18 or newer.
 
@@ -26,3 +29,5 @@ Open `http://127.0.0.1:5351/sendproof/`. Sign in as `admin@example.test` with `b
 The packages build from strict TypeScript in `src/` to ESM and generated declarations in `dist/`. From the repository root, `npm run build:fixtures --prefix adapters/node` also generates the Prisma clients for the test fixtures. Run `npm run typecheck --prefix adapters/node` to check the public types and `npm test --prefix adapters/node` to exercise the packages. The [database guide](../../docs/bindings/databases.md) shows which database combinations passed the shared matrix and how to start their local services.
 
 Configure `NODE_ENV=development` or the equivalent `environment` option to enable the workbench with the default environment allowlist. Preview uses application-managed identity and authorization, and the provider must cover all writes. Use [the Node core recorder](core) to hold external effects until Send.
+
+MongoDB, Redis and DynamoDB are covered only through the clients you hook. [Data stores in the Node binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
