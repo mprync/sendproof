@@ -128,6 +128,67 @@ class MySqlJpaEscapeTest {
         jdbc.update("DELETE FROM widgets WHERE id = 'escaped'");
     }
 
+    /**
+     * A deadlock rolls the whole Preview transaction back. The Preview is made the victim (the other transaction wrote
+     * more rows, and InnoDB rolls back the smaller one); the handler catches the error and retries the write.
+     */
+    @Test
+    void afterADeadlockEveryFurtherStatementIsRefusedAndARetryNeverCommits() throws Exception {
+        insertCommitted("a");
+        insertCommitted("b");
+        try (Connection other = DriverManager.getConnection(base() + DATABASE, user(), password())) {
+            other.setAutoCommit(false);
+            try (Statement statement = other.createStatement()) {
+                statement.execute("INSERT INTO widgets (id, name) VALUES ('w1', 'w'), ('w2', 'w'), ('w3', 'w'), ('w4', 'w')");
+                statement.execute("UPDATE widgets SET name = 'other' WHERE id = 'b'");
+            }
+            var original = new java.util.concurrent.atomic.AtomicReference<RuntimeException>();
+            Exception outcome = preview(() -> {
+                jdbc.update("UPDATE widgets SET name = 'preview' WHERE id = 'a'");
+                var blocked = new Thread(() -> {
+                    try (Statement statement = other.createStatement()) {
+                        statement.execute("UPDATE widgets SET name = 'other' WHERE id = 'a'");
+                    } catch (SQLException ignored) {
+                        // The other side wins the deadlock.
+                    }
+                });
+                blocked.start();
+                try {
+                    Thread.sleep(300);
+                    jdbc.update("UPDATE widgets SET name = 'preview' WHERE id = 'b'");
+                } catch (RuntimeException deadlock) {
+                    original.set(deadlock);
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException(interrupted);
+                }
+                try {
+                    blocked.join(10_000);
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException(interrupted);
+                }
+                // The handler's retry, as a retry policy would make it: refused before sending.
+                assertThatThrownBy(() -> insert("retry")).hasStackTraceContaining("rolled the Preview transaction back");
+            });
+            other.rollback();
+            assertThat(original.get()).as("the handler saw the database's own deadlock")
+                    .hasStackTraceContaining("Deadlock");
+            assertThat(outcome).as("the Preview fails").isNotNull();
+            assertThat(count("retry")).isZero();
+        } finally {
+            jdbc.update("DELETE FROM widgets WHERE id IN ('a', 'b')");
+        }
+    }
+
+    private void insertCommitted(String id) {
+        try (Connection connection = DriverManager.getConnection(base() + DATABASE, user(), password());
+             var statement = connection.prepareStatement("INSERT INTO widgets (id, name) VALUES (?, 'Widget')")) {
+            statement.setString(1, id);
+            statement.executeUpdate();
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
     @Test
     void aHandlerRollbackKeepsThePreviewConfirmable() {
         Exception outcome = preview(() -> {

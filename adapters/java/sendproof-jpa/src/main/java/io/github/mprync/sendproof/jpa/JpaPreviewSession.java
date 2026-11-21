@@ -127,7 +127,8 @@ final class JpaPreviewSession implements PreviewSession {
         RuntimeException flushFailure = null;
         IllegalStateException ended = null;
         try {
-            if (!status.isCompleted() && !status.isRollbackOnly()) {
+            // Once the database rolled the transaction back, nothing more may run in it: no final flush.
+            if (!status.isCompleted() && !status.isRollbackOnly() && !guard.lost()) {
                 try {
                     flush();
                 } catch (RuntimeException failure) {

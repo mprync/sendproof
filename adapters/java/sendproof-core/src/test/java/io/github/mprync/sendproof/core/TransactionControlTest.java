@@ -128,6 +128,22 @@ class TransactionControlTest {
     }
 
     @Test
+    void deadlocksAndLockWaitTimeoutsRollTheTransactionBack() {
+        var deadlock = new java.sql.SQLTransactionRollbackException("Deadlock found", "40001", 1213);
+        var timeout = new java.sql.SQLException("Lock wait timeout exceeded", "HY000", 1205);
+        assertThat(TransactionControl.rollsBackTransaction("mysql", deadlock)).isTrue();
+        assertThat(TransactionControl.rollsBackTransaction("mariadb", timeout)).isTrue();
+        assertThat(TransactionControl.rollsBackTransaction("mssql", timeout)).as("SQL Server's deadlock victim").isTrue();
+        assertThat(TransactionControl.rollsBackTransaction("mssql", deadlock)).isFalse();
+        assertThat(TransactionControl.rollsBackTransaction("postgresql", deadlock)).isFalse();
+        assertThat(TransactionControl.rollsBackTransaction("mysql", new java.sql.SQLException("Duplicate", "23000", 1062)))
+                .isFalse();
+        var wrapped = new java.sql.SQLException("batch failed");
+        wrapped.setNextException(deadlock);
+        assertThat(TransactionControl.rollsBackTransaction("mysql", wrapped)).as("a chained deadlock").isTrue();
+    }
+
+    @Test
     void otherDatabasesKeepTheirOwnRules() {
         assertThat(TransactionControl.find("CALL refresh_totals()", "postgresql", NONE)).isNull();
         assertThat(TransactionControl.find("ANALYZE t", "postgresql", NONE)).isNull();

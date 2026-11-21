@@ -41,6 +41,7 @@ final class JdbcPreviewSession implements PreviewSession {
     private volatile boolean closed;
     private volatile boolean finishing;
     private volatile boolean rolledBackEarly;
+    private volatile boolean lost;
     private volatile String violation;
 
     JdbcPreviewSession(JdbcScope scope, Connection real, String system, Set<String> safeProcedures) throws SQLException {
@@ -81,6 +82,38 @@ final class JdbcPreviewSession implements PreviewSession {
 
     boolean isClosed() {
         return closed;
+    }
+
+    /** Whether the database rolled the Preview transaction back on its own; every later statement is then refused. */
+    boolean isLost() {
+        return lost;
+    }
+
+    /**
+     * Records a failed statement. A deadlock or lock wait timeout (or, on SQL Server, any error that leaves
+     * {@code @@TRANCOUNT} at 0, as under {@code XACT_ABORT ON}) means the database rolled the whole Preview transaction
+     * back: later statements would run outside it, so they are refused and the Preview fails. The handler still gets the
+     * original error.
+     */
+    void failed(SQLException error) {
+        if (finishing || lost) {
+            return;
+        }
+        if (TransactionControl.rollsBackTransaction(system, error)
+                || (TransactionControl.isSqlServer(system) && sqlServerTransactionGone())) {
+            lost = true;
+            refuse("Running SQL after the database rolled the Preview transaction back");
+        }
+    }
+
+    /** Asks SQL Server, on the pool's connection past the SQL capture, whether a transaction is still open. */
+    private boolean sqlServerTransactionGone() {
+        Connection physical = target instanceof Connection connection ? connection : real;
+        try (var statement = physical.createStatement(); var rows = statement.executeQuery("SELECT @@TRANCOUNT")) {
+            return !rows.next() || rows.getInt(1) == 0;
+        } catch (SQLException unknown) {
+            return true;
+        }
     }
 
     /** The SQL provider id the session's refusals follow. */

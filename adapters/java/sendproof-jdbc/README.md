@@ -52,6 +52,14 @@ a missing savepoint means something committed the preview's writes, and the prev
 (MySQL has no `@@in_transaction`, and with auto-commit off it opens a new transaction after a commit, so a check made
 only at the end can't see a commit.) A handler's own `rollback()` lets nothing escape; the savepoint is made again.
 
+### Deadlocks and aborted transactions
+
+A MySQL or MariaDB deadlock (1213) or lock wait timeout (1205), a SQL Server deadlock victim (1205), or any SQL
+Server error that leaves `@@TRANCOUNT` at 0 (as under `XACT_ABORT ON`) rolls the whole preview transaction back, so a
+retry would run outside it. Once the preview sees one, it refuses every further statement before sending, and the
+preview answers 500 without confirmation; the handler still gets the database's original error. MySQL's 1205 counts
+whether or not `innodb_rollback_on_timeout` is on.
+
 The request must run with its `JdbcScope` current. Web adapters do this for you. A coroutine framework must carry the
 thread-local across thread hops, for example `JdbcScope.holder().asContextElement(scope)`.
 

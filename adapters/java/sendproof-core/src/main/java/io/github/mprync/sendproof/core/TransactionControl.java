@@ -94,6 +94,34 @@ public final class TransactionControl {
         return null;
     }
 
+    /**
+     * Returns whether {@code error} means the database rolled the whole transaction back on its own: a MySQL or MariaDB
+     * deadlock (1213) or lock wait timeout (1205; counted whether or not {@code innodb_rollback_on_timeout} is on, since
+     * refusing can only fail a Preview), or a SQL Server deadlock victim (1205). Later statements would run outside the
+     * Preview transaction, so the provider refuses them. A SQL Server error under {@code XACT_ABORT ON} also ends the
+     * transaction; the provider checks {@code @@TRANCOUNT} for that ({@link #isSqlServer(String)}).
+     */
+    public static boolean rollsBackTransaction(String system, java.sql.SQLException error) {
+        Throwable current = error;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (current instanceof java.sql.SQLException sql) {
+                int code = sql.getErrorCode();
+                if ((isMySql(system) && (code == 1213 || code == 1205)) || (isSqlServer(system) && code == 1205)) {
+                    return true;
+                }
+                current = sql.getCause() != null ? sql.getCause() : sql.getNextException();
+            } else {
+                current = current.getCause();
+            }
+        }
+        return false;
+    }
+
+    /** Returns whether {@code system} is SQL Server, where an error under {@code XACT_ABORT ON} ends the transaction. */
+    public static boolean isSqlServer(String system) {
+        return "mssql".equals(system);
+    }
+
     /** Returns whether {@code system} is MySQL or MariaDB, which commit implicitly and run procedures with {@code CALL}. */
     public static boolean isMySql(String system) {
         return "mysql".equals(system) || "mariadb".equals(system);

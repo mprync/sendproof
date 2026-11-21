@@ -33,6 +33,9 @@ final class SqlCaptureListener extends SqlLogListener {
             return;
         }
         boolean handling = PreviewTransactionGuard.isHandling();
+        if (handling && PreviewTransactionGuard.isLost()) {
+            throw PreviewTransactionGuard.refuseWhileHandling("A statement after the database rolled the Preview transaction back");
+        }
         String system = handling ? system(execution) : null;
         for (QueryInfo query : queries) {
             String control = handling
@@ -45,6 +48,39 @@ final class SqlCaptureListener extends SqlLogListener {
                         "A data-changing statement ran outside a transaction during a Sendproof preview and would "
                                 + "have persisted. The operation is not previewable."));
             }
+        }
+    }
+
+    /**
+     * Records a failed statement while the handler runs: a deadlock or lock wait timeout, or on SQL Server any error that
+     * leaves {@code @@TRANCOUNT} at 0, means the database rolled the Preview transaction back
+     * ({@link PreviewTransactionGuard#transactionLost()}).
+     */
+    @Override
+    public void afterQuery(ExecutionInfo execution, List<QueryInfo> queries) {
+        super.afterQuery(execution, queries);
+        if (execution.isSuccess() || !(execution.getThrowable() instanceof SQLException error)
+                || !PreviewTransactionGuard.isHandling()) {
+            return;
+        }
+        String system = system(execution);
+        if (TransactionControl.rollsBackTransaction(system, error)
+                || (TransactionControl.isSqlServer(system) && sqlServerTransactionGone(execution))) {
+            PreviewTransactionGuard.transactionLost();
+        }
+    }
+
+    /** Asks SQL Server, on the pool's connection past the SQL capture, whether a transaction is still open. */
+    private static boolean sqlServerTransactionGone(ExecutionInfo execution) {
+        try {
+            java.sql.Connection connection = execution.getStatement().getConnection();
+            java.sql.Connection physical = connection instanceof net.ttddyy.dsproxy.proxy.ProxyJdbcObject proxy
+                    && proxy.getTarget() instanceof java.sql.Connection target ? target : connection;
+            try (Statement probe = physical.createStatement(); var rows = probe.executeQuery("SELECT @@TRANCOUNT")) {
+                return !rows.next() || rows.getInt(1) == 0;
+            }
+        } catch (SQLException | RuntimeException unknown) {
+            return true;
         }
     }
 

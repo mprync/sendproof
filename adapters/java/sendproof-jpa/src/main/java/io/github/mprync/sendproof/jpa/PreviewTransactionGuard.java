@@ -39,6 +39,7 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
         private PreviewSavepoint savepoint;
         private boolean starting = true;
         private boolean finishing;
+        private volatile boolean lost;
         private RuntimeException violation;
 
         private Scope(Runnable flush, Scope previous, String system, Set<String> safeProcedures) {
@@ -55,6 +56,11 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
 
         void system(String resolved) {
             system = resolved;
+        }
+
+        /** Whether the database rolled the Preview transaction back on its own (see {@link #transactionLost()}). */
+        boolean lost() {
+            return lost;
         }
 
         /** Remembers the MySQL backstop savepoint made in the Preview transaction. */
@@ -115,6 +121,27 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
     static String system() {
         Scope scope = CURRENT.get();
         return scope == null ? null : scope.system;
+    }
+
+    /**
+     * Records that the database rolled the Preview transaction back on its own (a deadlock, a lock wait timeout, or a SQL
+     * Server error under {@code XACT_ABORT ON}): every later statement in the Preview is refused, its final flush is
+     * skipped, and the Preview fails. The handler still gets the database's original error.
+     */
+    static void transactionLost() {
+        Scope scope = CURRENT.get();
+        if (scope == null || scope.lost || !isHandling()) {
+            return;
+        }
+        scope.lost = true;
+        violation(new EnrollmentException("The database rolled the Sendproof preview's transaction back after a deadlock, "
+                + "lock wait timeout or aborting error, so the operation can't be confirmed."));
+    }
+
+    /** Whether the guarding preview's transaction was rolled back by the database (see {@link #transactionLost()}). */
+    static boolean isLost() {
+        Scope scope = CURRENT.get();
+        return scope != null && scope.lost;
     }
 
     /** The guarding preview's declared safe procedures. */

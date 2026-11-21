@@ -68,6 +68,18 @@ final class JdbcCaptureListener extends SqlLogListener {
     @Override
     public void afterQuery(ExecutionInfo execution, List<QueryInfo> queries) {
         super.afterQuery(execution, queries);
+        if (!execution.isSuccess() && execution.getThrowable() instanceof SQLException error) {
+            // A deadlock or similar may have rolled the whole Preview transaction back (see JdbcPreviewSession.failed).
+            try {
+                Statement statement = execution.getStatement();
+                JdbcPreviewSession session = statement == null ? null : JdbcPreviewSession.owning(statement.getConnection());
+                if (session != null) {
+                    session.failed(error);
+                }
+            } catch (SQLException | RuntimeException ignored) {
+                // The statement's own error is the one the handler sees.
+            }
+        }
         Pending pending = PENDING.get().pop();
         if (pending.statement() == null || !execution.isSuccess() || !tracking()) {
             return;
@@ -118,6 +130,9 @@ final class JdbcCaptureListener extends SqlLogListener {
         }
         if (session == null) {
             return;
+        }
+        if (session.isLost()) {
+            throw session.refuse("Running SQL after the database rolled the Preview transaction back");
         }
         for (QueryInfo query : queries) {
             String keyword = TransactionControl.find(query.getQuery(), session.system(), session.safeProcedures());

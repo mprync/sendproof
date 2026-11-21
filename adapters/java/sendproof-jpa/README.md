@@ -15,6 +15,8 @@ Because every operation must be fully enrolled, these are refused rather than al
 On MySQL and MariaDB the preview also refuses `CALL`, the rest of MySQL's implicit-commit list and `PREPARE`/`EXECUTE`,
 and keeps a savepoint backstop, exactly as [sendproof-jdbc](../sendproof-jdbc/README.md#mysql-and-mariadb) describes.
 The backstop needs the transaction manager's `DataSource` (`JpaTransactionManager` or `DataSourceTransactionManager`).
+After a deadlock, lock wait timeout or SQL Server `XACT_ABORT` error, every further statement is refused and the final
+flush is skipped, as [sendproof-jdbc](../sendproof-jdbc/README.md#deadlocks-and-aborted-transactions) describes.
 Declare procedures that never commit with `sendproof.sql.safe-procedures` (or `JpaPreviewProvider.safeProcedures(...)`):
 
 ```properties

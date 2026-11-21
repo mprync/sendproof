@@ -146,6 +146,49 @@ class MySqlEscapeTest {
         assertThat(outcome.sql()).as("the probe stays out of the captured SQL").doesNotContain("sendproof_preview");
     }
 
+    /**
+     * A deadlock rolls the whole Preview transaction back. The Preview is made the victim (the other transaction wrote
+     * more rows, and InnoDB rolls back the smaller one); the handler catches the error and retries the write.
+     */
+    @Test
+    void afterADeadlockEveryFurtherStatementIsRefusedAndARetryNeverCommits() throws Exception {
+        try (Connection setup = DriverManager.getConnection(jdbcBase + database, user, password)) {
+            run(setup, "INSERT INTO items (id, name) VALUES ('a', 'a'), ('b', 'b')");
+        }
+        try (Connection other = DriverManager.getConnection(jdbcBase + database, user, password)) {
+            other.setAutoCommit(false);
+            run(other, "INSERT INTO items (id, name) VALUES ('w1', 'w'), ('w2', 'w'), ('w3', 'w'), ('w4', 'w')");
+            run(other, "UPDATE items SET name = 'other' WHERE id = 'b'");
+            var original = new AtomicReference<SQLException>();
+            Outcome outcome = preview(provider, connection -> {
+                run(connection, "UPDATE items SET name = 'preview' WHERE id = 'a'");
+                var blocked = new Thread(() -> {
+                    try {
+                        run(other, "UPDATE items SET name = 'other' WHERE id = 'a'");
+                    } catch (SQLException ignored) {
+                        // The other side wins the deadlock.
+                    }
+                });
+                blocked.start();
+                Thread.sleep(300);
+                try {
+                    run(connection, "UPDATE items SET name = 'preview' WHERE id = 'b'");
+                } catch (SQLException deadlock) {
+                    original.set(deadlock);
+                }
+                blocked.join(10_000);
+                // The handler's retry, as a retry policy would make it: refused before sending.
+                assertThatThrownBy(() -> insert(connection, "retry")).isInstanceOf(IllegalStateException.class);
+            });
+            other.rollback();
+            SQLException deadlock = original.get();
+            assertThat((Object) deadlock).as("the handler saw the database's own deadlock").isNotNull();
+            assertThat(deadlock.getErrorCode()).isEqualTo(1213);
+            assertThat(outcome.failure()).as("the Preview fails").isNotNull();
+            assertThat(count("retry")).isZero();
+        }
+    }
+
     @Test
     void aHandlerRollbackKeepsThePreviewConfirmable() throws Exception {
         Outcome outcome = preview(provider, connection -> {
