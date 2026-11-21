@@ -153,6 +153,35 @@ class SqlCaptureTest < Minitest::Test
     Item.lease_connection.select_all("SELECT ? AS #{name}", "Probe", [attribute])
   end
 
+  # A real Active Record query with a bind named +name+: bound on SQLite, inlined as a literal by an adapter
+  # without prepared statements (Trilogy, or any connection inside +unprepared_statement+).
+  def arel_probe(name, value, alias_name = name)
+    attribute = ActiveRecord::Relation::QueryAttribute.new(name, value, ActiveRecord::Type::String.new)
+    manager = Arel::SelectManager.new
+    manager.project(Arel::Nodes::As.new(Arel::Nodes::BindParam.new(attribute), Arel.sql(alias_name)))
+    Item.lease_connection.select_all(manager, "Probe")
+  end
+
+  def unprepared(&) = Item.lease_connection.unprepared_statement(&)
+
+  def test_a_value_inlined_without_prepared_statements_is_reported_as_a_redacted_parameter
+    _, snapshot = preview { unprepared { arel_probe("fixture_secret", "fixture-secret-value") } }
+    refute_includes JSON.generate(snapshot.logs), "fixture-secret-value"
+    parameter = snapshot.logs.flat_map { |log| log.dig(:sql, :parameters) || [] }.find { |p| p[:name] == "fixture_secret" }
+    assert_equal "[REDACTED]", parameter&.dig(:value), "The inlined bind is reported by name, never by value"
+  end
+
+  def test_a_secret_bind_inlined_under_a_harmless_name_is_masked_in_the_text
+    _, snapshot = preview { unprepared { arel_probe("api_token", "zq-77-opaque", "shown") } }
+    refute_includes JSON.generate(snapshot.logs), "zq-77-opaque"
+  end
+
+  def test_an_inlined_value_is_shown_when_values_are_shown_and_nothing_looks_secret
+    _, snapshot = preview { unprepared { arel_probe("label", "plain-label") } }
+    parameter = snapshot.logs.flat_map { |log| log.dig(:sql, :parameters) || [] }.find { |p| p[:name] == "label" }
+    assert_equal "plain-label", parameter&.dig(:value)
+  end
+
   def test_sql_is_logged_with_parameters_and_timing
     skip "MySQL inlines values instead of binding parameters" if MYSQL
     _, snapshot = preview { Item.create!(id: "a", name: "Alpha") }
@@ -169,10 +198,10 @@ class SqlCaptureTest < Minitest::Test
   end
 
   def test_secret_named_parameters_are_redacted_even_when_values_are_shown
-    _, snapshot = preview { probe("fixture_secret", "fixture-secret-value") }
+    _, snapshot = preview { arel_probe("fixture_secret", "fixture-secret-value") }
     refute_includes JSON.generate(snapshot.logs), "fixture-secret-value"
     parameter = snapshot.logs.flat_map { |log| log.dig(:sql, :parameters) || [] }.find { |p| p[:name] == "fixture_secret" }
-    assert_equal "[REDACTED]", parameter[:value] unless MYSQL
+    assert_equal "[REDACTED]", parameter[:value]
   end
 
   def test_a_statement_that_names_a_secret_is_shown_without_its_literals

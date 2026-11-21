@@ -14,6 +14,7 @@ module Sendproof
   # (+update_all+, +delete_all+, +insert_all+, +touch+, raw SQL, triggers) are rolled back but
   # never synthesized into before/after rows; the preview logs a warning when it sees them.
   module ActiveRecord
+    autoload :InlinedBinds, "sendproof/active_record/inlined_binds"
     autoload :Observation, "sendproof/active_record/observation"
     autoload :Provider, "sendproof/active_record/provider"
     autoload :Session, "sendproof/active_record/session"
@@ -30,6 +31,7 @@ module Sendproof
       @installed = true
       ::ActiveRecord::Base.include(Tracking)
       ::ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(TransactionGuard)
+      ::ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(InlinedBinds)
       SqlSubscriber.subscribe
     end
   end

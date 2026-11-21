@@ -162,23 +162,16 @@ module Fixture
 
     def item_json(item) = { id: item.id, name: item.name }
 
-    # A bound parameter whose name looks secret; the value must never reach a capture. SQLite binds it. MySQL
-    # through Trilogy has no prepared statements, so Active Record never binds a parameter there: the fixture
-    # reports the same statement and bind the way a prepared-statement adapter would, which exercises the
-    # redaction of a named parameter (the unit suite covers it on SQLite), while the statement it really runs
-    # carries the value inline, as every Trilogy statement does.
+    # A bound parameter whose name looks secret; the value must never reach a capture. The query is real on
+    # both databases: SQLite binds the parameter, and MySQL through Trilogy, which has no prepared
+    # statements, quotes it into the SQL text, which the binding then logs without its literals while still
+    # naming the parameter.
     def probe_secret_parameter
-      connection = Item.lease_connection
       attribute = ActiveRecord::Relation::QueryAttribute.new("fixture_secret", "fixture-secret-value",
                                                               ActiveRecord::Type::String.new)
-      if connection.prepared_statements
-        connection.select_all("SELECT ? AS fixture_secret", "Fixture probe", [attribute])
-      else
-        ActiveSupport::Notifications.instrument(
-          "sql.active_record", sql: "SELECT ? AS fixture_secret", name: "Fixture probe", binds: [attribute],
-                               type_casted_binds: ["fixture-secret-value"], connection: connection
-        ) { connection.select_all("SELECT #{connection.quote('fixture-secret-value')} AS fixture_secret", "SCHEMA") }
-      end
+      probe = Arel::SelectManager.new
+      probe.project(Arel::Nodes::As.new(Arel::Nodes::BindParam.new(attribute), Arel.sql("fixture_secret")))
+      Item.lease_connection.select_all(probe, "Fixture probe")
     end
 
     def notify(description, id)

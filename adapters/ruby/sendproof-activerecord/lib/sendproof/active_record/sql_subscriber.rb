@@ -20,21 +20,30 @@ module Sendproof
 
         text = payload[:sql].to_s
         Tracker.current&.sql_write! if text.match?(WRITE)
+        # An adapter without prepared statements quoted the binds into the text instead of sending them.
+        inlined = InlinedBinds.take(text) if Array(payload[:binds]).empty?
         recorder.record_sql(duration_ms: event.duration, category: "ActiveRecord") do
-          snapshot(text, payload, recorder.include_sql_values?)
+          snapshot(text, payload, recorder.include_sql_values?, inlined)
         end
       end
 
       # @return [Array(Hash, Boolean)] the captured SQL and whether anything was truncated
-      def snapshot(text, payload, show_values)
-        binds = Array(payload[:binds])
+      # @param inlined [Array, nil] binds an adapter without prepared statements quoted into +text+
+      def snapshot(text, payload, show_values, inlined = nil)
+        binds = inlined || Array(payload[:binds])
         # Placeholders carry no column information, so one secret-looking name hides every value, and a
         # statement that names a secret is shown without its literals: a database without prepared
-        # statements (MySQL) inlines values into the text instead of binding them.
-        redact_all = !show_values || Redaction.looks_secret?(text)
+        # statements (MySQL) inlines values into the text instead of binding them. A secret-named bind
+        # that was inlined is in the text too, so it hides the literals even when the text names no secret.
+        redact_all = !show_values || Redaction.looks_secret?(text) ||
+                     (inlined && inlined.any? { |bind| bind.respond_to?(:name) && bind.name && Redaction.looks_secret?(bind.name.to_s) })
         text = Redaction.mask_literals(text) if redact_all
         clipped = Limits.clip(text)
-        values = payload[:type_casted_binds]
+        values = if inlined
+                   inlined.map { |bind| bind.respond_to?(:value_for_database) ? bind.value_for_database : bind }
+                 else
+                   payload[:type_casted_binds]
+                 end
         values = values.call if values.respond_to?(:call)
         values = Array(values)
         truncated = clipped.length != text.length || binds.length > Limits::PARAMETERS
