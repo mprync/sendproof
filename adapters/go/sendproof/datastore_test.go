@@ -307,14 +307,33 @@ func TestUnavailableNeedsAReasonOrStores(t *testing.T) {
 	bench.Unavailable("DELETE", "/x", "")
 }
 
+// systemProvider is a provider that also names its SQL engine.
+type systemProvider struct{ *fakeProvider }
+
+func (systemProvider) System() string { return "sqlite" }
+
 func TestDatabaseNamesItsSystem(t *testing.T) {
-	h := newHarness(t, "")
-	h.provider.label = "fixture"
-	request := httptest.NewRequest("GET", "/sendproof/_api/capabilities", nil)
-	response := httptest.NewRecorder()
-	h.handler.ServeHTTP(response, request)
-	if database := decode(t, response)["database"]; database != "fixture" {
-		t.Errorf("a provider without a system keeps the plain label: %v", database)
+	capabilities := func(provider sendproof.Provider) map[string]any {
+		bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithProvider(provider))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		bench.Middleware(http.NotFoundHandler()).ServeHTTP(response, httptest.NewRequest("GET", "/sendproof/_api/capabilities", nil))
+		return decode(t, response)
+	}
+	named := capabilities(systemProvider{&fakeProvider{label: "fixture"}})
+	if database, _ := named["database"].(map[string]any); database["name"] != "fixture" || database["system"] != "sqlite" {
+		t.Errorf("a provider that names its engine publishes {name, system}: %v", named["database"])
+	}
+	if binding, _ := named["binding"].(map[string]any); binding["language"] != "go" || binding["framework"] != "net/http" {
+		t.Errorf("binding: %v", named["binding"])
+	}
+	if unlabeled, _ := capabilities(systemProvider{&fakeProvider{label: "postgres://u:p@host/db"}})["database"].(map[string]any); unlabeled["name"] != nil || unlabeled["system"] != "sqlite" {
+		t.Errorf("a label that looks like connection details is withheld, the system is still published: %v", unlabeled)
+	}
+	if plain := capabilities(&fakeProvider{label: "fixture"})["database"]; plain != "fixture" {
+		t.Errorf("a provider without a system keeps the plain label: %v", plain)
 	}
 }
 

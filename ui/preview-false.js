@@ -89,7 +89,11 @@ export function previewFalseSnippet({ language = DEFAULT_LANGUAGE, framework = '
     case 'python': return `@preview(False, reason=${double(why)})`;
     case 'java': return `@SendproofPreview(enabled = false, reason = ${double(why)})`;
     case 'kotlin': return `sendproofPreview(enabled = false, reason = ${double(why, { dollar: true })}) { ${verb.toLowerCase()}(${double(route, { dollar: true })}) { … } }`;
-    case 'go': return `bench.HandleUnavailable(mux, ${double(`${verb} ${route}`)}, ${double(why)}, handler)`;
+    case 'go':
+      // net/http registers the route and marks it; chi, Gin and Echo register their own routes, so the mark is separate.
+      return has(framework, /chi|gin|echo/i)
+        ? `bench.Unavailable(${double(verb)}, ${double(route)}, ${double(why)})`
+        : `bench.HandleUnavailable(mux, ${double(`${verb} ${route}`)}, ${double(why)}, handler)`;
     case 'php':
       return has(framework, /symfony/i)
         ? `#[AllowPreview(false, reason: ${single(why)})]`

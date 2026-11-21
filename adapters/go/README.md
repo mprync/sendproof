@@ -126,6 +126,10 @@ Updates that leave a row unchanged are not reported. No table size makes Preview
 
 Drivers without named parameters (pgx, MySQL) receive `sql.Named` values positionally; the name still drives redaction. Other data layers implement `sendproof.Provider`.
 
+## Data stores
+
+MongoDB (driver v2), Redis (go-redis v9) and DynamoDB (AWS SDK for Go v2) are covered only through the clients you hook, and only for calls made with the request's context. [Data stores in the Go binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
+
 ## Authentication and policy
 
 The application owns authentication. Supply:
@@ -175,7 +179,7 @@ cd adapters/go && scripts/go.sh generate ./internal/ui
 
 ## Modules, versions and the module path
 
-Six Go modules live here: core (`.`, which holds `sendproof` and `dbsql`), `chi`, `gin`, `echo`, `gorm` and the unpublished `examples`, plus the `tools/modzip` release helper.
+Nine Go modules live here: core (`.`, which holds `sendproof`, `dbsql` and `stores`), `chi`, `gin`, `echo`, `gorm`, the store hooks `redisbench`, `dynamobench` and `mongobench`, and the unpublished `examples`, plus the `tools/modzip` release helper.
 
 **Local development.** Every sibling requirement in a `go.mod` names a real version, so a published module never needs editing. [`go.work`](go.work) lists the modules in `use` and maps exactly those versions to the checked-out directories in a `replace` block, so everything builds, vets and tests before anything is tagged. Without that block Go asks the module proxy for the unpublished versions as soon as two modules select different third-party versions. `go.work` is never part of a module zip and consumers ignore it. `go get` is not available in workspace mode and a plain `go mod tidy` cannot see the unpublished versions, so run:
 
@@ -197,7 +201,7 @@ The argument is the repository's import path; the base becomes `<repository>/ada
 
 ### Releasing
 
-Pass the version of the release, for example `v0.1.0-alpha.1`. Releases tag the five public modules together at the same version:
+Pass the version of the release, for example `v0.1.0-alpha.1`. Releases tag the eight public modules together at the same version:
 
 ```sh
 adapters/go/scripts/package.sh v0.1.0-alpha.1    # checks metadata, UI, vet/race tests; writes zips, tags.txt, SHA256SUMS to artifacts/go-packages
@@ -205,6 +209,6 @@ adapters/go/scripts/tags.sh v0.1.0-alpha.1       # the git tags to create
 adapters/go/scripts/verify-release.sh v0.1.0-alpha.1
 ```
 
-`package.sh` refuses to continue when a `go.mod` has a `replace`, when an internal requirement is not at the release version (update the requirements and the `go.work` replace block together, then run `tidy.sh`) or when the committed embedded UI is stale. A module in a subdirectory is released by a tag named `<subdirectory>/<version>`, so the tags are `adapters/go/vX`, `adapters/go/chi/vX`, `adapters/go/gin/vX`, `adapters/go/echo/vX` and `adapters/go/gorm/vX`. `tags.sh` fails when a module path is not the repository path plus its directory, because such a tag could never resolve. Tag the core module first and wait until the proxy serves it, because the others require it.
+`package.sh` refuses to continue when a `go.mod` has a `replace`, when an internal requirement is not at the release version (update the requirements and the `go.work` replace block together, then run `tidy.sh`) or when the committed embedded UI is stale. A module in a subdirectory is released by a tag named `<subdirectory>/<version>`, so the tags are `adapters/go/vX`, `adapters/go/chi/vX`, `adapters/go/gin/vX`, `adapters/go/echo/vX`, `adapters/go/gorm/vX`, `adapters/go/redisbench/vX`, `adapters/go/dynamobench/vX` and `adapters/go/mongobench/vX`. `tags.sh` fails when a module path is not the repository path plus its directory, because such a tag could never resolve. Tag the core module first and wait until the proxy serves it, because the others require it.
 
-`verify-release.sh` works on a copy under `artifacts/go-release-check`, retargets it to a placeholder repository path and then checks that a fresh consumer module outside the repository, with `GOWORK=off` and an empty module cache, can import all five modules and serve the embedded workbench. It does this twice: from the module zips through a file-backed module proxy, and from a local git repository carrying the real tags, which proves the tag names resolve. It needs network access for third-party dependencies and does not publish anything.
+`verify-release.sh` works on a copy under `artifacts/go-release-check`, retargets it to a placeholder repository path and then checks that a fresh consumer module outside the repository, with `GOWORK=off` and an empty module cache, can import the five framework and core modules and serve the embedded workbench (the store modules are packaged and served by the same proxy). It does this twice: from the module zips through a file-backed module proxy, and from a local git repository carrying the real tags, which proves the tag names resolve. It needs network access for third-party dependencies and does not publish anything.

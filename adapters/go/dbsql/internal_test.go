@@ -259,3 +259,13 @@ func TestDatabaseLabelMustBeBare(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestDialectsNameTheirDiscoverySystem(t *testing.T) {
+	for dialect, want := range map[Dialect]string{
+		DialectSQLite: "sqlite", DialectPostgres: "postgresql", DialectMySQL: "mysql", DialectSQLServer: "sqlserver", DialectAuto: "",
+	} {
+		if got := dialect.System(); got != want {
+			t.Errorf("%s: System() = %q, want %q", dialect, got, want)
+		}
+	}
+}
