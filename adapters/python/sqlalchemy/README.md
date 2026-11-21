@@ -55,7 +55,7 @@ Read these before advertising an operation for Preview.
   `sendproof_preview` savepoint. On MySQL and MariaDB also every implicitly committing statement
   (DDL other than `TEMPORARY` tables, `LOCK`/`UNLOCK TABLES`, `GRANT`, `REVOKE`, `ANALYZE`,
   `CHECK`, `OPTIMIZE`, `REPAIR` and `CACHE INDEX` on tables, `SET PASSWORD`, replication control),
-  SQL-level `EXECUTE` of a prepared statement, executable comments (`/*! ... */`) that contain any
+  SQL-level `PREPARE` and `EXECUTE` (and MariaDB's `EXECUTE IMMEDIATE`), executable comments (`/*! ... */`) that contain any
   of these, and `CALL`. The Preview then answers 500 and rolls back.
 - **Stored procedures (MySQL and MariaDB):** a procedure can `COMMIT`, so `CALL` is refused unless
   you declare the procedure safe by exact name:

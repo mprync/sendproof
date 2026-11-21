@@ -7,8 +7,9 @@ before the rollback runs. Providers call :func:`escapes_transaction` before such
 executes and refuse it, so a preview fails closed instead of committing.
 
 On MySQL and MariaDB ``CALL`` is refused too, because a stored procedure can commit, unless the
-host declared that procedure safe by exact name (``safe_procedures``). SQL-level ``EXECUTE`` runs a
-statement prepared from text the guard never saw, so it is refused there as well. Executable
+host declared that procedure safe by exact name (``safe_procedures``). SQL-level ``PREPARE`` and
+``EXECUTE`` (and MariaDB's ``EXECUTE IMMEDIATE``) run statement text the guard never saw, so they
+are refused there as well. Executable
 comments (``/*! ... */``, ``/*M! ... */``) are read as the SQL they contain, because the server
 runs them.
 
@@ -187,8 +188,9 @@ def escapes_transaction(sql: str, dialect: str, reserved: str | None = None,
                     continue
                 return ("'CALL' can commit the preview transaction inside the procedure; declare the "
                         "procedure safe by exact name if it never commits.")
-            if first == "execute":
-                return "'EXECUTE' runs a prepared statement the preview cannot check, so it cannot be previewed."
+            if first in ("prepare", "execute"):
+                # PREPARE ... FROM @text and EXECUTE (or MariaDB's EXECUTE IMMEDIATE) run SQL the guard never sees.
+                return f"'{first.upper()}' runs a statement the preview cannot check, so it cannot be previewed."
             if first == "load" and words[1:2] == ["index"]:
                 return "'LOAD INDEX INTO CACHE' commits implicitly and cannot be previewed."
             if first == "set" and (words[1:2] == ["password"] or words[1:3] == ["default", "role"]):

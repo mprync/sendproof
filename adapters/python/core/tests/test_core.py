@@ -261,7 +261,8 @@ def test_transaction_guard_refuses_every_mysql_escape_before_sending():
         "SET LOCAL autocommit=1", "CREATE TABLE sendproof_escape_1 (n INT)", "TRUNCATE t", "LOCK TABLES t WRITE",
         "UNLOCK TABLES", "GRANT SELECT ON t TO u", "RENAME TABLE a TO b", "CACHE INDEX t IN hot",
         "LOAD INDEX INTO CACHE t", "CHECK TABLE t", "STOP REPLICA", "CHANGE REPLICATION SOURCE TO SOURCE_HOST='h'",
-        "SET PASSWORD = 'x'", "EXECUTE stmt", "XA START 'x'",
+        "SET PASSWORD = 'x'", "EXECUTE stmt", "XA START 'x'", "PREPARE s FROM 'COMMIT'", "PREPARE s FROM @sql",
+        "EXECUTE IMMEDIATE 'COMMIT'", "SELECT 1 /*! ; COMMIT */",
         # A quote inside a comment, a "#" comment, or a backslash-escaped quote never hides what follows.
         "SELECT 1 # it's\n; COMMIT; SELECT 'x'", 'SELECT "a\\" "; COMMIT; SELECT "b"',
         "SELECT 1 -- it's\n; COMMIT; SELECT 'x'", "SELECT 1--1; COMMIT",
@@ -290,6 +291,11 @@ def test_transaction_guard_refuses_every_mysql_escape_before_sending():
     # Elsewhere, a standard string has no backslash escapes, so "\'" ends it and what follows is seen.
     assert escapes("SELECT 'a\\'; COMMIT; --'", "postgresql")
     assert escapes("SELECT E'a\\'; COMMIT; --'", "postgresql") is None
+    assert escapes("SELECT E'a\\''; COMMIT", "postgresql")  # the escaped quote ends nothing; the next one does
+    assert escapes("SELECT $$ ; COMMIT $$", "postgresql") is None
+    assert escapes("SELECT $body$ ; COMMIT $body$; COMMIT", "postgresql")
+    assert escapes("SELECT 1 # x\n", "postgresql") is None and escapes("SELECT 2 #- '{a}'; COMMIT", "postgresql")
+    assert escapes('SELECT "a\\"; COMMIT', "postgresql")  # a PostgreSQL identifier has no backslash escapes
     assert escapes("SELECT 'a\\'; COMMIT; --'", "sqlite")
     assert escapes("CALL p()", "postgresql") is None  # CALL is refused on MySQL and MariaDB only
 
