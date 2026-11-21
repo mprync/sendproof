@@ -13,6 +13,10 @@ final class Capabilities
      * @param list<array{label:string,kind:string,url:?string}> $authProviders
      * @param list<array{method:string,path:string}> $previewOperations
      * @param array{name:?string,role?:?string}|null $identity
+     * @param array{language:string,framework:string}|null $binding The language and framework serving the workbench
+     * @param list<array{system:string,name?:string,mode:string,reason?:string}> $dataStores Hooked data stores and their modes
+     * @param list<array{method:string,path:string,reason:string,stores?:list<string>}> $previewUnavailable Operations marked `preview: false`
+     * @param string|null $databaseSystem The SQL provider id (`sqlite`, `postgresql`, `mysql`…), so the workbench shows the right mark
      * @return array<string,mixed>
      */
     public static function build(
@@ -25,6 +29,10 @@ final class Capabilities
         ?array $identity,
         array $authProviders,
         array $previewOperations,
+        ?array $binding = null,
+        array $dataStores = [],
+        array $previewUnavailable = [],
+        ?string $databaseSystem = null,
     ): array {
         if (!array_filter($documents, static fn (array $document): bool => $document['url'] === $openApiUrl)) {
             array_unshift($documents, ['name' => $apiName, 'url' => $openApiUrl]);
@@ -41,16 +49,29 @@ final class Capabilities
             unset($identity['role']);
         }
 
+        if ($binding !== null) {
+            $capabilities['binding'] = $binding;
+        }
+        // The SQL database is named with its provider id when the provider knows it, never guessed from the name.
+        $databaseEntry = $database !== null && $databaseSystem !== null ? ['name' => $database, 'system' => $databaseSystem] : $database;
+        $optional = [];
+        if ($previewUnavailable !== []) {
+            $optional['previewUnavailable'] = array_values($previewUnavailable);
+        }
+        if ($dataStores !== []) {
+            $optional['dataStores'] = array_values($dataStores);
+        }
+
         return $capabilities + [
             'apiName' => $apiName,
             'environment' => $environment,
-            'database' => $database,
+            'database' => $databaseEntry,
             'identity' => $identity,
             'authProviders' => $authProviders,
             'previewOperations' => $previewOperations,
             'observedSend' => $previewOperations !== [],
             'documents' => $documents,
-        ];
+        ] + $optional;
     }
 
     /**

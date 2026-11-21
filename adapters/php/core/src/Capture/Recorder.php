@@ -29,11 +29,145 @@ final class Recorder
     private array $effects = [];
     /** @var list<array<string,mixed>> */
     private array $logs = [];
+    /** @var list<array<string,mixed>> Document, item and key changes reported by data-store hooks. */
+    private array $changes = [];
+    private bool $changesTruncated = false;
+    /** True from the start of a Preview until the next capture begins, even after the Preview finished. */
+    private bool $previewScope = false;
+    /** @var array{store:string,operation:string,detail:string}|null The first write the guard refused. */
+    private ?array $blocked = null;
+    /** A transaction-control refusal: the Preview answers 500 whatever the handler returns. */
+    private ?\Throwable $fault = null;
 
     /** True while a rollback-only preview is running in this request. */
     public function isPreview(): bool
     {
         return $this->active && $this->rollback;
+    }
+
+    /**
+     * True while this request belongs to a Preview, even after the Preview finished. Store hooks use
+     * it, so a write sent after the Preview settled (a terminating callback, a shutdown function) is
+     * still refused and never sent unguarded.
+     */
+    public function inPreviewScope(): bool
+    {
+        return $this->previewScope;
+    }
+
+    /**
+     * Keeps the first refused write; it decides the Preview's 409 whatever the handler returns.
+     *
+     * @param array{store:string,operation:string,detail:string} $write
+     */
+    public function block(array $write): void
+    {
+        if (!$this->previewScope || $this->blocked !== null) {
+            return;
+        }
+        $this->blocked = [
+            'store' => Limits::clip($write['store'], Limits::NAME),
+            'operation' => Limits::clip($write['operation'], Limits::NAME),
+            'detail' => Limits::clip($write['detail']),
+        ];
+    }
+
+    /** Keeps the first fault; it withholds confirmation whatever the handler returns. */
+    public function refuse(\Throwable $fault): void
+    {
+        if ($this->previewScope) {
+            $this->fault ??= $fault;
+        }
+    }
+
+    /** @return array{store:string,operation:string,detail:string}|null */
+    public function blocked(): ?array
+    {
+        return $this->blocked;
+    }
+
+    public function fault(): ?\Throwable
+    {
+        return $this->fault;
+    }
+
+    /**
+     * Records a document, item or key change. Secret-named fields (for example `password_hash`)
+     * never leave the process, at any depth of a nested document.
+     *
+     * @param array{operation:string,table:string,key:mixed,before:mixed,after:mixed,store?:string,namespace?:string,via?:string} $change
+     */
+    public function recordChange(array $change): void
+    {
+        if (!$this->active) {
+            return;
+        }
+        if (count($this->changes) >= Limits::CHANGES) {
+            $this->changesTruncated = true;
+
+            return;
+        }
+        foreach (['key', 'before', 'after'] as $field) {
+            $change[$field] = SqlRedactor::redactDeep($change[$field] ?? null);
+        }
+        $this->changes[] = $change;
+    }
+
+    /** Marks the change list as incomplete, for example when a hook stops reading candidates. */
+    public function truncateChanges(): void
+    {
+        if ($this->active) {
+            $this->changesTruncated = true;
+        }
+    }
+
+    /**
+     * Records one data-store command as a `Db` log entry. The message is the OpenTelemetry span name,
+     * `{operation} {target}`. Hooks pass sanitised statements only: values never reach this method.
+     *
+     * @param array{system:string,operation:string,target?:?string,namespace?:?string,statement?:?string,rowsAffected?:?int,blocked?:bool,error?:?string,elapsedMs?:?float} $command
+     */
+    public function db(array $command): void
+    {
+        if (!$this->active) {
+            return;
+        }
+        $blocked = ($command['blocked'] ?? false) === true;
+        $elapsed = isset($command['elapsedMs']) ? max(0.0, (float) $command['elapsedMs']) : null;
+        if (!$blocked) {
+            $this->queries = min(PHP_INT_MAX, $this->queries + 1);
+            $this->dbMs += $elapsed ?? 0.0;
+        }
+        if (!$this->hasLogRoom()) {
+            return;
+        }
+
+        $db = ['system' => $this->clip($command['system'], Limits::NAME), 'operation' => $this->clip($command['operation'], Limits::NAME)];
+        foreach (['target', 'namespace'] as $field) {
+            if (isset($command[$field]) && $command[$field] !== '') {
+                $db[$field] = $this->clip((string) $command[$field], Limits::NAME);
+            }
+        }
+        if (isset($command['statement']) && $command['statement'] !== '') {
+            $db['statement'] = $this->clip((string) $command['statement']);
+        }
+        if (isset($command['rowsAffected']) && $command['rowsAffected'] >= 0) {
+            $db['rowsAffected'] = (int) $command['rowsAffected'];
+        }
+        if ($blocked) {
+            $db['blocked'] = true;
+        }
+        if (isset($command['error']) && $command['error'] !== '') {
+            $db['error'] = $this->clip((string) $command['error'], Limits::NAME);
+        }
+
+        $entry = ['level' => 'Db', 'message' => isset($db['target']) ? $db['operation'] . ' ' . $db['target'] : $db['operation']];
+        $entry['offsetMs'] = max(0.0, $this->offsetMs() - ($elapsed ?? 0.0));
+        if ($elapsed !== null) {
+            $entry['elapsedMs'] = $elapsed;
+        }
+        $entry['db'] = $db;
+        $this->add($entry);
     }
 
     /** True while either a preview or an observed send is capturing. */
@@ -47,7 +181,17 @@ final class Recorder
         $this->reset();
         $this->requestStart = $requestStart ?? hrtime(true);
         $this->rollback = $rollback;
+        $this->previewScope = $rollback;
         $this->active = true;
+    }
+
+    /** Forgets everything, including a finished Preview's scope. Long-running workers call it between requests. */
+    public function forget(): void
+    {
+        $this->reset();
+        $this->active = false;
+        $this->rollback = false;
+        $this->previewScope = false;
     }
 
     /** Records an effect and returns true when the host must suppress its delivery. */
@@ -199,7 +343,7 @@ final class Recorder
     /**
      * Stops capturing and hands over what was recorded.
      *
-     * @return array{effects:list<array<string,mixed>>,logs:list<array<string,mixed>>,logsTruncated:bool,effectsTruncated:bool}
+     * @return array{effects:list<array<string,mixed>>,logs:list<array<string,mixed>>,changes:list<array<string,mixed>>,logsTruncated:bool,effectsTruncated:bool,changesTruncated:bool}
      */
     public function finish(): array
     {
@@ -207,11 +351,14 @@ final class Recorder
         $snapshot = [
             'effects' => $this->effects,
             'logs' => $this->logs,
+            'changes' => $this->changes,
             'logsTruncated' => $this->logsTruncated,
             'effectsTruncated' => $this->effectsTruncated,
+            'changesTruncated' => $this->changesTruncated,
         ];
         $this->effects = [];
         $this->logs = [];
+        $this->changes = [];
 
         return $snapshot;
     }
@@ -220,6 +367,10 @@ final class Recorder
     {
         $this->effects = [];
         $this->logs = [];
+        $this->changes = [];
+        $this->blocked = null;
+        $this->fault = null;
+        $this->changesTruncated = false;
         $this->logsTruncated = $this->effectsTruncated = false;
         $this->logSize = $this->effectSize = $this->queries = 0;
         $this->dbMs = $this->serializeMs = 0.0;

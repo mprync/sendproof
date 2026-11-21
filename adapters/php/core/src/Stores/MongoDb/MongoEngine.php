@@ -1,0 +1,583 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Sendproof\Core\Stores\MongoDb;
+
+use MongoDB\BSON\Document;
+use MongoDB\Driver\Command;
+use MongoDB\Driver\Exception\ServerException;
+use MongoDB\Driver\Manager;
+use MongoDB\Driver\Monitoring\CommandFailedEvent;
+use MongoDB\Driver\Monitoring\CommandStartedEvent;
+use MongoDB\Driver\Monitoring\CommandSucceededEvent;
+use MongoDB\Driver\ReadConcern;
+use MongoDB\Driver\Session;
+use MongoDB\Driver\WriteConcern;
+use Sendproof\Core\Capture\Recorder;
+use Sendproof\Core\Stores\Classifier;
+use Sendproof\Core\Stores\CommandKind;
+use Sendproof\Core\Stores\Guard;
+use Sendproof\Core\Stores\PreviewTransactionControlException;
+
+/**
+ * The per-client engine shared by the guarded handles and the Laravel provider:
+ *
+ * - **Topology**: `hello` decides the mode. A replica set or mongos with logical sessions runs in
+ *   `preview` mode; anything else in `guard` mode (spec/data-stores.md "Starting the transaction").
+ * - **Session**: each `preview`-mode Preview gets one client session with a snapshot/majority
+ *   transaction. The handler's own `startSession()` returns a shell whose commands join it, so its
+ *   `commitTransaction` and `abortTransaction` never reach the server; a raw `commitTransaction`
+ *   command is refused before it is sent, or fails the Preview with 500 when it got through.
+ * - **Guard**: {@see check()} classifies a command before the hook sends it.
+ * - **Monitoring** (the tripwire): every command the client sends is seen. A write during a
+ *   Preview without the Preview's `lsid` and `autocommit: false` fails the Preview with 500, a
+ *   reply with code 263 blocks it, and every other command becomes a `Db` log entry. Candidate
+ *   document ids for change capture come from the same events.
+ * - **Finish**: after the handler, changes are read (inside the transaction for `after`, and at the
+ *   transaction's own snapshot time for `before`), then the transaction is aborted and the session
+ *   ended. A Preview that outlives its time limit is aborted and answers 500.
+ *
+ * PHP serves one request at a time per process, so one engine holds one Preview at a time; the
+ * Preview's state is keyed by the request's recorder.
+ */
+final class MongoEngine
+{
+    /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
+    public const STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions";
+    /** Below the server's 60-second `transactionLifetimeLimitSeconds`, so the binding, not the server, ends a long Preview. */
+    public const DEFAULT_TIMEOUT_MS = 50_000;
+
+    /** Commands the monitoring specification marks security-sensitive: never logged. */
+    private const SENSITIVE = ['authenticate', 'saslstart', 'saslcontinue', 'getnonce', 'createuser', 'updateuser', 'copydbgetnonce', 'copydbsaslstart', 'copydb'];
+    /** Fields the driver adds to every command; they carry no meaning for the log and are dropped. */
+    private const ENVELOPE = ['lsid', 'txnNumber', 'autocommit', 'startTransaction', '$clusterTime', '$db', '$readPreference', 'readConcern', 'writeConcern', 'apiVersion', 'apiStrict', 'apiDeprecationErrors'];
+    /** Most candidate documents read back for change capture in one Preview. */
+    private const CANDIDATE_LIMIT = 1000;
+    /** Server error codes meaning the collection or snapshot didn't exist at the start time: NamespaceNotFound, SnapshotUnavailable. */
+    private const ABSENT_AT_START = [26, 246];
+
+    /** @var \WeakMap<Recorder,string> The mode each Preview began in; a Preview keeps it even if detection later changes */
+    private \WeakMap $modes;
+    /** @var \WeakMap<Recorder,MongoPreview> */
+    private \WeakMap $states;
+    /** @var array<int|string,array<string,mixed>> Commands seen by monitoring, kept until their reply arrives */
+    private array $pending = [];
+    /** Set while the engine itself talks to the server, so monitoring ignores those commands. */
+    private bool $internal = false;
+    /** @var array{mode:string,reason?:string}|null */
+    private ?array $detected = null;
+    /** The detected mode; known before any Preview runs, because {@see begin()} detects first. */
+    public ?string $mode = null;
+
+    /**
+     * @param array<string,true>|null $reads Host-declared reads, lower-case names
+     * @param (callable(): object)|null $hello Replaces the `hello` call, for tests that simulate a topology
+     */
+    public function __construct(
+        public readonly Manager $manager,
+        public readonly Guard $guard,
+        private readonly ?array $reads = null,
+        private readonly int $timeoutMs = self::DEFAULT_TIMEOUT_MS,
+        private $hello = null,
+    ) {
+        $this->modes = new \WeakMap();
+        $this->states = new \WeakMap();
+        $manager->addSubscriber(new MongoMonitor($this));
+    }
+
+    /** The reason shown for a command MongoDB refuses inside a transaction. */
+    public static function refusedReason(string $operation): string
+    {
+        return "Preview unavailable: MongoDB can't run {$operation} inside a transaction";
+    }
+
+    /** Commands on these databases can't join a transaction. */
+    public static function systemDatabase(?string $name): bool
+    {
+        return $name === 'admin' || $name === 'config' || $name === 'local';
+    }
+
+    /** Runs engine-internal commands (topology, change capture, abort) without logging or tripping. */
+    public function internal(callable $work): mixed
+    {
+        $previous = $this->internal;
+        $this->internal = true;
+        try {
+            return $work();
+        } finally {
+            $this->internal = $previous;
+        }
+    }
+
+    /**
+     * Detects the topology: `preview` on a replica set or mongos with logical sessions. An
+     * unreachable or unrecognised server runs in `guard` mode for now, and is asked again next time.
+     *
+     * @return array{mode:string,reason?:string}
+     */
+    public function detect(): array
+    {
+        if ($this->detected !== null) {
+            return $this->detected;
+        }
+        try {
+            $hello = $this->internal(fn (): object => $this->hello !== null
+                ? ($this->hello)()
+                : $this->manager->executeCommand('admin', new Command(['hello' => 1]))->toArray()[0]);
+            $transactions = (!empty($hello->setName) || ($hello->msg ?? null) === 'isdbgrid') && ($hello->logicalSessionTimeoutMinutes ?? null) !== null;
+        } catch (\Throwable) {
+            $this->mode ??= 'guard';
+
+            return ['mode' => 'guard', 'reason' => self::STANDALONE_REASON];
+        }
+        $this->mode = $transactions ? 'preview' : 'guard';
+
+        return $this->detected = $transactions ? ['mode' => 'preview'] : ['mode' => 'guard', 'reason' => self::STANDALONE_REASON];
+    }
+
+    /** The current Preview's state, when this code runs in a `preview`-mode Preview that began. */
+    public function state(): ?MongoPreview
+    {
+        $recorder = $this->guard->recorder();
+
+        return $recorder->inPreviewScope() ? ($this->states[$recorder] ?? null) : null;
+    }
+
+    /** The mode the current Preview began in; `guard` for a Preview that never began on this store. */
+    public function modeOf(Recorder $recorder): string
+    {
+        return $this->modes[$recorder] ?? 'guard';
+    }
+
+    /** Whether `$session` is the current Preview's own session. */
+    public function isPreviewSession(?Session $session): bool
+    {
+        $state = $this->state();
+
+        return $state !== null && $session === $state->session;
+    }
+
+    /** Prepares a Preview: detects the mode and, in `preview` mode, starts the session and transaction. */
+    public function begin(Recorder $recorder): ?MongoPreview
+    {
+        unset($this->states[$recorder], $this->modes[$recorder]);
+        if (!$recorder->inPreviewScope()) {
+            return null;
+        }
+        $mode = $this->detect()['mode'];
+        $this->modes[$recorder] = $mode;
+        if ($mode !== 'preview') {
+            return null;
+        }
+        $session = $this->manager->startSession();
+        $session->startTransaction(['readConcern' => new ReadConcern(ReadConcern::SNAPSHOT), 'writeConcern' => new WriteConcern(WriteConcern::MAJORITY)]);
+        $lsid = self::lsidHex($session->getLogicalSessionId());
+        if ($lsid === null) {
+            throw new \RuntimeException('The MongoDB driver did not expose the Preview session id.');
+        }
+        $state = new MongoPreview($session, $lsid, hrtime(true) + $this->timeoutMs * 1_000_000);
+        $this->states[$recorder] = $state;
+
+        return $state;
+    }
+
+    /**
+     * Classifies a command before it is sent and lets the guard refuse it. In `guard` mode every
+     * write blocks; in `preview` mode only what MongoDB can't run inside a transaction does. A
+     * command on the admin, config or local database runs outside the transaction, so its writes
+     * block too.
+     *
+     * @param array<string,mixed>|object $command
+     * @throws \Sendproof\Core\Stores\PreviewWriteBlockedException
+     * @throws PreviewTransactionControlException
+     */
+    public function check(array|object $command, ?string $operation = null, ?string $database = null): void
+    {
+        $recorder = $this->guard->recorder();
+        if (!$recorder->inPreviewScope()) {
+            return;
+        }
+        $document = Classifier::asArray($command) ?? [];
+        $operation ??= (string) (array_key_first($document) ?? 'command');
+        if (self::endsTransaction(strtolower($operation))) {
+            throw $this->guard->refuse("Preview owns the MongoDB transaction, so the handler's {$operation} cannot run during Preview.");
+        }
+        if (($state = $this->states[$recorder] ?? null) !== null) {
+            $this->enforceDeadline($recorder, $state);
+        }
+        ['kind' => $kind, 'refusedInTransaction' => $refused] = Classifier::mongo($command, $this->reads);
+        if ($this->modeOf($recorder) === 'preview' && !self::systemDatabase($database)) {
+            if ($refused !== null) {
+                $this->guard->guard('mongodb', $operation, CommandKind::Write, self::refusedReason($refused));
+            }
+
+            return;
+        }
+        $this->guard->guard('mongodb', $operation, $kind);
+    }
+
+    /** A Preview past its limit loses its transaction: later commands fail, nothing commits, and it answers 500. */
+    private function enforceDeadline(Recorder $recorder, MongoPreview $state): void
+    {
+        if ($state->finished || hrtime(true) <= $state->deadlineNs) {
+            return;
+        }
+        $error = new PreviewTransactionControlException("The Preview ran longer than {$this->timeoutMs} ms, so its MongoDB transaction was aborted.");
+        $recorder->refuse($error);
+        $this->end($state);
+
+        throw $error;
+    }
+
+    // ---- Monitoring ----
+
+    /** @internal Called by {@see MongoMonitor} */
+    public function started(CommandStartedEvent $event): void
+    {
+        if ($this->internal) {
+            return;
+        }
+        $command = $event->getCommand();
+        $name = $event->getCommandName();
+        $lower = strtolower($name);
+        $kind = Classifier::mongo($command, $this->reads)['kind'];
+        $recorder = $this->guard->recorder();
+        $preview = $recorder->inPreviewScope();
+        if ($preview && self::endsTransaction($lower)) {
+            // Sent around the hook, for example through a raw driver call: it may have committed
+            // the Preview transaction, so the Preview can never be confirmed.
+            $recorder->refuse(new PreviewTransactionControlException("A MongoDB {$name} reached the server during a Preview; the Preview can't be confirmed."));
+        } elseif ($preview && $kind === CommandKind::Write) {
+            $this->watchWrite($recorder, $command, $event->getDatabaseName(), $lower);
+        }
+        if ($kind === CommandKind::Session || in_array($lower, self::SENSITIVE, true)) {
+            return;
+        }
+        $fields = (array) $command;
+        $body = array_filter($fields, static fn ($field): bool => !in_array($field, self::ENVELOPE, true), ARRAY_FILTER_USE_KEY);
+        $first = $fields[$name] ?? null;
+        $this->pending[$event->getRequestId()] = [
+            'capture' => $recorder->isCapturing() ? $recorder : null,
+            'preview' => $preview ? $recorder : null,
+            'name' => $name,
+            'namespace' => $event->getDatabaseName(),
+            'target' => is_string($first) ? $first : null,
+            'statement' => json_encode(Guard::sanitizeDocument((object) $body), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
+            'command' => $command,
+        ];
+    }
+
+    /** A write seen during a Preview: collect change candidates, or trip if it escaped the session. */
+    private function watchWrite(Recorder $preview, object $command, string $namespace, string $lower): void
+    {
+        $state = $this->states[$preview] ?? null;
+        // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
+        if ($state === null || $state->finished || self::lsidHex($command->lsid ?? null) !== $state->lsid || ($command->autocommit ?? null) !== false) {
+            // The hook couldn't stop it and nothing can undo it: never claim a rollback.
+            $preview->refuse(new PreviewTransactionControlException("A MongoDB {$lower} escaped the Preview session; the Preview can't be confirmed."));
+
+            return;
+        }
+        $state->used = true;
+        $fields = (array) $command;
+        $collection = is_string($first = reset($fields)) ? $first : '';
+        switch ($lower) {
+            case 'insert':
+                foreach ((array) ($command->documents ?? []) as $document) {
+                    $this->candidate($state, ['namespace' => $namespace, 'collection' => $collection, 'id' => self::field($document, '_id'), 'via' => null]);
+                }
+                break;
+            case 'update':
+                foreach ((array) ($command->updates ?? []) as $update) {
+                    $via = self::field($update, 'upsert') ? 'upsert' : (self::replaces(self::field($update, 'u')) ? 'replace' : null);
+                    $state->filters[] = ['namespace' => $namespace, 'collection' => $collection, 'filter' => self::field($update, 'q') ?? new \stdClass(), 'via' => $via];
+                }
+                break;
+            case 'delete':
+                foreach ((array) ($command->deletes ?? []) as $remove) {
+                    $state->filters[] = ['namespace' => $namespace, 'collection' => $collection, 'filter' => self::field($remove, 'q') ?? new \stdClass(), 'via' => null];
+                }
+                break;
+            case 'findandmodify':
+                $via = ($command->upsert ?? false) ? 'upsert' : (self::replaces($command->update ?? null) ? 'replace' : null);
+                $state->filters[] = ['namespace' => $namespace, 'collection' => $collection, 'filter' => $command->query ?? new \stdClass(), 'via' => $via];
+                break;
+            case 'bulkwrite':
+                // The client-level bulkWrite command: each op names its namespace by index.
+                $namespaces = array_map(static fn ($info): array => explode('.', (string) self::field($info, 'ns'), 2), (array) ($command->nsInfo ?? []));
+                foreach ((array) ($command->ops ?? []) as $op) {
+                    $index = self::field($op, 'insert') ?? self::field($op, 'update') ?? self::field($op, 'delete');
+                    [$database, $target] = ($namespaces[(int) $index] ?? []) + [$namespace, ''];
+                    if (($document = self::field($op, 'document')) !== null) {
+                        $this->candidate($state, ['namespace' => $database, 'collection' => $target, 'id' => self::field($document, '_id'), 'via' => null]);
+                    } else {
+                        $state->filters[] = ['namespace' => $database, 'collection' => $target, 'filter' => self::field($op, 'filter') ?? new \stdClass(), 'via' => self::field($op, 'upsert') ? 'upsert' : null];
+                    }
+                }
+                break;
+        }
+    }
+
+    /** @param array{namespace:string,collection:string,id:mixed,via:?string} $candidate */
+    private function candidate(MongoPreview $state, array $candidate): void
+    {
+        if ($candidate['id'] === null) {
+            return;
+        }
+        $key = $candidate['namespace'] . "\0" . $candidate['collection'] . "\0" . Bson::idKey($candidate['id']);
+        $known = $state->candidates[$key] ?? null;
+        if ($known === null || ($known['via'] === null && $candidate['via'] !== null)) {
+            $state->candidates[$key] = $candidate;
+        }
+    }
+
+    /** @internal Called by {@see MongoMonitor} */
+    public function succeeded(CommandSucceededEvent $event): void
+    {
+        $pending = $this->take($event->getRequestId());
+        if ($pending === null) {
+            return;
+        }
+        $reply = $event->getReply();
+        $state = $pending['preview'] !== null ? ($this->states[$pending['preview']] ?? null) : null;
+        // The first reply in the transaction carries its snapshot time (the read timestamp).
+        if ($state !== null && $state->startTime === null && isset($reply->operationTime) && self::lsidHex($pending['command']->lsid ?? null) === $state->lsid) {
+            $state->startTime = $reply->operationTime;
+        }
+        if ($state !== null && $pending['target'] !== null) {
+            $namespace = $pending['namespace'];
+            $collection = $pending['target'];
+            // Upserted ids appear only in the reply.
+            foreach ((array) ($reply->upserted ?? []) as $upsert) {
+                $this->candidate($state, ['namespace' => $namespace, 'collection' => $collection, 'id' => self::field($upsert, '_id'), 'via' => 'upsert']);
+            }
+            if (strtolower($pending['name']) === 'findandmodify' && ($id = self::field($reply->value ?? null, '_id')) !== null) {
+                $this->candidate($state, ['namespace' => $namespace, 'collection' => $collection, 'id' => $id, 'via' => null]);
+            }
+            if (($upserted = $reply->lastErrorObject->upserted ?? null) !== null) {
+                $this->candidate($state, ['namespace' => $namespace, 'collection' => $collection, 'id' => $upserted, 'via' => 'upsert']);
+            }
+        }
+        $rows = null;
+        if (isset($reply->cursor)) {
+            $batch = $reply->cursor->firstBatch ?? $reply->cursor->nextBatch ?? [];
+            $rows = is_countable($batch) ? count($batch) : null;
+        } elseif (isset($reply->n) && is_int($reply->n)) {
+            $rows = $reply->n;
+        }
+        $this->log($pending, $event->getDurationMicros() / 1000, $rows);
+    }
+
+    /** @internal Called by {@see MongoMonitor} */
+    public function failed(CommandFailedEvent $event): void
+    {
+        $pending = $this->take($event->getRequestId());
+        if ($pending === null) {
+            return;
+        }
+        $error = $event->getError();
+        // The server refused something a transaction can't do and applied nothing: a block, not a crash.
+        if ($pending['preview'] !== null && isset($this->states[$pending['preview']]) && $error->getCode() === 263) {
+            $pending['preview']->block(['store' => 'mongodb', 'operation' => $pending['name'], 'detail' => self::refusedReason($pending['name'])]);
+        }
+        $reply = $event->getReply();
+        $code = $reply->codeName ?? (new \ReflectionClass($error))->getShortName();
+        $this->log($pending, $event->getDurationMicros() / 1000, null, (string) $code);
+    }
+
+    /** @return array<string,mixed>|null */
+    private function take(int|string $requestId): ?array
+    {
+        $pending = $this->pending[$requestId] ?? null;
+        unset($this->pending[$requestId]);
+
+        return $pending;
+    }
+
+    /** @param array<string,mixed> $pending */
+    private function log(array $pending, float $elapsedMs, ?int $rows, ?string $error = null): void
+    {
+        $pending['capture']?->db([
+            'system' => 'mongodb',
+            'operation' => $pending['name'],
+            'namespace' => $pending['namespace'],
+            'target' => $pending['target'],
+            'statement' => $pending['statement'] === false ? null : $pending['statement'],
+            'rowsAffected' => $rows,
+            'error' => $error,
+            'elapsedMs' => $elapsedMs,
+        ]);
+    }
+
+    // ---- Finish ----
+
+    /**
+     * After the handler: captures document changes, then aborts the transaction and ends the
+     * session. A capture read that fails for any reason but an already-aborted transaction throws,
+     * after the abort, so the Preview answers 500. Nothing the Preview wrote is ever committed: no
+     * `commitTransaction` is ever sent for the Preview session.
+     */
+    public function finish(Recorder $recorder): void
+    {
+        $state = $this->states[$recorder] ?? null;
+        if ($state === null || $state->finished) {
+            return;
+        }
+        $failure = null;
+        try {
+            if (hrtime(true) > $state->deadlineNs) {
+                $recorder->refuse(new PreviewTransactionControlException("The Preview ran longer than {$this->timeoutMs} ms, so its MongoDB transaction was aborted."));
+            } elseif ($state->used) {
+                $this->internal(fn () => $this->capture($recorder, $state));
+            }
+        } catch (ServerException $error) {
+            // A failed command inside a transaction makes the server abort it: nothing to capture.
+            if ($error->getCode() !== 251 /* NoSuchTransaction */) {
+                $failure = $error;
+            }
+        } catch (\Throwable $error) {
+            $failure = $error;
+        } finally {
+            $this->end($state);
+        }
+        if ($failure !== null) {
+            throw $failure;
+        }
+    }
+
+    /**
+     * Aborts the Preview transaction and ends its session, once. An unacknowledged abort still
+     * commits nothing, because no `commitTransaction` is ever sent for the Preview session.
+     */
+    private function end(MongoPreview $state): void
+    {
+        if ($state->finished) {
+            return;
+        }
+        $state->finished = true;
+        $this->internal(static function () use ($state): void {
+            try {
+                if ($state->session->isInTransaction()) {
+                    $state->session->abortTransaction();
+                }
+            } catch (\Throwable) {
+                // The driver ignores abort errors, as the transactions specification requires.
+            }
+            try {
+                $state->session->endSession();
+            } catch (\Throwable) {
+                // Nothing more to release.
+            }
+        });
+    }
+
+    /**
+     * Runs a command that returns a cursor (`find`) and returns its documents. The driver unwraps
+     * the command's `cursor.firstBatch`, so a `singleBatch` command yields every document.
+     *
+     * @param array<string,mixed> $command
+     * @return list<Document>
+     */
+    private function rows(string $database, array $command, ?Session $session = null): array
+    {
+        $cursor = $this->manager->executeCommand($database, new Command($command), $session === null ? [] : ['session' => $session]);
+        $cursor->setTypeMap(['root' => 'bson', 'document' => 'bson', 'array' => 'bson']);
+
+        return array_values($cursor->toArray());
+    }
+
+    /**
+     * Finds documents as they were when the Preview transaction started: a snapshot read at its
+     * start time, outside the transaction. Without a start time (no reply carried one), it reads
+     * the majority-committed view, which the spec allows: nothing the Preview wrote is committed,
+     * so the only difference is a concurrent commit by another request.
+     *
+     * @return list<Document>
+     */
+    private function atStart(MongoPreview $state, string $namespace, string $collection, mixed $filter, ?array $projection = null): array
+    {
+        $readConcern = $state->startTime === null ? ['level' => 'majority'] : ['level' => 'snapshot', 'atClusterTime' => $state->startTime];
+        $find = ['find' => $collection, 'filter' => $filter, 'batchSize' => self::CANDIDATE_LIMIT, 'limit' => self::CANDIDATE_LIMIT, 'singleBatch' => true, 'readConcern' => $readConcern];
+        if ($projection !== null) {
+            $find['projection'] = $projection;
+        }
+        try {
+            return $this->rows($namespace, $find);
+        } catch (ServerException $error) {
+            // The collection was created after the start time: nothing in it existed then.
+            if (in_array($error->getCode(), self::ABSENT_AT_START, true)) {
+                return [];
+            }
+            throw $error;
+        }
+    }
+
+    /** Compares each candidate's start-time and in-transaction versions and records the differences. */
+    private function capture(Recorder $recorder, MongoPreview $state): void
+    {
+        foreach ($state->filters as ['namespace' => $namespace, 'collection' => $collection, 'filter' => $filter, 'via' => $via]) {
+            $inside = $this->rows($namespace, ['find' => $collection, 'filter' => $filter, 'projection' => ['_id' => 1], 'batchSize' => self::CANDIDATE_LIMIT, 'limit' => self::CANDIDATE_LIMIT, 'singleBatch' => true], $state->session);
+            foreach ([...$inside, ...$this->atStart($state, $namespace, $collection, $filter, ['_id' => 1])] as $document) {
+                $this->candidate($state, ['namespace' => $namespace, 'collection' => $collection, 'id' => $document->get('_id'), 'via' => $via]);
+                if (count($state->candidates) >= self::CANDIDATE_LIMIT) {
+                    break;
+                }
+            }
+        }
+        $read = 0;
+        foreach ($state->candidates as ['namespace' => $namespace, 'collection' => $collection, 'id' => $id, 'via' => $via]) {
+            if ($read++ >= self::CANDIDATE_LIMIT) {
+                $recorder->truncateChanges();
+                break;
+            }
+            $before = $this->atStart($state, $namespace, $collection, ['_id' => $id])[0] ?? null;
+            $after = $this->rows($namespace, ['find' => $collection, 'filter' => ['_id' => $id], 'limit' => 1, 'singleBatch' => true], $state->session)[0] ?? null;
+            if ($before !== null && $after !== null && Bson::text($before) === Bson::text($after)) {
+                continue;
+            }
+            if ($before === null && $after === null) {
+                continue;
+            }
+            $operation = $before === null ? 'insert' : ($after === null ? 'delete' : 'update');
+            $change = [
+                'operation' => $operation, 'store' => 'mongodb', 'namespace' => $namespace, 'table' => $collection,
+                'key' => ['_id' => Bson::plain($id)], 'before' => $before === null ? null : Bson::plain($before), 'after' => $after === null ? null : Bson::plain($after),
+            ];
+            if ($via !== null && $operation !== 'delete') {
+                $change['via'] = $via;
+            }
+            $recorder->recordChange($change);
+        }
+    }
+
+    // ---- Helpers ----
+
+    /** Commands that end a transaction. In a Preview only the engine may send them. */
+    private static function endsTransaction(string $name): bool
+    {
+        return $name === 'committransaction' || $name === 'aborttransaction';
+    }
+
+    /** Lower-case hex of a session id (`lsid.id`, a BSON UUID), comparable across driver versions. */
+    public static function lsidHex(mixed $lsid): ?string
+    {
+        $id = is_object($lsid) ? ($lsid->id ?? null) : (is_array($lsid) ? ($lsid['id'] ?? null) : null);
+
+        return $id instanceof \MongoDB\BSON\Binary ? bin2hex($id->getData()) : null;
+    }
+
+    /** A field of a command sub-document, which the driver decodes as an object or an array. */
+    private static function field(mixed $document, string $name): mixed
+    {
+        return is_object($document) ? ($document->{$name} ?? null) : (is_array($document) ? ($document[$name] ?? null) : null);
+    }
+
+    /** Whether an update document replaces the whole document rather than applying operators or a pipeline. */
+    private static function replaces(mixed $update): bool
+    {
+        $fields = is_object($update) ? (array) $update : (is_array($update) && !array_is_list($update) ? $update : []);
+
+        return $fields !== [] && !str_starts_with((string) array_key_first($fields), '$');
+    }
+}

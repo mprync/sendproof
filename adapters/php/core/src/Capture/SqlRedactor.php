@@ -58,6 +58,27 @@ final class SqlRedactor
         return false;
     }
 
+    /**
+     * Replaces the value of every secret-named field with `[REDACTED]`, at any depth of a nested
+     * document. Lists keep their shape; a document's field names decide, never its values.
+     */
+    public static function redactDeep(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $name => $inner) {
+                $out[$name] = is_string($name) && self::looksSecret($name) ? Limits::REDACTED : self::redactDeep($inner);
+            }
+
+            return $out;
+        }
+        if ($value instanceof \stdClass) {
+            return (object) self::redactDeep((array) $value);
+        }
+
+        return $value;
+    }
+
     private static function value(mixed $value, bool &$truncated): ?string
     {
         if ($value === null) {

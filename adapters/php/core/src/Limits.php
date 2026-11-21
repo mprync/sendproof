@@ -59,7 +59,7 @@ final class Limits
     /**
      * Applies the change cap and payload budget to provider-supplied changes.
      *
-     * @param list<array{operation:string,table:string,key:mixed,before:mixed,after:mixed}> $changes
+     * @param list<array{operation:string,table:string,key:mixed,before:mixed,after:mixed,store?:string,namespace?:string,via?:string}> $changes
      * @return array{0:list<array<string,mixed>>,1:bool}
      */
     public static function snapshotChanges(array $changes): array
@@ -80,7 +80,14 @@ final class Limits
             }
 
             $truncated = $truncated || $operation !== $change['operation'] || $table !== $change['table'];
-            $result[] = ['operation' => $operation, 'table' => $table, 'key' => $key, 'before' => $before, 'after' => $after];
+            $entry = ['operation' => $operation, 'table' => $table, 'key' => $key, 'before' => $before, 'after' => $after];
+            // Document, item and key changes name their store, database and how the change was made.
+            foreach (['store', 'namespace', 'via'] as $field) {
+                if (isset($change[$field]) && is_string($change[$field])) {
+                    $entry[$field] = self::clip($change[$field], self::NAME);
+                }
+            }
+            $result[] = $entry;
         }
 
         return [$result, $truncated];

@@ -8,6 +8,8 @@ use Sendproof\Core\Capture\Clock;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Contracts\PreviewProvider;
 use Sendproof\Core\Limits;
+use Sendproof\Core\Stores\DataStore;
+use Sendproof\Core\Stores\PreviewWriteBlockedException;
 
 /**
  * Runs one operation inside a rollback-only session and builds the confirmed envelope.
@@ -28,28 +30,53 @@ final class PreviewRunner
     }
 
     /**
+     * Pipeline order (spec/data-stores.md): run the handler; end every `preview`-mode store
+     * transaction (capturing its changes first); roll back SQL. A failed store, a failed rollback
+     * or a recorded fault answers 500; otherwise a blocked write answers 409; otherwise the
+     * Preview is confirmed. The recorder's marks decide, never the handler's response.
+     *
      * @param callable(): CapturedResponse $dispatch Dispatches the rewritten request through the real framework
+     * @param list<DataStore> $stores The hooked data stores, in registration order
      */
-    public function run(PreviewProvider $provider, PreviewState $state, callable $dispatch, mixed $context): PreviewResult
+    public function run(PreviewProvider $provider, PreviewState $state, callable $dispatch, mixed $context, array $stores = []): PreviewResult
     {
         $failure = null;
         $envelope = null;
         $response = null;
         $session = null;
+        /** A store that could not end, or a fault recorded during the Preview: never confirmed, never 409. */
+        $unsafe = false;
 
         try {
             $session = $provider->begin($context);
             $this->recorder->begin(true, $state->clock->start());
             try {
+                foreach ($stores as $store) {
+                    $store->begin($this->recorder);
+                }
                 $response = $dispatch();
             } catch (\Throwable $error) {
                 $failure = $error;
             }
 
+            // Every store ends its transaction, even after a failure, so nothing stays open.
+            foreach ($stores as $store) {
+                try {
+                    $store->finish($this->recorder);
+                } catch (\Throwable $error) {
+                    $unsafe = true;
+                    $this->report !== null && ($this->report)($error);
+                }
+            }
+
             try {
                 $session->rollback();
-                $exceeded = $response !== null && strlen($response->body) > Limits::RESPONSE_BYTES;
-                if ($failure === null && $response !== null && $response->failure === null && $state->completed && !$exceeded && !self::isDenied($response->status)) {
+                $blocked = $this->recorder->blocked() !== null && self::isBlockOrNothing($failure) && self::isBlockOrNothing($response?->failure);
+                if ($blocked && !$unsafe && $this->recorder->fault() === null) {
+                    // The guard refused a write: the Preview is blocked, whatever the handler made of it.
+                    $this->recorder->finish();
+                } elseif ($failure === null && !$unsafe && $this->recorder->fault() === null && $response !== null && $response->failure === null
+                    && $state->completed && strlen($response->body) <= Limits::RESPONSE_BYTES && !self::isDenied($response->status)) {
                     $started = hrtime(true);
                     $envelope = $this->envelope($response, $session->changes(), $session->changesTruncated(), $this->recorder->finish());
                     $this->recorder->addSerializeMs((hrtime(true) - $started) / 1e6);
@@ -77,8 +104,16 @@ final class PreviewRunner
         if ($failure === null && $response !== null && $response->failure !== null) {
             $failure = $response->failure;
         }
-        if ($failure !== null) {
-            $this->report !== null && ($this->report)($failure);
+        $fault = $this->recorder->fault();
+        $write = $this->recorder->blocked();
+        // A blocked write outranks the handler's own error, but not a failed store, a failed
+        // rollback or a recorded fault.
+        if ($write !== null && !$unsafe && $fault === null && self::isBlockOrNothing($failure)) {
+            return PreviewResult::blocked($write);
+        }
+        if ($failure !== null || $unsafe || $fault !== null) {
+            $failure ??= $fault;
+            $failure !== null && $this->report !== null && ($this->report)($failure);
 
             return PreviewResult::rejected(500, 'The preview could not be completed safely.');
         }
@@ -93,6 +128,22 @@ final class PreviewRunner
         $timing = Clock::header($state->clock->timing($db, $queries, $serialize));
 
         return PreviewResult::confirmed($envelope, $timing);
+    }
+
+    /**
+     * Whether a handler failure is absent or is the guard's own refusal (possibly wrapped by the
+     * framework). A handler that throws after a block still gets the 409; any other error means
+     * the Preview did not run as the guard saw it.
+     */
+    private static function isBlockOrNothing(?\Throwable $failure): bool
+    {
+        for ($error = $failure; $error !== null; $error = $error->getPrevious()) {
+            if ($error instanceof PreviewWriteBlockedException) {
+                return true;
+            }
+        }
+
+        return $failure === null;
     }
 
     /** Whether an inner status means the caller was not allowed to run the operation. */
@@ -131,12 +182,14 @@ final class PreviewRunner
 
     /**
      * @param list<array<string,mixed>> $changes
-     * @param array{effects:list<array<string,mixed>>,logs:list<array<string,mixed>>,logsTruncated:bool,effectsTruncated:bool} $capture
+     * @param array{effects:list<array<string,mixed>>,logs:list<array<string,mixed>>,changes:list<array<string,mixed>>,logsTruncated:bool,effectsTruncated:bool,changesTruncated:bool} $capture
      * @return array<string,mixed>
      */
     private function envelope(CapturedResponse $response, array $changes, bool $changesTruncated, array $capture): array
     {
-        [$snapshot, $truncated] = Limits::snapshotChanges($changes);
+        // Changes the SQL session saw come first, then document, item and key changes from the stores.
+        [$snapshot, $truncated] = Limits::snapshotChanges([...$changes, ...$capture['changes']]);
+        $changesTruncated = $changesTruncated || $capture['changesTruncated'];
         $headers = [];
         foreach ($response->headers as $name => $value) {
             $lower = strtolower((string) $name);

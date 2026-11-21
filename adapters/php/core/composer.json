@@ -11,7 +11,15 @@
     "ext-mbstring": "*"
   },
   "require-dev": {
-    "phpunit/phpunit": "^11.0"
+    "aws/aws-sdk-php": "^3.300",
+    "mongodb/mongodb": "^2.1",
+    "phpunit/phpunit": "^11.0",
+    "predis/predis": "^2.2 || ^3.0"
+  },
+  "suggest": {
+    "mongodb/mongodb": "Guarded MongoDB client and Preview transactions (needs ext-mongodb)",
+    "predis/predis": "Write guard for Predis Redis clients",
+    "aws/aws-sdk-php": "Write guard for DynamoDB clients"
   },
   "autoload": {
     "psr-4": { "Sendproof\\Core\\": "src/" }
@@ -21,7 +29,8 @@
   },
   "scripts": {
     "test": "phpunit",
-    "embed-ui": "node ../../../tools/pack-ui.mjs --out resources/ui"
+    "embed-ui": "node ../../../tools/pack-ui.mjs --out resources/ui",
+    "embed-store-tables": "node scripts/embed-store-tables.mjs"
   },
   "archive": {
     "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
