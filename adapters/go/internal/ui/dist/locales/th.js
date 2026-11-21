@@ -1,6 +1,7 @@
 // Thai UI strings. Missing keys fall back to English (en.js).
 // Thai has a single plural category ("other"), so plural entries carry only that form.
 import capture from './th-capture.js';
+import stores from './th-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'วว', month: 'ดด', year: 'ปปปป' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'แล้ว',
     'unit.bytes': '{n} B',

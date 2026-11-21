@@ -2,6 +2,7 @@
 // Množná čísla: one (1), few (2–4), many (zlomky), other (0, 5 a více).
 // Terminologie: požadavek, odpověď, pole, schéma, přihlásit se, náhled, odeslat, operace, model, vlastnost, atribut, parametr.
 import capture from './cs-capture.js';
+import stores from './cs-stores.js';
 
 export default {
   dir: 'ltr',
@@ -10,6 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'rrrr' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'potom',
     'unit.bytes': '{n} B',

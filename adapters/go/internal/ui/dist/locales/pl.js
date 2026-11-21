@@ -3,6 +3,7 @@
 // Terms: request = żądanie, response = odpowiedź, field = pole, schema = schemat, sign in = zalogować się,
 // preview = podgląd, send = wyślij, operation = operacja, property = właściwość, attribute = atrybut.
 import capture from './pl-capture.js';
+import stores from './pl-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'rrrr' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'potem',
     'unit.bytes': '{n} B',

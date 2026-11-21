@@ -13,6 +13,7 @@ import { isPublic, requiredScopes, scopeText } from './security.js';
 import { shortcutAttrs, shortcutHint } from './shortcuts.js';
 import { modelGroups, modelKind, modelSize } from './schema-model.js';
 import { opKey } from './operations.js';
+import { previewUnavailable } from './stores.js';
 import { bindDeprecationTips, deprecationTipParts } from './deprecation.js';
 
 /** Edit distance, used to suggest a likely intended filter. */
@@ -105,6 +106,9 @@ export function createSidebar({ state, $, storage = globalThis.localStorage }) {
     const out = [];
     const mark = (glyph, label, cls = '') => out.push(`<span${cls ? ` class="${cls}"` : ''} title="${esc(label)}">${icon(glyph, true)}<span class="sr-only">${esc(label)}</span></span>`);
     if (op.operation.deprecated) mark('warn', t('side.deprecated'));
+    // Marked preview: false by the API author (mock 122): the reason is in the tooltip.
+    const noPreview = !['GET', 'HEAD', 'OPTIONS'].includes(op.method) && previewUnavailable(op, state.cap);
+    if (noPreview) mark('flask-off', noPreview.reason ? `${t('side.noPreview')} · ${noPreview.reason}` : t('side.noPreview'), 'no-preview');
     if (!isPublic(op, state.doc)) {
       if (!signedIn()) mark('lock', t('side.needsSignIn'), 'lock');
       else if (restricted(op)) mark('shield', t('side.needsScope', { scope: scopeText(op, state.doc) }));

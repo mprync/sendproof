@@ -2,6 +2,7 @@
 // Plural entries are objects keyed by Intl.PluralRules category and take {n}.
 // Placeholders in braces are filled by i18n.t (text) or i18n.th (trusted HTML values).
 import capture from './en-capture.js';
+import stores from './en-stores.js';
 
 export default {
   dir: 'ltr',
@@ -10,6 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'then',
     'unit.bytes': '{n} B',

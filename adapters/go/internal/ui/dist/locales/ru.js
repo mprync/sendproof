@@ -3,6 +3,7 @@
 // «Предпросмотр» / «Отправить» (Preview / Send), операция, модель, свойство (property),
 // атрибут (attribute), параметр (parameter). Plurals give one, few, many and other.
 import capture from './ru-capture.js';
+import stores from './ru-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'дд', month: 'мм', year: 'гггг' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'затем',
     'unit.bytes': '{n} Б',

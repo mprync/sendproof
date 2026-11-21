@@ -76,6 +76,9 @@
     'circle-check': '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
     languages: '<path d="M4 5h9M8.5 3v2M6 5c.7 3.2 2.6 5.6 5 7M11 5c-.6 3.8-3 6.8-6.5 8.5"/><path d="m12.5 21 4-10 4 10M14 17.5h5"/>',
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    // v6: data stores (Preview unavailable and the write guard).
+    'flask-off': '<path d="M9 3h6"/><path d="M10 3v4.5M14 3v6l2.2 4.1"/><path d="M8.6 11.4 4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 .9-.25"/><path d="M3 3l18 18"/>',
+    ban: '<circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/>',
   };
   document.body.insertAdjacentHTML('afterbegin',
     '<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">' +

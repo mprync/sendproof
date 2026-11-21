@@ -1,6 +1,7 @@
 // Turkish UI strings. Missing keys fall back to English (en.js).
 // Turkish uses the singular noun after a numeral, so plural entries carry the same text in "one" and "other".
 import capture from './tr-capture.js';
+import stores from './tr-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'gg', month: 'aa', year: 'yyyy' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'sonra',
     'unit.bytes': '{n} B',

@@ -3,6 +3,7 @@
 // model = mô hình, property/attribute = thuộc tính, parameter = tham số, sign in = đăng nhập.
 // Mục dạng số nhiều chỉ có dạng `other` vì tiếng Việt không chia số nhiều.
 import capture from './vi-capture.js';
+import stores from './vi-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'rồi',
     'unit.bytes': '{n} B',

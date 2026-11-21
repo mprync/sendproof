@@ -1,6 +1,7 @@
 // Japanese UI strings. Missing keys fall back to English (en.js).
 // Plural entries carry only `other`: Japanese has a single plural category.
 import capture from './ja-capture.js';
+import stores from './ja-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': '次に',
     'unit.bytes': '{n} B',

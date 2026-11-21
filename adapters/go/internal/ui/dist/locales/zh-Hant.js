@@ -2,6 +2,7 @@
 // Terms: request 請求, response 回應, field 欄位, schema 結構描述, sign in 登入, preview 預覽, send 傳送,
 // operation 操作, model 模型, property 屬性, attribute 屬性, parameter 參數, header 標頭, roll back 還原.
 import capture from './zh-Hant-capture.js';
+import stores from './zh-Hant-stores.js';
 
 export default {
   dir: 'ltr',
@@ -10,6 +11,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': '然後',
     'unit.bytes': '{n} B',

@@ -1,6 +1,7 @@
 // European Portuguese UI strings ("ecrã", "ficheiro", "utilizador", "pedido", impersonal wording, "a" + infinitive).
 // Missing keys fall back to English (en.js). Plural entries use one / many / other; `many` repeats `other`.
 import capture from './pt-PT-capture.js';
+import stores from './pt-PT-stores.js';
 
 const p = (one, other) => ({ one, many: other, other });
 
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'aaaa' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'depois',
     'unit.bytes': '{n} B',

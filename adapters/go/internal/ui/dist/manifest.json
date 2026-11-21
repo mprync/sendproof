@@ -1,25 +1,25 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "2ad719dba5b5627e0d1ef1e79928cc93676a42ea985cd7a43abf6ed02f12089b",
+  "bundleHash": "5d30a378b4b47e95517d52174a3196d4e693f5e85fe7b85cb1a557217ec666ef",
   "files": {
     "action-bar.js": {
-      "sha256": "81262c5e592cc69a1d98310591b8f0372b1bfe8176d9175b6dd1257037b75757",
-      "bytes": 3947,
+      "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
+      "bytes": 6860,
       "contentType": "text/javascript; charset=utf-8"
     },
     "api.js": {
-      "sha256": "770ff704507998f2e3e63251ec4dfab2e5891c3662f0d176b693fd9d9f555bc6",
-      "bytes": 10386,
+      "sha256": "11c0271721183bfe2f399468fda5fab48d1fb8c61fcf109cd3ceec2f279a79b1",
+      "bytes": 10927,
       "contentType": "text/javascript; charset=utf-8"
     },
     "app.css": {
-      "sha256": "e4f57f89e5c6be9fd6257c55fe2c692161cb1403dcae616f477d46fcb8ae1873",
-      "bytes": 33406,
+      "sha256": "00ecccc5af054a440ae88848f137fe8ed4b65ebd102b682c23358c631638df72",
+      "bytes": 66845,
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
-      "sha256": "c227b304594625fa97c2b0037f861778d87509075125516dd1616e8ffab425e2",
-      "bytes": 35162,
+      "sha256": "3de5752657a54499e72ce4ed71255878a102d1423e119e859743781dda3e4c12",
+      "bytes": 35611,
       "contentType": "text/javascript; charset=utf-8"
     },
     "autofill.js": {
@@ -57,6 +57,11 @@
       "bytes": 3708,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "coverage-popover.js": {
+      "sha256": "7cb4a0e879034602eaf67beeeb690d7b2a96cc5a955a818abf8adc17a1f219e4",
+      "bytes": 2295,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "deprecation.js": {
       "sha256": "723cba27d2b977f4e3d9a8b0e4083348dd03bf5cf4d41eec9d195780a6e385b9",
       "bytes": 10334,
@@ -65,6 +70,11 @@
     "display-settings.js": {
       "sha256": "7e1dd404115b88384fc3ce7dbca555066620a7764e1bed3c0ddcacf2fc451756",
       "bytes": 11036,
+      "contentType": "text/javascript; charset=utf-8"
+    },
+    "doc-diff.js": {
+      "sha256": "fa5870ad80397e0d0ca721daed65a66b3775d1591a0a6ec3a2ba45093ffaa63b",
+      "bytes": 13543,
       "contentType": "text/javascript; charset=utf-8"
     },
     "docs-view.js": {
@@ -173,8 +183,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "icons.js": {
-      "sha256": "84958a2499d90142e12fbac0ba7d574777cc763b75737d59f15573b1a415d6cd",
-      "bytes": 7650,
+      "sha256": "6eef73e8f60fe564e17e45d64c4fbf20bb843b24599f1f3bb2f424037cca4a92",
+      "bytes": 7960,
       "contentType": "text/javascript; charset=utf-8"
     },
     "index.html": {
@@ -212,9 +222,14 @@
       "bytes": 25944,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/ar-stores.js": {
+      "sha256": "0716823259841e9a22f5f901e5902675e04aed850e5c67614229c45392ef0fa0",
+      "bytes": 10116,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/ar.js": {
-      "sha256": "52549ee38751ca13aff3bfea477f4ff023d4a6e176e0d480f29b75b7a72f6931",
-      "bytes": 63366,
+      "sha256": "6d906ca82f02f3c288a068c9d3c460efb83fa194663f36660304eb4a4c419d66",
+      "bytes": 63418,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/cs-capture.js": {
@@ -222,9 +237,14 @@
       "bytes": 20664,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/cs-stores.js": {
+      "sha256": "65b4e0653e201d8493e249db1b167324b5535b08f241fcdb2b7178ef14b45ace",
+      "bytes": 7621,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/cs.js": {
-      "sha256": "7c410ac284a0b7136abe9c42e06216743306dcbeb3f700d374eb7b589d7b745a",
-      "bytes": 51621,
+      "sha256": "7d9f02ea17a7d141da752b9056981fab33eb1d794e34d5f4d442acbb10749b5d",
+      "bytes": 51673,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/da-capture.js": {
@@ -232,9 +252,14 @@
       "bytes": 17096,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/da-stores.js": {
+      "sha256": "c59f4fe05eae787497ab779f3fe40d52e1781f27e196778d81e3f2f4284dca5c",
+      "bytes": 7122,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/da.js": {
-      "sha256": "9ea10db708d0f991a3d8952d2f762c37734ca8dcc2045d3beeb8bd6e55290672",
-      "bytes": 45343,
+      "sha256": "8a7a720579789a309ac97e9d7d534c940ca89bdf8f11849ea06b96e155b5fde2",
+      "bytes": 45395,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/de-capture.js": {
@@ -242,9 +267,14 @@
       "bytes": 18537,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/de-stores.js": {
+      "sha256": "a23892f4f611e16b622484bc5fb5ee5cfe13b432476c8e823fa28fe5e488a0c0",
+      "bytes": 7401,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/de.js": {
-      "sha256": "f758d385ee950c000d73fc4426dc8159242ed287e9a37f9bc04909b5d9736af1",
-      "bytes": 47767,
+      "sha256": "097fd7386ab7f930559a35e57217c466471ebfb066443a0e903d884939c6b823",
+      "bytes": 47819,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/el-capture.js": {
@@ -252,9 +282,14 @@
       "bytes": 25491,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/el-stores.js": {
+      "sha256": "3e971b01d3eca681f0c22546e1ba60950c022728b6bae11dfde768c5a148579b",
+      "bytes": 10485,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/el.js": {
-      "sha256": "042b90189a75f45b78ef4f3eb4cd6c2dc5161cc581ff213f90fdc736019d4eec",
-      "bytes": 68961,
+      "sha256": "167cb0d798322b4b9d33af6ffc7e8ad6df1cf5494314fa6abbe47a4989de8566",
+      "bytes": 69013,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/en-capture.js": {
@@ -262,9 +297,14 @@
       "bytes": 16577,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/en-stores.js": {
+      "sha256": "77a46b73fc50373cd7f5b1448121c5a9455dfddfffa42252ecc1c626e2cb8d0d",
+      "bytes": 7095,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/en.js": {
-      "sha256": "73d0d10e372247446494a2c70a2ed7d230937f7051e78ab6ca79e34554273839",
-      "bytes": 43343,
+      "sha256": "048db3ed410f32047de72d762f463886e3b44398338e19c24dc19cc9204edbb2",
+      "bytes": 43395,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/es-capture.js": {
@@ -272,9 +312,14 @@
       "bytes": 18199,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/es-stores.js": {
+      "sha256": "94dbc6e073ff952cad2228750995ce30d87ab1586724770c521e184bbe3a2109",
+      "bytes": 7592,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/es.js": {
-      "sha256": "a88dc7d53c76dc5c1ae071e1cc31a64a5278db873fe3e2de77724ad72a818202",
-      "bytes": 47811,
+      "sha256": "2551495069c386290ef7c85c2650c4ed1b5ed913d9b4c22ecdac6caace266fc7",
+      "bytes": 47863,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/fa-capture.js": {
@@ -282,9 +327,14 @@
       "bytes": 22371,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/fa-stores.js": {
+      "sha256": "3e5b97146ae264b41cd5a5acaff8473a76961023c9012fa76a74dfe81de4d402",
+      "bytes": 9103,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/fa.js": {
-      "sha256": "d103946ffb50901b292bb93a93376b9d9debd0fc278d30c87b610c4808c515d1",
-      "bytes": 60348,
+      "sha256": "ffb528ae9c0107e9e5c27a3b389bfd801a247f660cc6ee4589fa8def902b2edd",
+      "bytes": 60400,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/fi-capture.js": {
@@ -292,9 +342,14 @@
       "bytes": 17851,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/fi-stores.js": {
+      "sha256": "001994bcfdc2062a5ed6da50c5edf0eb281aa799c2847f94fc3e0d3a8ce4584c",
+      "bytes": 7381,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/fi.js": {
-      "sha256": "f6d5b971dca744898f997f9fc2535d96d75fdc7b0ad3b60ba91d852cd389fcfc",
-      "bytes": 47801,
+      "sha256": "5199a66a3f36491ba41ee500293a1ddf8dd7f2919300ce55c99a627a28fa0b5d",
+      "bytes": 47853,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/fr-capture.js": {
@@ -302,9 +357,14 @@
       "bytes": 18626,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/fr-stores.js": {
+      "sha256": "4d2b321b2e4261783f513e76158556feae136a5ed5d4c98b3f916053f9c271fb",
+      "bytes": 7822,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/fr.js": {
-      "sha256": "5182f726e833fa3ad0ceb8c1a01cc7d9410b51ab7bba1cc5a804171841539795",
-      "bytes": 49355,
+      "sha256": "7b68d5ec0897d6a8ec76734fe5c48e9164cc5095d3dd4d5e4b6967b81a3c1904",
+      "bytes": 49407,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/he-capture.js": {
@@ -312,9 +372,14 @@
       "bytes": 21373,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/he-stores.js": {
+      "sha256": "e38d59148b1dbfeccf4dd2d0e621b6474a4325f96ec4ab527cde562ac50e5c8e",
+      "bytes": 8641,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/he.js": {
-      "sha256": "6bd7ec33e450dc2942202a705fbb6c2c3ec0afae8ec79614295a1b42fc4c680f",
-      "bytes": 55068,
+      "sha256": "fb33dfe160d6a43c6b44384f98b39feca6584d7a66bb3fb9e8814aa8567c4807",
+      "bytes": 55120,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/hi-capture.js": {
@@ -322,9 +387,14 @@
       "bytes": 27166,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/hi-stores.js": {
+      "sha256": "a86f74a01bdc88652b9231a68c1a4d694938152d54baf317e21ce92456b8aeb5",
+      "bytes": 11593,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/hi.js": {
-      "sha256": "c45ee968bf5661aa91c957d43b23835c8173d2d4ef5d7515f28c0e4288030e76",
-      "bytes": 77015,
+      "sha256": "2ecc9f59949b6899a6d477609f72ac160883c6445a620ce9a7381f554323e60c",
+      "bytes": 77067,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/id-capture.js": {
@@ -332,9 +402,14 @@
       "bytes": 16401,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/id-stores.js": {
+      "sha256": "e09d298d7b879d51431191919bde95838dd1aa23686c24fc40625ec8052c84c0",
+      "bytes": 6774,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/id.js": {
-      "sha256": "78b3f5d2a3a2e465eeef03dac1cc8c37308c652684c5a5190067e73237142e50",
-      "bytes": 44174,
+      "sha256": "b0a5a36c389e3b453fbb5c3582969a39bce9b338fee50957544b109546c913ab",
+      "bytes": 44226,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/it-capture.js": {
@@ -342,9 +417,14 @@
       "bytes": 18101,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/it-stores.js": {
+      "sha256": "65f88303dd9556a9a62c88b38b4225ac36daa957f0f988db5319672cb9bbeaaa",
+      "bytes": 7574,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/it.js": {
-      "sha256": "f3f40b0e191a05a5497cccbcbd41a6f4ab3c15d8e9da72f20c534df2c8dbd3c0",
-      "bytes": 46944,
+      "sha256": "8de0197acdbc52372820c572bb7014d9fd189875ef09901a27f622b03b226568",
+      "bytes": 46996,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/ja-capture.js": {
@@ -352,9 +432,14 @@
       "bytes": 19640,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/ja-stores.js": {
+      "sha256": "efd860fa1603062eb91b21efdd448e7c935f35134fb9a408ec9856cd4e0c858f",
+      "bytes": 7898,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/ja.js": {
-      "sha256": "83158b0cc55adc2b8c6a35ac8c50b2cf4840684a4a37e2f66429c2597ed73ffd",
-      "bytes": 53315,
+      "sha256": "6fa213c16819169acbd2edfbfcec0ddb9317780461c5f56286db6d3e1ce029a2",
+      "bytes": 53367,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/ko-capture.js": {
@@ -362,9 +447,14 @@
       "bytes": 17670,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/ko-stores.js": {
+      "sha256": "055cb13bb1675deb72b702c5ccd6b1aad008ef7582cdfeb63cb645f1d5da7fbb",
+      "bytes": 7128,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/ko.js": {
-      "sha256": "1bfde74ed79c2f9e6e671b2471db7ff2e47feeaf5c83db3dfd5176b922b16222",
-      "bytes": 47767,
+      "sha256": "711b837a484648391b1ae99b873d809dc89e3bac816e76fd4694821c68d5b8b5",
+      "bytes": 47819,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/nb-capture.js": {
@@ -372,9 +462,14 @@
       "bytes": 17769,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/nb-stores.js": {
+      "sha256": "afbf9fa623608b0680ddf3d1bfacdeccdf760842c674c4f95e91bbfe483792e7",
+      "bytes": 7034,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/nb.js": {
-      "sha256": "dc3fe144631e49b860b449bd2d7d08b2ad863076d4945d086f41ad89343e7519",
-      "bytes": 46086,
+      "sha256": "ef7d1ff90514a13cd19a8a12c177a654f939e09aef45fe910ac2be4a8fe08e61",
+      "bytes": 46138,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/nl-capture.js": {
@@ -382,9 +477,14 @@
       "bytes": 17594,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/nl-stores.js": {
+      "sha256": "9e1a95a0d230a2212114316b6e93f17b9efbda9b4284310ca2efe031ce34e5f6",
+      "bytes": 7120,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/nl.js": {
-      "sha256": "358ef3fc045530f797785a00f4223b1bc06a521e35b84e2b66379e164b4b8df4",
-      "bytes": 47032,
+      "sha256": "7757682fc52ed2c162e7150830557cc01c2eb4812725a472ccc983ee4c4b9ced",
+      "bytes": 47084,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/pl-capture.js": {
@@ -392,9 +492,14 @@
       "bytes": 20394,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/pl-stores.js": {
+      "sha256": "b7a34cbd2e5479f9b7a644154c9e9cc8adb21ace2c431e5975b9f302ef5bed2b",
+      "bytes": 7677,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/pl.js": {
-      "sha256": "8a30fb2f1e49aad960efa8ea60b3c7da3f7f612a2e1209d01b474202131704bb",
-      "bytes": 50570,
+      "sha256": "09a50985aa887f94a21f439073b45d29ed8bca8c7aebe56c42cabcec4271ef87",
+      "bytes": 50622,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/pt-BR-capture.js": {
@@ -402,9 +507,14 @@
       "bytes": 17677,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/pt-BR-stores.js": {
+      "sha256": "36aad0e4bd50ef86677b496873ac55cbce0791de1263ac68de695a238a61bda6",
+      "bytes": 7745,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/pt-BR.js": {
-      "sha256": "9bcac728a9bea662725044cf7518e4838941b5c44a207f7d4428ac60e5c8e00f",
-      "bytes": 46730,
+      "sha256": "5857249f3d596535dfc5e10c7311aac74cb1161b36c938633b2ceedfa215c3a3",
+      "bytes": 46785,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/pt-PT-capture.js": {
@@ -412,9 +522,14 @@
       "bytes": 18021,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/pt-PT-stores.js": {
+      "sha256": "149bded3cffe29845683abbf2ac62754a9730dfcf2cf656667588a68eef33346",
+      "bytes": 7690,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/pt-PT.js": {
-      "sha256": "a03700309371e932d4234e44504402ea13f91408e986051938a1ed795d03ea7d",
-      "bytes": 47484,
+      "sha256": "c74354a12fd6e7bdc8056611962a4678f1ceeaab8a7f98b4b285294f73ebb07a",
+      "bytes": 47539,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/ru-capture.js": {
@@ -422,9 +537,14 @@
       "bytes": 27354,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/ru-stores.js": {
+      "sha256": "42bbc8f465e711eb93ba463826da5bfd2d1303414c40f8113afc89b0b0b2b20f",
+      "bytes": 10922,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/ru.js": {
-      "sha256": "683ac37549d06cb8da72a33c10acc01fb7d4f8cc7d99c408abbd0e3d8c4ee18b",
-      "bytes": 69434,
+      "sha256": "d31e30d8848709e60c441d062ea37b19cfffa8538c85dbd1c92aabf46c348491",
+      "bytes": 69486,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/sv-capture.js": {
@@ -432,9 +552,14 @@
       "bytes": 17774,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/sv-stores.js": {
+      "sha256": "d4d6cc49727074b97865e86bfc8b7268cfd500920d663ad1475ac3cdc3111acc",
+      "bytes": 7123,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/sv.js": {
-      "sha256": "37bf86047c88e8fecb98f6ab4a218f618b07eafdf457973c10e5ee544e010dbc",
-      "bytes": 47013,
+      "sha256": "e4e33ab9118f35ef76db8f62881b21b2f867d96033d816f849b6b46d92aa122c",
+      "bytes": 47065,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/th-capture.js": {
@@ -442,9 +567,14 @@
       "bytes": 24599,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/th-stores.js": {
+      "sha256": "9a70539d7d3f9200a73738587018c6121ef0b1be7d2e13a9923ccfd1e4fce335",
+      "bytes": 10729,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/th.js": {
-      "sha256": "f2e029c29643f25710063b29bf2aeb8a7d17382ac705dd8130ca124ebabf32cc",
-      "bytes": 71341,
+      "sha256": "38e822d4b5c3b87e470da43351103d4389be6ec4cbf99e6ecc773457537f6634",
+      "bytes": 71393,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/tr-capture.js": {
@@ -452,9 +582,14 @@
       "bytes": 17921,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/tr-stores.js": {
+      "sha256": "198a4b90385c144c667f1cd900691e9794fc77ef60173ac1627293d91854a7cd",
+      "bytes": 7218,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/tr.js": {
-      "sha256": "a213494f9d24783695ee1b5a43ed0fdbcdcf5f313e6ae714285c241af5ec2e8c",
-      "bytes": 47376,
+      "sha256": "106dde54289a17b39bc3f6e28a0fce4deacd6390fbffcb9f958c46145ca1cdce",
+      "bytes": 47428,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/uk-capture.js": {
@@ -462,9 +597,14 @@
       "bytes": 27751,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/uk-stores.js": {
+      "sha256": "d27b6e9fe0a47d0700d320c3f34fe8e65e705426726692bc93ca4b92ae6267ae",
+      "bytes": 10790,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/uk.js": {
-      "sha256": "4f50e5a255499263814fdd14b5a40ef5c6298fd1d0302e015a254d2332537709",
-      "bytes": 68825,
+      "sha256": "4c4d2f2f7582fac5aca434d1cef281b26c0997793846f9f73aa801f21ba193c6",
+      "bytes": 68877,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/vi-capture.js": {
@@ -472,9 +612,14 @@
       "bytes": 17814,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/vi-stores.js": {
+      "sha256": "87d30bf92e1b7f1e01375786e971fb3f25c897c2b144f363b9b575a9e1264f39",
+      "bytes": 7302,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/vi.js": {
-      "sha256": "b87a4c2fca25354c1d1332ac14867eeb51f04d8bf2f30aa07d4c35804eb8c2dc",
-      "bytes": 49513,
+      "sha256": "a554d23f958f86624747f102ed415963b17cb50a6dd3bec802df41288f088ccf",
+      "bytes": 49565,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/zh-Hans-capture.js": {
@@ -482,9 +627,14 @@
       "bytes": 15921,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/zh-Hans-stores.js": {
+      "sha256": "cf0ce707a26665fc8d4eb4fe786ca2af30204c3e18e0427fa1429adcf6b84955",
+      "bytes": 6233,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/zh-Hans.js": {
-      "sha256": "cdd93e305bcb2df4fb3ef15b1e1fafd26f1b50c9c56f7c45d3f264ea5fc36b61",
-      "bytes": 42291,
+      "sha256": "caac2e5e1e3a984a925c25c457f1bb51df17d49ee45d6ea013ee6d483b90ca74",
+      "bytes": 42348,
       "contentType": "text/javascript; charset=utf-8"
     },
     "locales/zh-Hant-capture.js": {
@@ -492,9 +642,14 @@
       "bytes": 15961,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "locales/zh-Hant-stores.js": {
+      "sha256": "6d0ccd202fce35155e52136e1df850e7c2975ec294baad1a42a97024306996ec",
+      "bytes": 6243,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "locales/zh-Hant.js": {
-      "sha256": "859ca81e734a77423d61ddb6254abf6fbb9927687448c85cdf09d75ceb3436ec",
-      "bytes": 42627,
+      "sha256": "38c9632f8706f3204eba59d366ecd5e30d1a8732ae795b8b39e5776f8b5e9efe",
+      "bytes": 42684,
       "contentType": "text/javascript; charset=utf-8"
     },
     "markdown.js": {
@@ -552,14 +707,19 @@
       "bytes": 36351,
       "contentType": "text/javascript; charset=utf-8"
     },
+    "result-blocked.js": {
+      "sha256": "5526924ab82ecdb4ffea7f760c5835382ddb1196a445d89ce3a19766a8694883",
+      "bytes": 9609,
+      "contentType": "text/javascript; charset=utf-8"
+    },
     "result-capture.js": {
       "sha256": "39efb33f2900aecdb6532edc9c7b41818dc8f333c8a4da8312c698df4d87c2c4",
       "bytes": 1103,
       "contentType": "text/javascript; charset=utf-8"
     },
     "result-database.js": {
-      "sha256": "d311b855d90505a759ba8946c82a4af67476a4c6d4c5cf03f323edaeb57698ef",
-      "bytes": 4346,
+      "sha256": "3b101cc9c72a763f32256febc415c003849b5d1eb7d5beed42904d1f2ceaad04",
+      "bytes": 12180,
       "contentType": "text/javascript; charset=utf-8"
     },
     "result-effects.js": {
@@ -573,18 +733,18 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "result-logs.js": {
-      "sha256": "383aa48fa097fb55cd7db5b1f8b52fc9bda35f6f5b6d8973b8f7d3fd19949f4b",
-      "bytes": 14982,
+      "sha256": "21a2d95f34390c992e81cfaf419aa6e5062f25687acdc7225940fa68877ac8d2",
+      "bytes": 24654,
       "contentType": "text/javascript; charset=utf-8"
     },
     "result-states.js": {
-      "sha256": "eef41144b4bd608f2664d55ec272407fa1fc0e11dc13a85ccacb08f277f18f3e",
-      "bytes": 15801,
+      "sha256": "f4628af13af9b38a2312dca2d6d3d2a05262721c1b88af828554b1cab35f4d35",
+      "bytes": 17018,
       "contentType": "text/javascript; charset=utf-8"
     },
     "results.js": {
-      "sha256": "660287bba433f6a3adf779a770bd4fb4d44d10a217c2afab32914986db9c50e5",
-      "bytes": 16414,
+      "sha256": "287df40c4ce6ebc0134f31c1bd9cfdb471ea252d7f0c619a31804493d3277e8a",
+      "bytes": 18907,
       "contentType": "text/javascript; charset=utf-8"
     },
     "router.js": {
@@ -633,8 +793,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "sidebar.js": {
-      "sha256": "93db2b82b6420597ff6a6389d0de6c38b7b312da0abc298b3ef58d418b743b4e",
-      "bytes": 16678,
+      "sha256": "6674c8175a0581abfb13b4187ca36d6180f3251babd1f8bfee8ba219721ca4c4",
+      "bytes": 17067,
       "contentType": "text/javascript; charset=utf-8"
     },
     "signin.js": {
@@ -645,6 +805,16 @@
     "snippets.js": {
       "sha256": "e254c9a02ac579d0e401accd06f62825ae97397b55db07dc7439d3a24bb26014",
       "bytes": 30663,
+      "contentType": "text/javascript; charset=utf-8"
+    },
+    "store-marks.js": {
+      "sha256": "acef7b206ca197179d9cea3cfc3b39ddf91555cc41f58108b5584f02600575f1",
+      "bytes": 22864,
+      "contentType": "text/javascript; charset=utf-8"
+    },
+    "stores.js": {
+      "sha256": "2461748043d8539111ee7db1fd834e204a0e7003f6166ca62e224725af1fd65f",
+      "bytes": 6313,
       "contentType": "text/javascript; charset=utf-8"
     },
     "styles.css": {
@@ -663,8 +833,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "view.js": {
-      "sha256": "8764b4cc9a7c7921ca98fe30f5849bb6e6ff53f424f3ee5aab29429a760fdb49",
-      "bytes": 7172,
+      "sha256": "4e44c244890cbc12015863e89a6b2618c40e1ddef18932c630cdd5a43f437e82",
+      "bytes": 7961,
       "contentType": "text/javascript; charset=utf-8"
     },
     "views.css": {

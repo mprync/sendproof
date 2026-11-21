@@ -22,6 +22,7 @@ import { copyText } from './copy.js';
 import { openDisplaySettings } from './display-settings.js';
 import { openHistory } from './history-popover.js';
 import { closePopover } from './popover.js';
+import { openCoverage } from './coverage-popover.js';
 import { documentedExample, newDocsState, renderDocs } from './docs-view.js';
 import { renderModel } from './model-view.js';
 import { renderOverview } from './overview-view.js';
@@ -587,6 +588,9 @@ const handlers = {
   navigation: () => toggleNavigation(),
   palette: () => palette(),
   history: button => showHistory(button),
+  coverage: button => openCoverage(button, { capabilities: state.cap }),
+  // On a phone the docked Preview reason shows its title and the author's reason; "Why?" adds the rest.
+  'dock-why': button => { const open = button.getAttribute('aria-expanded') !== 'true'; button.setAttribute('aria-expanded', String(open)); button.closest('[data-preview-dock]')?.classList.toggle('is-open', open); },
   shortcuts: () => showShortcuts($('#overlay')),
   display: button => openDisplaySettings(button, { onLanguage: rerender }),
   close: () => { $('#overlay').innerHTML = ''; },

@@ -3,6 +3,7 @@
 // Terminology: solicitud, respuesta, campo, esquema, propiedad, atributo, parámetro, operación, modelo,
 // iniciar sesión, vista previa, enviar. Informal "tú" imperative; quotes are « ».
 import capture from './es-capture.js';
+import stores from './es-stores.js';
 
 const p = (one, other) => ({ one, many: other, other });
 
@@ -13,6 +14,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'aaaa' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'luego',
     'unit.bytes': '{n} B',

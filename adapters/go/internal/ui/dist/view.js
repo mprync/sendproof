@@ -22,6 +22,16 @@ function persona(user) {
     </button>`;
 }
 
+/**
+ * The environment and its database. When discovery lists hooked data stores, the chip is a button
+ * that opens what Preview covers (coverage-popover.js); otherwise it is a label.
+ */
+function envChip(cap, database) {
+  const inner = `<span class="dot" aria-hidden="true"></span><strong>${esc(cap.environment)}</strong>${database ? `<span class="ltr">${esc(database)}</span>` : ''}`;
+  if (!(Array.isArray(cap.dataStores) && cap.dataStores.length)) return `<span class="env desktop-only">${inner}</span>`;
+  return `<button type="button" class="env desktop-only" data-action="coverage" aria-haspopup="dialog" aria-expanded="false" title="${esc(t('cov.open'))}">${inner}${icon('chevron-down', true)}</button>`;
+}
+
 function topbar(cap, info) {
   const database = typeof cap.database === 'string' ? cap.database : cap.database?.name;
   const version = info.version ? `<span class="ver">${esc(/^\d/.test(info.version) ? 'v' + info.version : info.version)}</span>` : '';
@@ -30,8 +40,8 @@ function topbar(cap, info) {
     <button type="button" class="btn btn-ghost btn-icon mobile-only" data-action="navigation" aria-label="${esc(t('shell.openOperations'))}" aria-controls="operations" aria-expanded="false">${icon('menu')}</button>
     <div class="brand"><span class="brand-mark" aria-hidden="true">${icon('bench')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
     <span class="crumb-sep desktop-only" aria-hidden="true">/</span>
-    <span class="api-switch"><span class="name" lang="en">${esc(cap.apiName || info.title || 'API')}</span>${version}</span>
-    ${cap.environment || database ? `<span class="env desktop-only"><span class="dot" aria-hidden="true"></span><strong>${esc(cap.environment)}</strong>${database ? `<span class="ltr">${esc(database)}</span>` : ''}</span>` : ''}
+    <span class="api-switch"><span class="name" lang="en" dir="auto">${esc(cap.apiName || info.title || 'API')}</span>${version}</span>
+    ${cap.environment || database ? envChip(cap, database) : ''}
     <div class="spacer"></div>
     <button type="button" class="search-trigger" data-action="palette" ${shortcutAttrs('palette')}>
       ${icon('search', true)}<span class="grow">${esc(t('shell.search'))}</span>${shortcutHint('palette')}
@@ -81,6 +91,8 @@ export function shell(capabilities, info = {}) {
           <div class="tabs scrolls"><div class="request-tabs" role="tablist" aria-label="${esc(t('shell.request'))}"></div><div class="end request-tools"></div></div>
           <div id="editor" class="form" role="tabpanel"></div>
         </div>
+        <!-- Why an operation marked preview: false can't Preview; filled by results.renderBar. -->
+        <div class="pv-dock" data-preview-dock role="note" aria-labelledby="preview-dock-title" tabindex="-1" hidden></div>
         <div class="actionbar"></div>
       </main>
       <section class="pane response" aria-labelledby="resp-title" tabindex="-1">

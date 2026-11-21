@@ -3,6 +3,7 @@
 // Terminologi: förfrågan (request), svar (response), fält, schema, logga in, förhandsgranska (Preview), skicka (Send),
 // operation, modell, egenskap (property), attribut (attribute), parameter.
 import capture from './sv-capture.js';
+import stores from './sv-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'åååå' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'sedan',
     'unit.bytes': '{n} B',

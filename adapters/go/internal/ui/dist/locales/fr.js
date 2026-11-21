@@ -3,6 +3,7 @@
 // Terminology: requête, réponse, champ, schéma, propriété, attribut, paramètre, opération, modèle,
 // se connecter, aperçu, envoyer. Punctuation follows French typography (non-breaking space before : ; ? ! and inside « »).
 import capture from './fr-capture.js';
+import stores from './fr-stores.js';
 
 const p = (one, other) => ({ one, many: other, other });
 
@@ -13,6 +14,7 @@ export default {
   dateLetters: { day: 'jj', month: 'mm', year: 'aaaa' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'puis',
     'unit.bytes': '{n} o',
