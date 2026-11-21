@@ -117,7 +117,7 @@ When the guard refuses a write, the command never reaches the store and the hand
 
 The order is fixed: each store finishes (changes captured, transactions aborted), then the SQL transaction rolls back, and every step runs even if another failed. A failed abort or rollback, a recorded fault (a handler commit, an escaped write, an unattributed write) answers 500 without confirmation; otherwise a blocked write answers 409; otherwise the Preview is confirmed. A Preview whose handler throws after a blocked write still answers 409.
 
-A raw `COMMIT`, `BEGIN` or similar statement through an EF Core context, and a handler calling `Database.CommitTransaction()` or `Database.RollbackTransaction()`, are refused during a Preview and fail it with 500 (MySQL's implicitly committing statements too). Rolling back to a savepoint stays allowed.
+A raw `COMMIT`, `BEGIN` or similar statement through an EF Core context, and a handler calling `Database.CommitTransaction()` or `Database.RollbackTransaction()`, are refused during a Preview and fail it with 500 (MySQL's implicitly committing statements too). Rolling back to a savepoint stays allowed. On MySQL and MariaDB `CALL` (and a `StoredProcedure` command), `PREPARE`/`EXECUTE`, and any statement naming the backstop savepoint `sendproof_preview` are refused as well; declare procedures that never commit with `.WithSafeProcedures("audit_touch")`, and the savepoint backstop fails any Preview whose transaction was committed by a route EF Core doesn't see (see [Sendproof.EntityFrameworkCore](Sendproof.EntityFrameworkCore/README.md#mysql-and-mariadb)).
 
 ## MySQL Previews take turns
 

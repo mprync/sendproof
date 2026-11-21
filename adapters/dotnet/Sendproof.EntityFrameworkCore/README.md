@@ -16,6 +16,34 @@ guarantee that database-generated sequence values are reclaimed. Existing transa
 and non-relational providers are not supported. Application code must not commit or
 replace the preview transaction. Preview is not a general sandbox.
 
+## MySQL and MariaDB
+
+During a Preview the command interceptor refuses, before sending, anything that would end the Preview
+transaction: `COMMIT`, `ROLLBACK`, `BEGIN`, every spelling of `SET autocommit`, MySQL's
+[implicitly committing statements](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html) (DDL,
+`LOCK TABLE(S)`, `ANALYZE`, `OPTIMIZE`, `FLUSH`, `RESET`, replication statements and the rest), SQL-level
+`PREPARE` and `EXECUTE`, and `CALL`, because a stored procedure can commit. A command of type
+`StoredProcedure` counts as a `CALL`. SQL is read as the server reads it: the body of a `/*! ... */` comment is
+SQL, `#` starts a comment, `--` starts one only before whitespace, and strings are read with and without
+backslash escapes.
+
+Declare procedures that never commit by exact name:
+
+```csharp
+builder.Services.AddSendproof().WithSafeProcedures("audit_touch", "reports.refresh_totals").AddEntityFrameworkCore<AppDbContext>();
+```
+
+> **Warning:** `WithSafeProcedures` is your statement that the procedures never commit. Sendproof trusts it: a
+> listed procedure that commits persists the Preview's writes. Names match exactly (case-insensitively), with no
+> wildcards.
+
+Plain ADO.NET commands on the context's connection (`GetDbConnection().CreateCommand()`) don't pass EF Core's
+interceptors, so they can't be refused. As a backstop the Preview makes savepoint `sendproof_preview` as soon as
+its transaction opens and rolls back to it before the final rollback. Any commit erases every savepoint, so a
+missing savepoint means the Preview's writes may have persisted: the Preview answers 500 without confirmation.
+(MySQL has no `@@in_transaction`, and with auto-commit off it opens a new transaction after a commit, so a check
+made only at the end can't see one.) Statements naming the savepoint are refused.
+
 Observed sends use the same tracked-change capture while the application manages its
 normal transactions. The EF adapter also attaches a command interceptor to the
 registered context. It records successful provider commands, their duration, typed
