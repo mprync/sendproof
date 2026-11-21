@@ -4,19 +4,37 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 
 | Store | Clients | Mode | What a Preview does |
 | --- | --- | --- | --- |
-| MongoDB replica set or sharded cluster | PyMongo, `AsyncMongoClient`, Motor | `preview` | Runs every command in one transaction, reports document changes, and aborts it. |
-| MongoDB standalone server | PyMongo, `AsyncMongoClient`, Motor | `guard` | Runs reads. The first write stops the Preview. |
+| MongoDB replica set or sharded cluster | PyMongo, `AsyncMongoClient` | `preview` | Runs every command in one transaction, reports document changes, and aborts it. |
+| MongoDB standalone server | PyMongo, `AsyncMongoClient` | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | redis-py and `redis.asyncio`, including Django's `RedisCache` | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | boto3, aioboto3, botocore | `guard` | Runs reads. The first write stops the Preview. |
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
-Install the client libraries you use; the core imports each hook on first use and needs none of them: `pip install redis`, `pip install boto3` (or `aioboto3`), `pip install pymongo` (or `motor`). The `redis`, `dynamodb` and `mongodb` extras of `sendproof-core` pull them in.
+Install the client libraries you use; the core imports each hook on first use and needs none of them: `pip install redis`, `pip install boto3` (or `aioboto3`), `pip install pymongo`. The `redis`, `dynamodb` and `mongodb` extras of `sendproof-core` pull them in.
+
+Motor is not supported: `mongo_store` refuses a Motor client with a `TypeError`. Motor is deprecated in favour of PyMongo's own `AsyncMongoClient`, and it runs PyMongo in a thread pool that drops the Preview's context, so the binding could not attribute a stray write to a Preview. Move to `AsyncMongoClient`; its API is close to Motor's.
 
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you pass to `mongo_store`, `redis_store` or `dynamodb_store`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis Cluster or Sentinel client built without the guarded connection class, a DynamoDB client made from an unhooked session, and a raw socket. Hook every client your handlers use, at startup.
+> The binding covers a store only through the client you pass to `mongo_store`, `redis_store` or `dynamodb_store`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis Cluster or Sentinel client built without the guarded connection class, a DynamoDB client made from an unhooked session (including `boto3.client(...)`, which uses boto3's default session), and a raw socket. Hook every client your handlers use, at startup. MongoDB is the exception that proves the rule: its command monitor sees every PyMongo client, so a write through an unhooked one during a Preview fails that Preview with 500 instead of passing silently.
+
+## Background work and writes outside any request
+
+The adapters mark every request they handle. While a Preview is open, a write through a hooked client (or any PyMongo client) that no request accounts for fails **every** open Preview with 500. Such a write most likely comes from a thread a Preview handler started without its context (`threading.Thread`, `loop.run_in_executor`); it was neither blocked nor rolled back, so no Preview may claim a rollback. `asyncio.create_task`, `asyncio.to_thread`, FastAPI's `run_in_threadpool` and asgiref's `sync_to_async` copy the context, so work started through them stays attributed to its request.
+
+Wrap genuine background work, such as a scheduler job or a worker thread started at startup, in `detached()` so it never fails a Preview:
+
+```python
+from sendproof_core import detached
+
+def refresh_rates():
+    with detached():
+        cache.set("rates", fetch_rates())
+```
+
+Two gaps remain. The body of a Django `StreamingHttpResponse` runs after the middleware returns, so a store write made while streaming counts as unattributed; FastAPI streams inside the request, and Flask keeps the mark until the server closes the body. And for Redis and DynamoDB only hooked clients are seen.
 
 ## Register the stores
 
@@ -65,7 +83,9 @@ Use the clients that match your handlers.
 - **Django** runs the Preview in a synchronous middleware. An `async` view reaches a store through `sync_to_async`, which copies the scope too. Use the synchronous clients.
 - **Flask** is synchronous. Use the synchronous clients.
 
-An asynchronous MongoDB client (`AsyncMongoClient`, Motor) needs the ASGI adapter; Flask and Django refuse it.
+An asynchronous MongoDB client (`AsyncMongoClient`) needs the ASGI adapter; under Flask and Django every Preview with it fails with 500.
+
+Every cleanup step runs, whatever ends the handler: an exception, the MongoDB time limit, a client that disconnects, or task cancellation (`asyncio.CancelledError` is a `BaseException`). Each store is aborted, SQL is rolled back and the transaction released, even when one of those steps itself raises; the Preview then answers 500, or the interrupt propagates once cleanup is done.
 
 ### MongoDB
 
@@ -79,16 +99,18 @@ def read(id: str):
     return catalog.client["shop"]["documents"].find_one({"_id": id})
 ```
 
-- **Create the client after importing `sendproof_core.stores.mongo_store`** (importing the hook registers a global command listener), or pass `event_listeners=[mongo_monitor]` to a client you build earlier. The store relies on command monitoring and refuses a client that lacks it.
-- During a Preview, every database and collection method adds the Preview session to its call. A call that passes its own session is refused, and the Preview answers 500.
-- `catalog.client.start_session()` hands out the Preview's session. Its `start_transaction()` and `with_transaction()` run inside the Preview transaction; its `commit_transaction()` and `abort_transaction()` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`. A raw `{"commitTransaction": 1}` or `{"abortTransaction": 1}` command through `db.command()` is refused the same way. The session object exposes only read-only members, so handler code cannot reach the driver session that would commit.
+- **Create the client after importing `sendproof_core.stores.mongo_hook`** (importing the hook registers a global command listener), or pass `event_listeners=[mongo_monitor]` to a client you build earlier. The store refuses a client built without the listener, and a Preview never begins (it answers 500) until the listener has seen the guarded client's own detection `hello`: that proves the tripwire below is installed on that client.
+- During a Preview, every database and collection method adds the Preview session to its call. A call that passes its own session is refused, and the Preview answers 500. Handles derived from a guarded one (`with_options`, `get_database` and `get_collection` with options, `.database`, `.client`) are guarded too.
+- `catalog.client.start_session()` hands out a view of the Preview's session. Its `start_transaction()` and `with_transaction()` run inside the Preview transaction; its `commit_transaction()` and `abort_transaction()` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`; `end_session()` leaves the session to the Preview. A raw `{"commitTransaction": 1}` or `{"abortTransaction": 1}` command through `db.command()` is refused the same way.
+- The driver hands the Preview's own session back on cursors (`cursor.session`). That session is sealed for the Preview: its `commit_transaction()` and `abort_transaction()` are refused before anything is sent and fail the Preview with 500, and its `end_session()` does nothing. Only the binding ends the transaction.
+- `db.command("aggregate", "documents", pipeline=[...])` is classified with its keyword fields, so an `$out` or `$merge` passed that way is blocked like any other.
 - A method the binding does not know is refused during a Preview rather than let through, so a new driver method fails closed.
 - A Preview may hold its transaction for `preview_timeout` seconds, 50 by default (below MongoDB's 60-second transaction lifetime): `mongo_store(client, preview_timeout=30)`. A handler still running at the limit loses the transaction: its later commands fail, nothing commits, and the Preview answers 500.
-- Motor runs PyMongo in a thread pool that does not carry the Preview's context. For Motor the binding attributes a command to its Preview by the session it carries, so everything sent through the guarded client is covered. A stray write through an unguarded Motor client cannot be attributed to a Preview, so the tripwire below does not see it.
+- Objects the driver returns other than databases, collections and sessions are the driver's own. `cursor.collection` is a raw collection, and GridFS (`gridfs.GridFS`, `GridFSBucket`) accepts only a raw database. A write through either carries no Preview session: the tripwire fails the Preview with 500, but the write has already happened. Write through the guarded handles.
 
 Command monitoring backs the guarded client up as a **tripwire**. A write sent during a Preview without the Preview's session and `autocommit: false` (through the raw client, or a call that passed another session) has already reached the server and cannot be undone, so the Preview fails with 500 and is never confirmed. The same goes for a `commitTransaction` that reaches the server, which may have committed the Preview's writes. The tripwire also covers any other client created after the hook was imported, which is why an unhooked PyMongo client that writes during a Preview fails the Preview instead of passing silently.
 
-Beanie and MongoEngine are not covered: they build on their own client objects. Use the guarded client with PyMongo or Motor directly.
+Beanie and MongoEngine are not covered: they build on their own client objects. Use the guarded client with PyMongo or `AsyncMongoClient` directly.
 
 ### Redis
 
@@ -112,7 +134,7 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache", 
 # django-redis: OPTIONS -> CONNECTION_POOL_KWARGS -> {"connection_class": cache.connection_class}
 ```
 
-`cache.guard_connection_class(redis.SSLConnection)` guards another connection class. Redis Cluster and Sentinel clients take the same `connection_class`; only the standalone client is tested here. Django's cache `set`, `add` and `delete` are writes, which the guard correctly blocks in a Preview; `get` is a read.
+`cache.guard_connection_class(redis.SSLConnection)` guards another connection class. Redis Cluster and Sentinel clients take the same `connection_class`; `redis_store(cluster_client)` is refused with a `TypeError`, because a cluster keeps a pool per node. A cluster pipeline sends each node's batch only after classifying it, so a refused write sends nothing and redis-py closes any connection left waiting for replies. Only the standalone client is tested here. Django's cache `set`, `add` and `delete` are writes, which the guard correctly blocks in a Preview; `get` is a read.
 
 Session commands (`AUTH`, `HELLO`, `SELECT`, `CLIENT SETINFO`…) are never guarded or logged, so the password never reaches a capture.
 
@@ -188,7 +210,7 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command, a container command's subcommand and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Redis entries have no timing or reply data, because the hook sees a command before it is sent. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command, a container command's subcommand and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Redis entries carry the time to the reply and, for a refused command, the Redis error code only (`WRONGTYPE`, `ERR`), never the rest of the message; redis-py reads one reply per command it sends, so the hook pairs them on each connection. A connection in pub/sub or `MONITOR` mode receives messages nobody asked for, so its commands are logged untimed. Session commands such as `AUTH` and `hello` are never logged.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{"_id": …}` as `key`, and whole nested documents as `before` and `after`, with BSON types in MongoDB Extended JSON (`{"$oid": …}`, `{"$date": …}`). A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 

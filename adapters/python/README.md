@@ -23,7 +23,7 @@ unless you opt in.
 ## Data stores
 
 Preview also covers MongoDB (rolled back in its own transaction), Redis and DynamoDB (writes are
-blocked), for PyMongo, `AsyncMongoClient`, Motor, redis-py, `redis.asyncio`, boto3 and aioboto3. See
+blocked), for PyMongo, `AsyncMongoClient`, redis-py, `redis.asyncio`, boto3 and aioboto3 (Motor is refused). See
 [Data stores in the Python binding](data-stores.md) for setup, `@preview(False, reason=...)` and the
 coverage warning: only hooked clients are covered.
 
