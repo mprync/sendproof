@@ -101,10 +101,14 @@ module Sendproof
           failure = combine(failure, error)
         end
 
-        # Every store finishes before the SQL rollback, and one that fails never stops the others.
+        # Every store finishes before the SQL rollback, and one that fails, however it fails, never stops
+        # the others or the rollback.
         @config.data_stores.each do |store|
           store.finish_preview(recorder) if store.respond_to?(:finish_preview)
         rescue StandardError => error
+          failure = combine(failure, error)
+        rescue Exception => error # rubocop:disable Lint/RescueException -- the rollback must still run
+          escaped ||= error
           failure = combine(failure, error)
         end
 

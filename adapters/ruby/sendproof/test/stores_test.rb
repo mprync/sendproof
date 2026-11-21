@@ -216,6 +216,26 @@ class StoresTest < Minitest::Test
     assert_equal [:rollback, :close], @provider.sessions.last.log
   end
 
+  # One store's cleanup failing, however it fails, must not skip the other stores or the SQL rollback.
+  def test_a_store_whose_finish_raises_any_error_never_skips_the_other_stores_or_the_rollback
+    first = FakeStore.new(system: "mongodb")
+    first.finish_error = Interrupted.new("abort interrupted")
+    config = build_config
+    provider = CoreHelpers::FakeProvider.new
+    config.use(provider)
+    config.data_store(first)
+    config.data_store(@store)
+    config.preview_operations = [%w[GET /read]]
+    store = @store
+    application = lambda do |env|
+      Sendproof::Handler.around(env, request: Rack::Request.new(env), eligible: true) { store.send_command("GET", "k"); [200, {}, ["ok"]] }
+    end
+    request = Rack::MockRequest.new(Rack::Builder.app { use(Sendproof::Middleware, config); run(application) })
+    assert_raises(Interrupted) { request.get("/sendproof/_preview/read", PREVIEW) }
+    assert_equal [:begin, :finish], @store.events
+    assert_equal [:rollback, :close], provider.sessions.last.log
+  end
+
   def test_the_guard_never_blocks_outside_a_preview
     assert_nil Sendproof::Stores::Guard.guard("redis", "INCR", :write)
     @store.send_command("INCR", "k")
