@@ -30,12 +30,14 @@ from __future__ import annotations
 
 import inspect
 import re
+import time
+from collections import deque
 from typing import Any, Iterable, Optional
 
 from ..scope import current_scope
 from .base import DataStore
-from .classify import READ, SESSION, TRANSACTION, WRITE, classify_redis
-from .guard import PreviewWriteBlocked, guard, read_set, store_label
+from .classify import SESSION, TRANSACTION, WRITE, classify_redis
+from .guard import PreviewWriteBlocked, guard, read_set, store_label, unattributed_write
 
 # Commands whose every argument is a key.
 _ALL_KEYS = frozenset({
@@ -135,14 +137,45 @@ class _Settings:
         self.reads = reads
 
 
+#: Commands after which a connection receives messages it never asked for, so replies no longer
+#: pair one-to-one with commands: such a connection logs its commands untimed, as they are sent.
+_PUSH_MODE = frozenset({"SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "MONITOR"})
+
+#: One command waiting for its reply: the capture to log it in, then the ``Db`` entry's fields.
+_Entry = tuple  # (capture, name, target, namespace, statement)
+
+
+def _error_code(error: BaseException) -> str:
+    """The Redis error code of a refused command (``WRONGTYPE``, ``ERR``), or the error's class name.
+
+    Only the code is kept: the rest of an error message may quote a key or a value.
+    """
+    from redis.exceptions import ResponseError
+
+    if type(error) is ResponseError:
+        word = str(error).split(" ", 1)[0]
+        return word if re.fullmatch(r"[A-Z][A-Z_]{1,31}", word) else "ERR"
+    return type(error).__name__
+
+
 class _GuardBase:
-    """What the synchronous and asynchronous guarded connections share: classify, guard, log."""
+    """What the synchronous and asynchronous guarded connections share: classify, guard, log.
+
+    Logging pairs replies with commands. redis-py reads exactly one reply for each command it sends
+    (pipelines and ``MULTI`` included), so each sent command waits in a queue on its connection and
+    its ``Db`` entry is written when its reply arrives, with the time it took and the Redis error
+    code if it failed. A connection in pub/sub or ``MONITOR`` mode receives replies nobody asked
+    for, so from then on it logs each command as it is sent, without timing.
+    """
 
     _sendproof_settings: _Settings = _Settings(None)
     _sendproof_handshake = 0
     _sendproof_skip = False
     _sendproof_in_multi = False
     _sendproof_dirty = False
+    _sendproof_untimed = False
+    _sendproof_staged: Optional[list[Optional[_Entry]]] = None
+    _sendproof_waiting: Optional[deque] = None
 
     def _sendproof_kind(self, command: Iterable[Any]) -> tuple[str, str, list[Any], str]:
         items = list(command)
@@ -155,8 +188,14 @@ class _GuardBase:
         return None if database is None else str(database)
 
     def _sendproof_check(self, commands: list[Iterable[Any]], single: bool) -> None:
-        """Classify ``commands`` as one batch, refuse the first write, then log what will be sent."""
-        if self._sendproof_handshake or not commands:
+        """Classify ``commands`` as one batch and refuse the first write, then stage their log entries
+        for :meth:`_sendproof_sent`."""
+        if not commands:
+            return
+        if self._sendproof_handshake:
+            # A pub/sub client re-subscribes while it reconnects: its replies stop pairing from here.
+            if any(_split(command)[0] in _PUSH_MODE for command in commands):
+                self._sendproof_untimed, self._sendproof_waiting = True, None
             return
         classified = [self._sendproof_kind(command) for command in commands]
         try:
@@ -166,23 +205,90 @@ class _GuardBase:
             if self._sendproof_in_multi:
                 self._sendproof_abandon()
             raise
+        scope = current_scope()
+        if scope is None and any(kind == WRITE for kind, *_ in classified):
+            unattributed_write("redis", next(name for kind, name, *_ in classified if kind == WRITE))
         if single:
             kind, name, _args, _full = classified[0]
             if kind == TRANSACTION:
                 self._sendproof_in_multi = name == "MULTI" or (self._sendproof_in_multi and name not in ("EXEC", "DISCARD"))
-        scope = current_scope()
-        if scope is None:
-            return
+        staged: list[Optional[_Entry]] = []
         for kind, name, args, _full in classified:
-            if kind in (SESSION, TRANSACTION):
+            if scope is None or kind in (SESSION, TRANSACTION):
+                staged.append(None)  # still holds the reply's place in the queue
                 continue
             statement, target = describe_command(name, args)
-            scope.capture.record_db(
-                "redis", name, target=target, namespace=self._sendproof_namespace(), statement=statement,
-            )
+            staged.append((scope.capture, name, target, self._sendproof_namespace(), statement))
+        if any(name in _PUSH_MODE for _kind, name, _args, _full in classified):
+            self._sendproof_untimed = True
+            self._sendproof_waiting = None
+        # Each packed batch is sent by exactly one send_packed_command, so the latest batch replaces
+        # any that was packed and never sent.
+        self._sendproof_staged = staged
+
+    # -- pairing replies with commands
+    def _sendproof_take(self) -> Optional[list[Optional[_Entry]]]:
+        """The entries of the batch about to be sent. Taken before sending, so a health-check ``PING``
+        the driver sends first stages and pairs its own entry."""
+        staged, self._sendproof_staged = self._sendproof_staged, None
+        return staged
+
+    def _sendproof_sent(self, staged: Optional[list[Optional[_Entry]]], error: Optional[BaseException]) -> None:
+        """Queue a sent batch for its replies, or log it now when it failed to send or replies can't be paired."""
+        if not staged:
+            return
+        if error is not None or self._sendproof_untimed:
+            for entry in staged:
+                self._sendproof_log(entry, None, None if error is None else type(error).__name__)
+            return
+        now = time.perf_counter()
+        waiting = self._sendproof_waiting
+        if waiting is None:
+            waiting = self._sendproof_waiting = deque()
+        waiting.extend((entry, now) for entry in staged)
+
+    def _sendproof_replied(self, error: Optional[BaseException]) -> None:
+        """Log the oldest command waiting on this connection, now that its reply (or error) arrived."""
+        waiting = self._sendproof_waiting
+        if not waiting:
+            return
+        entry, sent = waiting.popleft()
+        self._sendproof_log(entry, (time.perf_counter() - sent) * 1000, None if error is None else _error_code(error))
+        if error is not None and not _is_reply_error(error):
+            self._sendproof_flush(error)  # the connection failed: no other reply is coming
+
+    def _sendproof_flush(self, error: Optional[BaseException]) -> None:
+        """Log every command still waiting, with the error that ended the connection.
+
+        Called when the connection closes, which also ends pub/sub mode: a pooled connection a
+        ``PubSub`` released pairs replies again on its next use.
+        """
+        self._sendproof_untimed = False
+        waiting, self._sendproof_waiting = self._sendproof_waiting, None
+        for entry, _sent in waiting or ():
+            self._sendproof_log(entry, None, type(error).__name__ if error is not None else "ConnectionError")
+
+    def _sendproof_pairs(self, kwargs: dict) -> bool:
+        """Whether this read answers a command: not during the handshake, and not a push-message read."""
+        return not self._sendproof_handshake and not kwargs.get("push_request")
+
+    @staticmethod
+    def _sendproof_log(entry: Optional[_Entry], elapsed_ms: Optional[float], error: Optional[str]) -> None:
+        if entry is None:
+            return
+        capture, name, target, namespace, statement = entry
+        capture.record_db("redis", name, target=target, namespace=namespace, statement=statement,
+                          elapsed_ms=elapsed_ms, error=error)
 
     def _sendproof_abandon(self) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
+
+
+def _is_reply_error(error: BaseException) -> bool:
+    """A refusal Redis sent as its reply, after which the connection is still in step."""
+    from redis.exceptions import ResponseError
+
+    return isinstance(error, ResponseError)
 
 
 class _SyncGuard(_GuardBase):
@@ -229,6 +335,31 @@ class _SyncGuard(_GuardBase):
         finally:
             self._sendproof_handshake -= 1
 
+    def send_packed_command(self, command: Any, check_health: bool = True) -> Any:
+        staged = self._sendproof_take()
+        try:
+            result = super().send_packed_command(command, check_health)  # type: ignore[misc]
+        except BaseException as error:
+            self._sendproof_sent(staged, error)
+            raise
+        self._sendproof_sent(staged, None)
+        return result
+
+    def read_response(self, *args: Any, **kwargs: Any) -> Any:
+        if not self._sendproof_pairs(kwargs):
+            return super().read_response(*args, **kwargs)  # type: ignore[misc]
+        try:
+            response = super().read_response(*args, **kwargs)  # type: ignore[misc]
+        except Exception as error:
+            self._sendproof_replied(error)
+            raise
+        self._sendproof_replied(None)
+        return response
+
+    def disconnect(self, *args: Any, **kwargs: Any) -> Any:
+        self._sendproof_flush(None)
+        return super().disconnect(*args, **kwargs)  # type: ignore[misc]
+
     def _sendproof_abandon(self) -> None:
         """Close the socket: a write refused after ``MULTI`` must not be followed by an ``EXEC``."""
         self._sendproof_in_multi = False
@@ -271,10 +402,32 @@ class _AsyncGuard(_GuardBase):
             self._sendproof_handshake -= 1
 
     async def send_packed_command(self, command: Any, check_health: bool = True) -> Any:
+        staged = self._sendproof_take()
         if self._sendproof_dirty:
             self._sendproof_dirty = False
             await self.disconnect()  # type: ignore[attr-defined]
-        return await super().send_packed_command(command, check_health)  # type: ignore[misc]
+        try:
+            result = await super().send_packed_command(command, check_health)  # type: ignore[misc]
+        except BaseException as error:
+            self._sendproof_sent(staged, error)
+            raise
+        self._sendproof_sent(staged, None)
+        return result
+
+    async def read_response(self, *args: Any, **kwargs: Any) -> Any:
+        if not self._sendproof_pairs(kwargs):
+            return await super().read_response(*args, **kwargs)  # type: ignore[misc]
+        try:
+            response = await super().read_response(*args, **kwargs)  # type: ignore[misc]
+        except Exception as error:
+            self._sendproof_replied(error)
+            raise
+        self._sendproof_replied(None)
+        return response
+
+    async def disconnect(self, *args: Any, **kwargs: Any) -> Any:
+        self._sendproof_flush(None)
+        return await super().disconnect(*args, **kwargs)  # type: ignore[misc]
 
     def _sendproof_abandon(self) -> None:
         """Close the socket before the next send: a write refused after ``MULTI`` must not be followed by an ``EXEC``."""
@@ -376,6 +529,8 @@ def redis_store(
     if client is not None:
         pool = getattr(client, "connection_pool", client)
         if not hasattr(pool, "connection_class"):
-            raise TypeError("redis_store takes a redis-py client or connection pool.")
+            raise TypeError(
+                "redis_store takes a redis-py client or connection pool. A Redis Cluster client has a pool per node: "
+                "call redis_store(name=...) first and build the cluster with connection_class=store.connection_class.")
         _hook_pool(pool, settings)
     return store

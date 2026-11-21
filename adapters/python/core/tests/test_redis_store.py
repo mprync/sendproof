@@ -136,6 +136,81 @@ def test_db_statements_keep_keys_and_never_values_and_session_commands_are_not_l
     other.close()
 
 
+def test_db_entries_carry_the_time_to_reply_and_the_redis_error_code(hooked, prefix):
+    client, _ = hooked
+    key = prefix + "typed"
+    with active(observed_scope()) as scope:
+        client.set(key, "a string")
+        with pytest.raises(redis.ResponseError):
+            client.lpush(key, "x")  # WRONGTYPE: the reply is an error
+        pipe = client.pipeline(transaction=False)
+        pipe.get(key).incr(key).get(key)
+        results = pipe.execute(raise_on_error=False)
+        pubsub = client.pubsub()
+        pubsub.subscribe(prefix + "news")  # from here this connection's replies don't pair with commands
+        pubsub.get_message(timeout=1)
+        pubsub.close()
+        client.get(key)
+        entries = db_entries(scope, "redis")
+    assert isinstance(results[1], redis.ResponseError)
+    by_operation = [(e["db"]["operation"], e["db"].get("error")) for e in entries]
+    assert by_operation == [("SET", None), ("LPUSH", "WRONGTYPE"), ("GET", None), ("INCRBY", "ERR"), ("GET", None),
+                            ("SUBSCRIBE", None), ("GET", None)]
+    timed = [e for e in entries if e["db"]["operation"] != "SUBSCRIBE"]
+    assert all(isinstance(e.get("elapsedMs"), float) for e in timed)
+    assert "a string" not in repr(entries) and "not an integer" not in repr(entries)
+
+
+async def test_async_db_entries_carry_the_time_to_reply_and_the_error_code(prefix):
+    client = aredis.Redis.from_url(REDIS_URL)
+    redis_store(client)
+    key = prefix + "atyped"
+    with active(observed_scope()) as scope:
+        await client.set(key, "a string")
+        with pytest.raises(redis.ResponseError):
+            await client.lpush(key, "x")
+        async with client.pipeline(transaction=True) as pipe:
+            await pipe.get(key).set(key, "b").execute()
+        entries = db_entries(scope, "redis")
+    assert [(e["db"]["operation"], e["db"].get("error")) for e in entries] == [
+        ("SET", None), ("LPUSH", "WRONGTYPE"), ("GET", None), ("SET", None)]
+    assert all(isinstance(e.get("elapsedMs"), float) for e in entries)
+    await client.aclose()
+
+
+def test_a_write_no_request_accounts_for_fails_every_open_preview(hooked, reader, prefix):
+    """A thread a handler started without its context writes unguarded: no open Preview may be confirmed."""
+    import threading
+
+    from sendproof_core import detached
+    from sendproof_core.scope import request_context
+
+    client, _ = hooked
+
+    def in_thread(body):
+        thread = threading.Thread(target=body)
+        thread.start()
+        thread.join()
+
+    def worker():
+        with detached():
+            client.set(prefix + "worker", 1)
+
+    def request():
+        with request_context():
+            client.set(prefix + "request", 1)
+
+    with active(preview_scope()) as accounted, active(preview_scope()) as other:
+        in_thread(worker)
+        in_thread(request)
+        in_thread(lambda: client.get(prefix + "worker"))  # reads are never a problem
+        assert accounted.capture.fault is None and other.capture.fault is None
+        in_thread(lambda: client.set(prefix + "stray", 1))
+    assert accounted.capture.fault is not None and other.capture.fault is not None  # every open Preview
+    assert "outside any request" in str(accounted.capture.fault)
+    client.set(prefix + "idle", 1)  # no Preview open: nothing to fail
+
+
 def test_treat_as_read_lets_an_exact_command_through():
     client = redis.Redis.from_url(REDIS_URL)
     redis_store(client, treat_as_read=["objectish"])
