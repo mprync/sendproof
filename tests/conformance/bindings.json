@@ -159,6 +159,8 @@
     {
       "id": "node-fastify",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5353,
       "readiness": "/ready",
@@ -173,6 +175,8 @@
     {
       "id": "node-hono",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5354,
       "readiness": "/ready",
@@ -187,6 +191,8 @@
     {
       "id": "node-nestjs",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5355,
       "readiness": "/ready",
