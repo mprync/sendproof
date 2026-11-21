@@ -17,19 +17,24 @@ public static class SendproofExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         var options = services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(SendproofOptions))?.ImplementationInstance as SendproofOptions;
+        CaptureContext capture;
         if (options is null)
         {
             options = new SendproofOptions();
             services.AddSingleton(options);
             services.TryAddScoped<SendproofPreview>();
-            services.TryAddSingleton<CaptureContext>();
+            // An instance, not a type registration, so hooks built before the container exists can bind to this host's slot.
+            capture = new CaptureContext();
+            services.TryAddSingleton(capture);
             services.TryAddSingleton<ObservedTraceStore>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, CaptureLoggerProvider>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, PreviewStartupFilter>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<MatcherPolicy, PreviewEndpointPolicy>());
         }
 
-        return new SendproofBuilder(services, options);
+        capture = services.Last(descriptor => descriptor.ServiceType == typeof(CaptureContext)).ImplementationInstance as CaptureContext ??
+            throw new InvalidOperationException("Sendproof's capture slot was registered without an instance.");
+        return new SendproofBuilder(services, options, capture);
     }
 
     /// <summary>Maps Sendproof under /sendproof in the configured environments.</summary>

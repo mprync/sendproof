@@ -7,11 +7,18 @@ public sealed class SendproofBuilder
 {
     private readonly SendproofOptions _options;
 
-    internal SendproofBuilder(IServiceCollection services, SendproofOptions options)
+    internal SendproofBuilder(IServiceCollection services, SendproofOptions options, CaptureContext capture)
     {
         Services = services;
         _options = options;
+        Capture = capture;
     }
+
+    /// <summary>
+    /// Gets this host's capture slot. Data-store packages bind their hooks to it when they register, so a hook built
+    /// outside the container (an AWS SDK pipeline handler, a driver event subscriber) still finds the current Preview.
+    /// </summary>
+    internal CaptureContext Capture { get; }
 
     /// <summary>Gets the host application's service collection.</summary>
     public IServiceCollection Services { get; }
