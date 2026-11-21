@@ -30,6 +30,23 @@ const (
 	DialectSQLServer
 )
 
+// System returns the provider id that discovery publishes as `database.system`,
+// matching the workbench's store marks: "sqlite", "postgresql", "mysql" or
+// "sqlserver". It is empty for DialectAuto.
+func (d Dialect) System() string {
+	switch d {
+	case DialectSQLite:
+		return "sqlite"
+	case DialectPostgres:
+		return "postgresql"
+	case DialectMySQL:
+		return "mysql"
+	case DialectSQLServer:
+		return "sqlserver"
+	}
+	return ""
+}
+
 // String returns the dialect's display name.
 func (d Dialect) String() string {
 	switch d {

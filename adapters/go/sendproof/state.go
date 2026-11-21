@@ -37,11 +37,28 @@ type requestState struct {
 	session   Session
 	failure   error
 
+	// Data stores (spec/data-stores.md). blocked is the first refused write and
+	// fault a refused transaction-control command; both outlive the handler, so
+	// the pipeline reads them, never the handler's response. stores holds the
+	// per-Preview state of each hooked store, and changes the documents and keys
+	// they report.
+	blocked          *blockedWrite
+	fault            error
+	stores           []storeEntry
+	changes          []Change
+	changesTruncated bool
+
 	// Observed send.
 	owner       traceOwner
 	reservation *reservation
 	observation Observation
 	valid       bool
+}
+
+// storeEntry pairs a hooked store with the state it prepared for one Preview.
+type storeEntry struct {
+	store   DataStore
+	preview StorePreview
 }
 
 func stateFrom(ctx context.Context) *requestState {

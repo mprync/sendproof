@@ -26,6 +26,8 @@ type config struct {
 	principal     func(*http.Request) (Principal, bool)
 	access        func(*http.Request) bool
 	providers     []Provider
+	stores        []DataStore
+	framework     string
 	pathBase      string
 	traceTTL      time.Duration
 	clock         func() time.Time
@@ -44,6 +46,7 @@ func defaultConfig() config {
 		openAPIURL:   "/openapi/v1.json",
 		environment:  environment,
 		environments: []string{"Development"},
+		framework:    "net/http",
 		traceTTL:     5 * time.Minute,
 		clock:        time.Now,
 		logger:       slog.Default(),

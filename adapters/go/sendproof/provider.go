@@ -68,14 +68,23 @@ type Observation interface {
 type Change struct {
 	// Operation is "insert", "update" or "delete".
 	Operation string `json:"operation"`
-	// Table is the affected table.
+	// Store is the store id ("mongodb", "redis", "dynamodb") for a non-SQL change,
+	// and empty for the SQL database.
+	Store string `json:"store,omitempty"`
+	// Namespace is the database a non-SQL change belongs to.
+	Namespace string `json:"namespace,omitempty"`
+	// Table is the affected table, MongoDB collection or Redis key prefix.
 	Table string `json:"table"`
-	// Key identifies the row, for example {"id":"a"}. Composite keys have several members.
+	// Key identifies the row, for example {"id":"a"}. Composite keys have several
+	// members. A document change uses {"_id": ...}.
 	Key any `json:"key"`
 	// Before holds the previous row values, or nil for an insert.
 	Before any `json:"before"`
 	// After holds the new row values, or nil for a delete.
 	After any `json:"after"`
+	// Via says how the change was made when the operation hides it: "upsert" or
+	// "replace". It is empty for an ordinary insert, update or delete.
+	Via string `json:"via,omitempty"`
 }
 
 // Principal is the authenticated identity of a request, resolved by the host.

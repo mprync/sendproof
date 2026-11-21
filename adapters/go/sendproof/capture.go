@@ -124,7 +124,10 @@ func snapshotChanges(changes []Change) (result []Change, truncated bool) {
 			break
 		}
 		truncated = truncated || !keyOK || !beforeOK || !afterOK || operation != change.Operation || table != change.Table
-		result = append(result, Change{Operation: operation, Table: table, Key: key, Before: before, After: after})
+		result = append(result, Change{
+			Operation: operation, Store: clip(change.Store, maxName), Namespace: clip(change.Namespace, maxName),
+			Table: table, Key: key, Before: before, After: after, Via: clip(change.Via, maxName),
+		})
 	}
 	return result, truncated
 }
@@ -140,35 +143,87 @@ func snapshotValue(value any) (any, bool) {
 	return redactSecretMembers(raw), true
 }
 
-// redactSecretMembers hides the values of the secret-named members of a row
-// snapshot, such as password_hash or api_key, the way SQL parameters with those
-// names are hidden. Values other than JSON objects are returned unchanged.
+// redactSecretMembers hides the values of the secret-named members of a row or
+// document snapshot, such as password_hash or api_key, at any depth, the way SQL
+// parameters with those names are hidden. Member order is kept. Values that are
+// not JSON objects or arrays are returned unchanged.
 func redactSecretMembers(raw json.RawMessage) json.RawMessage {
 	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+	if len(trimmed) == 0 || trimmed[0] != '{' && trimmed[0] != '[' {
 		return raw
 	}
-	var members map[string]json.RawMessage
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 	decoder.UseNumber()
-	if decoder.Decode(&members) != nil {
-		return raw
-	}
+	var out bytes.Buffer
 	changed := false
-	for name := range members {
-		if IsSecretName(name) {
-			members[name] = json.RawMessage(`"` + redactedValue + `"`)
-			changed = true
-		}
-	}
-	if !changed {
+	if redactValue(decoder, &out, &changed) != nil || !changed {
 		return raw
 	}
-	encoded, err := json.Marshal(members)
+	return out.Bytes()
+}
+
+// redactValue copies the next JSON value from decoder to out, replacing the value
+// of every secret-named object member.
+func redactValue(decoder *json.Decoder, out *bytes.Buffer, changed *bool) error {
+	token, err := decoder.Token()
 	if err != nil {
-		return raw
+		return err
 	}
-	return encoded
+	delim, isDelim := token.(json.Delim)
+	if !isDelim {
+		encoded, err := json.Marshal(token)
+		if err != nil {
+			return err
+		}
+		out.Write(encoded)
+		return nil
+	}
+	switch delim {
+	case '{':
+		out.WriteByte('{')
+		for first := true; decoder.More(); first = false {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, _ := keyToken.(string)
+			if !first {
+				out.WriteByte(',')
+			}
+			key, _ := json.Marshal(name)
+			out.Write(key)
+			out.WriteByte(':')
+			if IsSecretName(name) {
+				var skipped json.RawMessage
+				if err := decoder.Decode(&skipped); err != nil {
+					return err
+				}
+				out.WriteString(`"` + redactedValue + `"`)
+				*changed = true
+			} else if err := redactValue(decoder, out, changed); err != nil {
+				return err
+			}
+		}
+		if _, err := decoder.Token(); err != nil { // the closing brace
+			return err
+		}
+		out.WriteByte('}')
+	case '[':
+		out.WriteByte('[')
+		for first := true; decoder.More(); first = false {
+			if !first {
+				out.WriteByte(',')
+			}
+			if err := redactValue(decoder, out, changed); err != nil {
+				return err
+			}
+		}
+		if _, err := decoder.Token(); err != nil { // the closing bracket
+			return err
+		}
+		out.WriteByte(']')
+	}
+	return nil
 }
 
 func rawSize(value any) int {

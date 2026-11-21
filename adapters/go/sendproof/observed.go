@@ -64,12 +64,11 @@ func (s *requestState) enterObserved(r *http.Request, op *Operation) {
 	if !ok || bench.authorize(r) != 0 {
 		return
 	}
-	provider := bench.provider()
-	if provider == nil {
+	if !bench.previewReady() {
 		return
 	}
 	var observation Observation
-	if observing, ok := provider.(ObservingProvider); ok {
+	if observing, ok := bench.provider().(ObservingProvider); ok {
 		var err error
 		if observation, err = observing.Observe(context.WithoutCancel(r.Context())); err != nil {
 			bench.cfg.logger.Warn("Sendproof could not start observing the send", "error", err)

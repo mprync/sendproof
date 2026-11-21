@@ -59,7 +59,7 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 		reject(w, status, title)
 		return
 	}
-	if b.provider() == nil {
+	if !b.previewReady() {
 		reject(w, http.StatusServiceUnavailable, "Preview requires one available preview provider.")
 		return
 	}
@@ -100,24 +100,54 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 	var envelope *previewEnvelope
 	state.mu.Lock()
 	session, invoked, completed, beginFailure := state.session, state.invoked, state.completed, state.failure
+	stores := append([]storeEntry(nil), state.stores...)
 	state.mu.Unlock()
 	handlerFailure := errors.Join(failure, beginFailure)
 	var cleanupFailure error
-	if session != nil {
-		cleanupFailure = session.Rollback(cleanup)
-		if cleanupFailure == nil && handlerFailure == nil && completed && !capture.exceeded {
-			envelope = b.buildEnvelope(capture, session, state.rec.finish())
+	if invoked {
+		// Pipeline order (spec/data-stores.md): abort every store transaction, then
+		// roll back SQL. Both always run, so one failure never leaves the other open.
+		for _, entry := range stores {
+			if entry.preview != nil {
+				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Finish(cleanup))
+			}
+		}
+		if session != nil {
+			cleanupFailure = errors.Join(cleanupFailure, session.Rollback(cleanup))
+		}
+		blocked, fault := state.outcome()
+		if cleanupFailure == nil && fault == nil && blocked == nil && handlerFailure == nil && completed && !capture.exceeded {
+			envelope = b.buildEnvelope(capture, session, state, state.rec.finish())
 		}
 		if state.rec.isActive() {
 			state.rec.finish()
 		}
-		cleanupFailure = errors.Join(cleanupFailure, session.Close())
+		for _, entry := range stores {
+			if entry.preview != nil {
+				cleanupFailure = errors.Join(cleanupFailure, entry.preview.Close())
+			}
+		}
+		if session != nil {
+			cleanupFailure = errors.Join(cleanupFailure, session.Close())
+		}
 	}
 	if r.Context().Err() != nil {
 		return
 	}
-	// A failed rollback or disposal always withholds confirmation. A response that
-	// is too large is reported as such even if the handler then failed on the write error.
+	blocked, fault := state.outcome()
+	// A failed rollback, abort or disposal, or a refused transaction-control
+	// command, always withholds confirmation, and outranks a blocked write.
+	if fault != nil {
+		cleanupFailure = errors.Join(cleanupFailure, fault)
+	}
+	if cleanupFailure == nil && blocked != nil && beginFailure == nil && (failure == nil || isBlockedFailure(failure)) {
+		// The record decides, not the handler: a handler that caught the refusal and
+		// returned 200, or panicked with it, still gets the 409.
+		serveBlocked(w, *blocked)
+		return
+	}
+	// A response that is too large is reported as such even if the handler then
+	// failed on the write error.
 	if cleanupFailure != nil || handlerFailure != nil && !capture.exceeded {
 		b.cfg.logger.Error("a Sendproof preview failed", "method", r.Method, "path", r.URL.Path,
 			"error", errors.Join(handlerFailure, cleanupFailure))
@@ -153,13 +183,39 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 // override middleware cannot run an operation other than the checked one.
 var methodOverrideHeaders = []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"}
 
-// buildEnvelope assembles the confirmed result after a successful rollback.
-func (b *Sendproof) buildEnvelope(capture *captureWriter, session Session, snapshot captureSnapshot) *previewEnvelope {
-	changes, truncated := snapshotChanges(session.Changes())
+// outcome returns the first blocked write and the first transaction-control
+// fault the data-store guards recorded during the Preview.
+func (s *requestState) outcome() (*blockedWrite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.blocked, s.fault
+}
+
+// isBlockedFailure reports whether a handler failure is the guard's own refusal,
+// which a handler may let escape (a panic or an error it returns up the stack)
+// without that making the Preview unsafe.
+func isBlockedFailure(err error) bool {
+	var blocked *PreviewWriteBlockedError
+	return errors.As(err, &blocked)
+}
+
+// buildEnvelope assembles the confirmed result after a successful rollback. The
+// changes are the SQL provider's followed by those the data stores reported.
+func (b *Sendproof) buildEnvelope(capture *captureWriter, session Session, state *requestState, snapshot captureSnapshot) *previewEnvelope {
+	var changes []Change
+	var providerTruncated bool
+	if session != nil {
+		changes, providerTruncated = session.Changes(), session.ChangesTruncated()
+	}
+	state.mu.Lock()
+	changes = append(changes, state.changes...)
+	storeTruncated := state.changesTruncated
+	state.mu.Unlock()
+	changes, truncated := snapshotChanges(changes)
 	return &previewEnvelope{
 		Status: capture.status, Headers: capture.envelopeHeaders(), Body: capture.envelopeBody(),
 		Changes: changes, Effects: nonNil(snapshot.Effects), Logs: nonNil(snapshot.Logs), RolledBack: true,
-		ChangesTruncated: truncated || session.ChangesTruncated(),
+		ChangesTruncated: truncated || providerTruncated || storeTruncated,
 		EffectsTruncated: snapshot.EffectsTruncated, LogsTruncated: snapshot.LogsTruncated,
 	}
 }
@@ -230,27 +286,52 @@ func (s *requestState) enterPreview(w http.ResponseWriter, r *http.Request, op *
 		w.WriteHeader(http.StatusConflict)
 		return false
 	}
-	provider := s.bench.provider()
-	if provider == nil {
+	if !s.bench.previewReady() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return false
 	}
 	s.invoked = true
-	session, err := provider.Begin(context.WithoutCancel(r.Context()))
-	if err != nil || session == nil {
-		if errors.Is(err, ErrPreviewUnavailable) {
-			s.invoked = false // nothing ran; report the provider's status as is
-			w.WriteHeader(http.StatusServiceUnavailable)
+	// The context outlives a disconnected client and carries this Preview, so
+	// stores can use the guard and change recording from BeginPreview.
+	ctx := context.WithoutCancel(r.Context())
+	if provider := s.bench.provider(); provider != nil {
+		session, err := provider.Begin(ctx)
+		if err != nil || session == nil {
+			if errors.Is(err, ErrPreviewUnavailable) {
+				s.invoked = false // nothing ran; report the provider's status as is
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return false
+			}
+			if err == nil {
+				err = errors.New("the preview provider returned no session")
+			}
+			s.failure = err
+			w.WriteHeader(http.StatusInternalServerError)
 			return false
 		}
-		if err == nil {
-			err = errors.New("the preview provider returned no session")
+		s.session = session
+	}
+	s.rec.begin(true)
+	// Stores begin with the lock released: they call back into the Preview scope.
+	s.mu.Unlock()
+	var failure error
+	var entries []storeEntry
+	for _, store := range s.bench.cfg.stores {
+		preview, err := store.BeginPreview(ctx)
+		if preview != nil {
+			entries = append(entries, storeEntry{store: store, preview: preview})
 		}
-		s.failure = err
+		if err != nil {
+			failure = errors.Join(failure, fmt.Errorf("a data store could not begin the preview: %w", err))
+			break
+		}
+	}
+	s.mu.Lock()
+	s.stores = append(s.stores, entries...)
+	if failure != nil {
+		s.failure = errors.Join(s.failure, failure)
 		w.WriteHeader(http.StatusInternalServerError)
 		return false
 	}
-	s.session = session
-	s.rec.begin(true)
 	return true
 }

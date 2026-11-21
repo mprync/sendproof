@@ -49,6 +49,7 @@ type previewLog struct {
 	Props     map[string]string `json:"properties,omitempty"`
 	Exception *logException     `json:"exception,omitempty"`
 	SQL       *sqlEntry         `json:"sql,omitempty"`
+	DB        *dbEntry          `json:"db,omitempty"`
 }
 
 // size approximates the retained text so one request cannot hold unbounded memory.
@@ -62,6 +63,9 @@ func (l previewLog) size() int {
 	}
 	if l.Exception != nil {
 		total += len(l.Exception.Type) + len(l.Exception.Message)
+	}
+	if l.DB != nil {
+		total += len(l.DB.System) + len(l.DB.Namespace) + len(l.DB.Operation) + len(l.DB.Target) + len(l.DB.Statement) + len(l.DB.Error)
 	}
 	if l.SQL != nil {
 		total += len(l.SQL.Text)

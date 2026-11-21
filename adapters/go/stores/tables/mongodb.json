@@ -1,0 +1,32 @@
+{
+  "$comment": "Write-guard and Preview classification for MongoDB, shared by every binding. Command names are the first key of the command document, compared case-insensitively. Anything not listed is a write. See spec/data-stores.md.",
+  "store": "mongodb",
+  "version": 1,
+  "source": "MongoDB 8.2 database commands; transaction limits checked against mongo:8.2 in tests/conformance/compose.yml",
+  "default": "write",
+  "read": [
+    "aggregate", "collStats", "count", "dataSize", "dbStats", "distinct", "explain", "find", "getMore",
+    "killCursors", "listCollections", "listDatabases", "listIndexes"
+  ],
+  "session": [
+    "abortTransaction", "authenticate", "buildInfo", "connectionStatus", "endSessions", "getParameter", "hello",
+    "isMaster", "ismaster", "logout", "ping", "saslContinue", "saslStart", "serverStatus", "startSession"
+  ],
+  "conditional": {
+    "aggregate": "A write when any stage, at any depth of the pipeline, is $out or $merge.",
+    "explain": "Classified as the command inside its explain field.",
+    "findAndModify": "Always a write, including findOneAndUpdate, findOneAndReplace and findOneAndDelete with no match.",
+    "abortTransaction": "Allowed for a transaction the handler started itself. In Preview the binding owns the transaction and refuses a handler's abortTransaction or commitTransaction for it."
+  },
+  "notInTransaction": {
+    "$comment": "Refused by the server inside a multi-document transaction. In Preview mode a binding blocks these before sending, with the reason below.",
+    "commands": ["count", "create", "listCollections", "listIndexes", "drop", "dropDatabase", "dropIndexes", "renameCollection", "collMod", "convertToCapped", "cloneCollectionAsCapped", "mapReduce", "createUser", "dropUser", "createRole"],
+    "stages": ["$out", "$merge", "$collStats", "$currentOp", "$indexStats", "$listSessions", "$planCacheStats"],
+    "rules": [
+      "createIndexes on a collection that existed before the transaction",
+      "any write to a capped collection",
+      "any operation on the admin, config or local database, or on a system.* collection"
+    ],
+    "reason": "Preview unavailable: MongoDB can't run {operation} inside a transaction"
+  }
+}

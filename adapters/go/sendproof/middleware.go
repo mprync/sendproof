@@ -112,24 +112,58 @@ func (b *Sendproof) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	// Discovery is public in Development, so a label that looks like connection
 	// details is withheld rather than published.
-	var database any
-	if provider := b.provider(); provider != nil && provider.Database() != "" && IsDisplayLabel(provider.Database()) {
-		database = provider.Database()
-	}
+	database := b.databaseDescription()
 	operations := b.previewOperations()
-	writeJSON(w, http.StatusOK, map[string]any{
+	capabilities := map[string]any{
 		"protocolVersion":   1,
 		"apiName":           b.cfg.apiName,
 		"openApiUrl":        openAPIURL,
 		"fieldModules":      modules,
 		"environment":       b.cfg.environment,
 		"database":          database,
+		"binding":           map[string]string{"language": "go", "framework": b.cfg.framework},
 		"identity":          identity,
 		"authProviders":     providers,
 		"previewOperations": operations,
 		"observedSend":      len(operations) > 0,
 		"documents":         documents,
-	})
+	}
+	if b.previewReady() {
+		if unavailable := b.previewUnavailable(); len(unavailable) > 0 {
+			capabilities["previewUnavailable"] = unavailable
+		}
+	}
+	if len(b.cfg.stores) > 0 {
+		capabilities["dataStores"] = b.dataStores(r.Context())
+	}
+	writeJSON(w, http.StatusOK, capabilities)
+}
+
+// DatabaseSystem is an optional Provider extension that names the SQL engine, so
+// discovery can say `database.system` and the workbench shows the right mark. The
+// id is the provider id of the workbench's store marks: "sqlite", "postgresql",
+// "mysql", "mariadb" or "sqlserver".
+type DatabaseSystem interface {
+	// System returns the SQL provider id.
+	System() string
+}
+
+// databaseDescription builds capabilities `database`: the display name, or
+// `{name, system}` when the provider says which engine it is. It is nil without a
+// SQL provider.
+func (b *Sendproof) databaseDescription() any {
+	provider := b.provider()
+	if provider == nil {
+		return nil
+	}
+	var name any
+	if label := provider.Database(); label != "" && IsDisplayLabel(label) {
+		name = label
+	}
+	if system, ok := provider.(DatabaseSystem); ok && system.System() != "" {
+		return map[string]any{"name": name, "system": system.System()}
+	}
+	return name
 }
 
 // serveTrace answers GET /sendproof/_api/traces/{id}. Missing, expired and foreign

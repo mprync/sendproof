@@ -13,6 +13,9 @@ type provider struct{ db *DB }
 
 func (p *provider) Database() string { return p.db.cfg.label }
 
+// System names the SQL engine for capabilities `database.system`.
+func (p *provider) System() string { return p.db.dialect.System() }
+
 // Begin opens the preview transaction on a dedicated connection and prepares the
 // dialect's change capture inside it.
 func (p *provider) Begin(ctx context.Context) (sendproof.Session, error) {

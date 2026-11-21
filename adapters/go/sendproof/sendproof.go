@@ -38,8 +38,9 @@ type Sendproof struct {
 	cfg    config
 	traces *traceStore
 
-	mu  sync.RWMutex
-	ops []*Operation
+	mu          sync.RWMutex
+	ops         []*Operation
+	unavailable []*unavailable
 }
 
 // New creates a Sendproof from options. It returns the first invalid option's error.
@@ -207,7 +208,7 @@ func (o *Operation) matches(method, escapedPath string) bool {
 
 // previewOperations lists the advertised operations in a stable order.
 func (b *Sendproof) previewOperations() []map[string]string {
-	if b.provider() == nil {
+	if !b.previewReady() {
 		return []map[string]string{}
 	}
 	b.mu.RLock()
