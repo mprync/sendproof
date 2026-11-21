@@ -104,6 +104,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.conformance-matrix.outputs.bindings) }}
+    # Each service and BENCH_*_URL is keyed on the entry's `database`, so every MySQL entry (including
+    # ruby-rails-mysql, php-laravel-mysql, java-spring-mysql and dotnet-aspnetcore-mysql) gets the MySQL
+    # service and BENCH_MYSQL_URL; the runner creates a fresh database on it per fixture process. The
+    # "Check the database service URL" step fails early if an entry's database has no URL.
     services:
       postgres:
         image: ${{ matrix.database == 'postgresql' && 'postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7' || '' }}
@@ -176,6 +180,17 @@ jobs:
         if: matrix.toolchain == 'rust'
         run: rustup toolchain install stable --profile minimal
       - run: npm ci --prefix tests/conformance
+      - name: Check the database service URL
+        env:
+          DATABASE: ${{ matrix.database }}
+        run: |
+          case "$DATABASE" in
+            postgresql) test -n "$BENCH_POSTGRES_URL" ;;
+            mysql) test -n "$BENCH_MYSQL_URL" ;;
+            sqlserver) test -n "$BENCH_SQLSERVER_URL" ;;
+            sqlite|h2) ;;
+            *) echo "No database service for '$DATABASE'; add one to the conformance job" >&2; exit 1 ;;
+          esac
       # MongoDB needs a replica-set command line, which service containers can't set, so the
       # data stores come from compose.yml. Only the stores this entry lists are started.
       - name: Start data stores

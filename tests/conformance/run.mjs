@@ -78,7 +78,7 @@ if (values.list) {
       }
       await withFixture(binding, 'standard', '/tenant', async (request, database) => {
         await standard(t, request, schemas, binding, database);
-        await sharedRules(t, request, schemas, binding);
+        await sharedRules(t, request, schemas, binding, database);
         await database.verify?.();
       });
       await alternates(t, binding, schemas);
