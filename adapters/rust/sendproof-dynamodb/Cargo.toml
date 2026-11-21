@@ -18,6 +18,8 @@ aws-smithy-types.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# A real HTTP client for the test against the compose DynamoDB Local.
+aws-sdk-dynamodb = { workspace = true, features = ["default-https-client", "rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 aws-smithy-runtime = { workspace = true, features = ["test-util"] }
 aws-credential-types = { workspace = true, features = ["test-util"] }

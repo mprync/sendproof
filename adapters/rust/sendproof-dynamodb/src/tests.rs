@@ -201,3 +201,148 @@ fn a_label_that_looks_like_an_endpoint_is_refused() {
     assert!(DynamoStore::new().name("orders").is_ok());
     assert!(DynamoStore::new().name("http://127.0.0.1:8000").is_err());
 }
+
+/// The interceptor against the compose DynamoDB Local (`docker compose -f tests/conformance/compose.yml
+/// up -d --wait dynamodb`): every write action is refused before it reaches the server, proven by an
+/// independent client without the interceptor. Skips, saying why, when DynamoDB doesn't answer.
+mod server {
+    use std::time::Duration;
+
+    use aws_sdk_dynamodb::types::{
+        AttributeDefinition, BatchStatementRequest, BillingMode, ConditionCheck, KeySchemaElement, KeyType, ParameterizedStatement, Put,
+        PutRequest, ScalarAttributeType, TransactWriteItem, WriteRequest,
+    };
+
+    use super::*;
+
+    fn client(interceptor: Option<DynamoGuard>) -> Client {
+        let endpoint = std::env::var("BENCH_DYNAMODB_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:58000".into());
+        let mut config = Config::builder()
+            .behavior_version_latest()
+            .endpoint_url(endpoint)
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::for_tests());
+        if let Some(interceptor) = interceptor {
+            config = config.interceptor(interceptor);
+        }
+        Client::from_conf(config.build())
+    }
+
+    #[tokio::test]
+    async fn no_write_action_reaches_the_server_during_a_preview() {
+        let reader = client(None);
+        if tokio::time::timeout(Duration::from_secs(3), reader.list_tables().send()).await.map_or(true, |result| result.is_err()) {
+            eprintln!("skipped: DynamoDB isn't running (docker compose -f tests/conformance/compose.yml up -d --wait dynamodb)");
+            return;
+        }
+        let table = format!(
+            "sp_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        );
+        reader
+            .create_table()
+            .table_name(&table)
+            .attribute_definitions(
+                AttributeDefinition::builder().attribute_name("id").attribute_type(ScalarAttributeType::S).build().unwrap(),
+            )
+            .key_schema(KeySchemaElement::builder().attribute_name("id").key_type(KeyType::Hash).build().unwrap())
+            .billing_mode(BillingMode::PayPerRequest)
+            .send()
+            .await
+            .unwrap();
+        reader.put_item().table_name(&table).item("id", id("seeded")).item("hits", AttributeValue::N("1".into())).send().await.unwrap();
+
+        let guarded = client(Some(DynamoStore::new().interceptor()));
+        let recorder = preview();
+        capture::scope(recorder.clone(), async {
+            // Reads run.
+            let item = guarded.get_item().table_name(&table).key("id", id("seeded")).consistent_read(true).send().await.unwrap();
+            assert!(item.item().is_some());
+            let select = format!("SELECT * FROM \"{table}\" WHERE id = ?");
+            guarded.execute_statement().statement(&select).parameters(id("seeded")).send().await.unwrap();
+
+            let put = |name: &str| PutRequest::builder().item("id", id(name)).build().unwrap();
+            let refused = [
+                guarded.put_item().table_name(&table).item("id", id("put")).send().await.is_err(),
+                guarded
+                    .update_item()
+                    .table_name(&table)
+                    .key("id", id("seeded"))
+                    .update_expression("ADD hits :one")
+                    .expression_attribute_values(":one", AttributeValue::N("1".into()))
+                    .send()
+                    .await
+                    .is_err(),
+                guarded.delete_item().table_name(&table).key("id", id("seeded")).send().await.is_err(),
+                guarded
+                    .batch_write_item()
+                    .request_items(&table, vec![WriteRequest::builder().put_request(put("batched")).build()])
+                    .send()
+                    .await
+                    .is_err(),
+                guarded
+                    .transact_write_items()
+                    .transact_items(
+                        TransactWriteItem::builder()
+                            .put(Put::builder().table_name(&table).item("id", id("transacted")).build().unwrap())
+                            .build(),
+                    )
+                    .send()
+                    .await
+                    .is_err(),
+                // A transaction of condition checks only is still a write.
+                guarded
+                    .transact_write_items()
+                    .transact_items(
+                        TransactWriteItem::builder()
+                            .condition_check(
+                                ConditionCheck::builder()
+                                    .table_name(&table)
+                                    .key("id", id("seeded"))
+                                    .condition_expression("attribute_exists(id)")
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build(),
+                    )
+                    .send()
+                    .await
+                    .is_err(),
+                guarded.execute_statement().statement(format!("INSERT INTO \"{table}\" VALUE {{'id': 'partiql'}}")).send().await.is_err(),
+                guarded
+                    .batch_execute_statement()
+                    .statements(BatchStatementRequest::builder().statement(&select).parameters(id("seeded")).build().unwrap())
+                    .statements(
+                        BatchStatementRequest::builder().statement(format!("DELETE FROM \"{table}\" WHERE id = 'seeded'")).build().unwrap(),
+                    )
+                    .send()
+                    .await
+                    .is_err(),
+                guarded
+                    .execute_transaction()
+                    .transact_statements(
+                        ParameterizedStatement::builder()
+                            .statement(format!("UPDATE \"{table}\" SET hits = 9 WHERE id = 'seeded'"))
+                            .build()
+                            .unwrap(),
+                    )
+                    .send()
+                    .await
+                    .is_err(),
+                guarded.delete_table().table_name(&table).send().await.is_err(),
+            ];
+            assert!(refused.iter().all(|refused| *refused), "every write is refused: {refused:?}");
+        })
+        .await;
+        assert_eq!(recorder.blocked().unwrap().operation, "PutItem", "the first write is the one reported");
+
+        // An independent read, through a client without the interceptor: the table holds only what was
+        // seeded, unchanged.
+        let items = reader.scan().table_name(&table).consistent_read(true).send().await.unwrap();
+        let ids: Vec<&str> = items.items().iter().filter_map(|item| item.get("id")?.as_s().ok().map(String::as_str)).collect();
+        assert_eq!(ids, ["seeded"]);
+        assert_eq!(items.items()[0].get("hits").and_then(|hits| hits.as_n().ok()).map(String::as_str), Some("1"));
+        reader.delete_table().table_name(&table).send().await.unwrap();
+    }
+}
