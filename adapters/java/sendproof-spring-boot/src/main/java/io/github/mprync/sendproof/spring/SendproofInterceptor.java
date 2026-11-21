@@ -25,13 +25,15 @@ final class SendproofInterceptor implements HandlerInterceptor {
     private static final Logger LOG = LoggerFactory.getLogger(SendproofInterceptor.class);
 
     private final PreviewProviders providers;
+    private final SendproofStores stores;
     private final WorkbenchAccess access;
     private final TraceOwnerResolver owners;
     private final TraceStore traces;
 
-    SendproofInterceptor(PreviewProviders providers, WorkbenchAccess access, TraceOwnerResolver owners,
-                         TraceStore traces) {
+    SendproofInterceptor(PreviewProviders providers, SendproofStores stores, WorkbenchAccess access,
+                         TraceOwnerResolver owners, TraceStore traces) {
         this.providers = providers;
+        this.stores = stores;
         this.access = access;
         this.owners = owners;
         this.traces = traces;
@@ -65,19 +67,20 @@ final class SendproofInterceptor implements HandlerInterceptor {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return false;
         }
+        // A Preview needs a SQL provider or at least one hooked data store, so a MongoDB-only or guard-only app can Preview.
         PreviewProvider provider = providers.get();
-        if (provider == null) {
+        if (provider == null && !stores.any()) {
             response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             return false;
         }
-        preview.execution.begin(provider);
+        preview.execution.begin(provider, stores.all());
         return true;
     }
 
     private void beginObservation(ObservedState observed, HttpServletRequest request, HttpServletResponse response,
                                   Object handler) {
         if (observed.claimed || response.isCommitted() || !(handler instanceof HandlerMethod method)
-                || !PreviewEligibility.isMarked(method)) {
+                || !(PreviewEligibility.isMarked(method) || PreviewEligibility.isUnavailable(method))) {
             return;
         }
         TraceOwner owner = owners.resolve(request);
@@ -88,10 +91,10 @@ final class SendproofInterceptor implements HandlerInterceptor {
         PreviewObservation observation = null;
         try {
             PreviewProvider provider = access.permits(request) ? providers.get() : null;
-            if (provider == null) {
+            if (provider == null && !(stores.any() && access.permits(request))) {
                 return;
             }
-            observation = provider.beginObservation();
+            observation = provider == null ? null : provider.beginObservation();
             observed.owner = owner;
             observed.execution = new ObservedExecution(observed.started, traces, owner, observation);
             observed.scope = CaptureContext.enter(observed.execution.capture());

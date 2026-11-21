@@ -38,6 +38,11 @@ public final class JdbcPreviewProvider implements PreviewProvider {
     }
 
     @Override
+    public String databaseSystem() {
+        return dataSource.databaseSystem();
+    }
+
+    @Override
     public PreviewSession begin() throws SQLException {
         return dataSource.beginPreview();
     }

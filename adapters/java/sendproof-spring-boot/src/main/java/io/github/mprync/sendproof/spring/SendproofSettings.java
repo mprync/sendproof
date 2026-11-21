@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.spring;
 
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
+import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.LocalUrl;
 import java.time.Duration;
 import java.util.List;
@@ -18,10 +19,11 @@ import java.util.List;
  * @param fieldModules   field renderer modules
  * @param traceRetention how long traces stay readable
  * @param filterOrder    the servlet filter order
+ * @param dataStores     the data stores registered on the builder
  */
 record SendproofSettings(String apiName, String environment, String openApiUrl, List<OpenApiDocument> documents,
                          List<AuthProvider> authProviders, List<String> fieldModules, Duration traceRetention,
-                         int filterOrder) {
+                         int filterOrder, List<DataStore> dataStores) {
 
     /** Merges the builder (which may be {@code null}) over the bound properties. */
     static SendproofSettings resolve(SendproofProperties properties, Sendproof builder) {
@@ -41,7 +43,7 @@ record SendproofSettings(String apiName, String environment, String openApiUrl, 
                 documents, providers, modules,
                 builder != null && builder.traceRetention() != null ? builder.traceRetention()
                         : properties.getTrace().getRetention(),
-                properties.getFilterOrder());
+                properties.getFilterOrder(), builder == null ? List.of() : builder.dataStores());
     }
 
     private static <T> T first(T preferred, T fallback) {

@@ -1,6 +1,10 @@
 package io.github.mprync.sendproof.spring;
 
 import io.github.mprync.sendproof.core.Capabilities.PreviewOperation;
+import io.github.mprync.sendproof.core.Capabilities.PreviewUnavailable;
+import io.github.mprync.sendproof.core.stores.StoreGuard;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Comparator;
 import java.util.Set;
 import java.util.TreeSet;
@@ -20,6 +24,46 @@ final class PreviewOperations {
 
     PreviewOperations(ObjectProvider<RequestMappingHandlerMapping> mappings) {
         this.mappings = mappings;
+    }
+
+    /**
+     * Lists the operations marked {@code @SendproofPreview(enabled = false)} with the reason the workbench shows. They are
+     * absent from {@link #list()}.
+     *
+     * @throws IllegalStateException when a mark gives neither a reason nor the stores it writes
+     */
+    List<PreviewUnavailable> unavailable() {
+        var found = new java.util.TreeMap<String, PreviewUnavailable>();
+        for (RequestMappingHandlerMapping mapping : mappings) {
+            for (var entry : mapping.getHandlerMethods().entrySet()) {
+                HandlerMethod method = entry.getValue();
+                if (!PreviewEligibility.isUnavailable(method)) {
+                    continue;
+                }
+                SendproofPreview mark = PreviewEligibility.mark(method);
+                String reason = mark.reason().isBlank()
+                        ? (mark.stores().length > 0 ? StoreGuard.writeReason(mark.stores()[0]) : null) : mark.reason();
+                if (reason == null || reason.length() > 512) {
+                    throw new IllegalStateException("@SendproofPreview(enabled = false) on " + method.getShortLogMessage()
+                            + " needs a reason (at most 512 characters), or the stores it writes.");
+                }
+                List<String> stores = List.of(mark.stores());
+                RequestMappingInfo info = entry.getKey();
+                Set<String> patterns = info.getPathPatternsCondition() != null
+                        ? info.getPathPatternsCondition().getPatternValues()
+                        : info.getPatternsCondition() == null ? Set.of() : info.getPatternsCondition().getPatterns();
+                for (RequestMethod verb : info.getMethodsCondition().getMethods()) {
+                    if (verb == RequestMethod.HEAD || verb == RequestMethod.OPTIONS || verb == RequestMethod.TRACE) {
+                        continue;
+                    }
+                    for (String pattern : patterns) {
+                        String path = openApiPath(pattern);
+                        found.put(path + " " + verb.name(), new PreviewUnavailable(verb.name(), path, reason, stores));
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(found.values());
     }
 
     Set<PreviewOperation> list() {

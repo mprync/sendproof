@@ -13,6 +13,10 @@ dependencies {
     // The packaged workbench UI. Applications get it transitively.
     api(project(":sendproof-ui"))
     api(project(":sendproof-logback"))
+    // Data store hooks. Their client libraries are compile-only there: the application brings the ones it uses.
+    api(project(":sendproof-mongodb"))
+    api(project(":sendproof-redis"))
+    api(project(":sendproof-dynamodb"))
     api("org.springframework.boot:spring-boot-autoconfigure")
     api("org.springframework:spring-webmvc")
 
@@ -20,6 +24,9 @@ dependencies {
     compileOnly("org.springframework.security:spring-security-core")
     compileOnly("org.springframework.security:spring-security-web")
     compileOnly("ch.qos.logback:logback-classic")
+    compileOnly("org.springframework.data:spring-data-mongodb")
+    compileOnly("org.springframework.data:spring-data-redis")
+    compileOnly(rootProject.libs.mongodb.sync)
     compileOnly(rootProject.libs.springdoc.webmvc.api)
 
     testImplementation("org.springframework.boot:spring-boot-starter-web")

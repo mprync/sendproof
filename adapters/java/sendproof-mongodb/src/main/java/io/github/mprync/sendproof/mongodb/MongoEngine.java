@@ -261,7 +261,13 @@ final class MongoEngine {
                     "The Preview ran longer than " + timeoutMs + " ms, so its MongoDB transaction was aborted."));
             end(state);
         }, timeoutMs, TimeUnit.MILLISECONDS);
-        binder.bind(guarded(state));
+        try {
+            binder.bind(guarded(state));
+        } catch (RuntimeException failure) {
+            states.remove(capture);
+            end(state);
+            throw failure;
+        }
         return state;
     }
 

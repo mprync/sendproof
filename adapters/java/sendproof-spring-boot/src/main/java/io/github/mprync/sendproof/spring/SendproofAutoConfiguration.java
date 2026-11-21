@@ -1,5 +1,6 @@
 package io.github.mprync.sendproof.spring;
 
+import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.PreviewProvider;
 import io.github.mprync.sendproof.core.TraceStore;
 import io.github.mprync.sendproof.core.WorkbenchAssets;
@@ -69,6 +70,14 @@ public class SendproofAutoConfiguration {
         return new WorkbenchAssets(SendproofAutoConfiguration.class.getClassLoader());
     }
 
+    /** Every data store: the builder's, any {@link DataStore} bean, and the automatic Spring Data ones. */
+    @Bean
+    SendproofStores sendproofStores(SendproofSettings settings, ObjectProvider<DataStore> beans) {
+        var registered = new java.util.ArrayList<DataStore>(settings.dataStores());
+        beans.orderedStream().filter(store -> !registered.contains(store)).forEach(registered::add);
+        return new SendproofStores(registered);
+    }
+
     @Bean
     PreviewProviders sendproofPreviewProviders(ObjectProvider<PreviewProvider> providers) {
         return new PreviewProviders(providers);
@@ -106,9 +115,9 @@ public class SendproofAutoConfiguration {
     }
 
     @Bean
-    SendproofInterceptor sendproofInterceptor(PreviewProviders providers, WorkbenchAccess access,
+    SendproofInterceptor sendproofInterceptor(PreviewProviders providers, SendproofStores stores, WorkbenchAccess access,
                                               TraceOwnerResolver owners, TraceStore traces) {
-        return new SendproofInterceptor(providers, access, owners, traces);
+        return new SendproofInterceptor(providers, stores, access, owners, traces);
     }
 
     @Bean
@@ -124,12 +133,13 @@ public class SendproofAutoConfiguration {
 
     @Bean
     WorkbenchController sendproofWorkbenchController(SendproofSettings settings, Environment environment,
-                                                     PreviewProviders providers, PreviewOperations operations,
+                                                     PreviewProviders providers, SendproofStores stores,
+                                                     PreviewOperations operations,
                                                      OpenApiDocuments documents, WorkbenchIdentityResolver identities,
                                                      WorkbenchAccess access, TraceOwnerResolver owners,
                                                      TraceStore traces, WorkbenchAssets assets) {
-        return new WorkbenchController(settings, environment, providers, operations, documents, identities, access,
-                owners, traces, assets);
+        return new WorkbenchController(settings, environment, providers, stores, operations, documents, identities,
+                access, owners, traces, assets);
     }
 
     /** Identity from Spring Security when it is present. */
@@ -154,6 +164,43 @@ public class SendproofAutoConfiguration {
         OpenApiDocuments sendproofSpringdocDocuments(Environment environment, SendproofSettings settings,
                                                       ObjectProvider<GroupedOpenApi> groups) {
             return new SpringdocOpenApiDocuments(environment, settings, groups.orderedStream().toList());
+        }
+    }
+
+    /** Hooks a Spring Data MongoDB database factory. Static: post-processors are created before the beans they wrap. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.data.mongodb.MongoDatabaseFactory")
+    static class MongoHookConfiguration {
+        @Bean
+        static MongoStoreHook sendproofMongoStoreHook(Environment environment) {
+            return new MongoStoreHook(environment);
+        }
+    }
+
+    /** Hooks a Spring Data Redis connection factory. Static: post-processors are created before the beans they wrap. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.data.redis.connection.RedisConnectionFactory")
+    static class RedisHookConfiguration {
+        @Bean
+        static RedisStoreHook sendproofRedisStoreHook(Environment environment) {
+            return new RedisStoreHook(environment);
+        }
+    }
+
+    /** The MongoDB tripwire: the command listener of the Spring Data store joins the auto-configured client. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = {"org.springframework.data.mongodb.MongoDatabaseFactory", "com.mongodb.client.MongoClient"})
+    static class MongoTripwireConfiguration {
+        @Bean
+        org.springframework.boot.autoconfigure.mongo.MongoClientSettingsBuilderCustomizer sendproofMongoTripwire(
+                ObjectProvider<SendproofStores> stores, Environment environment) {
+            return settings -> {
+                if (environment.getProperty("sendproof.stores.mongodb.enabled", Boolean.class, true)) {
+                    settings.addCommandListener(stores.getObject().of(io.github.mprync.sendproof.mongodb.MongoStore.class,
+                            () -> io.github.mprync.sendproof.mongodb.MongoStore.springData()
+                                    .name(environment.getProperty("sendproof.stores.mongodb.name")).build()).commandListener());
+                }
+            };
         }
     }
 

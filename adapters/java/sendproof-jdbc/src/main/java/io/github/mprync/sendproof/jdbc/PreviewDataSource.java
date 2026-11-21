@@ -24,6 +24,8 @@ import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
  */
 public final class PreviewDataSource implements DataSource {
     private final DataSource proxy;
+    private volatile boolean systemResolved;
+    private volatile String system;
 
     /**
      * Wraps {@code target}.
@@ -41,6 +43,19 @@ public final class PreviewDataSource implements DataSource {
      */
     public PreviewDataSource(DataSource target) {
         this(target, () -> false);
+    }
+
+    /** The SQL provider id of the wrapped database (see {@code DatabaseSystem}), resolved once; {@code null} if unknown. */
+    String databaseSystem() {
+        if (!systemResolved) {
+            try (Connection connection = proxy.getConnection()) {
+                system = io.github.mprync.sendproof.core.DatabaseSystem.of(connection.getMetaData().getDatabaseProductName());
+            } catch (SQLException | RuntimeException error) {
+                system = null;
+            }
+            systemResolved = true;
+        }
+        return system;
     }
 
     /** Starts the preview transaction for the request that owns the current {@link JdbcScope}. */

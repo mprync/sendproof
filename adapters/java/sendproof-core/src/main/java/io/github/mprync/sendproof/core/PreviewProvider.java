@@ -20,6 +20,15 @@ public interface PreviewProvider {
     }
 
     /**
+     * Returns the SQL provider id the workbench uses to show the right mark: {@code postgresql}, {@code mysql},
+     * {@code mariadb}, {@code mssql}, {@code sqlite}, {@code h2} and so on, or {@code null} when unknown. See
+     * {@link DatabaseSystem#of}.
+     */
+    default String databaseSystem() {
+        return null;
+    }
+
+    /**
      * Starts the rollback-only unit of work for the current request thread. It is called immediately before the
      * request handler runs.
      *

@@ -12,6 +12,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation(libs.springdoc.webmvc.api)
+    // The data stores of spec/conformance/fixture.md, each hooked only when the runner passes its variables.
+    implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    implementation(platform(libs.awssdk.bom))
+    implementation("software.amazon.awssdk:dynamodb")
     runtimeOnly("com.h2database:h2")
 }
 

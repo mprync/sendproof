@@ -119,6 +119,15 @@ final class SendproofFilter extends OncePerRequestFilter {
         }
         // Drops anything the container attached on its own, such as a new session cookie.
         response.reset();
+        if (outcome.blocked()) {
+            // A guarded store refused a write: 409 problem+json, never a confirmation and without the handler's output.
+            response.setStatus(outcome.status());
+            response.setHeader("Cache-Control", "no-store");
+            response.setContentType("application/problem+json;charset=UTF-8");
+            response.setContentLength(outcome.problem().length);
+            response.getOutputStream().write(outcome.problem());
+            return;
+        }
         if (!outcome.confirmed()) {
             reject(response, outcome.status(), outcome.title(), outcome.challenge());
             return;

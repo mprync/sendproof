@@ -30,6 +30,34 @@ final class DatabaseLabel {
         };
     }
 
+    /** Returns a supplier that resolves the SQL provider id ({@code postgresql}, {@code h2} ...) once, lazily. */
+    static Supplier<String> lazySystem(DataSource dataSource) {
+        return new Supplier<>() {
+            private volatile boolean resolved;
+            private volatile String system;
+
+            @Override
+            public String get() {
+                if (!resolved) {
+                    system = systemOf(dataSource);
+                    resolved = true;
+                }
+                return system;
+            }
+        };
+    }
+
+    static String systemOf(DataSource dataSource) {
+        if (dataSource == null) {
+            return null;
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            return io.github.mprync.sendproof.core.DatabaseSystem.of(connection.getMetaData().getDatabaseProductName());
+        } catch (SQLException | RuntimeException error) {
+            return null;
+        }
+    }
+
     static String of(DataSource dataSource) {
         if (dataSource == null) {
             return null;

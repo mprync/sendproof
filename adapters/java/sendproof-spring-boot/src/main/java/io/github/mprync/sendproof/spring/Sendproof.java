@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.spring;
 
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
+import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.LocalUrl;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -22,6 +23,19 @@ import java.util.Objects;
  *             .workbenchAccess(request -> request.isUserInRole("developer"))
  *             .build();
  * }
+ * }</pre>
+ *
+ * <h2>Data stores</h2>
+ * {@code dataStore(...)} registers a MongoDB, Redis or DynamoDB hook, which also makes a Preview possible when the
+ * application has no SQL provider. Spring Data MongoDB and Spring Data Redis are hooked automatically when they are on
+ * the classpath; register a store here to name it or to declare reads the table doesn't know:
+ *
+ * <pre>{@code
+ * Sendproof.builder()
+ *         .dataStore(MongoStore.springData().name("catalog").build())
+ *         .dataStore(RedisStore.spring().name("cache").build())
+ *         .dataStore(DynamoDbStore.interceptor().name("orders").build())   // also add it to the client you build
+ *         .build();
  * }</pre>
  *
  * <h2>Precedence</h2>
@@ -55,6 +69,7 @@ public final class Sendproof {
     private final WorkbenchAccess access;
     private final WorkbenchIdentityResolver identity;
     private final TraceOwnerResolver traceOwner;
+    private final List<DataStore> dataStores;
 
     private Sendproof(Builder builder) {
         this.apiName = builder.apiName;
@@ -67,6 +82,7 @@ public final class Sendproof {
         this.access = builder.access;
         this.identity = builder.identity;
         this.traceOwner = builder.traceOwner;
+        this.dataStores = List.copyOf(builder.dataStores);
     }
 
     /** Starts a new configuration. */
@@ -114,6 +130,10 @@ public final class Sendproof {
         return traceOwner;
     }
 
+    List<DataStore> dataStores() {
+        return dataStores;
+    }
+
     /** Fluent builder for {@link Sendproof}. URLs are application-relative and are validated immediately. */
     public static final class Builder {
         private String apiName;
@@ -126,6 +146,7 @@ public final class Sendproof {
         private WorkbenchAccess access;
         private WorkbenchIdentityResolver identity;
         private TraceOwnerResolver traceOwner;
+        private final List<DataStore> dataStores = new ArrayList<>();
 
         private Builder() {
         }
@@ -201,6 +222,15 @@ public final class Sendproof {
         /** Sets how trace owners are derived; a {@link TraceOwnerResolver} bean wins. */
         public Builder traceOwnerResolver(TraceOwnerResolver resolver) {
             this.traceOwner = Objects.requireNonNull(resolver, "resolver");
+            return this;
+        }
+
+        /**
+         * Registers a data store hook: {@code MongoStore}, {@code RedisStore} or {@code DynamoDbStore}. Stores listed
+         * here are in addition to any {@link DataStore} beans and to the Spring Data hooks Spring Boot adds itself.
+         */
+        public Builder dataStore(DataStore store) {
+            this.dataStores.add(Objects.requireNonNull(store, "store"));
             return this;
         }
 

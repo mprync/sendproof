@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.spring;
 import io.github.mprync.sendproof.core.Capabilities;
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
+import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.TraceOwner;
 import io.github.mprync.sendproof.core.TraceStore;
@@ -37,6 +38,7 @@ class WorkbenchController {
     private final SendproofSettings settings;
     private final Environment environment;
     private final PreviewProviders providers;
+    private final SendproofStores stores;
     private final PreviewOperations operations;
     private final OpenApiDocuments documents;
     private final WorkbenchIdentityResolver identities;
@@ -46,12 +48,13 @@ class WorkbenchController {
     private final WorkbenchAssets assets;
 
     WorkbenchController(SendproofSettings settings, Environment environment, PreviewProviders providers,
-                        PreviewOperations operations, OpenApiDocuments documents,
+                        SendproofStores stores, PreviewOperations operations, OpenApiDocuments documents,
                         WorkbenchIdentityResolver identities, WorkbenchAccess access, TraceOwnerResolver owners,
                         TraceStore traces, WorkbenchAssets assets) {
         this.settings = settings;
         this.environment = environment;
         this.providers = providers;
+        this.stores = stores;
         this.operations = operations;
         this.documents = documents;
         this.identities = identities;
@@ -115,8 +118,10 @@ class WorkbenchController {
         }
         String mount = request.getContextPath();
         var provider = providers.get();
-        var previewOperations = provider == null ? List.<Capabilities.PreviewOperation>of()
-                : List.copyOf(operations.list());
+        // A hooked data store is enough to Preview, so an application without a SQL provider still lists its operations.
+        boolean canPreview = provider != null || stores.any();
+        var previewOperations = canPreview ? List.copyOf(operations.list()) : List.<Capabilities.PreviewOperation>of();
+        var unavailable = canPreview ? operations.unavailable() : List.<Capabilities.PreviewUnavailable>of();
         var openApiUrl = mount + documents.primaryUrl();
         var docs = new ArrayList<OpenApiDocument>();
         for (OpenApiDocument document : documents.documents()) {
@@ -134,8 +139,9 @@ class WorkbenchController {
         }
         var body = new Capabilities(1, openApiUrl, settings.fieldModules().stream()
                 .map(module -> mount + module).toList(), apiName, environmentName(),
-                provider == null ? null : provider.database(), identities.resolve(request), providersList,
-                previewOperations, !previewOperations.isEmpty(), docs);
+                database(provider), identities.resolve(request), providersList,
+                previewOperations, !previewOperations.isEmpty(), docs, describeStores(), unavailable,
+                new Capabilities.Binding("java", "Spring Boot"));
         return json(Json.MAPPER.writeValueAsBytes(body));
     }
 
@@ -150,6 +156,28 @@ class WorkbenchController {
         var trace = traces.read(traceId, owner);
         return trace.isEmpty() ? noStore(ResponseEntity.status(HttpStatus.NOT_FOUND)).build()
                 : json(Json.MAPPER.writeValueAsBytes(trace.get()));
+    }
+
+    /** The SQL database as {@code { name, system }}, or just the name when the provider can't say which system it is. */
+    private static Object database(io.github.mprync.sendproof.core.PreviewProvider provider) {
+        if (provider == null) {
+            return null;
+        }
+        String system = provider.databaseSystem();
+        return system == null ? provider.database() : new Capabilities.Database(provider.database(), system);
+    }
+
+    /** Each hooked store and its mode. A store that can't describe itself is reported as guarded, never left out. */
+    private List<DataStore.Description> describeStores() {
+        var described = new ArrayList<DataStore.Description>();
+        for (DataStore store : stores.all()) {
+            try {
+                described.add(store.describe());
+            } catch (RuntimeException error) {
+                described.add(new DataStore.Description(store.system(), null, "guard", null));
+            }
+        }
+        return described;
     }
 
     String environmentName() {

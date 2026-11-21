@@ -22,6 +22,7 @@ public final class JpaPreviewProvider implements PreviewProvider {
     private final PlatformTransactionManager transactions;
     private final EntityManagerFactory entityManagerFactory;
     private final Supplier<String> database;
+    private final Supplier<String> system;
 
     /**
      * Creates the provider.
@@ -33,10 +34,22 @@ public final class JpaPreviewProvider implements PreviewProvider {
      */
     public JpaPreviewProvider(PlatformTransactionManager transactions, EntityManagerFactory entityManagerFactory,
                               Supplier<String> database) {
+        this(transactions, entityManagerFactory, database, () -> null);
+    }
+
+    /**
+     * Creates the provider.
+     *
+     * @param system supplies the SQL provider id ({@code postgresql}, {@code mysql}, {@code h2} ...) for capabilities
+     *               {@code database.system}, or {@code null}
+     */
+    public JpaPreviewProvider(PlatformTransactionManager transactions, EntityManagerFactory entityManagerFactory,
+                              Supplier<String> database, Supplier<String> system) {
         this.transactions = transactions;
         this.entityManagerFactory = entityManagerFactory != null ? entityManagerFactory
                 : transactions instanceof JpaTransactionManager jpa ? jpa.getEntityManagerFactory() : null;
         this.database = database;
+        this.system = system;
         if (transactions instanceof AbstractPlatformTransactionManager manager) {
             manager.addListener(new PreviewTransactionGuard());
         }
@@ -50,6 +63,11 @@ public final class JpaPreviewProvider implements PreviewProvider {
     @Override
     public String database() {
         return database.get();
+    }
+
+    @Override
+    public String databaseSystem() {
+        return system.get();
     }
 
     @Override

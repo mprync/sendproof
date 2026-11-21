@@ -80,6 +80,16 @@ public class ItemService {
         return item;
     }
 
+    /** Inserts the item, then ends the transaction by hand with a raw COMMIT, which a Preview must refuse. */
+    @Transactional
+    public Item insertThenCommit(String id, String name) {
+        Item item = new Item(id, name);
+        entities.persist(item);
+        entities.flush();
+        entities.createNativeQuery("COMMIT").executeUpdate();
+        return item;
+    }
+
     /** Exceeds the default caps: 205 changes, 105 effects and 505 log lines in one request. */
     @Transactional
     public int capture(String prefix) {

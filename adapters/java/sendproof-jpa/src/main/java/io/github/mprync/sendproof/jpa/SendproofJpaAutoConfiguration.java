@@ -58,8 +58,9 @@ public class SendproofJpaAutoConfiguration {
     JpaPreviewProvider sendproofJpaPreviewProvider(PlatformTransactionManager transactions,
                                                    ObjectProvider<EntityManagerFactory> entityManagerFactory,
                                                    ObjectProvider<DataSource> dataSource) {
-        return new JpaPreviewProvider(transactions, entityManagerFactory.getIfUnique(),
-                DatabaseLabel.lazy(dataSource.getIfUnique()));
+        DataSource unique = dataSource.getIfUnique();
+        return new JpaPreviewProvider(transactions, entityManagerFactory.getIfUnique(), DatabaseLabel.lazy(unique),
+                DatabaseLabel.lazySystem(unique));
     }
 
     /** Whether bound SQL values may be shown (secrets are always redacted regardless). */

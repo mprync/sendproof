@@ -5,6 +5,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +36,16 @@ public class ItemsController {
     }
 
     private final ItemService items;
+    private final ObjectProvider<StringRedisTemplate> redis;
+    private final ObjectProvider<OrdersController> orders;
+    private final String redisPrefix;
 
-    public ItemsController(ItemService items) {
+    public ItemsController(ItemService items, ObjectProvider<StringRedisTemplate> redis,
+                           ObjectProvider<OrdersController> orders, @Value("${bench.redis.prefix:}") String redisPrefix) {
         this.items = items;
+        this.redis = redis;
+        this.orders = orders;
+        this.redisPrefix = redisPrefix;
     }
 
     @GetMapping("/{id}")
@@ -100,6 +110,28 @@ public class ItemsController {
     @PostMapping("/{id}/capture")
     public Map<String, Integer> capture(@PathVariable String id) {
         return Map.of("created", items.capture(id));
+    }
+
+    /** The shared raw-commit rule: a handler that ends the Preview transaction by hand. */
+    @SendproofPreview
+    @PostMapping("/{id}/commit")
+    public ResponseEntity<ItemResponse> commit(@PathVariable String id, @RequestBody RenameItem request) {
+        Item item = items.insertThenCommit(id, request.name());
+        return ResponseEntity.status(HttpStatus.CREATED).body(new ItemResponse(item.getId(), item.getName()));
+    }
+
+    /** The mixed route: a SQL insert, then a write to a guarded store, which must roll back or block together. */
+    @SendproofPreview
+    @PostMapping("/{id}/remember")
+    public ResponseEntity<ItemResponse> remember(@PathVariable String id, @Valid @RequestBody RenameItem request,
+                                                 @RequestParam String store) {
+        Item item = items.insert(id, request.name());
+        if (store.equals("redis")) {
+            redis.getObject().opsForValue().increment(redisPrefix + "counter:item-" + id);
+        } else {
+            orders.getObject().touchItem("item-" + id);
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(new ItemResponse(item.getId(), item.getName()));
     }
 
     /** Deliberately not marked: Preview must refuse it, ordinary Send must still work. */
