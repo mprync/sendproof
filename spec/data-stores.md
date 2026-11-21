@@ -244,8 +244,11 @@ The shared [raw COMMIT rule](conformance/fixture.md#shared-security-rules) appli
 - `COMMIT`, `COMMIT WORK`, `END`, `ROLLBACK` without `TO`, `ABORT`, `BEGIN`, `START TRANSACTION`, and `COMMIT TRAN`/`ROLLBACK TRAN` on SQL Server.
 - `SET autocommit = 1` and other session settings that end the transaction.
 - On MySQL and MariaDB, statements that commit implicitly: `CREATE`, `ALTER`, `DROP`, `RENAME`, `TRUNCATE`, `LOCK TABLES`, `UNLOCK TABLES`, `GRANT`, `REVOKE` and the other statements MySQL lists under implicit commit.
+- On MySQL and MariaDB, `CALL`, because a stored procedure can run `COMMIT` or an implicitly committing statement inside the Preview transaction. A host may declare procedures that never commit, by exact name only (the same rule as host-declared reads); a declared procedure is allowed.
 
 `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO SAVEPOINT` stay allowed, because ORMs use them for nested transactions. A refused statement fails the Preview with 500 without confirmation, and the SQL transaction rolls back.
+
+As a backstop on MySQL and MariaDB, before rolling back the provider checks that the Preview transaction is still open (`SELECT @@in_transaction` answers 1). If it isn't, something committed it, and the Preview answers 500 without confirmation, whatever the handler returned.
 
 ## Batch two stores
 

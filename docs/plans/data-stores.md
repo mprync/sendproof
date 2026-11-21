@@ -253,7 +253,21 @@ The Go review found three patterns that apply to every binding. Each review and 
 2. **The tripwire proves it's installed on the guarded client itself.** Seeing commands from some other client doesn't count: the check uses the guarded client's own detection `hello`, so a guarded client without the monitor can't report `rolledBack: true` while a raw write persists.
 3. **Every cleanup step runs.** A failure in one store's abort or close must not skip the SQL rollback or the other stores. The Preview then answers 500.
 
+The Ruby review added three more:
+
+4. **Derived clients stay guarded.** Driver calls that return a new client, database or collection with other options (`client.with(...)`, `with_options`, `withReadPreference`, `WithWriteConcern`, `Clone`, `getDatabase(name, options)`) must return guarded handles, or writes through them commit for real.
+5. **Cancellation runs the whole cleanup.** Timeouts, interrupts and task cancellation (Ruby `Timeout`/`Interrupt`, Python `CancelledError`, which is a `BaseException`, Java `InterruptedException`, .NET `OperationCanceledException`, a dropped Rust future, a Go context cancel) still abort every store, roll back SQL and release the MySQL Preview turn. A held turn hangs every later Preview.
+6. **Client-side interpolation doesn't leak secrets.** Drivers that inline parameters into the SQL text (Trilogy, PDO with emulated prepares, PyMySQL and mysqlclient) must still report secret values as redacted parameters, never in the logged statement text.
+
 Go also fails every open Preview with 500 when it sees a write with no request attribution while a Preview is open, unless the context is marked detached (background workers). Bindings whose runtime can attribute writes to a request (async context, thread or fiber locals, request context) do the same; a runtime that can't documents the gap.
+
+### After batch one lands: MySQL transaction escapes in every language
+
+The Ruby review found that a MySQL `CALL` can commit the Preview transaction; `spec/data-stores.md` now refuses `CALL` (exact-name opt-out) and adds an `@@in_transaction` backstop. Once the reviews finish, one cross-language pass, for every MySQL and MariaDB provider in all eight languages:
+
+- checks the whole refused list (explicit and implicit commits, `CALL`) is enforced before sending, with the backstop;
+- adds a shared conformance route and check (for example `POST /items/{id}/ddl`, running `CREATE TABLE` after the insert) that every MySQL entry passes;
+- checks review findings 4-6 above in Node, Go and Rust, which were reviewed before those findings were written.
 
 ### After batch one lands: release tooling
 
