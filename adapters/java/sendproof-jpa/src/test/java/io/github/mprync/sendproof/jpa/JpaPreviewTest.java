@@ -188,8 +188,13 @@ class JpaPreviewTest {
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         JsonNode envelope = json(result);
         JsonNode after = envelope.get("changes").get(0).get("after");
+        // Change records use the physical column names, as SQL rows do.
         assertThat(after.get("id").asText()).isEqualTo("l1");
-        assertThat(after.get("passwordHash").asText()).isEqualTo("[REDACTED]");
+        assertThat(after.get("password_hash").asText()).isEqualTo("[REDACTED]");
+        assertThat(after.get("display_name").asText()).isEqualTo("Login l1");
+        assertThat(after.has("passwordHash")).isFalse();
+        // A secret property name hides its value even when the column name isn't secret.
+        assertThat(after.get("recovery").asText()).isEqualTo("[REDACTED]");
         assertThat(envelope.toString()).doesNotContain("s3cret-hash");
         assertThat(jdbc.queryForObject("select count(*) from logins", Integer.class)).isZero();
     }

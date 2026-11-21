@@ -17,12 +17,9 @@ public class Account {
     @Column(name = "email")
     private String email;
 
-    /**
-     * Named after its column: the Java binding reports a JPA row by property name, and the shared secret-columns check
-     * reads {@code after.password_hash}.
-     */
+    /** Reported by its column name, {@code password_hash}, which the shared secret-columns check reads. */
     @Column(name = "password_hash")
-    private String password_hash;
+    private String passwordHash;
 
     protected Account() {
     }
@@ -30,7 +27,7 @@ public class Account {
     public Account(String id, String email, String passwordHash) {
         this.id = id;
         this.email = email;
-        this.password_hash = passwordHash;
+        this.passwordHash = passwordHash;
     }
 
     public String getId() {
@@ -42,6 +39,6 @@ public class Account {
     }
 
     public String getPasswordHash() {
-        return password_hash;
+        return passwordHash;
     }
 }

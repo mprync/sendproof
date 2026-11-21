@@ -13,6 +13,11 @@ public class Login {
     private String id;
     @Column(name = "password_hash")
     private String passwordHash;
+    /** A secret property whose column name isn't secret: redaction must still hide it. */
+    @Column(name = "recovery")
+    private String recoveryToken;
+    /** Mapped by the naming strategy to {@code display_name}. */
+    private String displayName;
 
     protected Login() {
     }
@@ -20,6 +25,8 @@ public class Login {
     public Login(String id, String passwordHash) {
         this.id = id;
         this.passwordHash = passwordHash;
+        this.recoveryToken = passwordHash + "-recovery";
+        this.displayName = "Login " + id;
     }
 
     public String getId() {
