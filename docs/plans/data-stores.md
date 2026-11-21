@@ -245,6 +245,16 @@ Each binding fills two capabilities fields defined in `spec/capabilities.schema.
 - MongoDB: a unit or integration test shows a write sent without the Preview session during a Preview yields 500, not a confirmation.
 - The Opus review signs off the MongoDB session binding, the tripwire and the pipeline order.
 
+### Review findings every language checks
+
+The Go review found three patterns that apply to every binding. Each review and each remaining language checks them:
+
+1. **Handler code never holds the Preview's MongoDB session.** Session-scoped helpers (`withTransaction`, `startSession`, "session from context") must not hand the binding's Preview session to handler code, or the handler can commit it. Guarded handles attach the session per call instead.
+2. **The tripwire proves it's installed on the guarded client itself.** Seeing commands from some other client doesn't count: the check uses the guarded client's own detection `hello`, so a guarded client without the monitor can't report `rolledBack: true` while a raw write persists.
+3. **Every cleanup step runs.** A failure in one store's abort or close must not skip the SQL rollback or the other stores. The Preview then answers 500.
+
+Go also fails every open Preview with 500 when it sees a write with no request attribution while a Preview is open, unless the context is marked detached (background workers). Bindings whose runtime can attribute writes to a request (async context, thread or fiber locals, request context) do the same; a runtime that can't documents the gap.
+
 ### After batch one lands: release tooling
 
 `tools/release/*.mjs` lists packages per registry by hand and knows none of the new store packages (Node `@sendproof/redis`, `/dynamodb`, `/mongodb`; Go `redisbench`, `dynamobench`, `mongobench`; the Rust, Python, .NET, Java, Ruby and PHP store packages). Once every language is reviewed, one pass adds them to each registry script, the CI publish jobs, the consumer smoke tests and, for PHP, the split mirror repos, then runs `pack-all --verify`. The Rust review adds its three crates to `crates.mjs` already.
