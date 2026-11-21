@@ -95,6 +95,25 @@ for (const dialect of dialects) {
       }
     });
 
+    await suite.test('completes concurrent Previews that insert the same new key', async () => {
+      // On MySQL, InnoDB would abort all but one with a deadlock once the first rolled back, so previews take turns.
+      const { source, provider, items } = await harness(database);
+      try {
+        const runs = await Promise.all(Array.from({ length: 6 }, () => previewed(provider, () => provider.run(async manager => {
+          await items(manager).insert({ id: 'shared', name: 'Shared' });
+          await new Promise(resolve => setTimeout(resolve, 50)); // let the others reach their insert and wait on this row
+          return 'inserted';
+        }))));
+        for (const { response, changes } of runs) {
+          assert.equal(response, 'inserted');
+          assert.deepEqual(changes.map(change => change.key), [{ id: 'shared' }]);
+        }
+        assert.equal(await provider.run(manager => items(manager).count()), 0);
+      } finally {
+        await source.destroy();
+      }
+    });
+
     await suite.test('captures save and remove, and a composite primary key from metadata alone', async () => {
       const { source, provider, items, lines } = await harness(database);
       try {

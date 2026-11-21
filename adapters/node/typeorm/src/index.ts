@@ -52,6 +52,13 @@ const endedMessage = 'The TypeORM request scope has ended.';
 export class TypeOrmPreview implements PreviewProvider {
   readonly #source: DataSource;
   readonly #lease: ConnectionLease;
+  /**
+   * Lets one MySQL Preview run at a time. InnoDB checks a new key for duplicates under a shared lock: when three or
+   * more transactions insert the same key and the first rolls back, as every Preview does, the waiters each hold that
+   * lock and each need the exclusive one, so InnoDB aborts all but one with a deadlock (error 1213). Sent for real,
+   * the first insert commits and the others get a duplicate-key error instead.
+   */
+  readonly #previewTurns: ConnectionLease;
   readonly #tracker: ChangeTracker;
   readonly #scopes = new AsyncLocalStorage<Scope>();
   readonly #labels = new AsyncLocalStorage<readonly string[]>();
@@ -70,6 +77,7 @@ export class TypeOrmPreview implements PreviewProvider {
     if (!Number.isInteger(maxRows) || maxRows < 1) throw new RangeError('maxTrackedRows must be a positive integer.');
     this.#source = source;
     this.#lease = new ConnectionLease(singleConnectionDrivers.has(source.options.type));
+    this.#previewTurns = new ConnectionLease(mysqlDrivers.has(source.options.type));
     this.#tracker = new ChangeTracker(source, maxRows);
     this.#previousLogger = source.logger;
     this.#createQueryRunner = source.createQueryRunner;
@@ -135,7 +143,7 @@ export class TypeOrmPreview implements PreviewProvider {
   /** Run `dispatch` in a transaction that is rolled back, releasing the runner afterwards. */
   async preview<T>(dispatch: () => Promise<T>): Promise<T> {
     if (this.#scopes.getStore()) throw new Error('Nested TypeORM previews are unavailable.');
-    return this.#lease.run(async () => {
+    return this.#previewTurns.run(() => this.#lease.run(async () => {
       const runner = this.#source.createQueryRunner();
       try {
         await runner.connect();
@@ -161,7 +169,7 @@ export class TypeOrmPreview implements PreviewProvider {
           throw error;
         }
       }
-    });
+    }));
   }
 
   /** Roll back the preview transaction and every savepoint the handler left open inside it. */
