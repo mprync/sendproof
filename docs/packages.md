@@ -10,7 +10,7 @@ Build both packages with the commands in the [quick start](../README.md#packages
 <configuration>
   <packageSources>
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="TestBenchLocal" value="/absolute/path/to/test-bench/artifacts/packages" />
+    <add key="TestBenchLocal" value="/absolute/path/to/test-bench/artifacts/packages/nuget" />
   </packageSources>
 </configuration>
 ```

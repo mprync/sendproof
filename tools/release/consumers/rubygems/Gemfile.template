@@ -1,0 +1,9 @@
+# Consumer Gemfile for tools/release/rubygems.mjs. __VERSION__ is replaced at verify time.
+# The three Test Bench gems are not on a path: they come from vendor/cache (the packed archives).
+source "https://rubygems.org"
+
+gem "rails", "~> 8.0"
+gem "puma", ">= 6.4"
+gem "sqlite3", ">= 2.1"
+gem "testbench-rails", "= __VERSION__"
+gem "testbench-activerecord", "= __VERSION__"

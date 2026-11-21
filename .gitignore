@@ -2,6 +2,8 @@
 .vs/
 .idea/
 **/bin/
+# The Ruby binding's scripts (prepare, test, fixture) are source, not build output.
+!adapters/ruby/bin/
 **/obj/
 **/node_modules/
 artifacts/

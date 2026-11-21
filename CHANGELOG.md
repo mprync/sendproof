@@ -33,4 +33,4 @@ First prerelease of Test Bench. The two .NET NuGet packages share the same versi
 - Add PostgreSQL and MySQL rollback and row capture to Rust SQLx for Axum and Actix Web.
 - Verify Flask-SQLAlchemy on SQLite, PostgreSQL and MySQL. Use a Go workspace for local module development and verify release artifacts from a fresh Go consumer.
 
-The [release guide](docs/releasing.md) covers package registration, verification and publication.
+The [publishing guide](docs/publishing.md) covers registry setup, verification and publication for every binding.

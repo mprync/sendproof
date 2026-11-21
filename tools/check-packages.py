@@ -42,11 +42,13 @@ def inspect_package(path):
             dep = metadata.find(f".//{{*}}dependency[@id='{HOST}']")
             require(dep is not None and dep.get("version") in (version, f"[{version}]"),
                     f"EF package must depend on the matching {HOST} version")
-        if os.getenv("GITHUB_ACTIONS") == "true":
-            repository = metadata.find("{*}repository")
-            expected = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+        repository = metadata.find("{*}repository")
+        # tools/pack-all.mjs passes the canonical repository (from adapters/go/MODULE_PATH).
+        expected = os.getenv("REPOSITORY_URL")
+        if expected:
             require(repository is not None and repository.get("url", "").removesuffix(".git") == expected,
                     f"Package repository must be {expected}")
+        if os.getenv("GITHUB_ACTIONS") == "true":
             head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
             require(repository.get("commit") == head, f"Package must identify commit {head}")
     with ZipFile(path.with_suffix(".snupkg")) as symbols:

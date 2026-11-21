@@ -1,6 +1,6 @@
 # Contributing to Test Bench
 
-Install the .NET 10 SDK to build the packages and example. Browser checks use Node.js 22 or newer and Playwright Chromium. Archive and clean-consumer checks use Python 3.9 or newer.
+Install the .NET 10 SDK to build the packages and example. Browser checks use Node.js 22 or newer and Playwright Chromium. Archive and clean-consumer checks use Python 3.10 or newer, plus each binding's own toolchain for its packages.
 
 ## Check a change
 
@@ -16,15 +16,18 @@ node tools/accessibility.mjs
 
 The browser test creates and removes an isolated sample database by default. Pointing `TESTBENCH_URL` at an existing Treasury example will commit a test payment there.
 
-The workflow reports the release build, .NET tests, JavaScript tests, browser checks, packaging and clean installation in its run summary. Browser evidence is saved under `artifacts/browser/` and uploaded even after a failed comparison. Each comparison uses the approved mock HTML at the matching viewport. Screenshots retain real API data, so row values, enabled sign-in providers and search result counts can differ from the design fixture.
+The workflow reports the release build, .NET tests, JavaScript tests and browser checks for each operating system, and every registry's packaging and clean installation, in its run summary. Browser evidence is saved under `artifacts/browser/` and uploaded even after a failed comparison. Each comparison uses the approved mock HTML at the matching viewport. Screenshots retain real API data, so row values, enabled sign-in providers and search result counts can differ from the design fixture.
 
-To build local NuGet packages, run these commands from the repository root:
+## Build every package
+
+`node tools/pack-all.mjs` builds every binding into the archive its registry publishes, under `artifacts/packages/<registry>/` with a `SHA256SUMS` file: NuGet packages and symbols, npm tarballs, Python wheels and sdists, a Maven repository layout, `.crate` files, gems, Composer ZIPs and Go module ZIPs. Registries whose toolchain is not installed are skipped and listed in the summary.
 
 ```sh
-dotnet pack adapters/dotnet/TestBench.AspNetCore -c Release -o artifacts/packages
-dotnet pack adapters/dotnet/TestBench.EntityFrameworkCore -c Release -o artifacts/packages
-python3 tools/check-packages.py artifacts/packages
+node tools/pack-all.mjs --verify            # build, then install each archive into a fresh consumer app
+node tools/pack-all.mjs --verify --only npm,pypi
 ```
+
+`--verify` creates a throwaway project outside the repository for each registry, installs the built archives (never the source tree) and starts a minimal application that must serve the workbench at `/bench/` and its OpenAPI document. CI runs the same command for each registry on Linux, Windows and macOS. The version comes from `Directory.Build.props` and the repository URL from `adapters/go/MODULE_PATH`. See the [publishing guide](docs/publishing.md) for releases.
 
 ## Choose the extension point
 

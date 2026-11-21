@@ -26,13 +26,12 @@ Open **http://localhost:5080/bench**. The API overview explains Preview and Send
 To try the first prerelease from this checkout, build both packages and install from the local feed. Keep nuget.org enabled for third-party dependencies.
 
 ```sh
-dotnet pack adapters/dotnet/TestBench.AspNetCore -c Release -o artifacts/packages
-dotnet pack adapters/dotnet/TestBench.EntityFrameworkCore -c Release -o artifacts/packages
+node tools/pack-all.mjs --only nuget
 dotnet add /path/to/YourApi.csproj package TestBench.EntityFrameworkCore --version 0.1.0-alpha.1 --no-restore
-dotnet restore /path/to/YourApi.csproj --source "$PWD/artifacts/packages" --source https://api.nuget.org/v3/index.json
+dotnet restore /path/to/YourApi.csproj --source "$PWD/artifacts/packages/nuget" --source https://api.nuget.org/v3/index.json
 ```
 
-For a feed that persists across restores, see the [package guide](docs/packages.md).
+For a feed that persists across restores, see the [package guide](docs/packages.md). `node tools/pack-all.mjs` builds the packages of every other language the same way ([CONTRIBUTING.md](CONTRIBUTING.md#build-every-package)).
 
 ## Add it to an API
 
