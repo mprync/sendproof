@@ -62,10 +62,26 @@ final class PreviewSessions {
 
     private static final StackWalker WALKER = StackWalker.getInstance();
 
-    /** Whether the code asking is the MongoDB driver itself, past the proxy and reflection frames. */
-    private static boolean calledByDriver() {
+    /**
+     * Whether the code asking is the MongoDB driver itself, past the proxy and reflection frames.
+     *
+     * <p>The driver offers no other signal: the reactive driver's {@code ClientSessionHelper} asks for the originator
+     * before anything driver-only reaches the session, so the caller's package is the only way to tell the driver's
+     * own "session from the same client" check from handler code. {@code DriverOriginatorCheckTest} pins that driver
+     * behaviour (sync and reactive), so a driver upgrade that changes it fails loudly.
+     */
+    static boolean calledByDriver() {
+        return calledByDriver(PreviewSessions.class);
+    }
+
+    /**
+     * {@link #calledByDriver()} for a session proxy whose invocation handler lives in {@code handlerClass}; its frames
+     * (and its nested classes') are skipped like the proxy's own.
+     */
+    static boolean calledByDriver(Class<?> handlerClass) {
         return WALKER.walk(frames -> frames.map(StackWalker.StackFrame::getClassName)
-                .filter(name -> !name.startsWith(PreviewSessions.class.getName()) && !name.startsWith("jdk.proxy")
+                .filter(name -> !name.startsWith(PreviewSessions.class.getName())
+                        && !name.startsWith(handlerClass.getName()) && !name.startsWith("jdk.proxy")
                         && !name.startsWith("com.sun.proxy") && !name.startsWith("java.lang.reflect")
                         && !name.startsWith("jdk.internal.reflect"))
                 .findFirst().map(name -> name.startsWith("com.mongodb.")).orElse(false));
