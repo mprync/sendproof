@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -8,15 +8,15 @@ import (
 
 // ErrPreviewUnavailable is returned by a Provider that cannot offer a rollback
 // preview for the current request. The transport answers with HTTP 503.
-var ErrPreviewUnavailable = errors.New("testbench: preview is unavailable")
+var ErrPreviewUnavailable = errors.New("sendproof: preview is unavailable")
 
 // ErrNoPreviewSession is returned by data-access wrappers that are used during a
 // preview by a handler that was not marked for preview. Wrappers fail closed so an
 // unreviewed handler can never commit while a preview is running.
-var ErrNoPreviewSession = errors.New("testbench: the preview handler was not marked with Preview")
+var ErrNoPreviewSession = errors.New("sendproof: the preview handler was not marked with Preview")
 
 // Provider opens rollback-only sessions on the data layer an operation writes to.
-// A Test Bench with no provider still offers the request editor and Send. A bench
+// A Sendproof with no provider still offers the request editor and Send. A bench
 // with more than one provider cannot tell which one owns a request, so it offers
 // no previews.
 type Provider interface {
@@ -41,7 +41,7 @@ type ObservingProvider interface {
 // Session is the transaction and change capture of one preview request.
 type Session interface {
 	// Rollback captures the changes the handler made, then discards them. A failure
-	// prevents Test Bench from confirming the preview. Changes is read afterwards.
+	// prevents Sendproof from confirming the preview. Changes is read afterwards.
 	Rollback(ctx context.Context) error
 
 	// Changes returns the captured row changes. It is valid after Rollback.

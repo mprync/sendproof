@@ -1,4 +1,4 @@
-module github.com/test-bench/test-bench/adapters/go/examples
+module github.com/mprync/sendproof/adapters/go/examples
 
 go 1.26.0
 
@@ -9,11 +9,11 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/labstack/echo/v4 v4.16.5
 	github.com/microsoft/go-mssqldb v1.12.0
-	github.com/test-bench/test-bench/adapters/go v0.1.0-alpha.1
-	github.com/test-bench/test-bench/adapters/go/chi v0.1.0-alpha.1
-	github.com/test-bench/test-bench/adapters/go/echo v0.1.0-alpha.1
-	github.com/test-bench/test-bench/adapters/go/gin v0.1.0-alpha.1
-	github.com/test-bench/test-bench/adapters/go/gorm v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/driver/sqlite v1.6.0

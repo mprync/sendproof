@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'дд', month: 'мм', year: 'рррр' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'потім',
     'unit.bytes': '{n} Б',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'Пошук охоплює назви моделей та їхні описи.',
     'side.try': 'Спробуйте «{query}»',
     'side.emptyTitle': 'У цьому API ще немає операцій',
-    'side.emptyBody': 'Test Bench показує кожен шлях із {url}. Зіставте кінцеву точку й перезавантажте.',
+    'side.emptyBody': 'Sendproof показує кожен шлях із {url}. Зіставте кінцеву точку й перезавантажте.',
     'side.reload': 'Перезавантажити специфікацію',
     'side.noModelsTitle': 'У цій специфікації немає моделей',
     'side.noModelsBody': 'Моделі беруться з {source}. Тіла запитів і відповідей із вбудованими схемами, як і раніше, відображаються в розділі «Документація» кожної операції.',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'Цифри',
     'display.latin': 'Латинські',
     'display.arabicIndic': 'Арабо-індійські',
-    'display.digitsHelp': 'Лише власні числа й дати Test Bench. Захоплені дані відображаються точно так, як їх збережено.',
+    'display.digitsHelp': 'Лише власні числа й дати Sendproof. Захоплені дані відображаються точно так, як їх збережено.',
     'display.close': 'Закрити',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -308,7 +308,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Вимоги безпеки', 'auth.scheme.cookie': 'Вхід через cookie', 'auth.scheme.apiKey': 'Ключ API', 'auth.scheme.http': 'Автентифікація HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Вхід',
-    'auth.sessionBody': 'Увійдіть як користувач цього API. Test Bench надсилає сеанс за вас.', 'auth.schemeBody': 'Увійдіть у {name}; Test Bench надсилає сеанс.',
+    'auth.sessionBody': 'Увійдіть як користувач цього API. Sendproof надсилає сеанс за вас.', 'auth.schemeBody': 'Увійдіть у {name}; Sendproof надсилає сеанс.',
     'auth.signInNeeded': 'Вхід', 'auth.notSignedIn': 'Вхід не виконано', 'auth.permission': 'Дозвіл',
     'auth.permissionBody': 'Перевіряється API після входу. Без нього виклик повертає 403.', 'auth.checkedOnSend': 'Перевіряється під час надсилання',
     'auth.unknown': 'Невідомо до входу', 'auth.seeded': 'Використати тестовий обліковий запис…', 'auth.publicBody': 'Ця операція не потребує входу.',
@@ -344,7 +344,7 @@ export default {
     'res.before.Headers.title': 'Тут з’являться заголовки відповіді',
     'res.before.headers.body': 'Кожен заголовок, який повертає API, а також заголовки запиту точно в тому вигляді, в якому їх надіслано, після підстановки змінних.',
     'res.notCaptured.database': 'Надсилання не захоплює зміни в базі даних',
-    'res.notCaptured.databaseBody': 'Надсилання фіксує зміни насправді, а Test Bench не втручається в транзакцію. Скористайтеся переглядом, щоб спершу побачити рядки, або ввімкніть надсилання з трасуванням, щоб записувати їх у момент фіксації.',
+    'res.notCaptured.databaseBody': 'Надсилання фіксує зміни насправді, а Sendproof не втручається в транзакцію. Скористайтеся переглядом, щоб спершу побачити рядки, або ввімкніть надсилання з трасуванням, щоб записувати їх у момент фіксації.',
     'res.notCaptured.databaseNoTrace': 'Надсилання фіксує зміни насправді, і цей API не трасує його. Скористайтеся переглядом, щоб спершу побачити рядки.',
     'res.notCaptured.effects': 'Надсилання не захоплює побічні ефекти',
     'res.notCaptured.effectsBody': 'Вони виконалися насправді. Перегляд показує їх без надсилання; або ввімкніть надсилання з трасуванням, щоб записувати їх під час виконання.',
@@ -369,13 +369,13 @@ export default {
     'res.network.title': 'Не вдалося зв’язатися з API',
     'res.network.body': 'Від {origin} нічого не надійшло. Запит, імовірно, не дійшов до сервера, тож нічого не збережено.',
     'res.network.why': 'API запущено? Запустіть його знову й повторіть спробу. Ваш запит збережено як є.',
-    'res.error.title': 'Не вдалося виконати запит', 'res.error.why': 'Test Bench нічого не змінив. Перевірте запит і консоль API.',
+    'res.error.title': 'Не вдалося виконати запит', 'res.error.why': 'Sendproof нічого не змінив. Перевірте запит і консоль API.',
 
     // Boot
-    'boot.title': 'Не вдалося завантажити документ OpenAPI', 'boot.capabilitiesStatus': 'Виявлення Test Bench повернуло {status}.', 'boot.documentStatus': 'Документ OpenAPI повернув {status}.',
-    'boot.unsupported': 'Версія Test Bench цього API не підтримується цим робочим середовищем.',
-    'boot.body': 'Запит {request} не вдався: {message} Test Bench будує кожен екран на його основі, тож показувати поки нічого.',
-    'boot.bodyStatus': 'Запит {request} повернув {status}. Test Bench будує кожен екран на його основі, тож показувати поки нічого.',
+    'boot.title': 'Не вдалося завантажити документ OpenAPI', 'boot.capabilitiesStatus': 'Виявлення Sendproof повернуло {status}.', 'boot.documentStatus': 'Документ OpenAPI повернув {status}.',
+    'boot.unsupported': 'Версія Sendproof цього API не підтримується цим робочим середовищем.',
+    'boot.body': 'Запит {request} не вдався: {message} Sendproof будує кожен екран на його основі, тож показувати поки нічого.',
+    'boot.bodyStatus': 'Запит {request} повернув {status}. Sendproof будує кожен екран на його основі, тож показувати поки нічого.',
     'boot.why': 'Зазвичай це помилка запуску в API або відсутній AddOpenApi(). Подробиці є в консолі API.',
     'boot.whyAuth': 'Документ потребує користувача, що виконав вхід. Увійдіть і повторіть спробу.',
     'boot.open': 'Відкрити {url}', 'boot.copy': 'Копіювати помилку', 'boot.noOperations': 'Немає операцій', 'boot.noOperationsBody': 'Вони з’являться, щойно завантажиться специфікація.',
@@ -408,7 +408,7 @@ export default {
     'overview.crumb': 'Огляд',
     'overview.operations': { one: '{n} операція', few: '{n} операції', many: '{n} операцій', other: '{n} операції' },
     'overview.models': { one: '{n} модель', few: '{n} моделі', many: '{n} моделей', other: '{n} моделі' },
-    'overview.how': 'Як працює Test Bench', 'overview.preview': 'Перегляд', 'overview.send': 'Надіслати', 'overview.autofill': 'Автозаповнення',
+    'overview.how': 'Як працює Sendproof', 'overview.preview': 'Перегляд', 'overview.send': 'Надіслати', 'overview.autofill': 'Автозаповнення',
     'overview.previewBody': 'Виконує запит насправді всередині транзакції, показує кожен рядок, лист і запис журналу, які він спричинив, а потім виконує відкат.',
     'overview.sendBody': 'Виконує його насправді та фіксує зміни, точно як будь-який інший клієнт.',
     'overview.autofillBody': 'Заповнює поля за схемою, використовуючи реальні ID із власних кінцевих точок списків API.',
@@ -614,7 +614,7 @@ export default {
       other: '{n} невідповідності в цьому тілі',
     },
     'match.failBody': 'API відповів {status}, але тіло не відповідає {model}, задокументованій схемі:',
-    'match.note': 'Test Bench лише повідомляє про це. Відповідь показано точно так, як отримано.', 'match.showSchema': 'Показати у вигляді схеми', 'match.copy': 'Копіювати проблеми',
+    'match.note': 'Sendproof лише повідомляє про це. Відповідь показано точно так, як отримано.', 'match.showSchema': 'Показати у вигляді схеми', 'match.copy': 'Копіювати проблеми',
     'match.more': { one: 'ще {n}', few: 'ще {n}', many: 'ще {n}', other: 'ще {n}' }, 'match.extra': 'Немає в схемі {model}', 'match.what': 'проблеми зі схемою',
     'match.missing': 'Обов’язкове, але відсутнє в тілі',
 

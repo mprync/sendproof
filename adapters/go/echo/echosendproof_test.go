@@ -1,4 +1,4 @@
-package echobench
+package echosendproof
 
 import "testing"
 

@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"errors"
@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// Option configures a Bench. Options validate their input, and New reports the
+// Option configures a Sendproof. Options validate their input, and New reports the
 // first failure.
 type Option func(*config) error
 
-// config holds the validated settings of a Bench.
+// config holds the validated settings of a Sendproof.
 type config struct {
 	apiName       string
 	openAPIURL    string
@@ -38,7 +38,7 @@ type document struct{ Name, URL string }
 type authProvider struct{ Label, Kind, URL string }
 
 func defaultConfig() config {
-	environment := firstNonEmpty(os.Getenv("TESTBENCH_ENVIRONMENT"), os.Getenv("APP_ENV"), os.Getenv("GO_ENV"), "Production")
+	environment := firstNonEmpty(os.Getenv("SENDPROOF_ENVIRONMENT"), os.Getenv("APP_ENV"), os.Getenv("GO_ENV"), "Production")
 	return config{
 		apiName:      "API",
 		openAPIURL:   "/openapi/v1.json",
@@ -63,7 +63,7 @@ func firstNonEmpty(values ...string) string {
 func WithAPIName(name string) Option {
 	return func(c *config) error {
 		if strings.TrimSpace(name) == "" {
-			return errors.New("testbench: the API name must not be empty")
+			return errors.New("sendproof: the API name must not be empty")
 		}
 		c.apiName = name
 		return nil
@@ -87,7 +87,7 @@ func WithOpenAPIURL(url string) Option {
 func WithOpenAPIDocument(name, url string) Option {
 	return func(c *config) error {
 		if strings.TrimSpace(name) == "" {
-			return errors.New("testbench: the document name must not be empty")
+			return errors.New("sendproof: the document name must not be empty")
 		}
 		if err := validateLocalURL(url); err != nil {
 			return err
@@ -121,12 +121,12 @@ func WithFieldModule(url string) Option {
 }
 
 // WithEnvironment names the environment the application runs in, such as
-// "Development". The default comes from TESTBENCH_ENVIRONMENT, APP_ENV or GO_ENV,
+// "Development". The default comes from SENDPROOF_ENVIRONMENT, APP_ENV or GO_ENV,
 // and is "Production" when none is set, so the workbench stays off by default.
 func WithEnvironment(name string) Option {
 	return func(c *config) error {
 		if strings.TrimSpace(name) == "" {
-			return errors.New("testbench: the environment name must not be empty")
+			return errors.New("sendproof: the environment name must not be empty")
 		}
 		c.environment = name
 		return nil
@@ -138,11 +138,11 @@ func WithEnvironment(name string) Option {
 func WithEnabledEnvironments(names ...string) Option {
 	return func(c *config) error {
 		if len(names) == 0 {
-			return errors.New("testbench: list at least one environment")
+			return errors.New("sendproof: list at least one environment")
 		}
 		for _, name := range names {
 			if strings.TrimSpace(name) == "" {
-				return errors.New("testbench: an environment name must not be empty")
+				return errors.New("sendproof: an environment name must not be empty")
 			}
 		}
 		c.environments = append([]string(nil), names...)
@@ -156,7 +156,7 @@ func WithEnabledEnvironments(names ...string) Option {
 func WithAuthProvider(label, kind, url string) Option {
 	return func(c *config) error {
 		if strings.TrimSpace(label) == "" || strings.TrimSpace(kind) == "" {
-			return errors.New("testbench: an auth provider needs a label and a kind")
+			return errors.New("sendproof: an auth provider needs a label and a kind")
 		}
 		if err := validateLocalURL(url); err != nil {
 			return err
@@ -193,7 +193,7 @@ func WithAccessPolicy(allow func(*http.Request) bool) Option {
 func WithProvider(provider Provider) Option {
 	return func(c *config) error {
 		if provider == nil {
-			return errors.New("testbench: the provider must not be nil")
+			return errors.New("sendproof: the provider must not be nil")
 		}
 		c.providers = append(c.providers, provider)
 		return nil
@@ -220,7 +220,7 @@ func WithPathBase(base string) Option {
 func WithTraceTTL(ttl time.Duration) Option {
 	return func(c *config) error {
 		if ttl <= 0 {
-			return errors.New("testbench: the trace lifetime must be positive")
+			return errors.New("sendproof: the trace lifetime must be positive")
 		}
 		c.traceTTL = ttl
 		return nil
@@ -231,19 +231,19 @@ func WithTraceTTL(ttl time.Duration) Option {
 func WithClock(now func() time.Time) Option {
 	return func(c *config) error {
 		if now == nil {
-			return errors.New("testbench: the clock must not be nil")
+			return errors.New("sendproof: the clock must not be nil")
 		}
 		c.clock = now
 		return nil
 	}
 }
 
-// WithLogger sets the logger for Test Bench's own diagnostics. The default is
+// WithLogger sets the logger for Sendproof's own diagnostics. The default is
 // slog.Default.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) error {
 		if logger == nil {
-			return errors.New("testbench: the logger must not be nil")
+			return errors.New("sendproof: the logger must not be nil")
 		}
 		c.logger = logger
 		return nil
@@ -262,7 +262,7 @@ func WithSQLParameterValues(enabled bool) Option {
 
 func validateLocalURL(url string) error {
 	if !isLocalURL(url) {
-		return fmt.Errorf("testbench: %q is not an application-relative, same-origin path", url)
+		return fmt.Errorf("sendproof: %q is not an application-relative, same-origin path", url)
 	}
 	return nil
 }

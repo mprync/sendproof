@@ -1,5 +1,5 @@
 /* =====================================================================
-   Test Bench workbench: rules the live app needs on top of the approved mock stylesheets
+   Sendproof workbench: rules the live app needs on top of the approved mock stylesheets
    (styles.css and views.css, which are byte-for-byte copies of mocks/). They cover live-only
    states the static mocks don't render: real inputs inside the headers grid, lookups, the
    resizable track sizes, focus rings on native controls, long real values, and coarse

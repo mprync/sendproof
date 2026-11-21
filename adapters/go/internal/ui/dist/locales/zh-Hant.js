@@ -10,7 +10,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': '然後',
     'unit.bytes': '{n} B',
 
@@ -53,7 +53,7 @@ export default {
     'side.noMatchModelsBody': '搜尋範圍包含模型名稱及其說明。',
     'side.try': '試試「{query}」',
     'side.emptyTitle': '此 API 尚無任何操作',
-    'side.emptyBody': 'Test Bench 會列出 {url} 中的每個路徑。請對應端點後重新載入。',
+    'side.emptyBody': 'Sendproof 會列出 {url} 中的每個路徑。請對應端點後重新載入。',
     'side.reload': '重新載入規格',
     'side.noModelsTitle': '此規格中沒有模型',
     'side.noModelsBody': '模型來自 {source}。使用內嵌結構描述的請求與回應本文，仍會顯示在各操作的文件中。',
@@ -83,7 +83,7 @@ export default {
     'display.digits': '數字',
     'display.latin': '拉丁數字',
     'display.arabicIndic': '阿拉伯-印度數字',
-    'display.digitsHelp': '僅適用於 Test Bench 本身的數字與日期。擷取到的資料會依儲存內容原樣顯示。',
+    'display.digitsHelp': '僅適用於 Sendproof 本身的數字與日期。擷取到的資料會依儲存內容原樣顯示。',
     'display.close': '關閉',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -274,7 +274,7 @@ export default {
     // Auth tab
     'auth.requirements': '安全性需求', 'auth.scheme.cookie': 'Cookie 登入', 'auth.scheme.apiKey': 'API 金鑰', 'auth.scheme.http': 'HTTP 驗證',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': '登入',
-    'auth.sessionBody': '以此 API 的使用者身分登入。Test Bench 會為您傳送工作階段。', 'auth.schemeBody': '登入 {name}；Test Bench 會傳送工作階段。',
+    'auth.sessionBody': '以此 API 的使用者身分登入。Sendproof 會為您傳送工作階段。', 'auth.schemeBody': '登入 {name}；Sendproof 會傳送工作階段。',
     'auth.signInNeeded': '登入', 'auth.notSignedIn': '尚未登入', 'auth.permission': '權限',
     'auth.permissionBody': '登入後由 API 檢查。沒有此權限時，呼叫會傳回 403。', 'auth.checkedOnSend': '傳送時檢查',
     'auth.unknown': '登入後才會知道', 'auth.seeded': '使用種子帳戶…', 'auth.publicBody': '此操作不需要登入。',
@@ -310,7 +310,7 @@ export default {
     'res.before.Headers.title': '回應標頭會顯示在這裡',
     'res.before.headers.body': 'API 傳回的每個標頭，以及變數解析後實際傳送的請求標頭。',
     'res.notCaptured.database': '傳送不會擷取資料庫變更',
-    'res.notCaptured.databaseBody': '傳送會真正提交，Test Bench 不會介入交易。請先使用預覽查看資料列，或開啟追蹤傳送，在提交時一併記錄。',
+    'res.notCaptured.databaseBody': '傳送會真正提交，Sendproof 不會介入交易。請先使用預覽查看資料列，或開啟追蹤傳送，在提交時一併記錄。',
     'res.notCaptured.databaseNoTrace': '傳送會真正提交，且此 API 不會追蹤它。請先使用預覽查看資料列。',
     'res.notCaptured.effects': '傳送不會擷取副作用',
     'res.notCaptured.effectsBody': '它們已真正執行。預覽可在不傳送的情況下顯示它們，或開啟追蹤傳送，在發生時一併記錄。',
@@ -335,13 +335,13 @@ export default {
     'res.network.title': '無法連線到 API',
     'res.network.body': '{origin} 沒有傳回任何內容。請求可能沒有到達伺服器，因此沒有儲存任何內容。',
     'res.network.why': 'API 是否正在執行？請重新啟動後再試一次。您的請求會維持原樣。',
-    'res.error.title': '無法完成請求', 'res.error.why': 'Test Bench 沒有變更任何內容。請檢查請求與 API 主控台。',
+    'res.error.title': '無法完成請求', 'res.error.why': 'Sendproof 沒有變更任何內容。請檢查請求與 API 主控台。',
 
     // Boot
-    'boot.title': '無法載入 OpenAPI 文件', 'boot.capabilitiesStatus': 'Test Bench 探索傳回 {status}。', 'boot.documentStatus': 'OpenAPI 文件傳回 {status}。',
-    'boot.unsupported': '此工作台不支援此 API 的 Test Bench 版本。',
-    'boot.body': '{request} 失敗：{message} Test Bench 的每個畫面都由它建構，因此目前沒有內容可顯示。',
-    'boot.bodyStatus': '{request} 傳回 {status}。Test Bench 的每個畫面都由它建構，因此目前沒有內容可顯示。',
+    'boot.title': '無法載入 OpenAPI 文件', 'boot.capabilitiesStatus': 'Sendproof 探索傳回 {status}。', 'boot.documentStatus': 'OpenAPI 文件傳回 {status}。',
+    'boot.unsupported': '此工作台不支援此 API 的 Sendproof 版本。',
+    'boot.body': '{request} 失敗：{message} Sendproof 的每個畫面都由它建構，因此目前沒有內容可顯示。',
+    'boot.bodyStatus': '{request} 傳回 {status}。Sendproof 的每個畫面都由它建構，因此目前沒有內容可顯示。',
     'boot.why': '通常是 API 的啟動錯誤，或缺少 AddOpenApi()。API 主控台中有詳細資料。',
     'boot.whyAuth': '此文件需要已登入的使用者。請登入後再試一次。',
     'boot.open': '開啟 {url}', 'boot.copy': '複製錯誤', 'boot.noOperations': '沒有操作', 'boot.noOperationsBody': '規格載入後就會顯示。',
@@ -372,7 +372,7 @@ export default {
 
     // Overview
     'overview.crumb': '概觀', 'overview.operations': { other: '{n} 個操作' }, 'overview.models': { other: '{n} 個模型' },
-    'overview.how': 'Test Bench 的運作方式', 'overview.preview': '預覽', 'overview.send': '傳送', 'overview.autofill': '自動填入',
+    'overview.how': 'Sendproof 的運作方式', 'overview.preview': '預覽', 'overview.send': '傳送', 'overview.autofill': '自動填入',
     'overview.previewBody': '在交易中真正執行請求，顯示它造成的每個資料列、電子郵件與記錄，然後還原。',
     'overview.sendBody': '真正執行並提交，與任何其他用戶端完全相同。',
     'overview.autofillBody': '依結構描述填入欄位，ID 則使用 API 本身清單端點中的真實值。',
@@ -506,7 +506,7 @@ export default {
     'match.schema': '結構描述', 'match.checked': '已檢查', 'match.checks': '類型、格式、模式、長度、列舉與必要屬性',
     'match.failTitle': { other: '此本文有 {n} 處不符合' },
     'match.failBody': 'API 回應了 {status}，但本文不符合文件中記載的結構描述 {model}：',
-    'match.note': 'Test Bench 只會回報此情況。回應會依收到的內容原樣顯示。', 'match.showSchema': '在結構描述檢視中顯示', 'match.copy': '複製問題',
+    'match.note': 'Sendproof 只會回報此情況。回應會依收到的內容原樣顯示。', 'match.showSchema': '在結構描述檢視中顯示', 'match.copy': '複製問題',
     'match.more': { other: '另有 {n} 項' }, 'match.extra': '不在 {model} 結構描述中', 'match.what': '結構描述問題',
     'match.missing': '必填，但本文中缺少',
 

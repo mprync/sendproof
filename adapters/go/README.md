@@ -1,17 +1,17 @@
-# Test Bench for Go
+# Sendproof for Go
 
-Mount the Test Bench workbench inside a Go API. A developer signs in, picks an operation from the OpenAPI document and edits a typed request. **Preview** runs an eligible operation inside a database transaction and returns its response, the row changes and the recorded side effects, then rolls everything back. **Send** runs the ordinary request, optionally with a trace.
+Mount the Sendproof workbench inside a Go API. A developer signs in, picks an operation from the OpenAPI document and edits a typed request. **Preview** runs an eligible operation inside a database transaction and returns its response, the row changes and the recorded side effects, then rolls everything back. **Send** runs the ordinary request, optionally with a trace.
 
-The workbench is the same prebuilt UI used by every Test Bench binding. It is embedded in the module with `go:embed`, so consumers need neither Node nor a second list of endpoints.
+The workbench is the same prebuilt UI used by every Sendproof binding. It is embedded in the module with `go:embed`, so consumers need neither Node nor a second list of endpoints.
 
 | Module | Package | Purpose |
 | --- | --- | --- |
-| `…/adapters/go` | `testbench` | Core and `net/http`: workbench, discovery, Preview transport, observed Send, traces, effects, `slog` capture. Standard library only. |
+| `…/adapters/go` | `sendproof` | Core and `net/http`: workbench, discovery, Preview transport, observed Send, traces, effects, `slog` capture. Standard library only. |
 | `…/adapters/go` | `dbsql` | `database/sql` provider for SQLite, PostgreSQL, MySQL and SQL Server: transaction enlistment, savepoints, SQL capture and redaction, per-statement row changes. Standard library only. |
-| `…/adapters/go/chi` | `chibench` | Route marker for [chi](https://github.com/go-chi/chi). |
-| `…/adapters/go/gin` | `ginbench` | Route marker for [Gin](https://github.com/gin-gonic/gin). |
-| `…/adapters/go/echo` | `echobench` | Route marker for [Echo](https://echo.labstack.com) v4. |
-| `…/adapters/go/gorm` | `gormbench` | [GORM](https://gorm.io) connection pool on top of `dbsql`. |
+| `…/adapters/go/chi` | `chisendproof` | Route marker for [chi](https://github.com/go-chi/chi). |
+| `…/adapters/go/gin` | `ginsendproof` | Route marker for [Gin](https://github.com/gin-gonic/gin). |
+| `…/adapters/go/echo` | `echosendproof` | Route marker for [Echo](https://echo.labstack.com) v4. |
+| `…/adapters/go/gorm` | `gormsendproof` | [GORM](https://gorm.io) connection pool on top of `dbsql`. |
 
 The framework and GORM adapters are separate modules, so an application only downloads the ones it imports. They require the core module at a released version (`v0.1.0-alpha.1` today). No `go.mod` contains a `replace` directive; [`go.work`](go.work) resolves those versions to this checkout for local development. See [Modules, versions and the module path](#modules-versions-and-the-module-path).
 
@@ -20,10 +20,10 @@ The framework and GORM adapters are separate modules, so an application only dow
 ```go
 db, _ := dbsql.Wrap(sqlDB, dbsql.WithDatabaseLabel("inventory_dev")) // engine detected from the driver
 
-bench, err := testbench.New(
-	testbench.WithEnvironment("Development"),
-	testbench.WithProvider(db.Provider()),
-	testbench.WithPrincipal(principalFromSession),
+bench, err := sendproof.New(
+	sendproof.WithEnvironment("Development"),
+	sendproof.WithProvider(db.Provider()),
+	sendproof.WithPrincipal(principalFromSession),
 )
 
 mux := http.NewServeMux()
@@ -33,7 +33,7 @@ mux.HandleFunc("GET /items/{id}", getItem)                            // Send on
 http.ListenAndServe(":8080", bench.Middleware(mux))
 ```
 
-Open `/bench/`. A runnable version is in [`examples/quickstart`](examples/README.md). Run `go run ./quickstart` from `adapters/go/examples`.
+Open `/sendproof/`. A runnable version is in [`examples/quickstart`](examples/README.md). Run `go run ./quickstart` from `adapters/go/examples`.
 
 `bench.Middleware` must wrap the whole application, outside the router and its authentication, so a preview is routed, authenticated and authorized exactly like the real request.
 
@@ -45,13 +45,13 @@ A preview is only as complete as the handler's enlistment. For a marked route:
 2. **Record external effects at their dispatch boundary** and skip them when told to:
 
    ```go
-   if !testbench.RecordEmail(ctx, "Stock notice", from, to, subject, text) {
+   if !sendproof.RecordEmail(ctx, "Stock notice", from, to, subject, text) {
        send(...) // a preview returns true: record only
    }
    ```
 
    `RecordEffect`, `RecordHTTP`, `RecordJob` and `RecordMessage` follow the same pattern. An observed Send records the effect as `delivered: true` and returns false.
-3. **Log with the request context** through a handler wrapped by `testbench.SlogHandler(next)` (`logger.InfoContext(ctx, …)`), or call `testbench.Log(ctx, level, message)`.
+3. **Log with the request context** through a handler wrapped by `sendproof.SlogHandler(next)` (`logger.InfoContext(ctx, …)`), or call `sendproof.Log(ctx, level, message)`.
 
 Mark a route only when its whole request path meets this boundary. Preview is not a sandbox: caches, files, other databases and calls to other services need their own handling.
 
@@ -63,13 +63,13 @@ Routers match a request before middleware runs, so wrap the **router** with `ben
 
 ```go
 // chi
-r.With(chibench.Preview(bench, http.MethodPost, "/items/{id}")).Post("/items/{id}", create)
+r.With(chisendproof.Preview(bench, http.MethodPost, "/items/{id}")).Post("/items/{id}", create)
 
 // Gin
-r.POST("/items/:id", ginbench.Preview(bench, http.MethodPost, "/items/:id"), create)
+r.POST("/items/:id", ginsendproof.Preview(bench, http.MethodPost, "/items/:id"), create)
 
 // Echo
-e.POST("/items/:id", create, echobench.Preview(bench, http.MethodPost, "/items/:id"))
+e.POST("/items/:id", create, echosendproof.Preview(bench, http.MethodPost, "/items/:id"))
 
 http.ListenAndServe(addr, bench.Middleware(router)) // r, engine or e
 ```
@@ -82,7 +82,7 @@ For another router, call `bench.Operation(method, path)` once per route and use 
 
 ```go
 wrapped, _ := dbsql.Wrap(sqlDB)
-gdb, _ := gorm.Open(sqlite.Dialector{Conn: gormbench.NewPool(wrapped)}, &gorm.Config{})
+gdb, _ := gorm.Open(sqlite.Dialector{Conn: gormsendproof.NewPool(wrapped)}, &gorm.Config{})
 // or postgres.New(postgres.Config{Conn: …}), mysql.New(mysql.Config{Conn: …}), sqlserver.New(sqlserver.Config{Conn: …})
 
 gdb.WithContext(r.Context()).Create(&item) // WithContext carries the request into the pool
@@ -92,14 +92,14 @@ GORM reaches the preview transaction only through `WithContext`. GORM's own tran
 
 ## Path base
 
-The workbench, discovery links, sign-in URLs and redirects all honor a mount prefix. Strip it with `StripPathBase`, which also records it for `testbench.PathBase(r)`:
+The workbench, discovery links, sign-in URLs and redirects all honor a mount prefix. Strip it with `StripPathBase`, which also records it for `sendproof.PathBase(r)`:
 
 ```go
-handler := testbench.StripPathBase("/tenant", bench.Middleware(mux))
-// Requests outside /tenant receive 404; handlers build links with testbench.PathBase(r).
+handler := sendproof.StripPathBase("/tenant", bench.Middleware(mux))
+// Requests outside /tenant receive 404; handlers build links with sendproof.PathBase(r).
 ```
 
-When a reverse proxy strips the prefix before the request reaches Go, declare it with `testbench.WithPathBase("/tenant")` instead. Request paths seen by the application never contain the base.
+When a reverse proxy strips the prefix before the request reaches Go, declare it with `sendproof.WithPathBase("/tenant")` instead. Request paths seen by the application never contain the base.
 
 ## Row changes
 
@@ -116,7 +116,7 @@ When a reverse proxy strips the prefix before the request reaches Go, declare it
 
 **Concurrency.** The capture connection serves only the request, so other requests' writes never appear. An observed Send runs each autocommit statement in its own transaction, the equivalent of autocommit, so its locking reads are isolated too. The one exception, a write that returns rows (such as `INSERT … RETURNING`) outside a transaction under keyed capture, is labeled with a trace warning. During a PostgreSQL preview the audit triggers hold `SHARE ROW EXCLUSIVE` locks, so concurrent writes to the database's tables and other previews wait until the preview ends; Preview answers `503` when it cannot take the locks within five seconds. Reads are never blocked.
 
-Updates that leave a row unchanged are not reported. No table size makes Preview unavailable, because nothing reads whole tables; the trace still keeps at most 200 changes and sets `changesTruncated` beyond that, and keyed capture keeps at most 201 keys per statement. Statements outside an application transaction in an observed Send that is inside one go to the pool, as they would without Test Bench, and are not captured.
+Updates that leave a row unchanged are not reported. No table size makes Preview unavailable, because nothing reads whole tables; the trace still keeps at most 200 changes and sets `changesTruncated` beyond that, and keyed capture keeps at most 201 keys per statement. Statements outside an application transaction in an observed Send that is inside one go to the pool, as they would without Sendproof, and are not captured.
 
 ### Preview safety
 
@@ -124,7 +124,7 @@ Updates that leave a row unchanged are not reported. No table size makes Preview
 - SQLite's commit hook and a PostgreSQL deferred guard trigger turn any commit that still reaches the database into a rollback. MySQL and SQL Server previews check after a failed statement that the transaction is still open (a deadlock or severe error rolls it back), and stop with an unconfirmed preview if it is not.
 - A PostgreSQL preview runs each statement outside an application transaction on a savepoint, so a failed statement is undone alone, as with autocommit, instead of aborting the rest of the request.
 
-Drivers without named parameters (pgx, MySQL) receive `sql.Named` values positionally; the name still drives redaction. Other data layers implement `testbench.Provider`.
+Drivers without named parameters (pgx, MySQL) receive `sql.Named` values positionally; the name still drives redaction. Other data layers implement `sendproof.Provider`.
 
 ## Authentication and policy
 
@@ -134,7 +134,7 @@ The application owns authentication. Supply:
 - `WithAuthProvider(label, kind, url)` for the sign-in methods to advertise, such as `cookie` (password JSON form), `personas` or `oidc`. URLs are local paths and receive the path base.
 - `WithAccessPolicy(func(*http.Request) bool)` to restrict the workbench, Preview and traces (`401` when anonymous, `403` otherwise).
 
-The workbench and Preview are on only in the environments named by `WithEnabledEnvironments` (default `Development`). The current environment comes from `WithEnvironment`, then `TESTBENCH_ENVIRONMENT`, `APP_ENV` or `GO_ENV`, and defaults to `Production`, so nothing is exposed until you opt in.
+The workbench and Preview are on only in the environments named by `WithEnabledEnvironments` (default `Development`). The current environment comes from `WithEnvironment`, then `SENDPROOF_ENVIRONMENT`, `APP_ENV` or `GO_ENV`, and defaults to `Production`, so nothing is exposed until you opt in.
 
 ## Capture, redaction and retention
 
@@ -146,7 +146,7 @@ The workbench and Preview are on only in the environments named by `WithEnabledE
 
 ## Security properties
 
-- Preview needs exactly `Prefer: tx=rollback` and the reserved `/bench/_preview/…` URL. Cross-site browser requests, `HEAD`, redirects, path traversal and a target inside `/bench` are rejected.
+- Preview needs exactly `Prefer: tx=rollback` and the reserved `/sendproof/_preview/…` URL. Cross-site browser requests, `HEAD`, redirects, path traversal and a target inside `/sendproof` are rejected.
 - A preview is confirmed only after the provider rolls back and closes. A failed rollback, a panicking handler or an unmarked route yields a non-confirming problem response, never an envelope. The database stays unchanged.
 - The inner response never sets cookies, redirects the client, or forwards `Set-Cookie`, `Location` and hop-by-hop headers.
 
@@ -175,7 +175,7 @@ cd adapters/go && scripts/go.sh generate ./internal/ui
 
 ## Modules, versions and the module path
 
-Six Go modules live here: core (`.`, which holds `testbench` and `dbsql`), `chi`, `gin`, `echo`, `gorm` and the unpublished `examples`, plus the `tools/modzip` release helper.
+Six Go modules live here: core (`.`, which holds `sendproof` and `dbsql`), `chi`, `gin`, `echo`, `gorm` and the unpublished `examples`, plus the `tools/modzip` release helper.
 
 **Local development.** Every sibling requirement in a `go.mod` names a real version, so a published module never needs editing. [`go.work`](go.work) lists the modules in `use` and maps exactly those versions to the checked-out directories in a `replace` block, so everything builds, vets and tests before anything is tagged. Without that block Go asks the module proxy for the unpublished versions as soon as two modules select different third-party versions. `go.work` is never part of a module zip and consumers ignore it. `go get` is not available in workspace mode and a plain `go mod tidy` cannot see the unpublished versions, so run:
 

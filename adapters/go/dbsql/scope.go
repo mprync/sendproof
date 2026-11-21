@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // scope is the capture state of one previewed or observed request. It owns a
@@ -68,7 +68,7 @@ type deferredRead struct {
 // pgStatementSavepoint protects a PostgreSQL preview statement that runs
 // outside an application transaction, so that its failure only undoes the
 // statement, as autocommit would, instead of aborting the whole preview.
-const pgStatementSavepoint = "testbench_statement"
+const pgStatementSavepoint = "sendproof_statement"
 
 // open acquires the dedicated connection and prepares capture on it.
 func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
@@ -84,7 +84,7 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 	}()
 	if d.dialect == DialectSQLite {
 		if err := s.registerHooks(); err != nil {
-			return nil, fmt.Errorf("%w: %w", err, testbench.ErrPreviewUnavailable)
+			return nil, fmt.Errorf("%w: %w", err, sendproof.ErrPreviewUnavailable)
 		}
 	}
 	if !preview {
@@ -97,7 +97,7 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 	case DialectPostgres:
 		blind, err := installAudit(ctx, s.tx)
 		if errors.Is(err, errLockTimeout) {
-			return nil, fmt.Errorf("%w: %w", err, testbench.ErrPreviewUnavailable)
+			return nil, fmt.Errorf("%w: %w", err, sendproof.ErrPreviewUnavailable)
 		}
 		if err != nil {
 			return nil, err
@@ -109,7 +109,7 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 	case DialectMySQL:
 		suffix := make([]byte, 6)
 		_, _ = rand.Read(suffix)
-		s.sentinel = "testbench_sentinel_" + hex.EncodeToString(suffix)
+		s.sentinel = "sendproof_sentinel_" + hex.EncodeToString(suffix)
 		if _, err := s.tx.ExecContext(ctx, "CREATE TEMPORARY TABLE "+s.sentinel+" (alive INT) ENGINE=InnoDB"); err != nil {
 			return nil, err
 		}
@@ -219,7 +219,7 @@ func (s *scope) release(ctx context.Context) error {
 
 // target returns where a call of the request runs and whether it belongs to the
 // capture. During an observed send, statements issued outside an open
-// application transaction go to the pool, as they would without Test Bench.
+// application transaction go to the pool, as they would without Sendproof.
 func (s *scope) target(ctx context.Context) (conn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -228,7 +228,7 @@ func (s *scope) target(ctx context.Context) (conn, bool) {
 	}
 	if s.depth > 0 {
 		s.journal.markIncomplete()
-		s.warnLocked(ctx, "a statement outside the open transaction ran on another connection, as it would without Test Bench, and is not captured")
+		s.warnLocked(ctx, "a statement outside the open transaction ran on another connection, as it would without Sendproof, and is not captured")
 		return s.db.pool, false
 	}
 	return s.conn, true
@@ -240,7 +240,7 @@ func (s *scope) warnLocked(ctx context.Context, message string) {
 		return
 	}
 	s.warned[message] = true
-	testbench.Log(ctx, "Warning", "Test Bench change capture: "+message+".")
+	sendproof.Log(ctx, "Warning", "Sendproof change capture: "+message+".")
 }
 
 // incomplete marks the capture as missing changes and says why.
@@ -263,7 +263,7 @@ func (s *scope) requestContext(ctx context.Context) context.Context {
 // ready runs before each statement: it refuses work after a failure, completes
 // deferred work of the previous statement and logs pending warnings.
 func (s *scope) ready(ctx context.Context) error {
-	if s.logContext == nil && testbench.IsCapturing(ctx) {
+	if s.logContext == nil && sendproof.IsCapturing(ctx) {
 		s.logContext = ctx
 	}
 	for _, warning := range s.warnings {
@@ -634,7 +634,7 @@ func (s *scope) beginApp(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 		return tx, "", err
 	}
 	s.counter++
-	name := fmt.Sprintf("testbench_sp_%d", s.counter)
+	name := fmt.Sprintf("sendproof_sp_%d", s.counter)
 	s.mu.Unlock()
 	create, _, _ := s.dialect.savepointSQL(name)
 	if _, err := s.exec(ctx, s.tx, true, create, nil); err != nil {
@@ -691,7 +691,7 @@ func (s *scope) endApp(ctx context.Context, tx *sql.Tx, savepoint string, commit
 }
 
 // finishPreview captures the preview's changes and rolls the transaction back.
-func (s *scope) finishPreview(ctx context.Context) ([]testbench.Change, bool, error) {
+func (s *scope) finishPreview(ctx context.Context) ([]sendproof.Change, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -699,7 +699,7 @@ func (s *scope) finishPreview(ctx context.Context) ([]testbench.Change, bool, er
 	}
 	failure := s.failed()
 	var captureErr error
-	var changes []testbench.Change
+	var changes []sendproof.Change
 	var truncated bool
 	if failure == nil {
 		changes, truncated, captureErr = s.capturePreview(ctx)
@@ -707,7 +707,7 @@ func (s *scope) finishPreview(ctx context.Context) ([]testbench.Change, bool, er
 	return changes, truncated, errors.Join(failure, captureErr, s.release(ctx))
 }
 
-func (s *scope) capturePreview(ctx context.Context) ([]testbench.Change, bool, error) {
+func (s *scope) capturePreview(ctx context.Context) ([]sendproof.Change, bool, error) {
 	if err := s.ready(ctx); err != nil {
 		return nil, false, err
 	}
@@ -747,7 +747,7 @@ func (s *scope) capturePreview(ctx context.Context) ([]testbench.Change, bool, e
 }
 
 // finishObserved returns the committed changes of an observed send.
-func (s *scope) finishObserved(ctx context.Context) ([]testbench.Change, bool, error) {
+func (s *scope) finishObserved(ctx context.Context) ([]sendproof.Change, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ready(ctx); err != nil {

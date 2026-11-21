@@ -91,7 +91,7 @@ export default {
   'fx.htmlSource': 'Nguồn HTML',
   'fx.htmlFrame': 'Xem trước HTML của email',
   'fx.heldBanner': {
-    other: '**Đã giữ lại các hiệu ứng được ghi nhận.** Test Bench đã giữ lại {n} hiệu ứng phụ của bản xem trước này. Gửi sẽ chạy chúng thật.',
+    other: '**Đã giữ lại các hiệu ứng được ghi nhận.** Sendproof đã giữ lại {n} hiệu ứng phụ của bản xem trước này. Gửi sẽ chạy chúng thật.',
   },
   'fx.ran': { other: 'Đã chạy {n} hiệu ứng phụ.' },
   'fx.capturedCount': { other: 'Đã ghi nhận {n} hiệu ứng phụ.' },
@@ -174,7 +174,7 @@ export default {
   'kv.sessionCookie': 'Cookie phiên',
   'kv.requiredValue': 'Nhập giá trị cho header bắt buộc này.',
   'kv.group.required': 'Bắt buộc bởi thao tác này',
-  'kv.group.managed': 'Do Test Bench đặt',
+  'kv.group.managed': 'Do Sendproof đặt',
   'kv.group.managedDetail': 'từ phiên và body của bạn',
   'kv.group.custom': 'Tùy chỉnh',
   'kv.grid': 'Header yêu cầu',
@@ -182,7 +182,7 @@ export default {
   'kv.col.name': 'Tên',
   'kv.col.value': 'Giá trị',
   'kv.col.actions': 'Hành động',
-  'kv.managed': 'Do Test Bench quản lý',
+  'kv.managed': 'Do Sendproof quản lý',
   'kv.sendName': 'Gửi {name}',
   'kv.sendNew': 'Gửi header mới',
   'kv.namePlaceholder': 'Tên header',
@@ -339,7 +339,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Schema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Chưa có header tùy chỉnh', 'kv.emptyBody': { other: 'Test Bench đã gửi {n} ở trên. Hãy thêm header của riêng bạn để theo dõi, đặt ngôn ngữ hoặc tenant.' },
+  'kv.emptyTitle': 'Chưa có header tùy chỉnh', 'kv.emptyBody': { other: 'Sendproof đã gửi {n} ở trên. Hãy thêm header của riêng bạn để theo dõi, đặt ngôn ngữ hoặc tenant.' },
   'kv.applyPreset': 'Áp dụng mẫu có sẵn',
   'logs.noMatchTitle': 'Không có mục log nào khớp', 'logs.noMatchBody': { other: 'Tất cả {n} mục đều bị ẩn bởi bộ lọc của bạn: {filters}.' },
   'logs.hiddenLevel': 'mức {level}', 'logs.hiddenText': 'văn bản “{text}”', 'logs.hiddenSql': 'SQL đang bị ẩn', 'logs.clearFilters': 'Xóa bộ lọc', 'logs.allLevels': 'Hiện tất cả các mức',

@@ -92,8 +92,8 @@ export default {
   'fx.htmlSource': 'منبع HTML',
   'fx.htmlFrame': 'پیش‌نمایش HTML ایمیل',
   'fx.heldBanner': {
-    one: '**اثرهای ثبت‌شده نگه داشته شدند.** Test Bench برای این پیش‌نمایش {n} اثر جانبی را نگه داشت. «ارسال» آن را واقعاً اجرا می‌کند.',
-    other: '**اثرهای ثبت‌شده نگه داشته شدند.** Test Bench برای این پیش‌نمایش {n} اثر جانبی را نگه داشت. «ارسال» آن‌ها را واقعاً اجرا می‌کند.',
+    one: '**اثرهای ثبت‌شده نگه داشته شدند.** Sendproof برای این پیش‌نمایش {n} اثر جانبی را نگه داشت. «ارسال» آن را واقعاً اجرا می‌کند.',
+    other: '**اثرهای ثبت‌شده نگه داشته شدند.** Sendproof برای این پیش‌نمایش {n} اثر جانبی را نگه داشت. «ارسال» آن‌ها را واقعاً اجرا می‌کند.',
   },
   'fx.ran': { one: '{n} اثر جانبی اجرا شد.', other: '{n} اثر جانبی اجرا شد.' },
   'fx.capturedCount': { one: '{n} اثر جانبی ثبت شد.', other: '{n} اثر جانبی ثبت شد.' },
@@ -176,7 +176,7 @@ export default {
   'kv.sessionCookie': 'کوکی نشست',
   'kv.requiredValue': 'برای این سرآیند الزامی یک مقدار وارد کنید.',
   'kv.group.required': 'موردنیاز این عملیات',
-  'kv.group.managed': 'تنظیم‌شده توسط Test Bench',
+  'kv.group.managed': 'تنظیم‌شده توسط Sendproof',
   'kv.group.managedDetail': 'از نشست و بدنهٔ شما',
   'kv.group.custom': 'سفارشی',
   'kv.grid': 'سرآیندهای درخواست',
@@ -184,7 +184,7 @@ export default {
   'kv.col.name': 'نام',
   'kv.col.value': 'مقدار',
   'kv.col.actions': 'عملیات‌ها',
-  'kv.managed': 'مدیریت‌شده توسط Test Bench',
+  'kv.managed': 'مدیریت‌شده توسط Sendproof',
   'kv.sendName': 'ارسال {name}',
   'kv.sendNew': 'ارسال سرآیند جدید',
   'kv.namePlaceholder': 'نام سرآیند',
@@ -341,7 +341,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'اسکیما', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'سرآیند سفارشی وجود ندارد', 'kv.emptyBody': { one: 'Test Bench از قبل سرآیند بالا را ارسال می‌کند. برای ردیابی، زبان یا مستأجر، سرآیند خودتان را اضافه کنید.', other: 'Test Bench از قبل {n} سرآیند بالا را ارسال می‌کند. برای ردیابی، زبان یا مستأجر، سرآیند خودتان را اضافه کنید.' },
+  'kv.emptyTitle': 'سرآیند سفارشی وجود ندارد', 'kv.emptyBody': { one: 'Sendproof از قبل سرآیند بالا را ارسال می‌کند. برای ردیابی، زبان یا مستأجر، سرآیند خودتان را اضافه کنید.', other: 'Sendproof از قبل {n} سرآیند بالا را ارسال می‌کند. برای ردیابی، زبان یا مستأجر، سرآیند خودتان را اضافه کنید.' },
   'kv.applyPreset': 'اعمال یک پیش‌تنظیم',
   'logs.noMatchTitle': 'هیچ ورودی لاگی مطابقت ندارد', 'logs.noMatchBody': { one: 'ورودی {n} به‌دلیل فیلترهای شما پنهان است: {filters}.', other: 'همهٔ {n} ورودی به‌دلیل فیلترهای شما پنهان‌اند: {filters}.' },
   'logs.hiddenLevel': 'سطح {level}', 'logs.hiddenText': 'متن «{text}»', 'logs.hiddenSql': 'SQL پنهان است', 'logs.clearFilters': 'پاک کردن فیلترها', 'logs.allLevels': 'نمایش همهٔ سطوح',

@@ -92,8 +92,8 @@ export default {
   'fx.htmlSource': 'HTML स्रोत',
   'fx.htmlFrame': 'ईमेल HTML पूर्वावलोकन',
   'fx.heldBanner': {
-    one: '**कैप्चर किए गए प्रभाव रोके गए।** Test Bench ने इस पूर्वावलोकन के लिए {n} साइड इफ़ेक्ट रोका। भेजें चुनने पर यह वास्तव में चलता है।',
-    other: '**कैप्चर किए गए प्रभाव रोके गए।** Test Bench ने इस पूर्वावलोकन के लिए {n} साइड इफ़ेक्ट रोके। भेजें चुनने पर ये वास्तव में चलते हैं।',
+    one: '**कैप्चर किए गए प्रभाव रोके गए।** Sendproof ने इस पूर्वावलोकन के लिए {n} साइड इफ़ेक्ट रोका। भेजें चुनने पर यह वास्तव में चलता है।',
+    other: '**कैप्चर किए गए प्रभाव रोके गए।** Sendproof ने इस पूर्वावलोकन के लिए {n} साइड इफ़ेक्ट रोके। भेजें चुनने पर ये वास्तव में चलते हैं।',
   },
   'fx.ran': { one: '{n} साइड इफ़ेक्ट चला।', other: '{n} साइड इफ़ेक्ट चले।' },
   'fx.capturedCount': { one: '{n} साइड इफ़ेक्ट कैप्चर हुआ।', other: '{n} साइड इफ़ेक्ट कैप्चर हुए।' },
@@ -176,7 +176,7 @@ export default {
   'kv.sessionCookie': 'सेशन कुकी',
   'kv.requiredValue': 'इस ज़रूरी हेडर के लिए मान दर्ज करें।',
   'kv.group.required': 'इस ऑपरेशन के लिए ज़रूरी',
-  'kv.group.managed': 'Test Bench द्वारा सेट',
+  'kv.group.managed': 'Sendproof द्वारा सेट',
   'kv.group.managedDetail': 'आपके सेशन और बॉडी से',
   'kv.group.custom': 'कस्टम',
   'kv.grid': 'अनुरोध हेडर',
@@ -184,7 +184,7 @@ export default {
   'kv.col.name': 'नाम',
   'kv.col.value': 'मान',
   'kv.col.actions': 'कार्रवाइयाँ',
-  'kv.managed': 'Test Bench द्वारा प्रबंधित',
+  'kv.managed': 'Sendproof द्वारा प्रबंधित',
   'kv.sendName': '{name} भेजें',
   'kv.sendNew': 'नया हेडर भेजें',
   'kv.namePlaceholder': 'हेडर का नाम',
@@ -341,7 +341,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'स्कीमा', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'कोई कस्टम हेडर नहीं', 'kv.emptyBody': { one: 'Test Bench ऊपर दिया गया हेडर पहले से भेजता है। ट्रेसिंग, लोकेल या टेनेंट के लिए अपना हेडर जोड़ें।', other: 'Test Bench ऊपर दिए गए {n} पहले से भेजता है। ट्रेसिंग, लोकेल या टेनेंट के लिए अपने हेडर जोड़ें।' },
+  'kv.emptyTitle': 'कोई कस्टम हेडर नहीं', 'kv.emptyBody': { one: 'Sendproof ऊपर दिया गया हेडर पहले से भेजता है। ट्रेसिंग, लोकेल या टेनेंट के लिए अपना हेडर जोड़ें।', other: 'Sendproof ऊपर दिए गए {n} पहले से भेजता है। ट्रेसिंग, लोकेल या टेनेंट के लिए अपने हेडर जोड़ें।' },
   'kv.applyPreset': 'प्रीसेट लागू करें',
   'logs.noMatchTitle': 'कोई लॉग एंट्री मेल नहीं खाती', 'logs.noMatchBody': { one: '{n} एंट्री आपके फ़िल्टर से छिपी है: {filters}।', other: 'सभी {n} एंट्री आपके फ़िल्टर से छिपी हैं: {filters}।' },
   'logs.hiddenLevel': 'स्तर {level}', 'logs.hiddenText': 'टेक्स्ट “{text}”', 'logs.hiddenSql': 'SQL छिपा है', 'logs.clearFilters': 'फ़िल्टर साफ़ करें', 'logs.allLevels': 'सभी स्तर दिखाएँ',

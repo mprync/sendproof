@@ -92,7 +92,7 @@ export default {
   'fx.htmlSource': 'HTML 源码',
   'fx.htmlFrame': '邮件 HTML 预览',
   'fx.heldBanner': {
-    other: '**已暂存捕获的副作用。** Test Bench 在此次预览中暂存了 {n} 个副作用。发送会真实执行它们。',
+    other: '**已暂存捕获的副作用。** Sendproof 在此次预览中暂存了 {n} 个副作用。发送会真实执行它们。',
   },
   'fx.ran': { other: '已执行 {n} 个副作用。' },
   'fx.capturedCount': { other: '已捕获 {n} 个副作用。' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': '会话 Cookie',
   'kv.requiredValue': '请为此必填标头输入值。',
   'kv.group.required': '此操作必需',
-  'kv.group.managed': '由 Test Bench 设置',
+  'kv.group.managed': '由 Sendproof 设置',
   'kv.group.managedDetail': '来自你的会话和正文',
   'kv.group.custom': '自定义',
   'kv.grid': '请求标头',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': '名称',
   'kv.col.value': '值',
   'kv.col.actions': '操作',
-  'kv.managed': '由 Test Bench 管理',
+  'kv.managed': '由 Sendproof 管理',
   'kv.sendName': '发送 {name}',
   'kv.sendNew': '发送新标头',
   'kv.namePlaceholder': '标头名称',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': '架构', 
   // Empty states added after the first pass
-  'kv.emptyTitle': '没有自定义标头', 'kv.emptyBody': { other: 'Test Bench 已发送上方的 {n} 个标头。可添加你自己的标头，用于跟踪、区域设置或租户。' },
+  'kv.emptyTitle': '没有自定义标头', 'kv.emptyBody': { other: 'Sendproof 已发送上方的 {n} 个标头。可添加你自己的标头，用于跟踪、区域设置或租户。' },
   'kv.applyPreset': '应用预设',
   'logs.noMatchTitle': '没有匹配的日志条目', 'logs.noMatchBody': { other: '全部 {n} 条记录都被你的筛选条件隐藏：{filters}。' },
   'logs.hiddenLevel': '级别 {level}', 'logs.hiddenText': '文本“{text}”', 'logs.hiddenSql': '已隐藏 SQL', 'logs.clearFilters': '清除筛选', 'logs.allLevels': '显示所有级别',

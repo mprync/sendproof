@@ -1,8 +1,8 @@
-// Package dbsql connects a database/sql database to Test Bench.
+// Package dbsql connects a database/sql database to Sendproof.
 //
 // Wrap the application's *sql.DB with Wrap and run every query through the
 // wrapper. During a preview the wrapper routes all calls of the request to one
-// transaction on a dedicated connection, which Test Bench rolls back afterwards.
+// transaction on a dedicated connection, which Sendproof rolls back afterwards.
 // During an observed send it routes them to a dedicated connection whose
 // committed writes it captures. Otherwise it forwards to the pool unchanged. In
 // every case it records each command, with redacted parameters, in the preview
@@ -58,7 +58,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // Querier is implemented by *DB and *Tx. Handlers can accept it to run the same
@@ -81,7 +81,7 @@ type DB struct {
 	dialect Dialect
 }
 
-// Wrap returns a DB that enlists in Test Bench previews. The dialect is detected
+// Wrap returns a DB that enlists in Sendproof previews. The dialect is detected
 // from the pool's driver unless WithDialect names it.
 func Wrap(pool *sql.DB, options ...Option) (*DB, error) {
 	if pool == nil {
@@ -103,15 +103,15 @@ func Wrap(pool *sql.DB, options ...Option) (*DB, error) {
 	return &DB{pool: pool, cfg: cfg, dialect: dialect}, nil
 }
 
-// Unwrap returns the underlying pool. Calls made on it bypass Test Bench.
+// Unwrap returns the underlying pool. Calls made on it bypass Sendproof.
 func (d *DB) Unwrap() *sql.DB { return d.pool }
 
 // Dialect returns the database engine the wrapper captures changes for.
 func (d *DB) Dialect() Dialect { return d.dialect }
 
-// Provider returns the Test Bench provider for this database. Register it with
-// testbench.WithProvider.
-func (d *DB) Provider() testbench.ObservingProvider { return &provider{db: d} }
+// Provider returns the Sendproof provider for this database. Register it with
+// sendproof.WithProvider.
+func (d *DB) Provider() sendproof.ObservingProvider { return &provider{db: d} }
 
 // conn is the common surface of *sql.DB, *sql.Conn and *sql.Tx.
 type conn interface {
@@ -124,19 +124,19 @@ type conn interface {
 // route picks where a call runs: the capture scope of a preview or observed
 // send, or the pool. It fails closed during a preview without a session.
 func (d *DB) route(ctx context.Context) (*scope, conn, error) {
-	active, err := testbench.PreviewSession(ctx)
+	active, err := sendproof.PreviewSession(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	if active != nil {
 		ours, ok := ownSession(active)
 		if !ok || ours.scope.db != d {
-			return nil, nil, testbench.ErrNoPreviewSession
+			return nil, nil, sendproof.ErrNoPreviewSession
 		}
 		target, _ := ours.scope.target(ctx)
 		return ours.scope, target, nil
 	}
-	if observed, ok := testbench.SendObservation(ctx).(*observation); ok && observed.scope.db == d {
+	if observed, ok := sendproof.SendObservation(ctx).(*observation); ok && observed.scope.db == d {
 		target, captured := observed.scope.target(ctx)
 		if captured {
 			return observed.scope, target, nil
@@ -341,17 +341,17 @@ func (t *Tx) finish() bool {
 }
 
 func recordExec(ctx context.Context, text string, args []any, started time.Time, result sql.Result, err error) {
-	call := testbench.SQLCall{Text: text, Args: sqlArgs(args), Duration: time.Since(started), RowsAffected: -1, Category: category, Err: err}
+	call := sendproof.SQLCall{Text: text, Args: sqlArgs(args), Duration: time.Since(started), RowsAffected: -1, Category: category, Err: err}
 	if err == nil && result != nil {
 		if affected, affectedErr := result.RowsAffected(); affectedErr == nil {
 			call.RowsAffected = affected
 		}
 	}
-	testbench.RecordSQL(ctx, call)
+	sendproof.RecordSQL(ctx, call)
 }
 
 func recordQuery(ctx context.Context, text string, args []any, started time.Time, err error) {
-	testbench.RecordSQL(ctx, testbench.SQLCall{Text: text, Args: sqlArgs(args), Duration: time.Since(started), RowsAffected: -1, Category: category, Err: err})
+	sendproof.RecordSQL(ctx, sendproof.SQLCall{Text: text, Args: sqlArgs(args), Duration: time.Since(started), RowsAffected: -1, Category: category, Err: err})
 }
 
 // failedRow returns a *sql.Row whose Scan reports that the call could not run.
@@ -389,14 +389,14 @@ func (d *DB) driverArgs(args []any) []any {
 }
 
 // sqlArgs converts call arguments, unwrapping sql.NamedArg, for the capture journal.
-func sqlArgs(args []any) []testbench.SQLArg {
-	converted := make([]testbench.SQLArg, len(args))
+func sqlArgs(args []any) []sendproof.SQLArg {
+	converted := make([]sendproof.SQLArg, len(args))
 	for index, arg := range args {
 		if named, ok := arg.(sql.NamedArg); ok {
-			converted[index] = testbench.SQLArg{Name: named.Name, Value: named.Value}
+			converted[index] = sendproof.SQLArg{Name: named.Name, Value: named.Value}
 			continue
 		}
-		converted[index] = testbench.SQLArg{Value: arg}
+		converted[index] = sendproof.SQLArg{Value: arg}
 	}
 	return converted
 }

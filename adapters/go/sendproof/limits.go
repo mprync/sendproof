@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// Capture limits shared by every Test Bench adapter. They keep a runaway handler
+// Capture limits shared by every Sendproof adapter. They keep a runaway handler
 // from exhausting memory and match the limits of the .NET adapter, so the same UI
 // renders identical truncation behavior for every language binding.
 const (
@@ -30,9 +30,9 @@ const (
 	maxPreviewBody   = 1024 * 1024
 	redactedValue    = "[REDACTED]"
 	rollbackPrefer   = "tx=rollback"
-	previewPrefix    = "/bench/_preview"
-	workbenchPrefix  = "/bench"
-	traceHeader      = "X-TestBench-Trace"
+	previewPrefix    = "/sendproof/_preview"
+	workbenchPrefix  = "/sendproof"
+	traceHeader      = "X-Sendproof-Trace"
 	serverTimingName = "Server-Timing"
 )
 

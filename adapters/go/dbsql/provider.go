@@ -5,17 +5,17 @@ import (
 	"database/sql"
 	"sync"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
-// provider implements testbench.Provider and testbench.ObservingProvider.
+// provider implements sendproof.Provider and sendproof.ObservingProvider.
 type provider struct{ db *DB }
 
 func (p *provider) Database() string { return p.db.cfg.label }
 
 // Begin opens the preview transaction on a dedicated connection and prepares the
 // dialect's change capture inside it.
-func (p *provider) Begin(ctx context.Context) (testbench.Session, error) {
+func (p *provider) Begin(ctx context.Context) (sendproof.Session, error) {
 	s, err := p.db.open(ctx, true)
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func (p *provider) Begin(ctx context.Context) (testbench.Session, error) {
 
 // Observe reserves a dedicated connection for an observed send and prepares
 // capture of the writes the request commits on it.
-func (p *provider) Observe(ctx context.Context) (testbench.Observation, error) {
+func (p *provider) Observe(ctx context.Context) (sendproof.Observation, error) {
 	s, err := p.db.open(ctx, false)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ type session struct {
 	scope *scope
 
 	mu        sync.Mutex
-	changes   []testbench.Change
+	changes   []sendproof.Change
 	truncated bool
 }
 
@@ -51,7 +51,7 @@ func (s *session) Rollback(ctx context.Context) error {
 	return err
 }
 
-func (s *session) Changes() []testbench.Change {
+func (s *session) Changes() []sendproof.Change {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.changes
@@ -70,7 +70,7 @@ func (s *session) Close() error { return s.scope.close(context.Background()) }
 // observation captures the committed writes of one observed send.
 type observation struct{ scope *scope }
 
-func (o *observation) Finish(ctx context.Context) ([]testbench.Change, bool, error) {
+func (o *observation) Finish(ctx context.Context) ([]sendproof.Change, bool, error) {
 	return o.scope.finishObserved(ctx)
 }
 
@@ -83,14 +83,14 @@ type rowSource interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
-// sessionUnwrapper lets a wrapping testbench.Session, such as a test double,
+// sessionUnwrapper lets a wrapping sendproof.Session, such as a test double,
 // expose the dbsql session it decorates.
 type sessionUnwrapper interface {
-	Unwrap() testbench.Session
+	Unwrap() sendproof.Session
 }
 
 // ownSession finds the dbsql session behind a preview session.
-func ownSession(active testbench.Session) (*session, bool) {
+func ownSession(active sendproof.Session) (*session, bool) {
 	for active != nil {
 		if ours, ok := active.(*session); ok {
 			return ours, true

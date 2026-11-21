@@ -20,9 +20,9 @@ use (
 )
 
 replace (
-	github.com/test-bench/test-bench/adapters/go v0.1.0-alpha.1 => ./
-	github.com/test-bench/test-bench/adapters/go/chi v0.1.0-alpha.1 => ./chi
-	github.com/test-bench/test-bench/adapters/go/echo v0.1.0-alpha.1 => ./echo
-	github.com/test-bench/test-bench/adapters/go/gin v0.1.0-alpha.1 => ./gin
-	github.com/test-bench/test-bench/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1 => ./
+	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.1 => ./chi
+	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1 => ./echo
+	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.1 => ./gin
+	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
 )

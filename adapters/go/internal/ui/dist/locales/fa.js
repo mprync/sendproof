@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'روز', month: 'ماه', year: 'سال' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'سپس',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'جست‌وجو نام مدل‌ها و توضیحات آن‌ها را در بر می‌گیرد.',
     'side.try': '«{query}» را امتحان کنید',
     'side.emptyTitle': 'این API هنوز عملیاتی ندارد',
-    'side.emptyBody': 'Test Bench همهٔ مسیرهای {url} را فهرست می‌کند. یک اندپوینت تعریف کنید و دوباره بارگذاری کنید.',
+    'side.emptyBody': 'Sendproof همهٔ مسیرهای {url} را فهرست می‌کند. یک اندپوینت تعریف کنید و دوباره بارگذاری کنید.',
     'side.reload': 'بارگذاری دوبارهٔ مشخصات',
     'side.noModelsTitle': 'این مشخصات مدلی ندارد',
     'side.noModelsBody': 'مدل‌ها از {source} می‌آیند. بدنه‌های درخواست و پاسخی که از اسکیماهای درون‌خطی استفاده می‌کنند، همچنان در بخش «مستندات» هر عملیات نمایش داده می‌شوند.',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'ارقام',
     'display.latin': 'لاتین',
     'display.arabicIndic': 'عربی-هندی',
-    'display.digitsHelp': 'فقط اعداد و تاریخ‌های خود Test Bench. داده‌های ثبت‌شده دقیقاً همان‌طور که ذخیره شده‌اند نمایش داده می‌شوند.',
+    'display.digitsHelp': 'فقط اعداد و تاریخ‌های خود Sendproof. داده‌های ثبت‌شده دقیقاً همان‌طور که ذخیره شده‌اند نمایش داده می‌شوند.',
     'display.close': 'بستن',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -273,7 +273,7 @@ export default {
     // Auth tab
     'auth.requirements': 'الزامات امنیتی', 'auth.scheme.cookie': 'ورود با کوکی', 'auth.scheme.apiKey': 'کلید API', 'auth.scheme.http': 'احراز هویت HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'ورود',
-    'auth.sessionBody': 'به‌عنوان یکی از کاربران این API وارد شوید. Test Bench نشست را برای شما ارسال می‌کند.', 'auth.schemeBody': 'به {name} وارد شوید؛ Test Bench نشست را ارسال می‌کند.',
+    'auth.sessionBody': 'به‌عنوان یکی از کاربران این API وارد شوید. Sendproof نشست را برای شما ارسال می‌کند.', 'auth.schemeBody': 'به {name} وارد شوید؛ Sendproof نشست را ارسال می‌کند.',
     'auth.signInNeeded': 'ورود', 'auth.notSignedIn': 'وارد نشده‌اید', 'auth.permission': 'مجوز',
     'auth.permissionBody': 'پس از ورود توسط API بررسی می‌شود. بدون آن، فراخوانی 403 برمی‌گرداند.', 'auth.checkedOnSend': 'هنگام ارسال بررسی می‌شود',
     'auth.unknown': 'تا پیش از ورود نامشخص', 'auth.seeded': 'استفاده از یک حساب از پیش‌ساخته…', 'auth.publicBody': 'این عملیات به ورود نیاز ندارد.',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'سرآیندهای پاسخ اینجا نمایش داده می‌شوند',
     'res.before.headers.body': 'هر سرآیندی که API برمی‌گرداند، به‌علاوهٔ سرآیندهای درخواست دقیقاً همان‌طور که پس از جایگزینی متغیرها ارسال شدند.',
     'res.notCaptured.database': '«ارسال» تغییرات پایگاه داده را ثبت نمی‌کند',
-    'res.notCaptured.databaseBody': '«ارسال» واقعاً ثبت نهایی می‌کند و Test Bench در تراکنش دخالت نمی‌کند. برای دیدن ردیف‌ها از «پیش‌نمایش» استفاده کنید، یا «ارسال ردیابی‌شده» را روشن کنید تا هنگام ثبت نهایی ضبط شوند.',
+    'res.notCaptured.databaseBody': '«ارسال» واقعاً ثبت نهایی می‌کند و Sendproof در تراکنش دخالت نمی‌کند. برای دیدن ردیف‌ها از «پیش‌نمایش» استفاده کنید، یا «ارسال ردیابی‌شده» را روشن کنید تا هنگام ثبت نهایی ضبط شوند.',
     'res.notCaptured.databaseNoTrace': '«ارسال» واقعاً ثبت نهایی می‌کند و این API آن را ردیابی نمی‌کند. برای دیدن ردیف‌ها از «پیش‌نمایش» استفاده کنید.',
     'res.notCaptured.effects': '«ارسال» اثرهای جانبی را ثبت نمی‌کند',
     'res.notCaptured.effectsBody': 'آن‌ها واقعاً اجرا شدند. «پیش‌نمایش» آن‌ها را بدون ارسال نشان می‌دهد، یا «ارسال ردیابی‌شده» را روشن کنید تا هنگام اجرا ضبط شوند.',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'دسترسی به API ممکن نشد',
     'res.network.body': 'از {origin} چیزی برنگشت. ممکن است درخواست به سرور نرسیده باشد، پس چیزی ذخیره نشد.',
     'res.network.why': 'آیا API در حال اجراست؟ آن را دوباره راه‌اندازی کنید و سپس دوباره تلاش کنید. درخواست شما همان‌طور که بود حفظ شده است.',
-    'res.error.title': 'درخواست تکمیل نشد', 'res.error.why': 'Test Bench چیزی را تغییر نداد. درخواست و کنسول API را بررسی کنید.',
+    'res.error.title': 'درخواست تکمیل نشد', 'res.error.why': 'Sendproof چیزی را تغییر نداد. درخواست و کنسول API را بررسی کنید.',
 
     // Boot
-    'boot.title': 'سند OpenAPI بارگذاری نشد', 'boot.capabilitiesStatus': 'کشف Test Bench با {status} پاسخ داد.', 'boot.documentStatus': 'سند OpenAPI با {status} پاسخ داد.',
-    'boot.unsupported': 'نسخهٔ Test Bench این API توسط این میز کار پشتیبانی نمی‌شود.',
-    'boot.body': '{request} ناموفق بود: {message} Test Bench همهٔ صفحه‌ها را از روی آن می‌سازد، پس هنوز چیزی برای نمایش نیست.',
-    'boot.bodyStatus': '{request} با {status} پاسخ داد. Test Bench همهٔ صفحه‌ها را از روی آن می‌سازد، پس هنوز چیزی برای نمایش نیست.',
+    'boot.title': 'سند OpenAPI بارگذاری نشد', 'boot.capabilitiesStatus': 'کشف Sendproof با {status} پاسخ داد.', 'boot.documentStatus': 'سند OpenAPI با {status} پاسخ داد.',
+    'boot.unsupported': 'نسخهٔ Sendproof این API توسط این میز کار پشتیبانی نمی‌شود.',
+    'boot.body': '{request} ناموفق بود: {message} Sendproof همهٔ صفحه‌ها را از روی آن می‌سازد، پس هنوز چیزی برای نمایش نیست.',
+    'boot.bodyStatus': '{request} با {status} پاسخ داد. Sendproof همهٔ صفحه‌ها را از روی آن می‌سازد، پس هنوز چیزی برای نمایش نیست.',
     'boot.why': 'معمولاً خطای راه‌اندازی در API است، یا AddOpenApi() وجود ندارد. جزئیات در کنسول API است.',
     'boot.whyAuth': 'این سند به یک کاربر واردشده نیاز دارد. وارد شوید و دوباره تلاش کنید.',
     'boot.open': 'باز کردن {url}', 'boot.copy': 'کپی خطا', 'boot.noOperations': 'عملیاتی وجود ندارد', 'boot.noOperationsBody': 'پس از بارگذاری مشخصات نمایش داده می‌شوند.',
@@ -371,7 +371,7 @@ export default {
 
     // Overview
     'overview.crumb': 'نمای کلی', 'overview.operations': { one: '{n} عملیات', other: '{n} عملیات' }, 'overview.models': { one: '{n} مدل', other: '{n} مدل' },
-    'overview.how': 'Test Bench چگونه کار می‌کند', 'overview.preview': 'پیش‌نمایش', 'overview.send': 'ارسال', 'overview.autofill': 'پر کردن خودکار',
+    'overview.how': 'Sendproof چگونه کار می‌کند', 'overview.preview': 'پیش‌نمایش', 'overview.send': 'ارسال', 'overview.autofill': 'پر کردن خودکار',
     'overview.previewBody': 'درخواست را واقعاً درون یک تراکنش اجرا می‌کند، هر ردیف، ایمیل و لاگی را که ایجاد کرده نشان می‌دهد و سپس بازمی‌گرداند.',
     'overview.sendBody': 'آن را واقعاً اجرا و ثبت نهایی می‌کند، دقیقاً مثل هر کلاینت دیگر.',
     'overview.autofillBody': 'فیلدها را از روی اسکیما پر می‌کند، با شناسه‌های واقعی از اندپوینت‌های فهرست خود API.',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'اسکیما', 'match.checked': 'بررسی‌شده', 'match.checks': 'نوع‌ها، قالب‌ها، الگوها، طول‌ها، enumها و ویژگی‌های الزامی',
     'match.failTitle': { one: '{n} مورد عدم تطابق این بدنه', other: '{n} مورد عدم تطابق این بدنه' },
     'match.failBody': 'API با {status} پاسخ داد، اما بدنه با {model}، اسکیمای مستند، مطابقت ندارد:',
-    'match.note': 'Test Bench فقط این را گزارش می‌کند. پاسخ دقیقاً همان‌طور که دریافت شد نمایش داده می‌شود.', 'match.showSchema': 'نمایش در نمای اسکیما', 'match.copy': 'کپی مشکلات',
+    'match.note': 'Sendproof فقط این را گزارش می‌کند. پاسخ دقیقاً همان‌طور که دریافت شد نمایش داده می‌شود.', 'match.showSchema': 'نمایش در نمای اسکیما', 'match.copy': 'کپی مشکلات',
     'match.more': { one: '{n} مورد دیگر', other: '{n} مورد دیگر' }, 'match.extra': 'در اسکیمای {model} نیست', 'match.what': 'مشکلات اسکیما',
     'match.missing': 'الزامی است، اما در بدنه نیست',
 

@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -17,13 +17,13 @@ func normalizePathBase(base string) (string, error) {
 		return "", nil
 	}
 	if !strings.HasPrefix(base, "/") || !isLocalURL(base) || strings.ContainsAny(base, "?") {
-		return "", errors.New("testbench: the path base must start with / and contain no query")
+		return "", errors.New("sendproof: the path base must start with / and contain no query")
 	}
 	return strings.TrimRight(base, "/"), nil
 }
 
 // StripPathBase mounts next under a path prefix, like http.StripPrefix, and also
-// records the prefix so Test Bench and the application can build correct URLs
+// records the prefix so Sendproof and the application can build correct URLs
 // with PathBase. A request outside the prefix receives HTTP 404, so nothing is
 // reachable at the unprefixed origin. An empty base returns next unchanged.
 func StripPathBase(base string, next http.Handler) http.Handler {

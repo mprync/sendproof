@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/test-bench/test-bench/adapters/go/examples/fixture"
+	"github.com/mprync/sendproof/adapters/go/examples/fixture"
 )
 
 // engine is one database the provider tests run against. SQLite always runs.
@@ -114,7 +114,7 @@ func openURL(t *testing.T, e engine, server string) *sql.DB {
 	return pool
 }
 
-// exec runs setup statements on the pool, outside Test Bench.
+// exec runs setup statements on the pool, outside Sendproof.
 func exec(t *testing.T, pool *sql.DB, statements ...string) {
 	t.Helper()
 	for _, statement := range statements {

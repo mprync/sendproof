@@ -220,7 +220,7 @@ export async function execute(request, preview, basePath, signal, { observedSend
       typeof body.body === 'string' && !/json/i.test(type) ? body.body : JSON.stringify(body.body);
     return { ...body, ...metadata, raw: content, size: byteCount(content), preview: true };
   }
-  const trace = observedSend ? await readTrace(response.headers.get('X-TestBench-Trace'), signal) : {};
+  const trace = observedSend ? await readTrace(response.headers.get('X-Sendproof-Trace'), signal) : {};
   return {
     status: response.status, headers: Object.fromEntries(response.headers), body, raw,
     changes: [], effects: [], logs: [], ...trace, ...metadata, size: byteCount(raw), preview: false,

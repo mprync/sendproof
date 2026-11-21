@@ -46,7 +46,7 @@ const searchText = op => `${op.title} ${op.path} ${op.method} ${op.group} ${op.o
 const COLLAPSED_BY_DEFAULT = new Set(['lists']);
 
 /** The storage key of the remembered group state for one API document. */
-export const navStorageKey = documentUrl => `testbench-nav:${documentUrl || ''}`;
+export const navStorageKey = documentUrl => `sendproof-nav:${documentUrl || ''}`;
 
 /**
  * Reads the remembered group state: `{ ops: { [tag]: boolean }, models: { [group]: boolean } }`

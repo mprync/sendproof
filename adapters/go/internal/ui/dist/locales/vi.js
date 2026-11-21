@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'rồi',
     'unit.bytes': '{n} B',
 
@@ -54,7 +54,7 @@ export default {
     'side.noMatchModelsBody': 'Tìm kiếm áp dụng cho tên mô hình và mô tả của chúng.',
     'side.try': 'Thử “{query}”',
     'side.emptyTitle': 'API này chưa có thao tác nào',
-    'side.emptyBody': 'Test Bench liệt kê mọi đường dẫn trong {url}. Hãy ánh xạ một endpoint rồi tải lại.',
+    'side.emptyBody': 'Sendproof liệt kê mọi đường dẫn trong {url}. Hãy ánh xạ một endpoint rồi tải lại.',
     'side.reload': 'Tải lại spec',
     'side.noModelsTitle': 'Spec này không có mô hình nào',
     'side.noModelsBody': 'Mô hình lấy từ {source}. Body yêu cầu và phản hồi dùng schema nội tuyến vẫn hiển thị trong Docs của từng thao tác.',
@@ -84,7 +84,7 @@ export default {
     'display.digits': 'Chữ số',
     'display.latin': 'La-tinh',
     'display.arabicIndic': 'Ả Rập-Ấn Độ',
-    'display.digitsHelp': 'Chỉ áp dụng cho số và ngày tháng của riêng Test Bench. Dữ liệu được ghi nhận hiển thị đúng như đã lưu.',
+    'display.digitsHelp': 'Chỉ áp dụng cho số và ngày tháng của riêng Sendproof. Dữ liệu được ghi nhận hiển thị đúng như đã lưu.',
     'display.close': 'Đóng',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -275,7 +275,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Yêu cầu bảo mật', 'auth.scheme.cookie': 'Đăng nhập bằng cookie', 'auth.scheme.apiKey': 'Khóa API', 'auth.scheme.http': 'Xác thực HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Đăng nhập',
-    'auth.sessionBody': 'Đăng nhập với tư cách người dùng của API này. Test Bench sẽ gửi phiên thay bạn.', 'auth.schemeBody': 'Đăng nhập vào {name}; Test Bench sẽ gửi phiên.',
+    'auth.sessionBody': 'Đăng nhập với tư cách người dùng của API này. Sendproof sẽ gửi phiên thay bạn.', 'auth.schemeBody': 'Đăng nhập vào {name}; Sendproof sẽ gửi phiên.',
     'auth.signInNeeded': 'Đăng nhập', 'auth.notSignedIn': 'Chưa đăng nhập', 'auth.permission': 'Quyền',
     'auth.permissionBody': 'API kiểm tra sau khi đăng nhập. Nếu thiếu quyền này, lệnh gọi trả về 403.', 'auth.checkedOnSend': 'Được kiểm tra khi bạn gửi',
     'auth.unknown': 'Chưa biết cho đến khi đăng nhập', 'auth.seeded': 'Dùng tài khoản có sẵn…', 'auth.publicBody': 'Thao tác này không cần đăng nhập.',
@@ -311,7 +311,7 @@ export default {
     'res.before.Headers.title': 'Header phản hồi sẽ hiện ở đây',
     'res.before.headers.body': 'Mọi header mà API trả về, cùng các header yêu cầu đúng như đã gửi, sau khi các biến được xử lý.',
     'res.notCaptured.database': 'Gửi không ghi nhận các thay đổi cơ sở dữ liệu',
-    'res.notCaptured.databaseBody': 'Gửi ghi lại thật, và Test Bench không can thiệp vào transaction. Dùng Xem trước để xem các dòng trước, hoặc bật Gửi có theo dõi để ghi nhận chúng khi được ghi lại.',
+    'res.notCaptured.databaseBody': 'Gửi ghi lại thật, và Sendproof không can thiệp vào transaction. Dùng Xem trước để xem các dòng trước, hoặc bật Gửi có theo dõi để ghi nhận chúng khi được ghi lại.',
     'res.notCaptured.databaseNoTrace': 'Gửi ghi lại thật, và API này không theo dõi. Dùng Xem trước để xem các dòng trước.',
     'res.notCaptured.effects': 'Gửi không ghi nhận các hiệu ứng phụ',
     'res.notCaptured.effectsBody': 'Chúng đã chạy thật. Xem trước hiển thị chúng mà không gửi, hoặc bật Gửi có theo dõi để ghi nhận chúng khi xảy ra.',
@@ -336,13 +336,13 @@ export default {
     'res.network.title': 'Không thể kết nối đến API',
     'res.network.body': 'Không nhận được gì từ {origin}. Yêu cầu có thể chưa đến được máy chủ, nên không có gì được lưu.',
     'res.network.why': 'API có đang chạy không? Hãy khởi động lại rồi thử lại. Yêu cầu của bạn được giữ nguyên.',
-    'res.error.title': 'Không thể hoàn tất yêu cầu', 'res.error.why': 'Test Bench không thay đổi gì. Hãy kiểm tra yêu cầu và bảng điều khiển của API.',
+    'res.error.title': 'Không thể hoàn tất yêu cầu', 'res.error.why': 'Sendproof không thay đổi gì. Hãy kiểm tra yêu cầu và bảng điều khiển của API.',
 
     // Boot
-    'boot.title': 'Không thể tải tài liệu OpenAPI', 'boot.capabilitiesStatus': 'Test Bench discovery trả về {status}.', 'boot.documentStatus': 'Tài liệu OpenAPI trả về {status}.',
-    'boot.unsupported': 'Phiên bản Test Bench của API này không được workbench này hỗ trợ.',
-    'boot.body': '{request} thất bại: {message} Test Bench dựng mọi màn hình từ đó, nên hiện chưa có gì để hiển thị.',
-    'boot.bodyStatus': '{request} trả về {status}. Test Bench dựng mọi màn hình từ đó, nên hiện chưa có gì để hiển thị.',
+    'boot.title': 'Không thể tải tài liệu OpenAPI', 'boot.capabilitiesStatus': 'Sendproof discovery trả về {status}.', 'boot.documentStatus': 'Tài liệu OpenAPI trả về {status}.',
+    'boot.unsupported': 'Phiên bản Sendproof của API này không được workbench này hỗ trợ.',
+    'boot.body': '{request} thất bại: {message} Sendproof dựng mọi màn hình từ đó, nên hiện chưa có gì để hiển thị.',
+    'boot.bodyStatus': '{request} trả về {status}. Sendproof dựng mọi màn hình từ đó, nên hiện chưa có gì để hiển thị.',
     'boot.why': 'Thường là lỗi khởi động trong API, hoặc thiếu AddOpenApi(). Bảng điều khiển của API có chi tiết.',
     'boot.whyAuth': 'Tài liệu cần người dùng đã đăng nhập. Hãy đăng nhập rồi thử lại.',
     'boot.open': 'Mở {url}', 'boot.copy': 'Sao chép lỗi', 'boot.noOperations': 'Không có thao tác', 'boot.noOperationsBody': 'Chúng sẽ xuất hiện khi spec được tải.',
@@ -373,7 +373,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Tổng quan', 'overview.operations': { other: '{n} thao tác' }, 'overview.models': { other: '{n} mô hình' },
-    'overview.how': 'Cách Test Bench hoạt động', 'overview.preview': 'Xem trước', 'overview.send': 'Gửi', 'overview.autofill': 'Tự điền',
+    'overview.how': 'Cách Sendproof hoạt động', 'overview.preview': 'Xem trước', 'overview.send': 'Gửi', 'overview.autofill': 'Tự điền',
     'overview.previewBody': 'Chạy thật yêu cầu trong một transaction, hiển thị mọi dòng, email và log mà nó gây ra, rồi hoàn tác.',
     'overview.sendBody': 'Chạy thật và ghi lại, y hệt mọi client khác.',
     'overview.autofillBody': 'Điền các trường từ schema, kèm ID thật từ chính các endpoint danh sách của API.',
@@ -507,7 +507,7 @@ export default {
     'match.schema': 'Schema', 'match.checked': 'Đã kiểm tra', 'match.checks': 'Kiểu, định dạng, mẫu, độ dài, enum và các thuộc tính bắt buộc',
     'match.failTitle': { other: '{n} điểm body này không khớp' },
     'match.failBody': 'API trả lời {status}, nhưng body không khớp với {model}, schema đã ghi trong tài liệu:',
-    'match.note': 'Test Bench chỉ báo cáo điều này. Phản hồi được hiển thị đúng như đã nhận.', 'match.showSchema': 'Xem trong chế độ Schema', 'match.copy': 'Sao chép các vấn đề',
+    'match.note': 'Sendproof chỉ báo cáo điều này. Phản hồi được hiển thị đúng như đã nhận.', 'match.showSchema': 'Xem trong chế độ Schema', 'match.copy': 'Sao chép các vấn đề',
     'match.more': { other: 'thêm {n}' }, 'match.extra': 'Không có trong schema {model}', 'match.what': 'vấn đề về schema',
     'match.missing': 'Bắt buộc nhưng không có trong nội dung',
 

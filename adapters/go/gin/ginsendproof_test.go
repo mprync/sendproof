@@ -1,4 +1,4 @@
-package ginbench
+package ginsendproof
 
 import "testing"
 

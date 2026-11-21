@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"net/http"
@@ -10,12 +10,12 @@ import (
 func unescape(value string) (string, error) { return url.PathUnescape(value) }
 
 // Middleware wraps the application handler. It serves the workbench under
-// /bench/, answers the reserved /bench/_preview route, and prepares observed sends.
+// /sendproof/, answers the reserved /sendproof/_preview route, and prepares observed sends.
 // Place it outside the application's router and authentication middleware, so a
 // preview is routed, authenticated and authorized exactly like the real request.
 // When the workbench is disabled for the environment, only the preview route is
 // answered (with HTTP 404) and everything else reaches next untouched.
-func (b *Bench) Middleware(next http.Handler) http.Handler {
+func (b *Sendproof) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		r = withPathBase(r, b.cfg.pathBase)
@@ -31,7 +31,7 @@ func (b *Bench) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if requestsRollback(r) {
-			reject(w, http.StatusBadRequest, "Use the Test Bench preview URL for rollback requests.")
+			reject(w, http.StatusBadRequest, "Use the Sendproof preview URL for rollback requests.")
 			return
 		}
 		if enabled && r.Method != http.MethodHead && requestsTrace(r) && isSameOrigin(r) {
@@ -45,8 +45,8 @@ func (b *Bench) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// serveWorkbench answers the /bench routes: the UI, discovery and traces.
-func (b *Bench) serveWorkbench(w http.ResponseWriter, r *http.Request) {
+// serveWorkbench answers the /sendproof routes: the UI, discovery and traces.
+func (b *Sendproof) serveWorkbench(w http.ResponseWriter, r *http.Request) {
 	if status := b.authorize(r); status != 0 {
 		title := "Authentication is required for the workbench."
 		if status == http.StatusForbidden {
@@ -62,26 +62,26 @@ func (b *Bench) serveWorkbench(w http.ResponseWriter, r *http.Request) {
 	}
 	switch path := r.URL.Path; {
 	case path == workbenchPrefix:
-		target := b.pathBase(r) + "/bench/"
+		target := b.pathBase(r) + "/sendproof/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusFound)
-	case path == "/bench/" || path == "/bench/signin.html":
+	case path == "/sendproof/" || path == "/sendproof/signin.html":
 		serveAsset(w, r, "index.html")
-	case path == "/bench/_api/capabilities":
+	case path == "/sendproof/_api/capabilities":
 		b.serveCapabilities(w, r)
-	case strings.HasPrefix(path, "/bench/_api/traces/"):
-		b.serveTrace(w, r, strings.TrimPrefix(path, "/bench/_api/traces/"))
-	case strings.HasPrefix(path, "/bench/_api/"):
+	case strings.HasPrefix(path, "/sendproof/_api/traces/"):
+		b.serveTrace(w, r, strings.TrimPrefix(path, "/sendproof/_api/traces/"))
+	case strings.HasPrefix(path, "/sendproof/_api/"):
 		http.NotFound(w, r)
 	default:
-		serveAsset(w, r, strings.TrimPrefix(path, "/bench/"))
+		serveAsset(w, r, strings.TrimPrefix(path, "/sendproof/"))
 	}
 }
 
-// serveCapabilities answers GET /bench/_api/capabilities.
-func (b *Bench) serveCapabilities(w http.ResponseWriter, r *http.Request) {
+// serveCapabilities answers GET /sendproof/_api/capabilities.
+func (b *Sendproof) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 	base := b.pathBase(r)
 	openAPIURL := base + b.cfg.openAPIURL
 	documents := make([]map[string]string, 0, len(b.cfg.documents)+1)
@@ -132,9 +132,9 @@ func (b *Bench) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// serveTrace answers GET /bench/_api/traces/{id}. Missing, expired and foreign
+// serveTrace answers GET /sendproof/_api/traces/{id}. Missing, expired and foreign
 // traces are indistinguishable: all return 404.
-func (b *Bench) serveTrace(w http.ResponseWriter, r *http.Request, id string) {
+func (b *Sendproof) serveTrace(w http.ResponseWriter, r *http.Request, id string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	owner, ok := b.owner(r)

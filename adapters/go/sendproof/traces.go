@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"

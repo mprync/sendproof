@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -17,13 +17,13 @@ const (
 
 type stateKey struct{}
 
-// requestState is the mutable Test Bench state of one request. The middleware
+// requestState is the mutable Sendproof state of one request. The middleware
 // creates it, route markers advance it, and data-access wrappers read it through
 // the request context. It is shared by pointer so a handler's derived contexts
 // all see the same preview session and journal.
 type requestState struct {
 	mu       sync.Mutex
-	bench    *Bench
+	bench    *Sendproof
 	kind     stateKind
 	rec      *recorder
 	pathBase string
@@ -107,7 +107,7 @@ func SendObservation(ctx context.Context) Observation {
 // webhook, and returns true when the caller must not perform it. A preview
 // suppresses the effect, also when it is registered outside the marked handler
 // or after the preview finished. An observed send records it as delivered and
-// returns false so the caller proceeds. Outside Test Bench it records nothing and
+// returns false so the caller proceeds. Outside Sendproof it records nothing and
 // returns false. The data value is serialized for display and bounded.
 func RecordEffect(ctx context.Context, kind, description string, data any) (suppress bool) {
 	state := stateFrom(ctx)

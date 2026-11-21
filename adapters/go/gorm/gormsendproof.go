@@ -1,4 +1,4 @@
-// Package gormbench connects GORM to Test Bench through the dbsql provider.
+// Package gormsendproof connects GORM to Sendproof through the dbsql provider.
 //
 // Build the GORM dialector on the pool returned by NewPool, so that every
 // statement GORM runs flows through dbsql: it joins the preview transaction, and
@@ -9,13 +9,13 @@
 //
 //	sqlDB, _ := sql.Open("sqlite", dsn) // modernc.org/sqlite
 //	wrapped, _ := dbsql.Wrap(sqlDB, dbsql.WithDatabaseLabel("app"))
-//	gdb, _ := gorm.Open(sqlite.Dialector{Conn: gormbench.NewPool(wrapped)}, &gorm.Config{})
-//	bench, _ := testbench.New(testbench.WithProvider(wrapped.Provider()))
+//	gdb, _ := gorm.Open(sqlite.Dialector{Conn: gormsendproof.NewPool(wrapped)}, &gorm.Config{})
+//	bench, _ := sendproof.New(sendproof.WithProvider(wrapped.Provider()))
 //
 // The same applies to the PostgreSQL, MySQL and SQL Server dialectors, which
 // accept the pool as their Conn. GORM's nested transactions run on savepoints
 // that dbsql follows, so a rolled-back SavePoint discards its captured changes.
-package gormbench
+package gormsendproof
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/test-bench/test-bench/adapters/go/dbsql"
+	"github.com/mprync/sendproof/adapters/go/dbsql"
 )
 
 // Pool adapts a dbsql.DB to GORM's connection-pool interfaces.

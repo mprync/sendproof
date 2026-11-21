@@ -22,7 +22,7 @@ func openAPI() map[string]any {
 	}
 	return map[string]any{
 		"openapi": "3.1.0",
-		"info":    map[string]any{"title": "Test Bench Conformance", "version": "1.0.0"},
+		"info":    map[string]any{"title": "Sendproof Conformance", "version": "1.0.0"},
 		"paths": map[string]any{
 			"/items": map[string]any{"post": map[string]any{
 				"summary":     "Create an item",

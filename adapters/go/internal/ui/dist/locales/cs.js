@@ -10,7 +10,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'rrrr' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'potom',
     'unit.bytes': '{n} B',
 
@@ -53,7 +53,7 @@ export default {
     'side.noMatchModelsBody': 'Hledání zahrnuje názvy modelů a jejich popisy.',
     'side.try': 'Zkusit „{query}“',
     'side.emptyTitle': 'Toto API zatím nemá žádné operace',
-    'side.emptyBody': 'Test Bench vypisuje každou cestu v {url}. Namapujte koncový bod a načtěte znovu.',
+    'side.emptyBody': 'Sendproof vypisuje každou cestu v {url}. Namapujte koncový bod a načtěte znovu.',
     'side.reload': 'Znovu načíst specifikaci',
     'side.noModelsTitle': 'V této specifikaci nejsou žádné modely',
     'side.noModelsBody': 'Modely pocházejí z {source}. Těla požadavků a odpovědí s vloženými schématy se stále zobrazují v dokumentaci jednotlivých operací.',
@@ -83,7 +83,7 @@ export default {
     'display.digits': 'Číslice',
     'display.latin': 'Latinské',
     'display.arabicIndic': 'Arabsko-indické',
-    'display.digitsHelp': 'Týká se jen čísel a dat přímo v aplikaci Test Bench. Zachycená data se zobrazují přesně tak, jak jsou uložena.',
+    'display.digitsHelp': 'Týká se jen čísel a dat přímo v aplikaci Sendproof. Zachycená data se zobrazují přesně tak, jak jsou uložena.',
     'display.close': 'Zavřít',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -329,7 +329,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Požadavky na zabezpečení', 'auth.scheme.cookie': 'Přihlášení pomocí cookie', 'auth.scheme.apiKey': 'Klíč API', 'auth.scheme.http': 'Ověřování HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Přihlášení',
-    'auth.sessionBody': 'Přihlaste se jako uživatel tohoto API. Relaci za vás odešle Test Bench.', 'auth.schemeBody': 'Přihlaste se k {name}; relaci odešle Test Bench.',
+    'auth.sessionBody': 'Přihlaste se jako uživatel tohoto API. Relaci za vás odešle Sendproof.', 'auth.schemeBody': 'Přihlaste se k {name}; relaci odešle Sendproof.',
     'auth.signInNeeded': 'Přihlášení', 'auth.notSignedIn': 'Nepřihlášeno', 'auth.permission': 'Oprávnění',
     'auth.permissionBody': 'Kontroluje ho API po přihlášení. Bez něj volání vrátí 403.', 'auth.checkedOnSend': 'Kontroluje se při odeslání',
     'auth.unknown': 'Neznámé do přihlášení', 'auth.seeded': 'Použít předpřipravený účet…', 'auth.publicBody': 'Tato operace nevyžaduje přihlášení.',
@@ -365,7 +365,7 @@ export default {
     'res.before.Headers.title': 'Hlavičky odpovědi se zobrazí zde',
     'res.before.headers.body': 'Každá hlavička, kterou API vrací, a hlavičky požadavku přesně tak, jak byly odeslány, po vyhodnocení proměnných.',
     'res.notCaptured.database': 'Odeslání nezachycuje změny v databázi',
-    'res.notCaptured.databaseBody': 'Odeslání potvrdí změny doopravdy a Test Bench zůstává mimo transakci. Nejdřív si řádky zobrazte pomocí Náhledu, nebo zapněte trasované odeslání, aby se zaznamenaly při potvrzení.',
+    'res.notCaptured.databaseBody': 'Odeslání potvrdí změny doopravdy a Sendproof zůstává mimo transakci. Nejdřív si řádky zobrazte pomocí Náhledu, nebo zapněte trasované odeslání, aby se zaznamenaly při potvrzení.',
     'res.notCaptured.databaseNoTrace': 'Odeslání potvrdí změny doopravdy a toto API ho netrasuje. Nejdřív si řádky zobrazte pomocí Náhledu.',
     'res.notCaptured.effects': 'Odeslání nezachycuje vedlejší účinky',
     'res.notCaptured.effectsBody': 'Proběhly doopravdy. Náhled je zobrazí bez odeslání, nebo zapněte trasované odeslání, aby se zaznamenaly při průběhu.',
@@ -390,13 +390,13 @@ export default {
     'res.network.title': 'Nepodařilo se spojit s API',
     'res.network.body': 'Z {origin} nic nepřišlo. Požadavek možná nedorazil na server, takže nic nebylo uloženo.',
     'res.network.why': 'Běží API? Spusťte ho znovu a zkuste to znovu. Váš požadavek zůstal beze změny.',
-    'res.error.title': 'Požadavek se nepodařilo dokončit', 'res.error.why': 'Test Bench nic nezměnil. Zkontrolujte požadavek a konzoli API.',
+    'res.error.title': 'Požadavek se nepodařilo dokončit', 'res.error.why': 'Sendproof nic nezměnil. Zkontrolujte požadavek a konzoli API.',
 
     // Boot
-    'boot.title': 'Dokument OpenAPI se nepodařilo načíst', 'boot.capabilitiesStatus': 'Zjišťování Test Bench vrátilo {status}.', 'boot.documentStatus': 'Dokument OpenAPI vrátil {status}.',
-    'boot.unsupported': 'Verze Test Bench tohoto API není tímto nástrojem podporována.',
-    'boot.body': '{request} selhal: {message} Test Bench z něj sestavuje každou obrazovku, takže zatím není co zobrazit.',
-    'boot.bodyStatus': '{request} vrátil {status}. Test Bench z něj sestavuje každou obrazovku, takže zatím není co zobrazit.',
+    'boot.title': 'Dokument OpenAPI se nepodařilo načíst', 'boot.capabilitiesStatus': 'Zjišťování Sendproof vrátilo {status}.', 'boot.documentStatus': 'Dokument OpenAPI vrátil {status}.',
+    'boot.unsupported': 'Verze Sendproof tohoto API není tímto nástrojem podporována.',
+    'boot.body': '{request} selhal: {message} Sendproof z něj sestavuje každou obrazovku, takže zatím není co zobrazit.',
+    'boot.bodyStatus': '{request} vrátil {status}. Sendproof z něj sestavuje každou obrazovku, takže zatím není co zobrazit.',
     'boot.why': 'Obvykle jde o chybu při spuštění API, nebo chybí AddOpenApi(). Podrobnosti najdete v konzoli API.',
     'boot.whyAuth': 'Dokument vyžaduje přihlášeného uživatele. Přihlaste se a zkuste to znovu.',
     'boot.open': 'Otevřít {url}', 'boot.copy': 'Kopírovat chybu', 'boot.noOperations': 'Žádné operace', 'boot.noOperationsBody': 'Zobrazí se po načtení specifikace.',
@@ -429,7 +429,7 @@ export default {
     'overview.crumb': 'Přehled',
     'overview.operations': { one: '{n} operace', few: '{n} operace', many: '{n} operace', other: '{n} operací' },
     'overview.models': { one: '{n} model', few: '{n} modely', many: '{n} modelu', other: '{n} modelů' },
-    'overview.how': 'Jak Test Bench funguje', 'overview.preview': 'Náhled', 'overview.send': 'Odeslat', 'overview.autofill': 'Automaticky vyplnit',
+    'overview.how': 'Jak Sendproof funguje', 'overview.preview': 'Náhled', 'overview.send': 'Odeslat', 'overview.autofill': 'Automaticky vyplnit',
     'overview.previewBody': 'Spustí požadavek doopravdy uvnitř transakce, zobrazí každý řádek, e-mail a protokol, které způsobil, a poté vše vrátí zpět.',
     'overview.sendBody': 'Spustí ho doopravdy a potvrdí, přesně jako kterýkoli jiný klient.',
     'overview.autofillBody': 'Vyplní pole podle schématu, se skutečnými ID z vlastních koncových bodů API pro výpis.',
@@ -673,7 +673,7 @@ export default {
       other: '{n} způsobů, jak toto tělo neodpovídá',
     },
     'match.failBody': 'API odpovědělo {status}, ale tělo neodpovídá modelu {model}, tedy zdokumentovanému schématu:',
-    'match.note': 'Test Bench to pouze hlásí. Odpověď se zobrazuje přesně tak, jak byla přijata.', 'match.showSchema': 'Zobrazit v pohledu Schéma', 'match.copy': 'Kopírovat problémy',
+    'match.note': 'Sendproof to pouze hlásí. Odpověď se zobrazuje přesně tak, jak byla přijata.', 'match.showSchema': 'Zobrazit v pohledu Schéma', 'match.copy': 'Kopírovat problémy',
     'match.more': { one: '{n} další', few: '{n} další', many: '{n} další', other: '{n} dalších' }, 'match.extra': 'Není ve schématu {model}', 'match.what': 'problémy se schématem',
     'match.missing': 'Povinné, ale v těle chybí',
 

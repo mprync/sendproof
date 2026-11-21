@@ -4,7 +4,7 @@ This module holds runnable examples and the conformance fixture. It depends on e
 
 | Path | What it is |
 | --- | --- |
-| `quickstart/` | A minimal `net/http` and `database/sql` API with Test Bench mounted. |
+| `quickstart/` | A minimal `net/http` and `database/sql` API with Sendproof mounted. |
 | `fixture/` | The conformance fixture from `spec/conformance/fixture.md`, bound to net/http, chi, Gin and Echo, each over database/sql or GORM. |
 | `cmd/fixture/` | The fixture's executable: `fixture [nethttp\|chi\|gin\|echo] [sql\|gorm]`. |
 | `tests/` | Go tests for the provider, redaction, savepoints and every framework and store pairing. |
@@ -19,7 +19,7 @@ cd adapters/go/examples
 ../scripts/go.sh run ./quickstart
 ```
 
-Open `http://localhost:8080/dev` once to sign in as the example developer, which redirects to `/bench/`. Select **Create an item** and use **Preview**. The Database panel shows the inserted row, Side effects shows the held email, and `GET /items/{id}` still returns 404. **Send** the same request to persist it.
+Open `http://localhost:8080/dev` once to sign in as the example developer, which redirects to `/sendproof/`. Select **Create an item** and use **Preview**. The Database panel shows the inserted row, Side effects shows the held email, and `GET /items/{id}` still returns 404. **Send** the same request to persist it.
 
 ## Run the conformance suite
 

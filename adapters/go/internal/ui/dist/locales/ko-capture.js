@@ -91,7 +91,7 @@ export default {
   'fx.htmlSource': 'HTML 소스',
   'fx.htmlFrame': '이메일 HTML 미리보기',
   'fx.heldBanner': {
-    other: '**캡처된 효과가 보류되었습니다.** Test Bench가 이번 미리보기에서 부수 효과 {n}개를 보류했습니다. 전송하면 실제로 실행됩니다.',
+    other: '**캡처된 효과가 보류되었습니다.** Sendproof가 이번 미리보기에서 부수 효과 {n}개를 보류했습니다. 전송하면 실제로 실행됩니다.',
   },
   'fx.ran': { other: '부수 효과 {n}개가 실행되었습니다.' },
   'fx.capturedCount': { other: '부수 효과 {n}개를 캡처했습니다.' },
@@ -174,7 +174,7 @@ export default {
   'kv.sessionCookie': '세션 쿠키',
   'kv.requiredValue': '필수 헤더의 값을 입력하세요.',
   'kv.group.required': '이 작업에 필요',
-  'kv.group.managed': 'Test Bench에서 설정',
+  'kv.group.managed': 'Sendproof에서 설정',
   'kv.group.managedDetail': '세션과 본문에서 가져옴',
   'kv.group.custom': '사용자 지정',
   'kv.grid': '요청 헤더',
@@ -182,7 +182,7 @@ export default {
   'kv.col.name': '이름',
   'kv.col.value': '값',
   'kv.col.actions': '작업',
-  'kv.managed': 'Test Bench에서 관리',
+  'kv.managed': 'Sendproof에서 관리',
   'kv.sendName': '{name} 전송',
   'kv.sendNew': '새 헤더 전송',
   'kv.namePlaceholder': '헤더 이름',
@@ -339,7 +339,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': '스키마', 
   // Empty states added after the first pass
-  'kv.emptyTitle': '사용자 지정 헤더 없음', 'kv.emptyBody': { other: 'Test Bench가 이미 위의 헤더 {n}개를 보냅니다. 추적, 로캘, 테넌트용 헤더를 직접 추가하세요.' },
+  'kv.emptyTitle': '사용자 지정 헤더 없음', 'kv.emptyBody': { other: 'Sendproof가 이미 위의 헤더 {n}개를 보냅니다. 추적, 로캘, 테넌트용 헤더를 직접 추가하세요.' },
   'kv.applyPreset': '프리셋 적용',
   'logs.noMatchTitle': '일치하는 로그 항목 없음', 'logs.noMatchBody': { other: '필터로 인해 항목 {n}개가 숨겨져 있습니다: {filters}.' },
   'logs.hiddenLevel': '수준 {level}', 'logs.hiddenText': '텍스트 “{text}”', 'logs.hiddenSql': 'SQL 숨김', 'logs.clearFilters': '필터 지우기', 'logs.allLevels': '모든 수준 표시',

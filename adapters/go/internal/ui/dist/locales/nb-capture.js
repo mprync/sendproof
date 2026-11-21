@@ -93,8 +93,8 @@ export default {
   'fx.htmlSource': 'HTML-kilde',
   'fx.htmlFrame': 'HTML-forhåndsvisning av e-post',
   'fx.heldBanner': {
-    one: '**Fangede effekter ble holdt tilbake.** Test Bench holdt tilbake {n} bivirkning for denne forhåndsvisningen. Send kjører den på ekte.',
-    other: '**Fangede effekter ble holdt tilbake.** Test Bench holdt tilbake {n} bivirkninger for denne forhåndsvisningen. Send kjører dem på ekte.',
+    one: '**Fangede effekter ble holdt tilbake.** Sendproof holdt tilbake {n} bivirkning for denne forhåndsvisningen. Send kjører den på ekte.',
+    other: '**Fangede effekter ble holdt tilbake.** Sendproof holdt tilbake {n} bivirkninger for denne forhåndsvisningen. Send kjører dem på ekte.',
   },
   'fx.ran': { one: '{n} bivirkning ble kjørt.', other: '{n} bivirkninger ble kjørt.' },
   'fx.capturedCount': { one: '{n} bivirkning fanget opp.', other: '{n} bivirkninger fanget opp.' },
@@ -177,7 +177,7 @@ export default {
   'kv.sessionCookie': 'Øktinformasjonskapsel',
   'kv.requiredValue': 'Skriv inn en verdi for denne påkrevde toppteksten.',
   'kv.group.required': 'Påkrevd av denne operasjonen',
-  'kv.group.managed': 'Satt av Test Bench',
+  'kv.group.managed': 'Satt av Sendproof',
   'kv.group.managedDetail': 'fra økten og innholdet ditt',
   'kv.group.custom': 'Egendefinerte',
   'kv.grid': 'Forespørselstopptekster',
@@ -185,7 +185,7 @@ export default {
   'kv.col.name': 'Navn',
   'kv.col.value': 'Verdi',
   'kv.col.actions': 'Handlinger',
-  'kv.managed': 'Administrert av Test Bench',
+  'kv.managed': 'Administrert av Sendproof',
   'kv.sendName': 'Send {name}',
   'kv.sendNew': 'Send ny topptekst',
   'kv.namePlaceholder': 'Toppteksnavn',
@@ -342,7 +342,7 @@ export default {
   // Skjemavisning for svar
   'resp.mode.schema': 'Skjema', 
   // Tomtilstander lagt til etter første runde
-  'kv.emptyTitle': 'Ingen egendefinerte topptekster', 'kv.emptyBody': { one: 'Test Bench sender allerede toppteksten ovenfor. Legg til dine egne for sporing, språk eller tenant.', other: 'Test Bench sender allerede de {n} ovenfor. Legg til dine egne for sporing, språk eller tenant.' },
+  'kv.emptyTitle': 'Ingen egendefinerte topptekster', 'kv.emptyBody': { one: 'Sendproof sender allerede toppteksten ovenfor. Legg til dine egne for sporing, språk eller tenant.', other: 'Sendproof sender allerede de {n} ovenfor. Legg til dine egne for sporing, språk eller tenant.' },
   'kv.applyPreset': 'Bruk en forhåndsinnstilling',
   'logs.noMatchTitle': 'Ingen loggoppføringer samsvarer', 'logs.noMatchBody': { one: 'Oppføringen er skjult av filtrene dine: {filters}.', other: 'Alle {n} oppføringer er skjult av filtrene dine: {filters}.' },
   'logs.hiddenLevel': 'nivå {level}', 'logs.hiddenText': 'tekst «{text}»', 'logs.hiddenSql': 'SQL er skjult', 'logs.clearFilters': 'Fjern filtre', 'logs.allLevels': 'Vis alle nivåer',

@@ -91,8 +91,8 @@ export default {
   'fx.htmlSource': 'HTML-kilde',
   'fx.htmlFrame': 'HTML-forhåndsvisning af e-mail',
   'fx.heldBanner': {
-    one: '**Optagne effekter blev tilbageholdt.** Test Bench tilbageholdt {n} bivirkning ved denne forhåndsvisning. Send kører den for alvor.',
-    other: '**Optagne effekter blev tilbageholdt.** Test Bench tilbageholdt {n} bivirkninger ved denne forhåndsvisning. Send kører dem for alvor.',
+    one: '**Optagne effekter blev tilbageholdt.** Sendproof tilbageholdt {n} bivirkning ved denne forhåndsvisning. Send kører den for alvor.',
+    other: '**Optagne effekter blev tilbageholdt.** Sendproof tilbageholdt {n} bivirkninger ved denne forhåndsvisning. Send kører dem for alvor.',
   },
   'fx.ran': { one: '{n} bivirkning blev kørt.', other: '{n} bivirkninger blev kørt.' },
   'fx.capturedCount': { one: '{n} bivirkning optaget.', other: '{n} bivirkninger optaget.' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'Sessionscookie',
   'kv.requiredValue': 'Angiv en værdi for denne påkrævede header.',
   'kv.group.required': 'Påkrævet af denne operation',
-  'kv.group.managed': 'Angivet af Test Bench',
+  'kv.group.managed': 'Angivet af Sendproof',
   'kv.group.managedDetail': 'fra din session og tekst',
   'kv.group.custom': 'Brugerdefineret',
   'kv.grid': 'Anmodningsheadere',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'Navn',
   'kv.col.value': 'Værdi',
   'kv.col.actions': 'Handlinger',
-  'kv.managed': 'Administreres af Test Bench',
+  'kv.managed': 'Administreres af Sendproof',
   'kv.sendName': 'Send {name}',
   'kv.sendNew': 'Send ny header',
   'kv.namePlaceholder': 'Headernavn',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Skema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Ingen brugerdefinerede headere', 'kv.emptyBody': { one: 'Test Bench sender allerede headeren ovenfor. Tilføj dine egne til sporing, sprog eller tenant.', other: 'Test Bench sender allerede de {n} ovenfor. Tilføj dine egne til sporing, sprog eller tenant.' },
+  'kv.emptyTitle': 'Ingen brugerdefinerede headere', 'kv.emptyBody': { one: 'Sendproof sender allerede headeren ovenfor. Tilføj dine egne til sporing, sprog eller tenant.', other: 'Sendproof sender allerede de {n} ovenfor. Tilføj dine egne til sporing, sprog eller tenant.' },
   'kv.applyPreset': 'Anvend en forudindstilling',
   'logs.noMatchTitle': 'Ingen logposter matcher', 'logs.noMatchBody': { one: 'Den ene post ({n}) er skjult af dine filtre: {filters}.', other: 'Alle {n} poster er skjult af dine filtre: {filters}.' },
   'logs.hiddenLevel': 'niveau {level}', 'logs.hiddenText': 'tekst »{text}«', 'logs.hiddenSql': 'SQL er skjult', 'logs.clearFilters': 'Ryd filtre', 'logs.allLevels': 'Vis alle niveauer',

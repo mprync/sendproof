@@ -1,8 +1,8 @@
-module github.com/test-bench/test-bench/adapters/go/gin
+module github.com/mprync/sendproof/adapters/go/gin
 
 go 1.25.0
 
-require github.com/test-bench/test-bench/adapters/go v0.1.0-alpha.1
+require github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect

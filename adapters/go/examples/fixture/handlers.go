@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // handlers holds the fixture's framework-neutral operations. Each framework
 // binding routes to these, so the conformance run exercises that framework's own
-// routing, middleware ordering and Test Bench marker.
+// routing, middleware ordering and Sendproof marker.
 type handlers struct {
 	store  store
 	logger *slog.Logger
@@ -22,7 +22,7 @@ type handlers struct {
 // suppresses it. Delivery is a log line: the fixture sends nothing.
 func (h *handlers) notifyCreated(r *http.Request, id string) {
 	ctx := r.Context()
-	if testbench.RecordEmail(ctx, "Created item", "bench@example.test", []string{"ops@example.test"}, "Created "+id, "Item "+id+" was created.") {
+	if sendproof.RecordEmail(ctx, "Created item", "bench@example.test", []string{"ops@example.test"}, "Created "+id, "Item "+id+" was created.") {
 		return
 	}
 	h.logger.InfoContext(ctx, "delivered email for "+id)
@@ -124,7 +124,7 @@ func (h *handlers) redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "inner", Value: "1", Path: "/"})
-	http.Redirect(w, r, testbench.PathBase(r)+"/items/"+id, http.StatusFound)
+	http.Redirect(w, r, sendproof.PathBase(r)+"/items/"+id, http.StatusFound)
 }
 
 // capture exceeds every capture cap in one request: more than 200 changes, 100
@@ -138,7 +138,7 @@ func (h *handlers) capture(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for i := 0; i < 105; i++ {
-		testbench.RecordMessage(ctx, "Queued message", "captured", map[string]any{"n": i})
+		sendproof.RecordMessage(ctx, "Queued message", "captured", map[string]any{"n": i})
 	}
 	for i := 0; i < 510; i++ {
 		h.logger.InfoContext(ctx, fmt.Sprintf("capture line %d", i))

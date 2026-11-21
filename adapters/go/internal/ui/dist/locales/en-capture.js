@@ -93,8 +93,8 @@ export default {
   'fx.htmlSource': 'HTML source',
   'fx.htmlFrame': 'Email HTML preview',
   'fx.heldBanner': {
-    one: '**Captured effects were held.** Test Bench held back {n} side effect for this preview. Send runs it for real.',
-    other: '**Captured effects were held.** Test Bench held back {n} side effects for this preview. Send runs them for real.',
+    one: '**Captured effects were held.** Sendproof held back {n} side effect for this preview. Send runs it for real.',
+    other: '**Captured effects were held.** Sendproof held back {n} side effects for this preview. Send runs them for real.',
   },
   'fx.ran': { one: '{n} side effect ran.', other: '{n} side effects ran.' },
   'fx.capturedCount': { one: '{n} side effect captured.', other: '{n} side effects captured.' },
@@ -177,7 +177,7 @@ export default {
   'kv.sessionCookie': 'Session cookie',
   'kv.requiredValue': 'Enter a value for this required header.',
   'kv.group.required': 'Required by this operation',
-  'kv.group.managed': 'Set by Test Bench',
+  'kv.group.managed': 'Set by Sendproof',
   'kv.group.managedDetail': 'from your session and body',
   'kv.group.custom': 'Custom',
   'kv.grid': 'Request headers',
@@ -185,7 +185,7 @@ export default {
   'kv.col.name': 'Name',
   'kv.col.value': 'Value',
   'kv.col.actions': 'Actions',
-  'kv.managed': 'Managed by Test Bench',
+  'kv.managed': 'Managed by Sendproof',
   'kv.sendName': 'Send {name}',
   'kv.sendNew': 'Send new header',
   'kv.namePlaceholder': 'Header name',
@@ -342,7 +342,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Schema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'No custom headers', 'kv.emptyBody': { one: 'Test Bench already sends the header above. Add your own for tracing, locale or tenant.', other: 'Test Bench already sends the {n} above. Add your own for tracing, locale or tenant.' },
+  'kv.emptyTitle': 'No custom headers', 'kv.emptyBody': { one: 'Sendproof already sends the header above. Add your own for tracing, locale or tenant.', other: 'Sendproof already sends the {n} above. Add your own for tracing, locale or tenant.' },
   'kv.applyPreset': 'Apply a preset',
   'logs.noMatchTitle': 'No log entries match', 'logs.noMatchBody': { one: 'The {n} entry is hidden by your filters: {filters}.', other: 'All {n} entries are hidden by your filters: {filters}.' },
   'logs.hiddenLevel': 'level {level}', 'logs.hiddenText': 'text “{text}”', 'logs.hiddenSql': 'SQL is hidden', 'logs.clearFilters': 'Clear filters', 'logs.allLevels': 'Show all levels',

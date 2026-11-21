@@ -8,14 +8,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/labstack/echo/v4"
 
-	chibench "github.com/test-bench/test-bench/adapters/go/chi"
-	echobench "github.com/test-bench/test-bench/adapters/go/echo"
-	ginbench "github.com/test-bench/test-bench/adapters/go/gin"
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	chisendproof "github.com/mprync/sendproof/adapters/go/chi"
+	echosendproof "github.com/mprync/sendproof/adapters/go/echo"
+	ginsendproof "github.com/mprync/sendproof/adapters/go/gin"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // bindNetHTTP routes everything through one http.ServeMux.
-func bindNetHTTP(bench *testbench.Bench, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
+func bindNetHTTP(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	for _, r := range routes {
 		var handler http.Handler = r.handler(app)
 		if r.preview {
@@ -27,7 +27,7 @@ func bindNetHTTP(bench *testbench.Bench, people *sessions, app *handlers, shared
 }
 
 // bindChi routes the item operations with chi and falls back to the shared mux.
-func bindChi(bench *testbench.Bench, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
+func bindChi(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	router := chi.NewRouter()
 	for _, r := range routes {
 		handler := r.handler(app)
@@ -37,7 +37,7 @@ func bindChi(bench *testbench.Bench, people *sessions, app *handlers, shared *ht
 		})
 		middlewares := []func(http.Handler) http.Handler{people.require(r.role())}
 		if r.preview {
-			middlewares = append(middlewares, chibench.Preview(bench, r.method, r.path))
+			middlewares = append(middlewares, chisendproof.Preview(bench, r.method, r.path))
 		}
 		router.With(middlewares...).Method(r.method, r.path, bridge)
 	}
@@ -58,7 +58,7 @@ func adaptMiddleware(mw func(http.Handler) http.Handler, w http.ResponseWriter, 
 }
 
 // bindGin routes the item operations with Gin and falls back to the shared mux.
-func bindGin(bench *testbench.Bench, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
+func bindGin(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	for _, r := range routes {
@@ -70,7 +70,7 @@ func bindGin(bench *testbench.Bench, people *sessions, app *handlers, shared *ht
 			}
 		}}
 		if r.preview {
-			chain = append(chain, ginbench.Preview(bench, r.method, colonPath(r.path)))
+			chain = append(chain, ginsendproof.Preview(bench, r.method, colonPath(r.path)))
 		}
 		chain = append(chain, func(c *gin.Context) {
 			c.Request.SetPathValue("id", c.Param("id"))
@@ -83,7 +83,7 @@ func bindGin(bench *testbench.Bench, people *sessions, app *handlers, shared *ht
 }
 
 // bindEcho routes the item operations with Echo and falls back to the shared mux.
-func bindEcho(bench *testbench.Bench, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
+func bindEcho(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	e := echo.New()
 	e.HideBanner, e.HidePort = true, true
 	for _, r := range routes {
@@ -98,7 +98,7 @@ func bindEcho(bench *testbench.Bench, people *sessions, app *handlers, shared *h
 			}
 		}}
 		if r.preview {
-			middlewares = append(middlewares, echobench.Preview(bench, r.method, colonPath(r.path)))
+			middlewares = append(middlewares, echosendproof.Preview(bench, r.method, colonPath(r.path)))
 		}
 		e.Add(r.method, colonPath(r.path), func(c echo.Context) error {
 			c.Request().SetPathValue("id", c.Param("id"))

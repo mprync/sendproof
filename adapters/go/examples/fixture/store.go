@@ -20,9 +20,9 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver with the pre-update hook
 
-	"github.com/test-bench/test-bench/adapters/go/dbsql"
-	gormbench "github.com/test-bench/test-bench/adapters/go/gorm"
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/dbsql"
+	gormsendproof "github.com/mprync/sendproof/adapters/go/gorm"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // item is the fixture's single table row.
@@ -96,7 +96,7 @@ type store interface {
 	remove(ctx context.Context, id string) error
 	// bindSecret executes a statement with a secret-named bound parameter.
 	bindSecret(ctx context.Context) error
-	provider() testbench.Provider
+	provider() sendproof.Provider
 	close() error
 }
 
@@ -136,7 +136,7 @@ func openStore(kind string, database Database) (store, error) {
 	case "", "sql":
 		return &base, nil
 	case "gorm":
-		gdb, err := gorm.Open(spec.dialector(gormbench.NewPool(db)), &gorm.Config{Logger: gormlogger.Discard})
+		gdb, err := gorm.Open(spec.dialector(gormsendproof.NewPool(db)), &gorm.Config{Logger: gormlogger.Discard})
 		if err != nil {
 			return nil, errors.Join(err, pool.Close())
 		}
@@ -218,7 +218,7 @@ type sqlStore struct {
 	spec engine
 }
 
-func (s *sqlStore) provider() testbench.Provider { return s.db.Provider() }
+func (s *sqlStore) provider() sendproof.Provider { return s.db.Provider() }
 
 func (s *sqlStore) close() error { return s.pool.Close() }
 

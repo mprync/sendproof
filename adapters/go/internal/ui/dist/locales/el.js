@@ -8,7 +8,7 @@ export default {
   dateLetters: { day: 'ΗΗ', month: 'ΜΜ', year: 'ΕΕΕΕ' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'μετά',
     'unit.bytes': '{n} B',
 
@@ -51,7 +51,7 @@ export default {
     'side.noMatchModelsBody': 'Η αναζήτηση καλύπτει ονόματα μοντέλων και τις περιγραφές τους.',
     'side.try': 'Δοκιμάστε «{query}»',
     'side.emptyTitle': 'Αυτό το API δεν έχει ακόμη λειτουργίες',
-    'side.emptyBody': 'Το Test Bench εμφανίζει κάθε διαδρομή στο {url}. Αντιστοιχίστε ένα endpoint και φορτώστε ξανά.',
+    'side.emptyBody': 'Το Sendproof εμφανίζει κάθε διαδρομή στο {url}. Αντιστοιχίστε ένα endpoint και φορτώστε ξανά.',
     'side.reload': 'Επαναφόρτωση προδιαγραφής',
     'side.noModelsTitle': 'Δεν υπάρχουν μοντέλα σε αυτή την προδιαγραφή',
     'side.noModelsBody': 'Τα μοντέλα προέρχονται από το {source}. Τα σώματα αιτημάτων και αποκρίσεων που χρησιμοποιούν ενσωματωμένα σχήματα εμφανίζονται κανονικά στην Τεκμηρίωση κάθε λειτουργίας.',
@@ -81,7 +81,7 @@ export default {
     'display.digits': 'Ψηφία',
     'display.latin': 'Λατινικά',
     'display.arabicIndic': 'Αραβικά-ινδικά',
-    'display.digitsHelp': 'Μόνο οι δικοί σας αριθμοί και ημερομηνίες του Test Bench. Τα καταγεγραμμένα δεδομένα εμφανίζονται ακριβώς όπως είναι αποθηκευμένα.',
+    'display.digitsHelp': 'Μόνο οι δικοί σας αριθμοί και ημερομηνίες του Sendproof. Τα καταγεγραμμένα δεδομένα εμφανίζονται ακριβώς όπως είναι αποθηκευμένα.',
     'display.close': 'Κλείσιμο',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -272,7 +272,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Απαιτήσεις ασφάλειας', 'auth.scheme.cookie': 'Σύνδεση με cookie', 'auth.scheme.apiKey': 'Κλειδί API', 'auth.scheme.http': 'Ταυτοποίηση HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Σύνδεση',
-    'auth.sessionBody': 'Συνδεθείτε ως χρήστης αυτού του API. Το Test Bench στέλνει τη συνεδρία για εσάς.', 'auth.schemeBody': 'Συνδεθείτε στο {name}· το Test Bench στέλνει τη συνεδρία.',
+    'auth.sessionBody': 'Συνδεθείτε ως χρήστης αυτού του API. Το Sendproof στέλνει τη συνεδρία για εσάς.', 'auth.schemeBody': 'Συνδεθείτε στο {name}· το Sendproof στέλνει τη συνεδρία.',
     'auth.signInNeeded': 'Σύνδεση', 'auth.notSignedIn': 'Δεν έχετε συνδεθεί', 'auth.permission': 'Άδεια',
     'auth.permissionBody': 'Ελέγχεται από το API μετά τη σύνδεση. Χωρίς αυτήν, η κλήση επιστρέφει 403.', 'auth.checkedOnSend': 'Ελέγχεται κατά την αποστολή',
     'auth.unknown': 'Άγνωστο μέχρι τη σύνδεση', 'auth.seeded': 'Χρήση προκαθορισμένου λογαριασμού…', 'auth.publicBody': 'Αυτή η λειτουργία δεν απαιτεί σύνδεση.',
@@ -308,7 +308,7 @@ export default {
     'res.before.Headers.title': 'Οι κεφαλίδες απόκρισης θα εμφανιστούν εδώ',
     'res.before.headers.body': 'Κάθε κεφαλίδα που επιστρέφει το API, μαζί με τις κεφαλίδες αιτήματος ακριβώς όπως στάλθηκαν, μετά την επίλυση των μεταβλητών.',
     'res.notCaptured.database': 'Η Αποστολή δεν καταγράφει αλλαγές στη βάση δεδομένων',
-    'res.notCaptured.databaseBody': 'Η Αποστολή οριστικοποιεί κανονικά και το Test Bench μένει εκτός της συναλλαγής. Χρησιμοποιήστε την Προεπισκόπηση για να δείτε πρώτα τις γραμμές ή ενεργοποιήστε την Αποστολή με ανίχνευση για να καταγράφονται καθώς οριστικοποιούνται.',
+    'res.notCaptured.databaseBody': 'Η Αποστολή οριστικοποιεί κανονικά και το Sendproof μένει εκτός της συναλλαγής. Χρησιμοποιήστε την Προεπισκόπηση για να δείτε πρώτα τις γραμμές ή ενεργοποιήστε την Αποστολή με ανίχνευση για να καταγράφονται καθώς οριστικοποιούνται.',
     'res.notCaptured.databaseNoTrace': 'Η Αποστολή οριστικοποιεί κανονικά και αυτό το API δεν την ανιχνεύει. Χρησιμοποιήστε την Προεπισκόπηση για να δείτε πρώτα τις γραμμές.',
     'res.notCaptured.effects': 'Η Αποστολή δεν καταγράφει παρενέργειες',
     'res.notCaptured.effectsBody': 'Εκτελέστηκαν κανονικά. Η Προεπισκόπηση τις εμφανίζει χωρίς αποστολή ή ενεργοποιήστε την Αποστολή με ανίχνευση για να καταγράφονται καθώς συμβαίνουν.',
@@ -333,13 +333,13 @@ export default {
     'res.network.title': 'Δεν ήταν δυνατή η σύνδεση με το API',
     'res.network.body': 'Δεν ήρθε τίποτα από το {origin}. Το αίτημα μπορεί να μην έφτασε στον διακομιστή, οπότε δεν αποθηκεύτηκε τίποτα.',
     'res.network.why': 'Εκτελείται το API; Ξεκινήστε το ξανά και δοκιμάστε πάλι. Το αίτημά σας διατηρείται όπως ήταν.',
-    'res.error.title': 'Το αίτημα δεν ολοκληρώθηκε', 'res.error.why': 'Το Test Bench δεν άλλαξε τίποτα. Ελέγξτε το αίτημα και την κονσόλα του API.',
+    'res.error.title': 'Το αίτημα δεν ολοκληρώθηκε', 'res.error.why': 'Το Sendproof δεν άλλαξε τίποτα. Ελέγξτε το αίτημα και την κονσόλα του API.',
 
     // Boot
-    'boot.title': 'Δεν ήταν δυνατή η φόρτωση του εγγράφου OpenAPI', 'boot.capabilitiesStatus': 'Η ανακάλυψη του Test Bench επέστρεψε {status}.', 'boot.documentStatus': 'Το έγγραφο OpenAPI επέστρεψε {status}.',
-    'boot.unsupported': 'Η έκδοση Test Bench αυτού του API δεν υποστηρίζεται από αυτό το περιβάλλον εργασίας.',
-    'boot.body': 'Το {request} απέτυχε: {message} Το Test Bench δημιουργεί κάθε οθόνη από αυτό, οπότε δεν υπάρχει ακόμη τίποτα να εμφανιστεί.',
-    'boot.bodyStatus': 'Το {request} επέστρεψε {status}. Το Test Bench δημιουργεί κάθε οθόνη από αυτό, οπότε δεν υπάρχει ακόμη τίποτα να εμφανιστεί.',
+    'boot.title': 'Δεν ήταν δυνατή η φόρτωση του εγγράφου OpenAPI', 'boot.capabilitiesStatus': 'Η ανακάλυψη του Sendproof επέστρεψε {status}.', 'boot.documentStatus': 'Το έγγραφο OpenAPI επέστρεψε {status}.',
+    'boot.unsupported': 'Η έκδοση Sendproof αυτού του API δεν υποστηρίζεται από αυτό το περιβάλλον εργασίας.',
+    'boot.body': 'Το {request} απέτυχε: {message} Το Sendproof δημιουργεί κάθε οθόνη από αυτό, οπότε δεν υπάρχει ακόμη τίποτα να εμφανιστεί.',
+    'boot.bodyStatus': 'Το {request} επέστρεψε {status}. Το Sendproof δημιουργεί κάθε οθόνη από αυτό, οπότε δεν υπάρχει ακόμη τίποτα να εμφανιστεί.',
     'boot.why': 'Συνήθως πρόκειται για σφάλμα εκκίνησης στο API ή λείπει το AddOpenApi(). Η κονσόλα του API έχει τις λεπτομέρειες.',
     'boot.whyAuth': 'Το έγγραφο απαιτεί συνδεδεμένο χρήστη. Συνδεθείτε και δοκιμάστε ξανά.',
     'boot.open': 'Άνοιγμα {url}', 'boot.copy': 'Αντιγραφή σφάλματος', 'boot.noOperations': 'Δεν υπάρχουν λειτουργίες', 'boot.noOperationsBody': 'Εμφανίζονται μόλις φορτωθεί η προδιαγραφή.',
@@ -370,7 +370,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Επισκόπηση', 'overview.operations': { one: '{n} λειτουργία', other: '{n} λειτουργίες' }, 'overview.models': { one: '{n} μοντέλο', other: '{n} μοντέλα' },
-    'overview.how': 'Πώς λειτουργεί το Test Bench', 'overview.preview': 'Προεπισκόπηση', 'overview.send': 'Αποστολή', 'overview.autofill': 'Αυτόματη συμπλήρωση',
+    'overview.how': 'Πώς λειτουργεί το Sendproof', 'overview.preview': 'Προεπισκόπηση', 'overview.send': 'Αποστολή', 'overview.autofill': 'Αυτόματη συμπλήρωση',
     'overview.previewBody': 'Εκτελεί το αίτημα κανονικά μέσα σε συναλλαγή, εμφανίζει κάθε γραμμή, email και καταγραφή που προκάλεσε και μετά κάνει επαναφορά.',
     'overview.sendBody': 'Το εκτελεί κανονικά και οριστικοποιεί, ακριβώς όπως κάθε άλλος client.',
     'overview.autofillBody': 'Συμπληρώνει πεδία από το σχήμα, με πραγματικά ID από τα δικά του list endpoint του API.',
@@ -504,7 +504,7 @@ export default {
     'match.schema': 'Σχήμα', 'match.checked': 'Ελέγχθηκαν', 'match.checks': 'Τύποι, μορφές, μοτίβα, μήκη, enum και υποχρεωτικές ιδιότητες',
     'match.failTitle': { one: '{n} τρόπος με τον οποίο αυτό το σώμα δεν ταιριάζει', other: '{n} τρόποι με τους οποίους αυτό το σώμα δεν ταιριάζει' },
     'match.failBody': 'Το API απάντησε {status}, αλλά το σώμα δεν ταιριάζει με το {model}, το τεκμηριωμένο σχήμα:',
-    'match.note': 'Το Test Bench απλώς το αναφέρει. Η απόκριση εμφανίζεται ακριβώς όπως λήφθηκε.', 'match.showSchema': 'Εμφάνιση στην προβολή Σχήματος', 'match.copy': 'Αντιγραφή προβλημάτων',
+    'match.note': 'Το Sendproof απλώς το αναφέρει. Η απόκριση εμφανίζεται ακριβώς όπως λήφθηκε.', 'match.showSchema': 'Εμφάνιση στην προβολή Σχήματος', 'match.copy': 'Αντιγραφή προβλημάτων',
     'match.more': { one: '{n} ακόμη', other: '{n} ακόμη' }, 'match.extra': 'Δεν υπάρχει στο σχήμα {model}', 'match.what': 'προβλήματα σχήματος',
     'match.missing': 'Υποχρεωτικό, αλλά λείπει από το σώμα',
 

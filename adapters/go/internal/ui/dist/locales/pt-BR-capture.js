@@ -94,8 +94,8 @@ export default {
   'fx.htmlSource': 'Código-fonte HTML',
   'fx.htmlFrame': 'Prévia HTML do e-mail',
   'fx.heldBanner': p(
-    '**Efeitos capturados foram retidos.** O Test Bench reteve {n} efeito colateral nesta prévia. Enviar o executa de verdade.',
-    '**Efeitos capturados foram retidos.** O Test Bench reteve {n} efeitos colaterais nesta prévia. Enviar os executa de verdade.',
+    '**Efeitos capturados foram retidos.** O Sendproof reteve {n} efeito colateral nesta prévia. Enviar o executa de verdade.',
+    '**Efeitos capturados foram retidos.** O Sendproof reteve {n} efeitos colaterais nesta prévia. Enviar os executa de verdade.',
   ),
   'fx.ran': p('{n} efeito colateral foi executado.', '{n} efeitos colaterais foram executados.'),
   'fx.capturedCount': p('{n} efeito colateral capturado.', '{n} efeitos colaterais capturados.'),
@@ -178,7 +178,7 @@ export default {
   'kv.sessionCookie': 'Cookie de sessão',
   'kv.requiredValue': 'Informe um valor para este cabeçalho obrigatório.',
   'kv.group.required': 'Exigidos por esta operação',
-  'kv.group.managed': 'Definidos pelo Test Bench',
+  'kv.group.managed': 'Definidos pelo Sendproof',
   'kv.group.managedDetail': 'a partir da sua sessão e do corpo',
   'kv.group.custom': 'Personalizados',
   'kv.grid': 'Cabeçalhos da requisição',
@@ -186,7 +186,7 @@ export default {
   'kv.col.name': 'Nome',
   'kv.col.value': 'Valor',
   'kv.col.actions': 'Ações',
-  'kv.managed': 'Gerenciado pelo Test Bench',
+  'kv.managed': 'Gerenciado pelo Sendproof',
   'kv.sendName': 'Enviar {name}',
   'kv.sendNew': 'Enviar novo cabeçalho',
   'kv.namePlaceholder': 'Nome do cabeçalho',
@@ -343,7 +343,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Esquema', 
   // Empty states added after the first pass
-  'kv.emptyTitle': 'Nenhum cabeçalho personalizado', 'kv.emptyBody': p('O Test Bench já envia o cabeçalho acima. Adicione os seus para rastreamento, idioma ou tenant.', 'O Test Bench já envia os {n} acima. Adicione os seus para rastreamento, idioma ou tenant.'),
+  'kv.emptyTitle': 'Nenhum cabeçalho personalizado', 'kv.emptyBody': p('O Sendproof já envia o cabeçalho acima. Adicione os seus para rastreamento, idioma ou tenant.', 'O Sendproof já envia os {n} acima. Adicione os seus para rastreamento, idioma ou tenant.'),
   'kv.applyPreset': 'Aplicar uma predefinição',
   'logs.noMatchTitle': 'Nenhuma entrada de log corresponde', 'logs.noMatchBody': p('A única entrada ({n}) está oculta pelos seus filtros: {filters}.', 'Todas as {n} entradas estão ocultas pelos seus filtros: {filters}.'),
   'logs.hiddenLevel': 'nível {level}', 'logs.hiddenText': 'texto “{text}”', 'logs.hiddenSql': 'o SQL está oculto', 'logs.clearFilters': 'Limpar filtros', 'logs.allLevels': 'Mostrar todos os níveis',

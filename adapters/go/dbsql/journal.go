@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // rowEvent is one captured row change. Keyed and audit capture fill the maps
@@ -24,7 +24,7 @@ type rowEvent struct {
 
 // maxEvents bounds the events kept in memory. One more than the workbench shows
 // is enough to report truncation honestly.
-const maxEvents = testbench.MaxChanges + 1
+const maxEvents = sendproof.MaxChanges + 1
 
 // journal holds the row events of one request in statement order. Events of the
 // open transaction are pending until it commits, and savepoint marks let a
@@ -152,13 +152,13 @@ func (j *journal) events(includePending bool) (events []rowEvent, truncated bool
 
 // toChanges converts events to the workbench shape. Updates that leave every
 // value unchanged are omitted.
-func toChanges(events []rowEvent) []testbench.Change {
-	changes := make([]testbench.Change, 0, len(events))
+func toChanges(events []rowEvent) []sendproof.Change {
+	changes := make([]sendproof.Change, 0, len(events))
 	for _, event := range events {
 		if event.operation == "update" && reflect.DeepEqual(event.before, event.after) {
 			continue
 		}
-		change := testbench.Change{Operation: event.operation, Table: event.table.String()}
+		change := sendproof.Change{Operation: event.operation, Table: event.table.String()}
 		if event.key != nil {
 			change.Key = event.key
 		}

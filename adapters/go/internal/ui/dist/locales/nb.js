@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'åååå' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'deretter',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'Søket dekker modellnavn og beskrivelsene deres.',
     'side.try': 'Prøv «{query}»',
     'side.emptyTitle': 'Dette API-et har ingen operasjoner ennå',
-    'side.emptyBody': 'Test Bench viser alle stier i {url}. Tilordne et endepunkt og last inn på nytt.',
+    'side.emptyBody': 'Sendproof viser alle stier i {url}. Tilordne et endepunkt og last inn på nytt.',
     'side.reload': 'Last inn spesifikasjonen på nytt',
     'side.noModelsTitle': 'Ingen modeller i denne spesifikasjonen',
     'side.noModelsBody': 'Modeller kommer fra {source}. Forespørsels- og svarinnhold som bruker innebygde skjemaer vises fortsatt i Docs for hver operasjon.',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'Sifre',
     'display.latin': 'Latinske',
     'display.arabicIndic': 'Arabisk-indiske',
-    'display.digitsHelp': 'Gjelder bare Test Benchs egne tall og datoer. Innhentede data vises nøyaktig slik de er lagret.',
+    'display.digitsHelp': 'Gjelder bare Sendproofs egne tall og datoer. Innhentede data vises nøyaktig slik de er lagret.',
     'display.close': 'Lukk',
 
     // Hurtigtastetiketter (oversikt, kommandopalett, verktøytips)
@@ -273,7 +273,7 @@ export default {
     // Autentiseringsfane
     'auth.requirements': 'Sikkerhetskrav', 'auth.scheme.cookie': 'Innlogging med informasjonskapsel', 'auth.scheme.apiKey': 'API-nøkkel', 'auth.scheme.http': 'HTTP-autentisering',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Innlogging',
-    'auth.sessionBody': 'Logg inn som bruker av dette API-et. Test Bench sender økten for deg.', 'auth.schemeBody': 'Logg inn på {name}; Test Bench sender økten.',
+    'auth.sessionBody': 'Logg inn som bruker av dette API-et. Sendproof sender økten for deg.', 'auth.schemeBody': 'Logg inn på {name}; Sendproof sender økten.',
     'auth.signInNeeded': 'Innlogging', 'auth.notSignedIn': 'Ikke innlogget', 'auth.permission': 'Tillatelse',
     'auth.permissionBody': 'Kontrolleres av API-et etter innlogging. Uten den returnerer kallet 403.', 'auth.checkedOnSend': 'Kontrolleres når du sender',
     'auth.unknown': 'Ukjent til du er logget inn', 'auth.seeded': 'Bruk en forhåndsopprettet konto…', 'auth.publicBody': 'Denne operasjonen krever ikke innlogging.',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'Svartopptekster vises her',
     'res.before.headers.body': 'Alle topptekster API-et returnerer, pluss forespørselstekstene nøyaktig slik de ble sendt, etter at variabler ble løst.',
     'res.notCaptured.database': 'Send fanger ikke opp databaseendringer',
-    'res.notCaptured.databaseBody': 'Send utfører endringene på ekte, og Test Bench holder seg utenfor transaksjonen. Bruk Forhåndsvisning for å se radene først, eller slå på sporet Send for å registrere dem når de utføres.',
+    'res.notCaptured.databaseBody': 'Send utfører endringene på ekte, og Sendproof holder seg utenfor transaksjonen. Bruk Forhåndsvisning for å se radene først, eller slå på sporet Send for å registrere dem når de utføres.',
     'res.notCaptured.databaseNoTrace': 'Send utfører endringene på ekte, og dette API-et sporer det ikke. Bruk Forhåndsvisning for å se radene først.',
     'res.notCaptured.effects': 'Send fanger ikke opp bivirkninger',
     'res.notCaptured.effectsBody': 'De ble kjørt på ekte. Forhåndsvisning viser dem uten å sende, eller slå på sporet Send for å registrere dem når de skjer.',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'Kunne ikke nå API-et',
     'res.network.body': 'Ingenting kom tilbake fra {origin}. Forespørselen har kanskje ikke nådd serveren, så ingenting ble lagret.',
     'res.network.why': 'Kjører API-et? Start det på nytt, og prøv igjen. Forespørselen din beholdes som den var.',
-    'res.error.title': 'Forespørselen kunne ikke fullføres', 'res.error.why': 'Test Bench endret ingenting. Kontroller forespørselen og API-konsollen.',
+    'res.error.title': 'Forespørselen kunne ikke fullføres', 'res.error.why': 'Sendproof endret ingenting. Kontroller forespørselen og API-konsollen.',
 
     // Oppstart
-    'boot.title': 'Kunne ikke laste inn OpenAPI-dokumentet', 'boot.capabilitiesStatus': 'Test Bench-oppdagelsen returnerte {status}.', 'boot.documentStatus': 'OpenAPI-dokumentet returnerte {status}.',
-    'boot.unsupported': 'Dette API-ets Test Bench-versjon støttes ikke av denne arbeidsbenken.',
-    'boot.body': '{request} mislyktes: {message} Test Bench bygger alle skjermbilder fra det, så det er ingenting å vise ennå.',
-    'boot.bodyStatus': '{request} returnerte {status}. Test Bench bygger alle skjermbilder fra det, så det er ingenting å vise ennå.',
+    'boot.title': 'Kunne ikke laste inn OpenAPI-dokumentet', 'boot.capabilitiesStatus': 'Sendproof-oppdagelsen returnerte {status}.', 'boot.documentStatus': 'OpenAPI-dokumentet returnerte {status}.',
+    'boot.unsupported': 'Dette API-ets Sendproof-versjon støttes ikke av denne arbeidsbenken.',
+    'boot.body': '{request} mislyktes: {message} Sendproof bygger alle skjermbilder fra det, så det er ingenting å vise ennå.',
+    'boot.bodyStatus': '{request} returnerte {status}. Sendproof bygger alle skjermbilder fra det, så det er ingenting å vise ennå.',
     'boot.why': 'Vanligvis en oppstartsfeil i API-et, eller AddOpenApi() mangler. API-konsollen har detaljene.',
     'boot.whyAuth': 'Dokumentet krever en innlogget bruker. Logg inn, og prøv på nytt.',
     'boot.open': 'Åpne {url}', 'boot.copy': 'Kopier feil', 'boot.noOperations': 'Ingen operasjoner', 'boot.noOperationsBody': 'De vises når spesifikasjonen er lastet inn.',
@@ -371,7 +371,7 @@ export default {
 
     // Oversikt
     'overview.crumb': 'Oversikt', 'overview.operations': { one: '{n} operasjon', other: '{n} operasjoner' }, 'overview.models': { one: '{n} modell', other: '{n} modeller' },
-    'overview.how': 'Slik fungerer Test Bench', 'overview.preview': 'Forhåndsvisning', 'overview.send': 'Send', 'overview.autofill': 'Autoutfylling',
+    'overview.how': 'Slik fungerer Sendproof', 'overview.preview': 'Forhåndsvisning', 'overview.send': 'Send', 'overview.autofill': 'Autoutfylling',
     'overview.previewBody': 'Kjører forespørselen på ekte i en transaksjon, viser hver rad, e-post og logg den forårsaket, og ruller deretter tilbake.',
     'overview.sendBody': 'Kjører den på ekte og utfører endringene, akkurat som enhver annen klient.',
     'overview.autofillBody': 'Fyller ut felt fra skjemaet, med reelle ID-er fra API-ets egne listeendepunkter.',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'Skjema', 'match.checked': 'Kontrollert', 'match.checks': 'Typer, formater, mønstre, lengder, enums og påkrevde egenskaper',
     'match.failTitle': { one: '{n} måte dette innholdet ikke samsvarer på', other: '{n} måter dette innholdet ikke samsvarer på' },
     'match.failBody': 'API-et svarte {status}, men innholdet samsvarer ikke med {model}, det dokumenterte skjemaet:',
-    'match.note': 'Test Bench rapporterer bare dette. Svaret vises nøyaktig som mottatt.', 'match.showSchema': 'Vis i skjemavisningen', 'match.copy': 'Kopier problemer',
+    'match.note': 'Sendproof rapporterer bare dette. Svaret vises nøyaktig som mottatt.', 'match.showSchema': 'Vis i skjemavisningen', 'match.copy': 'Kopier problemer',
     'match.more': { one: '{n} til', other: '{n} til' }, 'match.extra': 'Ikke i skjemaet {model}', 'match.what': 'skjemaproblemer',
     'match.missing': 'Påkrevd, men mangler i body',
 

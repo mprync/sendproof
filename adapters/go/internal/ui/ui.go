@@ -1,4 +1,4 @@
-// Package ui embeds the packed Test Bench workbench.
+// Package ui embeds the packed Sendproof workbench.
 //
 // The dist directory is generated from the repository's ui/ sources by
 // tools/pack-ui.mjs. Regenerate it with `go generate ./internal/ui` after the UI

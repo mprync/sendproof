@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"crypto/sha256"
@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"testing"
 
-	"github.com/test-bench/test-bench/adapters/go/internal/ui"
+	"github.com/mprync/sendproof/adapters/go/internal/ui"
 )
 
 // TestEmbeddedUIMatchesItsManifest proves the committed dist directory is the

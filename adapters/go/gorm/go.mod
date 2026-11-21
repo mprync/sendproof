@@ -1,9 +1,9 @@
-module github.com/test-bench/test-bench/adapters/go/gorm
+module github.com/mprync/sendproof/adapters/go/gorm
 
 go 1.24
 
 require (
-	github.com/test-bench/test-bench/adapters/go v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1
 	gorm.io/gorm v1.31.2
 )
 

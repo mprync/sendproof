@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"encoding/json"
@@ -99,10 +99,10 @@ type captureSnapshot struct {
 }
 
 // recorder is the per-request journal of effects, logs and timings. It only
-// collects while active, so code that runs outside Test Bench pays nothing.
+// collects while active, so code that runs outside Sendproof pays nothing.
 type recorder struct {
 	mu               sync.Mutex
-	bench            *Bench
+	bench            *Sendproof
 	active           bool
 	rollback         bool
 	effects          []previewEffect
@@ -119,7 +119,7 @@ type recorder struct {
 	serializeMs      float64
 }
 
-func newRecorder(bench *Bench, start time.Time) *recorder {
+func newRecorder(bench *Sendproof, start time.Time) *recorder {
 	return &recorder{bench: bench, start: start}
 }
 

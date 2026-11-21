@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': '次に',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': '検索対象はモデル名とその説明です。',
     'side.try': '「{query}」を試す',
     'side.emptyTitle': 'この API にはまだオペレーションがありません',
-    'side.emptyBody': 'Test Bench は {url} 内のすべてのパスを一覧表示します。エンドポイントをマップしてから再読み込みしてください。',
+    'side.emptyBody': 'Sendproof は {url} 内のすべてのパスを一覧表示します。エンドポイントをマップしてから再読み込みしてください。',
     'side.reload': '仕様を再読み込み',
     'side.noModelsTitle': 'この仕様にモデルはありません',
     'side.noModelsBody': 'モデルは {source} から取得されます。インラインスキーマを使うリクエストボディとレスポンスボディは、各オペレーションのドキュメントに引き続き表示されます。',
@@ -82,7 +82,7 @@ export default {
     'display.digits': '数字',
     'display.latin': 'ラテン数字',
     'display.arabicIndic': 'アラビア・インド数字',
-    'display.digitsHelp': 'Test Bench 自身の数値と日付のみが対象です。キャプチャしたデータは保存された状態のまま表示されます。',
+    'display.digitsHelp': 'Sendproof 自身の数値と日付のみが対象です。キャプチャしたデータは保存された状態のまま表示されます。',
     'display.close': '閉じる',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -273,7 +273,7 @@ export default {
     // Auth tab
     'auth.requirements': 'セキュリティ要件', 'auth.scheme.cookie': 'Cookie によるサインイン', 'auth.scheme.apiKey': 'API キー', 'auth.scheme.http': 'HTTP 認証',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'サインイン',
-    'auth.sessionBody': 'この API のユーザーとしてサインインします。セッションは Test Bench が送信します。', 'auth.schemeBody': '{name} にサインインします。セッションは Test Bench が送信します。',
+    'auth.sessionBody': 'この API のユーザーとしてサインインします。セッションは Sendproof が送信します。', 'auth.schemeBody': '{name} にサインインします。セッションは Sendproof が送信します。',
     'auth.signInNeeded': 'サインイン', 'auth.notSignedIn': '未サインイン', 'auth.permission': '権限',
     'auth.permissionBody': 'サインイン後に API が確認します。権限がないと呼び出しは 403 を返します。', 'auth.checkedOnSend': '送信時に確認',
     'auth.unknown': 'サインインするまで不明', 'auth.seeded': 'シードアカウントを使用…', 'auth.publicBody': 'このオペレーションにサインインは不要です。',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'ここにレスポンスヘッダーが表示されます',
     'res.before.headers.body': 'API が返したすべてのヘッダーと、変数を解決した後に実際に送信されたリクエストヘッダー。',
     'res.notCaptured.database': '送信ではデータベースの変更をキャプチャしません',
-    'res.notCaptured.databaseBody': '送信は実際にコミットされ、Test Bench はトランザクションの外にいます。先にプレビューで行を確認するか、トレース付き送信をオンにしてコミット時に記録してください。',
+    'res.notCaptured.databaseBody': '送信は実際にコミットされ、Sendproof はトランザクションの外にいます。先にプレビューで行を確認するか、トレース付き送信をオンにしてコミット時に記録してください。',
     'res.notCaptured.databaseNoTrace': '送信は実際にコミットされ、この API はそれをトレースしません。先にプレビューで行を確認してください。',
     'res.notCaptured.effects': '送信では副作用をキャプチャしません',
     'res.notCaptured.effectsBody': '副作用は実際に実行されました。プレビューなら送信せずに確認できます。トレース付き送信をオンにすると、発生時に記録します。',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'API に接続できませんでした',
     'res.network.body': '{origin} から応答がありませんでした。リクエストがサーバーに届いていない可能性があるため、何も保存されていません。',
     'res.network.why': 'API は起動していますか? 起動し直してから、もう一度お試しください。リクエストはそのまま保持されています。',
-    'res.error.title': 'リクエストを完了できませんでした', 'res.error.why': 'Test Bench は何も変更していません。リクエストと API のコンソールを確認してください。',
+    'res.error.title': 'リクエストを完了できませんでした', 'res.error.why': 'Sendproof は何も変更していません。リクエストと API のコンソールを確認してください。',
 
     // Boot
-    'boot.title': 'OpenAPI ドキュメントを読み込めませんでした', 'boot.capabilitiesStatus': 'Test Bench の検出が {status} を返しました。', 'boot.documentStatus': 'OpenAPI ドキュメントが {status} を返しました。',
-    'boot.unsupported': 'この API の Test Bench のバージョンは、このワークベンチではサポートされていません。',
-    'boot.body': '{request} に失敗しました: {message} Test Bench はすべての画面をこれをもとに構築するため、まだ表示できるものがありません。',
-    'boot.bodyStatus': '{request} が {status} を返しました。Test Bench はすべての画面をこれをもとに構築するため、まだ表示できるものがありません。',
+    'boot.title': 'OpenAPI ドキュメントを読み込めませんでした', 'boot.capabilitiesStatus': 'Sendproof の検出が {status} を返しました。', 'boot.documentStatus': 'OpenAPI ドキュメントが {status} を返しました。',
+    'boot.unsupported': 'この API の Sendproof のバージョンは、このワークベンチではサポートされていません。',
+    'boot.body': '{request} に失敗しました: {message} Sendproof はすべての画面をこれをもとに構築するため、まだ表示できるものがありません。',
+    'boot.bodyStatus': '{request} が {status} を返しました。Sendproof はすべての画面をこれをもとに構築するため、まだ表示できるものがありません。',
     'boot.why': 'API の起動時エラーか、AddOpenApi() の抜けが原因であることがほとんどです。詳細は API のコンソールを確認してください。',
     'boot.whyAuth': 'このドキュメントにはサインイン済みのユーザーが必要です。サインインしてから、もう一度お試しください。',
     'boot.open': '{url} を開く', 'boot.copy': 'エラーをコピー', 'boot.noOperations': 'オペレーションなし', 'boot.noOperationsBody': '仕様の読み込み後に表示されます。',
@@ -371,7 +371,7 @@ export default {
 
     // Overview
     'overview.crumb': '概要', 'overview.operations': { other: '{n} 個のオペレーション' }, 'overview.models': { other: '{n} 個のモデル' },
-    'overview.how': 'Test Bench の仕組み', 'overview.preview': 'プレビュー', 'overview.send': '送信', 'overview.autofill': '自動入力',
+    'overview.how': 'Sendproof の仕組み', 'overview.preview': 'プレビュー', 'overview.send': '送信', 'overview.autofill': '自動入力',
     'overview.previewBody': 'トランザクション内でリクエストを実際に実行し、それによって生じたすべての行、メール、ログを表示してから、ロールバックします。',
     'overview.sendBody': '他のクライアントとまったく同じように、実際に実行してコミットします。',
     'overview.autofillBody': 'スキーマからフィールドを入力します。ID には API 自身の一覧エンドポイントから取得した実在の ID を使用します。',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'スキーマ', 'match.checked': '確認内容', 'match.checks': '型、形式、パターン、長さ、列挙型、必須プロパティ',
     'match.failTitle': { other: 'このボディが一致しない箇所が {n} 件あります' },
     'match.failBody': 'API は {status} を返しましたが、ボディが記載されたスキーマ {model} に一致しません:',
-    'match.note': 'Test Bench は報告のみ行います。レスポンスは受信したそのまま表示されます。', 'match.showSchema': 'スキーマ表示で見る', 'match.copy': '問題をコピー',
+    'match.note': 'Sendproof は報告のみ行います。レスポンスは受信したそのまま表示されます。', 'match.showSchema': 'スキーマ表示で見る', 'match.copy': '問題をコピー',
     'match.more': { other: 'ほか {n} 件' }, 'match.extra': '{model} スキーマにありません', 'match.what': 'スキーマの問題',
     'match.missing': '必須ですが、本文にありません',
 

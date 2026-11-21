@@ -1,4 +1,4 @@
-module github.com/test-bench/test-bench/adapters/go/tools/modzip
+module github.com/mprync/sendproof/adapters/go/tools/modzip
 
 go 1.26.0
 

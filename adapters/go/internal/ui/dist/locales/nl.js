@@ -8,7 +8,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'jjjj' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'dan',
     'unit.bytes': '{n} B',
 
@@ -51,7 +51,7 @@ export default {
     'side.noMatchModelsBody': 'De zoekopdracht omvat modelnamen en hun beschrijvingen.',
     'side.try': 'Probeer “{query}”',
     'side.emptyTitle': 'Deze API heeft nog geen operaties',
-    'side.emptyBody': 'Test Bench toont elk pad in {url}. Koppel een endpoint en laad opnieuw.',
+    'side.emptyBody': 'Sendproof toont elk pad in {url}. Koppel een endpoint en laad opnieuw.',
     'side.reload': 'Specificatie opnieuw laden',
     'side.noModelsTitle': 'Geen modellen in deze specificatie',
     'side.noModelsBody': 'Modellen komen uit {source}. Verzoek- en antwoord-body’s met inline schema’s verschijnen nog steeds in de documentatie van elke operatie.',
@@ -81,7 +81,7 @@ export default {
     'display.digits': 'Cijfers',
     'display.latin': 'Latijns',
     'display.arabicIndic': 'Arabisch-Indisch',
-    'display.digitsHelp': 'Alleen de eigen getallen en datums van Test Bench. Vastgelegde gegevens worden getoond zoals ze zijn opgeslagen.',
+    'display.digitsHelp': 'Alleen de eigen getallen en datums van Sendproof. Vastgelegde gegevens worden getoond zoals ze zijn opgeslagen.',
     'display.close': 'Sluiten',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -272,7 +272,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Beveiligingsvereisten', 'auth.scheme.cookie': 'Inloggen met cookie', 'auth.scheme.apiKey': 'API-sleutel', 'auth.scheme.http': 'HTTP-authenticatie',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Inloggen',
-    'auth.sessionBody': 'Log in als gebruiker van deze API. Test Bench verzendt de sessie voor je.', 'auth.schemeBody': 'Log in bij {name}; Test Bench verzendt de sessie.',
+    'auth.sessionBody': 'Log in als gebruiker van deze API. Sendproof verzendt de sessie voor je.', 'auth.schemeBody': 'Log in bij {name}; Sendproof verzendt de sessie.',
     'auth.signInNeeded': 'Inloggen', 'auth.notSignedIn': 'Niet ingelogd', 'auth.permission': 'Machtiging',
     'auth.permissionBody': 'Wordt door de API gecontroleerd na het inloggen. Zonder deze machtiging geeft de aanroep 403 terug.', 'auth.checkedOnSend': 'Gecontroleerd bij het verzenden',
     'auth.unknown': 'Onbekend tot je bent ingelogd', 'auth.seeded': 'Een vooraf aangemaakt account gebruiken…', 'auth.publicBody': 'Deze operatie vereist geen login.',
@@ -308,7 +308,7 @@ export default {
     'res.before.Headers.title': 'Antwoordheaders verschijnen hier',
     'res.before.headers.body': 'Elke header die de API teruggeeft, plus de verzoekheaders precies zoals ze zijn verzonden, nadat de variabelen zijn omgezet.',
     'res.notCaptured.database': 'Verstuur legt databasewijzigingen niet vast',
-    'res.notCaptured.databaseBody': 'Verstuur voert echt door en Test Bench blijft buiten de transactie. Gebruik Voorvertoning om de rijen eerst te zien, of zet getraceerd verzenden aan om ze vast te leggen terwijl ze worden doorgevoerd.',
+    'res.notCaptured.databaseBody': 'Verstuur voert echt door en Sendproof blijft buiten de transactie. Gebruik Voorvertoning om de rijen eerst te zien, of zet getraceerd verzenden aan om ze vast te leggen terwijl ze worden doorgevoerd.',
     'res.notCaptured.databaseNoTrace': 'Verstuur voert echt door en deze API traceert dat niet. Gebruik Voorvertoning om de rijen eerst te zien.',
     'res.notCaptured.effects': 'Verstuur legt neveneffecten niet vast',
     'res.notCaptured.effectsBody': 'Ze zijn echt uitgevoerd. Voorvertoning toont ze zonder te verzenden, of zet getraceerd verzenden aan om ze vast te leggen terwijl ze gebeuren.',
@@ -333,13 +333,13 @@ export default {
     'res.network.title': 'API niet bereikbaar',
     'res.network.body': 'Er kwam niets terug van {origin}. Het verzoek heeft de server mogelijk niet bereikt, dus er is niets opgeslagen.',
     'res.network.why': 'Draait de API? Start haar opnieuw en probeer het dan nog eens. Je verzoek blijft ongewijzigd.',
-    'res.error.title': 'Het verzoek kon niet worden voltooid', 'res.error.why': 'Test Bench heeft niets gewijzigd. Controleer het verzoek en de API-console.',
+    'res.error.title': 'Het verzoek kon niet worden voltooid', 'res.error.why': 'Sendproof heeft niets gewijzigd. Controleer het verzoek en de API-console.',
 
     // Boot
-    'boot.title': 'Het OpenAPI-document kon niet worden geladen', 'boot.capabilitiesStatus': 'Test Bench-discovery gaf {status} terug.', 'boot.documentStatus': 'Het OpenAPI-document gaf {status} terug.',
-    'boot.unsupported': 'De Test Bench-versie van deze API wordt niet ondersteund door deze workbench.',
-    'boot.body': '{request} is mislukt: {message} Test Bench bouwt elk scherm hieruit op, dus er is nog niets om te tonen.',
-    'boot.bodyStatus': '{request} gaf {status} terug. Test Bench bouwt elk scherm hieruit op, dus er is nog niets om te tonen.',
+    'boot.title': 'Het OpenAPI-document kon niet worden geladen', 'boot.capabilitiesStatus': 'Sendproof-discovery gaf {status} terug.', 'boot.documentStatus': 'Het OpenAPI-document gaf {status} terug.',
+    'boot.unsupported': 'De Sendproof-versie van deze API wordt niet ondersteund door deze workbench.',
+    'boot.body': '{request} is mislukt: {message} Sendproof bouwt elk scherm hieruit op, dus er is nog niets om te tonen.',
+    'boot.bodyStatus': '{request} gaf {status} terug. Sendproof bouwt elk scherm hieruit op, dus er is nog niets om te tonen.',
     'boot.why': 'Meestal een opstartfout in de API, of AddOpenApi() ontbreekt. De API-console bevat de details.',
     'boot.whyAuth': 'Het document vereist een ingelogde gebruiker. Log in en probeer het opnieuw.',
     'boot.open': '{url} openen', 'boot.copy': 'Fout kopiëren', 'boot.noOperations': 'Geen operaties', 'boot.noOperationsBody': 'Ze verschijnen zodra de specificatie is geladen.',
@@ -370,7 +370,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Overzicht', 'overview.operations': { one: '{n} operatie', other: '{n} operaties' }, 'overview.models': { one: '{n} model', other: '{n} modellen' },
-    'overview.how': 'Hoe Test Bench werkt', 'overview.preview': 'Voorvertoning', 'overview.send': 'Verstuur', 'overview.autofill': 'Automatisch invullen',
+    'overview.how': 'Hoe Sendproof werkt', 'overview.preview': 'Voorvertoning', 'overview.send': 'Verstuur', 'overview.autofill': 'Automatisch invullen',
     'overview.previewBody': 'Voert het verzoek echt uit binnen een transactie, toont elke rij, e-mail en log die het veroorzaakte en draait daarna terug.',
     'overview.sendBody': 'Voert het echt uit en voert door, precies zoals elke andere client.',
     'overview.autofillBody': 'Vult velden in op basis van het schema, met echte ID’s uit de eigen lijstendpoints van de API.',
@@ -504,7 +504,7 @@ export default {
     'match.schema': 'Schema', 'match.checked': 'Gecontroleerd', 'match.checks': 'Typen, notaties, patronen, lengtes, enums en verplichte eigenschappen',
     'match.failTitle': { one: '{n} manier waarop deze body niet overeenkomt', other: '{n} manieren waarop deze body niet overeenkomt' },
     'match.failBody': 'De API antwoordde {status}, maar de body komt niet overeen met {model}, het gedocumenteerde schema:',
-    'match.note': 'Test Bench meldt dit alleen. Het antwoord wordt getoond zoals het is ontvangen.', 'match.showSchema': 'Tonen in Schema-weergave', 'match.copy': 'Problemen kopiëren',
+    'match.note': 'Sendproof meldt dit alleen. Het antwoord wordt getoond zoals het is ontvangen.', 'match.showSchema': 'Tonen in Schema-weergave', 'match.copy': 'Problemen kopiëren',
     'match.more': { one: '{n} meer', other: '{n} meer' }, 'match.extra': 'Niet in het schema {model}', 'match.what': 'schemaproblemen',
     'match.missing': 'Verplicht, maar ontbreekt in de body',
 

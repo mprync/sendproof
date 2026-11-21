@@ -1,3 +1,3 @@
-module github.com/test-bench/test-bench/adapters/go
+module github.com/mprync/sendproof/adapters/go
 
 go 1.24

@@ -7,7 +7,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 local_go="$root/artifacts/go-toolchain/go/bin/go"
 
 if [[ ! -x "$local_go" ]]; then
-  if command -v go >/dev/null 2>&1 && [[ "${TESTBENCH_FORCE_LOCAL_GO:-}" != "1" ]]; then
+  if command -v go >/dev/null 2>&1 && [[ "${SENDPROOF_FORCE_LOCAL_GO:-}" != "1" ]]; then
     exec go "$@"
   fi
   "$(dirname "${BASH_SOURCE[0]}")/setup-go.sh" >&2

@@ -1,12 +1,12 @@
-// Package ginbench marks Gin routes for Test Bench Preview.
+// Package ginsendproof marks Gin routes for Sendproof Preview.
 //
-// Wrap the Gin engine with testbench.Bench.Middleware, not engine.Use: a preview
+// Wrap the Gin engine with sendproof.Sendproof.Middleware, not engine.Use: a preview
 // must be routed by Gin itself, which happens before engine middleware runs.
 //
 //	r := gin.New()
-//	r.POST("/items/:id", ginbench.Preview(bench, http.MethodPost, "/items/:id"), createItem)
+//	r.POST("/items/:id", ginsendproof.Preview(bench, http.MethodPost, "/items/:id"), createItem)
 //	http.ListenAndServe(addr, bench.Middleware(r))
-package ginbench
+package ginsendproof
 
 import (
 	"regexp"
@@ -14,13 +14,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 var param = regexp.MustCompile(`:([A-Za-z0-9_]+)`)
 
 // Template converts a Gin route path into the OpenAPI path template that Test
-// Bench advertises.
+// Sendproof advertises.
 func Template(path string) string {
 	template := param.ReplaceAllString(path, "{$1}")
 	if index := strings.LastIndex(template, "/*"); index >= 0 {
@@ -35,7 +35,7 @@ func Template(path string) string {
 
 // Preview returns the route marker. Put it before the route's handler. Pass the
 // full route path, including the prefix of any enclosing router group.
-func Preview(bench *testbench.Bench, method, path string) gin.HandlerFunc {
+func Preview(bench *sendproof.Sendproof, method, path string) gin.HandlerFunc {
 	operation := bench.Operation(method, Template(path))
 	return func(c *gin.Context) {
 		if !operation.Enter(c.Writer, c.Request) {

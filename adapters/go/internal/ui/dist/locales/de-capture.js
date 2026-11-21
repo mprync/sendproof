@@ -91,8 +91,8 @@ export default {
   'fx.htmlSource': 'HTML-Quelltext',
   'fx.htmlFrame': 'HTML-Vorschau der E-Mail',
   'fx.heldBanner': {
-    one: '**Erfasste Effekte wurden zurückgehalten.** Test Bench hat {n} Nebeneffekt für diese Vorschau zurückgehalten. Senden führt ihn wirklich aus.',
-    other: '**Erfasste Effekte wurden zurückgehalten.** Test Bench hat {n} Nebeneffekte für diese Vorschau zurückgehalten. Senden führt sie wirklich aus.',
+    one: '**Erfasste Effekte wurden zurückgehalten.** Sendproof hat {n} Nebeneffekt für diese Vorschau zurückgehalten. Senden führt ihn wirklich aus.',
+    other: '**Erfasste Effekte wurden zurückgehalten.** Sendproof hat {n} Nebeneffekte für diese Vorschau zurückgehalten. Senden führt sie wirklich aus.',
   },
   'fx.ran': { one: '{n} Nebeneffekt ausgeführt.', other: '{n} Nebeneffekte ausgeführt.' },
   'fx.capturedCount': { one: '{n} Nebeneffekt erfasst.', other: '{n} Nebeneffekte erfasst.' },
@@ -175,7 +175,7 @@ export default {
   'kv.sessionCookie': 'Sitzungs-Cookie',
   'kv.requiredValue': 'Geben Sie einen Wert für diesen erforderlichen Header ein.',
   'kv.group.required': 'Von dieser Operation gefordert',
-  'kv.group.managed': 'Von Test Bench gesetzt',
+  'kv.group.managed': 'Von Sendproof gesetzt',
   'kv.group.managedDetail': 'aus Ihrer Sitzung und dem Body',
   'kv.group.custom': 'Benutzerdefiniert',
   'kv.grid': 'Anfrage-Header',
@@ -183,7 +183,7 @@ export default {
   'kv.col.name': 'Name',
   'kv.col.value': 'Wert',
   'kv.col.actions': 'Aktionen',
-  'kv.managed': 'Von Test Bench verwaltet',
+  'kv.managed': 'Von Sendproof verwaltet',
   'kv.sendName': '{name} senden',
   'kv.sendNew': 'Neuen Header senden',
   'kv.namePlaceholder': 'Header-Name',
@@ -340,7 +340,7 @@ export default {
   // Response Schema view
   'resp.mode.schema': 'Schema', 
   // Nachträglich ergänzte Leerzustände
-  'kv.emptyTitle': 'Keine eigenen Header', 'kv.emptyBody': { one: 'Test Bench sendet bereits den Header oben. Füge eigene für Tracing, Sprache oder Mandant hinzu.', other: 'Test Bench sendet bereits die {n} oben. Füge eigene für Tracing, Sprache oder Mandant hinzu.' },
+  'kv.emptyTitle': 'Keine eigenen Header', 'kv.emptyBody': { one: 'Sendproof sendet bereits den Header oben. Füge eigene für Tracing, Sprache oder Mandant hinzu.', other: 'Sendproof sendet bereits die {n} oben. Füge eigene für Tracing, Sprache oder Mandant hinzu.' },
   'kv.applyPreset': 'Vorlage anwenden',
   'logs.noMatchTitle': 'Keine passenden Log-Einträge', 'logs.noMatchBody': { one: 'Der {n} Eintrag ist durch deine Filter ausgeblendet: {filters}.', other: 'Alle {n} Einträge sind durch deine Filter ausgeblendet: {filters}.' },
   'logs.hiddenLevel': 'Stufe {level}', 'logs.hiddenText': 'Text „{text}“', 'logs.hiddenSql': 'SQL ist ausgeblendet', 'logs.clearFilters': 'Filter zurücksetzen', 'logs.allLevels': 'Alle Stufen zeigen',

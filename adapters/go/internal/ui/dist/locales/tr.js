@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'gg', month: 'aa', year: 'yyyy' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'sonra',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'Arama; model adlarını ve açıklamalarını kapsar.',
     'side.try': '“{query}” deneyin',
     'side.emptyTitle': 'Bu API’de henüz işlem yok',
-    'side.emptyBody': 'Test Bench, {url} içindeki her yolu listeler. Bir uç nokta eşleyin ve yeniden yükleyin.',
+    'side.emptyBody': 'Sendproof, {url} içindeki her yolu listeler. Bir uç nokta eşleyin ve yeniden yükleyin.',
     'side.reload': 'Şartnameyi yeniden yükle',
     'side.noModelsTitle': 'Bu şartnamede model yok',
     'side.noModelsBody': 'Modeller {source} kaynağından gelir. Satır içi şemalar kullanan istek ve yanıt gövdeleri yine de her işlemin Belgeler sekmesinde görünür.',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'Rakamlar',
     'display.latin': 'Latin',
     'display.arabicIndic': 'Arap-Hint',
-    'display.digitsHelp': 'Yalnızca Test Bench’in kendi sayıları ve tarihleri. Yakalanan veriler saklandığı gibi gösterilir.',
+    'display.digitsHelp': 'Yalnızca Sendproof’in kendi sayıları ve tarihleri. Yakalanan veriler saklandığı gibi gösterilir.',
     'display.close': 'Kapat',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -273,7 +273,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Güvenlik gereksinimleri', 'auth.scheme.cookie': 'Çerezle oturum açma', 'auth.scheme.apiKey': 'API anahtarı', 'auth.scheme.http': 'HTTP kimlik doğrulaması',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Oturum açma',
-    'auth.sessionBody': 'Bu API’nin bir kullanıcısı olarak oturum açın. Test Bench oturumu sizin için gönderir.', 'auth.schemeBody': '{name} için oturum açın; Test Bench oturumu gönderir.',
+    'auth.sessionBody': 'Bu API’nin bir kullanıcısı olarak oturum açın. Sendproof oturumu sizin için gönderir.', 'auth.schemeBody': '{name} için oturum açın; Sendproof oturumu gönderir.',
     'auth.signInNeeded': 'Oturum açma', 'auth.notSignedIn': 'Oturum açılmadı', 'auth.permission': 'İzin',
     'auth.permissionBody': 'Oturum açıldıktan sonra API tarafından denetlenir. Olmadan çağrı 403 döndürür.', 'auth.checkedOnSend': 'Gönderirken denetlenir',
     'auth.unknown': 'Oturum açılana kadar bilinmiyor', 'auth.seeded': 'Hazır bir hesap kullan…', 'auth.publicBody': 'Bu işlem için oturum gerekmez.',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'Yanıt başlıkları burada görünecek',
     'res.before.headers.body': 'API’nin döndürdüğü her başlık ve değişkenler çözümlendikten sonra, gönderildiği haliyle istek başlıkları.',
     'res.notCaptured.database': 'Gönder veritabanı değişikliklerini yakalamaz',
-    'res.notCaptured.databaseBody': 'Gönder gerçekten kaydeder ve Test Bench işlemin dışında kalır. Satırları önce görmek için Önizle’yi kullanın veya kaydedilirken kaydetmek için izlenen Gönder’i açın.',
+    'res.notCaptured.databaseBody': 'Gönder gerçekten kaydeder ve Sendproof işlemin dışında kalır. Satırları önce görmek için Önizle’yi kullanın veya kaydedilirken kaydetmek için izlenen Gönder’i açın.',
     'res.notCaptured.databaseNoTrace': 'Gönder gerçekten kaydeder ve bu API onu izlemez. Satırları önce görmek için Önizle’yi kullanın.',
     'res.notCaptured.effects': 'Gönder yan etkileri yakalamaz',
     'res.notCaptured.effectsBody': 'Gerçekten çalıştılar. Önizle bunları göndermeden gösterir; ya da gerçekleşirken kaydetmek için izlenen Gönder’i açın.',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'API’ye ulaşılamadı',
     'res.network.body': '{origin} adresinden hiçbir şey dönmedi. İstek sunucuya ulaşmamış olabilir, bu yüzden hiçbir şey kaydedilmedi.',
     'res.network.why': 'API çalışıyor mu? Yeniden başlatın, sonra tekrar deneyin. İsteğiniz olduğu gibi korunur.',
-    'res.error.title': 'İstek tamamlanamadı', 'res.error.why': 'Test Bench hiçbir şeyi değiştirmedi. İsteği ve API konsolunu kontrol edin.',
+    'res.error.title': 'İstek tamamlanamadı', 'res.error.why': 'Sendproof hiçbir şeyi değiştirmedi. İsteği ve API konsolunu kontrol edin.',
 
     // Boot
-    'boot.title': 'OpenAPI belgesi yüklenemedi', 'boot.capabilitiesStatus': 'Test Bench keşfi {status} döndürdü.', 'boot.documentStatus': 'OpenAPI belgesi {status} döndürdü.',
-    'boot.unsupported': 'Bu API’nin Test Bench sürümü bu çalışma tezgâhı tarafından desteklenmiyor.',
-    'boot.body': '{request} başarısız oldu: {message} Test Bench her ekranı bundan oluşturur, bu yüzden henüz gösterilecek bir şey yok.',
-    'boot.bodyStatus': '{request} {status} döndürdü. Test Bench her ekranı bundan oluşturur, bu yüzden henüz gösterilecek bir şey yok.',
+    'boot.title': 'OpenAPI belgesi yüklenemedi', 'boot.capabilitiesStatus': 'Sendproof keşfi {status} döndürdü.', 'boot.documentStatus': 'OpenAPI belgesi {status} döndürdü.',
+    'boot.unsupported': 'Bu API’nin Sendproof sürümü bu çalışma tezgâhı tarafından desteklenmiyor.',
+    'boot.body': '{request} başarısız oldu: {message} Sendproof her ekranı bundan oluşturur, bu yüzden henüz gösterilecek bir şey yok.',
+    'boot.bodyStatus': '{request} {status} döndürdü. Sendproof her ekranı bundan oluşturur, bu yüzden henüz gösterilecek bir şey yok.',
     'boot.why': 'Genellikle API’de bir başlatma hatası vardır veya AddOpenApi() eksiktir. Ayrıntılar API konsolunda.',
     'boot.whyAuth': 'Belge için oturum açmış bir kullanıcı gerekiyor. Oturum açın, sonra yeniden deneyin.',
     'boot.open': '{url} adresini aç', 'boot.copy': 'Hatayı kopyala', 'boot.noOperations': 'İşlem yok', 'boot.noOperationsBody': 'Şartname yüklenince görünürler.',
@@ -371,7 +371,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Genel bakış', 'overview.operations': { one: '{n} işlem', other: '{n} işlem' }, 'overview.models': { one: '{n} model', other: '{n} model' },
-    'overview.how': 'Test Bench nasıl çalışır', 'overview.preview': 'Önizle', 'overview.send': 'Gönder', 'overview.autofill': 'Otomatik doldur',
+    'overview.how': 'Sendproof nasıl çalışır', 'overview.preview': 'Önizle', 'overview.send': 'Gönder', 'overview.autofill': 'Otomatik doldur',
     'overview.previewBody': 'İsteği bir işlem (transaction) içinde gerçekten çalıştırır, neden olduğu her satırı, e-postayı ve günlüğü gösterir, sonra geri alır.',
     'overview.sendBody': 'İsteği gerçekten çalıştırır ve kaydeder, tıpkı diğer istemciler gibi.',
     'overview.autofillBody': 'Alanları şemadan doldurur; ID’ler için API’nin kendi liste uç noktalarından gerçek değerler kullanır.',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'Şema', 'match.checked': 'Denetlenen', 'match.checks': 'Türler, biçimler, desenler, uzunluklar, enum’lar ve zorunlu özellikler',
     'match.failTitle': { one: 'Bu gövdenin uyumsuz olduğu {n} nokta', other: 'Bu gövdenin uyumsuz olduğu {n} nokta' },
     'match.failBody': 'API {status} yanıtı verdi, ancak gövde belgelenmiş şema olan {model} ile uyumlu değil:',
-    'match.note': 'Test Bench bunu yalnızca bildirir. Yanıt alındığı gibi gösterilir.', 'match.showSchema': 'Şema görünümünde göster', 'match.copy': 'Sorunları kopyala',
+    'match.note': 'Sendproof bunu yalnızca bildirir. Yanıt alındığı gibi gösterilir.', 'match.showSchema': 'Şema görünümünde göster', 'match.copy': 'Sorunları kopyala',
     'match.more': { one: '{n} tane daha', other: '{n} tane daha' }, 'match.extra': '{model} şemasında yok', 'match.what': 'şema sorunları',
     'match.missing': 'Zorunlu, ancak gövdede yok',
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 const sessionCookie = "bench_session"
@@ -55,13 +55,13 @@ func (s *sessions) who(r *http.Request) (persona, bool) {
 	return who, ok
 }
 
-// principal adapts a session to the identity Test Bench reads.
-func (s *sessions) principal(r *http.Request) (testbench.Principal, bool) {
+// principal adapts a session to the identity Sendproof reads.
+func (s *sessions) principal(r *http.Request) (sendproof.Principal, bool) {
 	who, ok := s.who(r)
 	if !ok {
-		return testbench.Principal{}, false
+		return sendproof.Principal{}, false
 	}
-	return testbench.Principal{Subject: who.Email, Name: who.Name, Role: who.Role, Scheme: "cookie"}, true
+	return sendproof.Principal{Subject: who.Email, Name: who.Name, Role: who.Role, Scheme: "cookie"}, true
 }
 
 // require returns middleware that answers 401 to anonymous callers and 403 when

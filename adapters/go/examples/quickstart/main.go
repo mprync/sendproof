@@ -1,7 +1,7 @@
-// Command quickstart is a minimal API with Test Bench mounted at /bench.
+// Command quickstart is a minimal API with Sendproof mounted at /sendproof.
 //
 // It uses net/http and database/sql with an in-process SQLite database. Run it
-// from adapters/go/examples and open http://localhost:8080/bench/:
+// from adapters/go/examples and open http://localhost:8080/sendproof/:
 //
 //	go run ./quickstart
 //
@@ -21,12 +21,12 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go SQLite with the pre-update hook dbsql captures changes with
 
-	"github.com/test-bench/test-bench/adapters/go/dbsql"
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/dbsql"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 func main() {
-	directory, err := os.MkdirTemp("", "testbench-quickstart-")
+	directory, err := os.MkdirTemp("", "sendproof-quickstart-")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,16 +46,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	bench, err := testbench.New(
-		testbench.WithEnvironment("Development"),
-		testbench.WithAPIName("Quickstart API"),
-		testbench.WithOpenAPIURL("/openapi.json"),
-		testbench.WithProvider(db.Provider()),
-		testbench.WithPrincipal(func(r *http.Request) (testbench.Principal, bool) {
+	bench, err := sendproof.New(
+		sendproof.WithEnvironment("Development"),
+		sendproof.WithAPIName("Quickstart API"),
+		sendproof.WithOpenAPIURL("/openapi.json"),
+		sendproof.WithProvider(db.Provider()),
+		sendproof.WithPrincipal(func(r *http.Request) (sendproof.Principal, bool) {
 			if _, err := r.Cookie("dev"); err != nil {
-				return testbench.Principal{}, false
+				return sendproof.Principal{}, false
 			}
-			return testbench.Principal{Subject: "dev", Name: "Developer", Role: "admin", Scheme: "cookie"}, true
+			return sendproof.Principal{Subject: "dev", Name: "Developer", Role: "admin", Scheme: "cookie"}, true
 		}),
 	)
 	if err != nil {
@@ -63,7 +63,7 @@ func main() {
 	}
 
 	// Log with the request context so records also appear in previews and traces.
-	logger := slog.New(testbench.SlogHandler(slog.NewTextHandler(os.Stderr, nil)))
+	logger := slog.New(sendproof.SlogHandler(slog.NewTextHandler(os.Stderr, nil)))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
@@ -72,7 +72,7 @@ func main() {
 	})
 	mux.HandleFunc("GET /dev", func(w http.ResponseWriter, r *http.Request) { // trivial sign-in
 		http.SetCookie(w, &http.Cookie{Name: "dev", Value: "1", Path: "/"})
-		http.Redirect(w, r, "/bench/", http.StatusFound)
+		http.Redirect(w, r, "/sendproof/", http.StatusFound)
 	})
 
 	// Marking a route makes it eligible for Preview. Only mark routes whose writes
@@ -88,7 +88,7 @@ func main() {
 			return
 		}
 		// A preview records the email and suppresses it; Send delivers it.
-		if !testbench.RecordEmail(r.Context(), "Stock notice", "bench@example.test", []string{"ops@example.test"}, "New item", item.Name) {
+		if !sendproof.RecordEmail(r.Context(), "Stock notice", "bench@example.test", []string{"ops@example.test"}, "New item", item.Name) {
 			logger.InfoContext(r.Context(), "sending the stock notice", "item", item.ID)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -107,7 +107,7 @@ func main() {
 	})
 
 	addr := ":8080"
-	log.Printf("Quickstart API on http://localhost%s — open /dev once to sign in, then /bench/", addr)
+	log.Printf("Quickstart API on http://localhost%s — open /dev once to sign in, then /sendproof/", addr)
 	log.Fatal(http.ListenAndServe(addr, bench.Middleware(mux)))
 }
 

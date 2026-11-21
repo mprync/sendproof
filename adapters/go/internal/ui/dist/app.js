@@ -1,4 +1,4 @@
-// Test Bench workbench entry point. It loads the capabilities and OpenAPI document, renders the
+// Sendproof workbench entry point. It loads the capabilities and OpenAPI document, renders the
 // shell, and routes between the four views of the approved design: the API overview, Try it,
 // Docs and a model page. Feature modules own their own markup; this file wires events to them.
 import { showSignIn } from './signin.js';

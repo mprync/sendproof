@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/dbsql"
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/dbsql"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // The provider tests run each scenario against SQLite and, when their servers
@@ -33,12 +33,12 @@ func newItems(t *testing.T, e engine, pool *sql.DB) *dbsql.DB {
 }
 
 // app serves one marked route that runs body, plus an unmarked route.
-func app(t *testing.T, db *dbsql.DB, body func(http.ResponseWriter, *http.Request), options ...testbench.Option) http.Handler {
+func app(t *testing.T, db *dbsql.DB, body func(http.ResponseWriter, *http.Request), options ...sendproof.Option) http.Handler {
 	t.Helper()
-	bench, err := testbench.New(append([]testbench.Option{
-		testbench.WithEnvironment("Development"), testbench.WithProvider(db.Provider()),
-		testbench.WithPrincipal(func(*http.Request) (testbench.Principal, bool) {
-			return testbench.Principal{Subject: "dev", Scheme: "test"}, true
+	bench, err := sendproof.New(append([]sendproof.Option{
+		sendproof.WithEnvironment("Development"), sendproof.WithProvider(db.Provider()),
+		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {
+			return sendproof.Principal{Subject: "dev", Scheme: "test"}, true
 		}),
 	}, options...)...)
 	if err != nil {
@@ -52,7 +52,7 @@ func app(t *testing.T, db *dbsql.DB, body func(http.ResponseWriter, *http.Reques
 
 func preview(t *testing.T, handler http.Handler, path string) (int, map[string]any) {
 	t.Helper()
-	request := httptest.NewRequest("POST", "/bench/_preview"+path, nil)
+	request := httptest.NewRequest("POST", "/sendproof/_preview"+path, nil)
 	request.Header.Set("Prefer", "tx=rollback")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -68,12 +68,12 @@ func observe(t *testing.T, handler http.Handler, path string) (int, map[string]a
 	request.Header.Set("Prefer", "trace")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	id := response.Header().Get("X-TestBench-Trace")
+	id := response.Header().Get("X-Sendproof-Trace")
 	if id == "" {
 		t.Fatalf("no trace for status %d: %s", response.Code, response.Body)
 	}
 	read := httptest.NewRecorder()
-	handler.ServeHTTP(read, httptest.NewRequest("GET", "/bench/_api/traces/"+id, nil))
+	handler.ServeHTTP(read, httptest.NewRequest("GET", "/sendproof/_api/traces/"+id, nil))
 	var trace map[string]any
 	_ = json.Unmarshal(read.Body.Bytes(), &trace)
 	return response.Code, trace
@@ -278,7 +278,7 @@ func TestSecretColumnsAndSessionsAreRedacted(t *testing.T) {
 				t.Error(err)
 			}
 			w.WriteHeader(http.StatusNoContent)
-		}, testbench.WithSQLParameterValues(true))
+		}, sendproof.WithSQLParameterValues(true))
 		check := func(what string, result map[string]any) {
 			t.Helper()
 			encoded, _ := json.Marshal(result)
@@ -562,7 +562,7 @@ func TestSecretParametersAreRedacted(t *testing.T) {
 func TestUnmarkedRoutesCannotCommitDuringPreview(t *testing.T) {
 	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
 		db := newItems(t, e, pool)
-		bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(db.Provider()))
+		bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithProvider(db.Provider()))
 		_ = bench.Operation("POST", "/forgot") // advertised, but its handler below never calls Wrap
 		var writeErr error
 		mux := http.NewServeMux()
@@ -579,7 +579,7 @@ func TestUnmarkedRoutesCannotCommitDuringPreview(t *testing.T) {
 		if status, envelope := preview(t, handler, "/forgot"); status == 200 || envelope["rolledBack"] == true {
 			t.Errorf("a handler that never began a session was confirmed: %d %v", status, envelope)
 		}
-		if !errors.Is(writeErr, testbench.ErrNoPreviewSession) {
+		if !errors.Is(writeErr, sendproof.ErrNoPreviewSession) {
 			t.Errorf("the wrapper must fail closed, got %v", writeErr)
 		}
 		if count(t, pool, "items") != 0 {
@@ -593,7 +593,7 @@ func TestCaptureLimitIsReported(t *testing.T) {
 		db := newItems(t, e, pool)
 		insert := "INSERT INTO items (id, name) VALUES (" + e.ph(1) + ", " + e.ph(2) + ")"
 		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
-			for index := 0; index < testbench.MaxChanges+5; index++ {
+			for index := 0; index < sendproof.MaxChanges+5; index++ {
 				if _, err := db.ExecContext(r.Context(), insert, fmt.Sprintf("row-%03d", index), "x"); err != nil {
 					t.Fatal(err)
 				}
@@ -601,7 +601,7 @@ func TestCaptureLimitIsReported(t *testing.T) {
 		})
 		_, envelope := preview(t, handler, "/run")
 		lines := summary(envelope["changes"])
-		if len(lines) != testbench.MaxChanges || envelope["changesTruncated"] != true || lines[0] != `insert items {"id":"row-000"} ->x` {
+		if len(lines) != sendproof.MaxChanges || envelope["changesTruncated"] != true || lines[0] != `insert items {"id":"row-000"} ->x` {
 			t.Errorf("got %d changes, truncated %v, first %v", len(lines), envelope["changesTruncated"], lines[:min(1, len(lines))])
 		}
 	})
@@ -748,7 +748,7 @@ func TestOneStatementOverTheLimit(t *testing.T) {
 		})
 		status, envelope := preview(t, handler, "/run")
 		lines := summary(envelope["changes"])
-		if status != 200 || len(lines) != testbench.MaxChanges || envelope["changesTruncated"] != true || lines[0] != `insert items {"id":"row-000"} ->x` {
+		if status != 200 || len(lines) != sendproof.MaxChanges || envelope["changesTruncated"] != true || lines[0] != `insert items {"id":"row-000"} ->x` {
 			t.Errorf("status %d, %d changes, truncated %v", status, len(lines), envelope["changesTruncated"])
 		}
 		if count(t, pool, "items") != 0 {

@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -25,22 +25,22 @@ type previewEnvelope struct {
 	LogsTruncated    bool              `json:"logsTruncated,omitempty"`
 }
 
-// servePreview handles /bench/_preview/{target}. It validates the transport,
+// servePreview handles /sendproof/_preview/{target}. It validates the transport,
 // dispatches the rewritten request through the application's own handler, and
 // confirms the result only after the provider has rolled back.
-func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.Handler, target string, started time.Time) {
+func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next http.Handler, target string, started time.Time) {
 	switch {
 	case !b.Enabled():
-		reject(w, http.StatusNotFound, "Test Bench previews are unavailable.")
+		reject(w, http.StatusNotFound, "Sendproof previews are unavailable.")
 		return
 	case !hasExactRollbackPreference(r):
-		reject(w, http.StatusBadRequest, "A Test Bench preview requires Prefer: tx=rollback.")
+		reject(w, http.StatusBadRequest, "A Sendproof preview requires Prefer: tx=rollback.")
 		return
 	case r.Method == http.MethodHead:
 		reject(w, http.StatusMethodNotAllowed, "A preview requires a response body.")
 		return
 	case !validTarget(target):
-		reject(w, http.StatusBadRequest, "The Test Bench preview target is invalid.")
+		reject(w, http.StatusBadRequest, "The Sendproof preview target is invalid.")
 		return
 	case !isSameOrigin(r):
 		reject(w, http.StatusForbidden, "Cross-origin preview requests are not allowed.")
@@ -48,7 +48,7 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	case r.URL.Query().Has("_method"):
 		// A method-override middleware would route the preview to an operation
 		// other than the one checked below.
-		reject(w, http.StatusBadRequest, "A Test Bench preview cannot override its method.")
+		reject(w, http.StatusBadRequest, "A Sendproof preview cannot override its method.")
 		return
 	}
 	if status := b.authorize(r); status != 0 {
@@ -72,7 +72,7 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 
 	decoded, err := url.PathUnescape(target)
 	if err != nil {
-		reject(w, http.StatusBadRequest, "The Test Bench preview target is invalid.")
+		reject(w, http.StatusBadRequest, "The Sendproof preview target is invalid.")
 		return
 	}
 	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r),
@@ -119,7 +119,7 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	// A failed rollback or disposal always withholds confirmation. A response that
 	// is too large is reported as such even if the handler then failed on the write error.
 	if cleanupFailure != nil || handlerFailure != nil && !capture.exceeded {
-		b.cfg.logger.Error("a Test Bench preview failed", "method", r.Method, "path", r.URL.Path,
+		b.cfg.logger.Error("a Sendproof preview failed", "method", r.Method, "path", r.URL.Path,
 			"error", errors.Join(handlerFailure, cleanupFailure))
 		reject(w, http.StatusInternalServerError, "The preview could not be completed safely.")
 		return
@@ -136,7 +136,7 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	serialized := time.Now()
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
-		b.cfg.logger.Error("a Test Bench preview could not be serialized", "error", err)
+		b.cfg.logger.Error("a Sendproof preview could not be serialized", "error", err)
 		reject(w, http.StatusInternalServerError, "The preview could not be completed safely.")
 		return
 	}
@@ -154,7 +154,7 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 var methodOverrideHeaders = []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"}
 
 // buildEnvelope assembles the confirmed result after a successful rollback.
-func (b *Bench) buildEnvelope(capture *captureWriter, session Session, snapshot captureSnapshot) *previewEnvelope {
+func (b *Sendproof) buildEnvelope(capture *captureWriter, session Session, snapshot captureSnapshot) *previewEnvelope {
 	changes, truncated := snapshotChanges(session.Changes())
 	return &previewEnvelope{
 		Status: capture.status, Headers: capture.envelopeHeaders(), Body: capture.envelopeBody(),

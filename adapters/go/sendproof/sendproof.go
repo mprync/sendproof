@@ -1,4 +1,4 @@
-// Package testbench mounts the Test Bench workbench inside a Go HTTP application.
+// Package sendproof mounts the Sendproof workbench inside a Go HTTP application.
 //
 // A developer signs in to the API, picks an operation from its OpenAPI document and
 // edits a typed request. Preview runs an eligible operation inside a transaction,
@@ -9,10 +9,10 @@
 // writes are safe to roll back, and give handlers a data-access wrapper that
 // enlists in the preview transaction:
 //
-//	bench, err := testbench.New(
-//		testbench.WithEnvironment("Development"),
-//		testbench.WithProvider(db.Provider()), // db is a *dbsql.DB
-//		testbench.WithPrincipal(principalFromSession),
+//	bench, err := sendproof.New(
+//		sendproof.WithEnvironment("Development"),
+//		sendproof.WithProvider(db.Provider()), // db is a *dbsql.DB
+//		sendproof.WithPrincipal(principalFromSession),
 //	)
 //	if err != nil { /* handle */ }
 //	mux.Handle("POST /items", bench.Operation("POST", "/items").Wrap(createItem))
@@ -22,7 +22,7 @@
 // bypass the wrapper, other databases, caches, files and calls to other services
 // are not rolled back. Mark a route only when its whole request path meets the
 // boundary documented by the provider.
-package testbench
+package sendproof
 
 import (
 	"net/http"
@@ -32,9 +32,9 @@ import (
 	"time"
 )
 
-// Bench is the Test Bench runtime for one application. It is safe for concurrent
+// Sendproof is the Sendproof runtime for one application. It is safe for concurrent
 // use. Create it with New.
-type Bench struct {
+type Sendproof struct {
 	cfg    config
 	traces *traceStore
 
@@ -42,20 +42,20 @@ type Bench struct {
 	ops []*Operation
 }
 
-// New creates a Bench from options. It returns the first invalid option's error.
-func New(options ...Option) (*Bench, error) {
+// New creates a Sendproof from options. It returns the first invalid option's error.
+func New(options ...Option) (*Sendproof, error) {
 	cfg := defaultConfig()
 	for _, option := range options {
 		if err := option(&cfg); err != nil {
 			return nil, err
 		}
 	}
-	return &Bench{cfg: cfg, traces: newTraceStore(cfg.traceTTL, cfg.clock)}, nil
+	return &Sendproof{cfg: cfg, traces: newTraceStore(cfg.traceTTL, cfg.clock)}, nil
 }
 
 // Enabled reports whether the workbench and Preview are available in the
 // configured environment.
-func (b *Bench) Enabled() bool {
+func (b *Sendproof) Enabled() bool {
 	return slices.ContainsFunc(b.cfg.environments, func(name string) bool {
 		return strings.EqualFold(name, b.cfg.environment)
 	})
@@ -63,21 +63,21 @@ func (b *Bench) Enabled() bool {
 
 // provider returns the only registered provider, or nil when there is none or the
 // choice is ambiguous.
-func (b *Bench) provider() Provider {
+func (b *Sendproof) provider() Provider {
 	if len(b.cfg.providers) != 1 {
 		return nil
 	}
 	return b.cfg.providers[0]
 }
 
-func (b *Bench) includeSQLValues() bool {
+func (b *Sendproof) includeSQLValues() bool {
 	if b.cfg.sqlValues != nil {
 		return *b.cfg.sqlValues
 	}
 	return strings.EqualFold(b.cfg.environment, "Development")
 }
 
-func (b *Bench) pathBase(r *http.Request) string {
+func (b *Sendproof) pathBase(r *http.Request) string {
 	if base := PathBase(r); base != "" {
 		return base
 	}
@@ -85,7 +85,7 @@ func (b *Bench) pathBase(r *http.Request) string {
 }
 
 // principal resolves the host's identity for a request.
-func (b *Bench) principal(r *http.Request) (Principal, bool) {
+func (b *Sendproof) principal(r *http.Request) (Principal, bool) {
 	if b.cfg.principal == nil {
 		return Principal{}, false
 	}
@@ -94,7 +94,7 @@ func (b *Bench) principal(r *http.Request) (Principal, bool) {
 
 // owner derives the trace owner from the request's principal. A principal without
 // a stable subject owns nothing.
-func (b *Bench) owner(r *http.Request) (traceOwner, bool) {
+func (b *Sendproof) owner(r *http.Request) (traceOwner, bool) {
 	principal, ok := b.principal(r)
 	base := b.pathBase(r)
 	if !ok || principal.Subject == "" || len(principal.Subject) > maxName || len(principal.Scheme) > maxName ||
@@ -106,7 +106,7 @@ func (b *Bench) owner(r *http.Request) (traceOwner, bool) {
 
 // authorize applies the workbench access policy. It returns the HTTP status to
 // answer with, or 0 when the request is allowed.
-func (b *Bench) authorize(r *http.Request) int {
+func (b *Sendproof) authorize(r *http.Request) int {
 	if b.cfg.access == nil || b.cfg.access(r) {
 		return 0
 	}
@@ -119,7 +119,7 @@ func (b *Bench) authorize(r *http.Request) int {
 // Operation marks one route as eligible for Preview and observed Send. Create it
 // once per route when the route is registered.
 type Operation struct {
-	bench    *Bench
+	bench    *Sendproof
 	method   string
 	path     string // OpenAPI path template
 	segments []string
@@ -131,7 +131,7 @@ type Operation struct {
 // OpenAPI template such as /items/{id}. A trailing wildcard is written {name...}.
 // Registered operations are advertised to the workbench only when a provider is
 // registered.
-func (b *Bench) Operation(method, path string) *Operation {
+func (b *Sendproof) Operation(method, path string) *Operation {
 	template, rest := normalizeTemplate(path)
 	op := &Operation{bench: b, method: strings.ToUpper(method), path: template, rest: rest}
 	op.segments = strings.Split(strings.Trim(template, "/"), "/")
@@ -149,10 +149,10 @@ type Router interface {
 // HandlePreview registers handler on the router under a "METHOD /path" pattern
 // and marks it for Preview. It is a shortcut for mux.Handle(pattern,
 // bench.Operation(method, path).Wrap(handler)) with http.ServeMux's pattern syntax.
-func (b *Bench) HandlePreview(router Router, pattern string, handler http.Handler) {
+func (b *Sendproof) HandlePreview(router Router, pattern string, handler http.Handler) {
 	method, path, found := strings.Cut(pattern, " ")
 	if !found || !strings.HasPrefix(strings.TrimSpace(path), "/") {
-		panic("testbench: HandlePreview needs a \"METHOD /path\" pattern, got " + pattern)
+		panic("sendproof: HandlePreview needs a \"METHOD /path\" pattern, got " + pattern)
 	}
 	router.Handle(pattern, b.Operation(method, strings.TrimSpace(path)).Wrap(handler))
 }
@@ -206,7 +206,7 @@ func (o *Operation) matches(method, escapedPath string) bool {
 }
 
 // previewOperations lists the advertised operations in a stable order.
-func (b *Bench) previewOperations() []map[string]string {
+func (b *Sendproof) previewOperations() []map[string]string {
 	if b.provider() == nil {
 		return []map[string]string{}
 	}
@@ -235,7 +235,7 @@ func (b *Bench) previewOperations() []map[string]string {
 }
 
 // hasOperation reports whether a request targets a registered operation.
-func (b *Bench) hasOperation(method, escapedPath string) bool {
+func (b *Sendproof) hasOperation(method, escapedPath string) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return slices.ContainsFunc(b.ops, func(op *Operation) bool { return op.matches(method, escapedPath) })
@@ -287,4 +287,4 @@ func (o *Operation) Complete(r *http.Request) {
 }
 
 // now returns the current time for traces.
-func (b *Bench) now() time.Time { return b.cfg.clock() }
+func (b *Sendproof) now() time.Time { return b.cfg.clock() }

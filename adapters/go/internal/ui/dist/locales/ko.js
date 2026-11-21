@@ -10,7 +10,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': '그다음',
     'unit.bytes': '{n} B',
 
@@ -53,7 +53,7 @@ export default {
     'side.noMatchModelsBody': '모델 이름과 설명을 검색합니다.',
     'side.try': '“{query}” 검색해 보기',
     'side.emptyTitle': '이 API에는 아직 작업이 없습니다',
-    'side.emptyBody': 'Test Bench는 {url}의 모든 경로를 나열합니다. 엔드포인트를 매핑한 다음 다시 불러오세요.',
+    'side.emptyBody': 'Sendproof는 {url}의 모든 경로를 나열합니다. 엔드포인트를 매핑한 다음 다시 불러오세요.',
     'side.reload': '스펙 다시 불러오기',
     'side.noModelsTitle': '이 스펙에는 모델이 없습니다',
     'side.noModelsBody': '모델은 {source}에서 가져옵니다. 인라인 스키마를 사용하는 요청 및 응답 본문은 각 작업의 문서에 계속 표시됩니다.',
@@ -83,7 +83,7 @@ export default {
     'display.digits': '숫자 표기',
     'display.latin': '라틴',
     'display.arabicIndic': '아랍-인도',
-    'display.digitsHelp': 'Test Bench 자체의 숫자와 날짜에만 적용됩니다. 캡처된 데이터는 저장된 그대로 표시됩니다.',
+    'display.digitsHelp': 'Sendproof 자체의 숫자와 날짜에만 적용됩니다. 캡처된 데이터는 저장된 그대로 표시됩니다.',
     'display.close': '닫기',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -274,7 +274,7 @@ export default {
     // Auth tab
     'auth.requirements': '보안 요구 사항', 'auth.scheme.cookie': '쿠키 로그인', 'auth.scheme.apiKey': 'API 키', 'auth.scheme.http': 'HTTP 인증',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': '로그인',
-    'auth.sessionBody': '이 API의 사용자로 로그인하세요. Test Bench가 세션을 대신 전송합니다.', 'auth.schemeBody': '{name}에 로그인하세요. Test Bench가 세션을 전송합니다.',
+    'auth.sessionBody': '이 API의 사용자로 로그인하세요. Sendproof가 세션을 대신 전송합니다.', 'auth.schemeBody': '{name}에 로그인하세요. Sendproof가 세션을 전송합니다.',
     'auth.signInNeeded': '로그인', 'auth.notSignedIn': '로그인하지 않음', 'auth.permission': '권한',
     'auth.permissionBody': '로그인 후 API에서 확인합니다. 권한이 없으면 호출이 403을 반환합니다.', 'auth.checkedOnSend': '전송할 때 확인됨',
     'auth.unknown': '로그인하기 전에는 알 수 없음', 'auth.seeded': '시드 계정 사용…', 'auth.publicBody': '이 작업은 로그인이 필요하지 않습니다.',
@@ -310,7 +310,7 @@ export default {
     'res.before.Headers.title': '응답 헤더가 여기에 표시됩니다',
     'res.before.headers.body': 'API가 반환하는 모든 헤더와, 변수를 적용한 후 전송된 그대로의 요청 헤더입니다.',
     'res.notCaptured.database': '전송은 데이터베이스 변경 사항을 캡처하지 않습니다',
-    'res.notCaptured.databaseBody': '전송은 실제로 커밋하며 Test Bench는 트랜잭션에 관여하지 않습니다. 미리보기로 먼저 행을 확인하거나, 추적 전송을 켜서 커밋되는 대로 기록하세요.',
+    'res.notCaptured.databaseBody': '전송은 실제로 커밋하며 Sendproof는 트랜잭션에 관여하지 않습니다. 미리보기로 먼저 행을 확인하거나, 추적 전송을 켜서 커밋되는 대로 기록하세요.',
     'res.notCaptured.databaseNoTrace': '전송은 실제로 커밋하며 이 API는 이를 추적하지 않습니다. 미리보기로 먼저 행을 확인하세요.',
     'res.notCaptured.effects': '전송은 부수 효과를 캡처하지 않습니다',
     'res.notCaptured.effectsBody': '부수 효과는 실제로 실행되었습니다. 미리보기는 전송 없이 이를 보여 주며, 추적 전송을 켜면 발생하는 대로 기록합니다.',
@@ -335,13 +335,13 @@ export default {
     'res.network.title': 'API에 연결할 수 없습니다',
     'res.network.body': '{origin}에서 응답이 없습니다. 요청이 서버에 도달하지 않았을 수 있으므로 저장된 것은 없습니다.',
     'res.network.why': 'API가 실행 중인가요? 다시 시작한 다음 다시 시도하세요. 요청은 그대로 유지됩니다.',
-    'res.error.title': '요청을 완료할 수 없습니다', 'res.error.why': 'Test Bench는 아무것도 변경하지 않았습니다. 요청과 API 콘솔을 확인하세요.',
+    'res.error.title': '요청을 완료할 수 없습니다', 'res.error.why': 'Sendproof는 아무것도 변경하지 않았습니다. 요청과 API 콘솔을 확인하세요.',
 
     // Boot
-    'boot.title': 'OpenAPI 문서를 불러올 수 없습니다', 'boot.capabilitiesStatus': 'Test Bench 검색이 {status}을(를) 반환했습니다.', 'boot.documentStatus': 'OpenAPI 문서가 {status}을(를) 반환했습니다.',
-    'boot.unsupported': '이 API의 Test Bench 버전은 이 워크벤치에서 지원되지 않습니다.',
-    'boot.body': '{request} 실패: {message} Test Bench는 모든 화면을 이 문서로 구성하므로 아직 표시할 내용이 없습니다.',
-    'boot.bodyStatus': '{request}이(가) {status}을(를) 반환했습니다. Test Bench는 모든 화면을 이 문서로 구성하므로 아직 표시할 내용이 없습니다.',
+    'boot.title': 'OpenAPI 문서를 불러올 수 없습니다', 'boot.capabilitiesStatus': 'Sendproof 검색이 {status}을(를) 반환했습니다.', 'boot.documentStatus': 'OpenAPI 문서가 {status}을(를) 반환했습니다.',
+    'boot.unsupported': '이 API의 Sendproof 버전은 이 워크벤치에서 지원되지 않습니다.',
+    'boot.body': '{request} 실패: {message} Sendproof는 모든 화면을 이 문서로 구성하므로 아직 표시할 내용이 없습니다.',
+    'boot.bodyStatus': '{request}이(가) {status}을(를) 반환했습니다. Sendproof는 모든 화면을 이 문서로 구성하므로 아직 표시할 내용이 없습니다.',
     'boot.why': '대개 API의 시작 오류이거나 AddOpenApi()가 누락된 경우입니다. 자세한 내용은 API 콘솔에서 확인하세요.',
     'boot.whyAuth': '문서를 보려면 로그인한 사용자가 필요합니다. 로그인한 다음 다시 시도하세요.',
     'boot.open': '{url} 열기', 'boot.copy': '오류 복사', 'boot.noOperations': '작업 없음', 'boot.noOperationsBody': '스펙을 불러오면 표시됩니다.',
@@ -372,7 +372,7 @@ export default {
 
     // Overview
     'overview.crumb': '개요', 'overview.operations': { other: '작업 {n}개' }, 'overview.models': { other: '모델 {n}개' },
-    'overview.how': 'Test Bench 작동 방식', 'overview.preview': '미리보기', 'overview.send': '전송', 'overview.autofill': '자동 채우기',
+    'overview.how': 'Sendproof 작동 방식', 'overview.preview': '미리보기', 'overview.send': '전송', 'overview.autofill': '자동 채우기',
     'overview.previewBody': '트랜잭션 안에서 요청을 실제로 실행하고, 그로 인해 생긴 모든 행, 이메일, 로그를 보여 준 다음 롤백합니다.',
     'overview.sendBody': '다른 클라이언트와 똑같이 실제로 실행하고 커밋합니다.',
     'overview.autofillBody': '스키마를 바탕으로 필드를 채우며, ID는 API의 목록 엔드포인트에서 가져온 실제 값을 사용합니다.',
@@ -506,7 +506,7 @@ export default {
     'match.schema': '스키마', 'match.checked': '확인 항목', 'match.checks': '유형, 형식, 패턴, 길이, 열거형, 필수 속성',
     'match.failTitle': { other: '이 본문이 일치하지 않는 부분 {n}곳' },
     'match.failBody': 'API가 {status}(으)로 응답했지만 본문이 문서화된 스키마인 {model}과(와) 일치하지 않습니다:',
-    'match.note': 'Test Bench는 이를 알려 주기만 합니다. 응답은 받은 그대로 표시됩니다.', 'match.showSchema': '스키마 보기에서 표시', 'match.copy': '문제 복사',
+    'match.note': 'Sendproof는 이를 알려 주기만 합니다. 응답은 받은 그대로 표시됩니다.', 'match.showSchema': '스키마 보기에서 표시', 'match.copy': '문제 복사',
     'match.more': { other: '{n}건 더' }, 'match.extra': '{model} 스키마에 없음', 'match.what': '스키마 문제',
     'match.missing': '필수이지만 본문에 없음',
 

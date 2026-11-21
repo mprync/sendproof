@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: 'दिन', month: 'माह', year: 'वर्ष' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'फिर',
     'unit.bytes': '{n} B',
 
@@ -54,7 +54,7 @@ export default {
     'side.noMatchModelsBody': 'खोज में मॉडल के नाम और उनके विवरण शामिल हैं।',
     'side.try': '“{query}” आज़माएँ',
     'side.emptyTitle': 'इस API में अभी कोई ऑपरेशन नहीं है',
-    'side.emptyBody': 'Test Bench {url} का हर पथ सूचीबद्ध करता है। कोई एंडपॉइंट जोड़ें और रीलोड करें।',
+    'side.emptyBody': 'Sendproof {url} का हर पथ सूचीबद्ध करता है। कोई एंडपॉइंट जोड़ें और रीलोड करें।',
     'side.reload': 'स्पेक रीलोड करें',
     'side.noModelsTitle': 'इस स्पेक में कोई मॉडल नहीं है',
     'side.noModelsBody': 'मॉडल {source} से आते हैं। इनलाइन स्कीमा वाले अनुरोध और प्रतिक्रिया बॉडी हर ऑपरेशन के दस्तावेज़ में फिर भी दिखती हैं।',
@@ -84,7 +84,7 @@ export default {
     'display.digits': 'अंक',
     'display.latin': 'लैटिन',
     'display.arabicIndic': 'अरबी-हिंदी',
-    'display.digitsHelp': 'केवल Test Bench की अपनी संख्याएँ और तारीख़ें। कैप्चर किया गया डेटा ठीक वैसा ही दिखता है जैसा संग्रहीत है।',
+    'display.digitsHelp': 'केवल Sendproof की अपनी संख्याएँ और तारीख़ें। कैप्चर किया गया डेटा ठीक वैसा ही दिखता है जैसा संग्रहीत है।',
     'display.close': 'बंद करें',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -275,7 +275,7 @@ export default {
     // Auth tab
     'auth.requirements': 'सुरक्षा आवश्यकताएँ', 'auth.scheme.cookie': 'कुकी साइन-इन', 'auth.scheme.apiKey': 'API कुंजी', 'auth.scheme.http': 'HTTP प्रमाणीकरण',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'साइन-इन',
-    'auth.sessionBody': 'इस API के उपयोगकर्ता के रूप में साइन इन करें। Test Bench आपके लिए सेशन भेजता है।', 'auth.schemeBody': '{name} में साइन इन करें; Test Bench सेशन भेजता है।',
+    'auth.sessionBody': 'इस API के उपयोगकर्ता के रूप में साइन इन करें। Sendproof आपके लिए सेशन भेजता है।', 'auth.schemeBody': '{name} में साइन इन करें; Sendproof सेशन भेजता है।',
     'auth.signInNeeded': 'साइन-इन', 'auth.notSignedIn': 'साइन इन नहीं है', 'auth.permission': 'अनुमति',
     'auth.permissionBody': 'साइन इन के बाद API इसकी जाँच करता है। इसके बिना कॉल 403 लौटाती है।', 'auth.checkedOnSend': 'भेजते समय जाँची जाती है',
     'auth.unknown': 'साइन इन करने तक अज्ञात', 'auth.seeded': 'सीड किया गया खाता उपयोग करें…', 'auth.publicBody': 'इस ऑपरेशन के लिए साइन इन ज़रूरी नहीं है।',
@@ -311,7 +311,7 @@ export default {
     'res.before.Headers.title': 'प्रतिक्रिया हेडर यहाँ दिखेंगे',
     'res.before.headers.body': 'API द्वारा लौटाया गया हर हेडर, साथ में अनुरोध हेडर ठीक वैसे जैसे भेजे गए, वेरिएबल हल होने के बाद।',
     'res.notCaptured.database': 'भेजें डेटाबेस बदलाव कैप्चर नहीं करता',
-    'res.notCaptured.databaseBody': 'भेजें वास्तव में कमिट करता है, और Test Bench ट्रांज़ैक्शन से बाहर रहता है। पहले पंक्तियाँ देखने के लिए पूर्वावलोकन का उपयोग करें, या ट्रेस्ड भेजें चालू करें ताकि कमिट होते समय वे रिकॉर्ड हों।',
+    'res.notCaptured.databaseBody': 'भेजें वास्तव में कमिट करता है, और Sendproof ट्रांज़ैक्शन से बाहर रहता है। पहले पंक्तियाँ देखने के लिए पूर्वावलोकन का उपयोग करें, या ट्रेस्ड भेजें चालू करें ताकि कमिट होते समय वे रिकॉर्ड हों।',
     'res.notCaptured.databaseNoTrace': 'भेजें वास्तव में कमिट करता है, और यह API उसे ट्रेस नहीं करता। पहले पंक्तियाँ देखने के लिए पूर्वावलोकन का उपयोग करें।',
     'res.notCaptured.effects': 'भेजें साइड इफ़ेक्ट कैप्चर नहीं करता',
     'res.notCaptured.effectsBody': 'वे वास्तव में चले। पूर्वावलोकन उन्हें भेजे बिना दिखाता है, या ट्रेस्ड भेजें चालू करें ताकि वे होते समय रिकॉर्ड हों।',
@@ -336,13 +336,13 @@ export default {
     'res.network.title': 'API तक नहीं पहुँच सके',
     'res.network.body': '{origin} से कुछ नहीं लौटा। हो सकता है अनुरोध सर्वर तक पहुँचा ही न हो, इसलिए कुछ सहेजा नहीं गया।',
     'res.network.why': 'क्या API चल रहा है? उसे फिर से शुरू करें, फिर दोबारा कोशिश करें। आपका अनुरोध जैसा था वैसा ही रखा गया है।',
-    'res.error.title': 'अनुरोध पूरा नहीं हो सका', 'res.error.why': 'Test Bench ने कुछ नहीं बदला। अनुरोध और API कंसोल जाँचें।',
+    'res.error.title': 'अनुरोध पूरा नहीं हो सका', 'res.error.why': 'Sendproof ने कुछ नहीं बदला। अनुरोध और API कंसोल जाँचें।',
 
     // Boot
-    'boot.title': 'OpenAPI दस्तावेज़ लोड नहीं हो सका', 'boot.capabilitiesStatus': 'Test Bench डिस्कवरी ने {status} लौटाया।', 'boot.documentStatus': 'OpenAPI दस्तावेज़ ने {status} लौटाया।',
-    'boot.unsupported': 'इस API का Test Bench संस्करण इस वर्कबेंच द्वारा समर्थित नहीं है।',
-    'boot.body': '{request} विफल रहा: {message} Test Bench हर स्क्रीन इसी से बनाता है, इसलिए अभी दिखाने के लिए कुछ नहीं है।',
-    'boot.bodyStatus': '{request} ने {status} लौटाया। Test Bench हर स्क्रीन इसी से बनाता है, इसलिए अभी दिखाने के लिए कुछ नहीं है।',
+    'boot.title': 'OpenAPI दस्तावेज़ लोड नहीं हो सका', 'boot.capabilitiesStatus': 'Sendproof डिस्कवरी ने {status} लौटाया।', 'boot.documentStatus': 'OpenAPI दस्तावेज़ ने {status} लौटाया।',
+    'boot.unsupported': 'इस API का Sendproof संस्करण इस वर्कबेंच द्वारा समर्थित नहीं है।',
+    'boot.body': '{request} विफल रहा: {message} Sendproof हर स्क्रीन इसी से बनाता है, इसलिए अभी दिखाने के लिए कुछ नहीं है।',
+    'boot.bodyStatus': '{request} ने {status} लौटाया। Sendproof हर स्क्रीन इसी से बनाता है, इसलिए अभी दिखाने के लिए कुछ नहीं है।',
     'boot.why': 'आमतौर पर यह API में स्टार्टअप त्रुटि होती है, या AddOpenApi() गायब होता है। विवरण API कंसोल में हैं।',
     'boot.whyAuth': 'दस्तावेज़ के लिए साइन-इन उपयोगकर्ता चाहिए। साइन इन करें, फिर दोबारा कोशिश करें।',
     'boot.open': '{url} खोलें', 'boot.copy': 'त्रुटि कॉपी करें', 'boot.noOperations': 'कोई ऑपरेशन नहीं', 'boot.noOperationsBody': 'स्पेक लोड होते ही वे दिखेंगे।',
@@ -373,7 +373,7 @@ export default {
 
     // Overview
     'overview.crumb': 'अवलोकन', 'overview.operations': { one: '{n} ऑपरेशन', other: '{n} ऑपरेशन' }, 'overview.models': { one: '{n} मॉडल', other: '{n} मॉडल' },
-    'overview.how': 'Test Bench कैसे काम करता है', 'overview.preview': 'पूर्वावलोकन', 'overview.send': 'भेजें', 'overview.autofill': 'ऑटोफ़िल',
+    'overview.how': 'Sendproof कैसे काम करता है', 'overview.preview': 'पूर्वावलोकन', 'overview.send': 'भेजें', 'overview.autofill': 'ऑटोफ़िल',
     'overview.previewBody': 'अनुरोध को ट्रांज़ैक्शन के भीतर वास्तव में चलाता है, उससे हुई हर पंक्ति, ईमेल और लॉग दिखाता है, फिर रोलबैक कर देता है।',
     'overview.sendBody': 'इसे वास्तव में चलाता है और कमिट करता है, ठीक किसी भी अन्य क्लाइंट की तरह।',
     'overview.autofillBody': 'स्कीमा से फ़ील्ड भरता है, API के अपने सूची एंडपॉइंट के वास्तविक ID के साथ।',
@@ -507,7 +507,7 @@ export default {
     'match.schema': 'स्कीमा', 'match.checked': 'जाँचा गया', 'match.checks': 'प्रकार, फ़ॉर्मैट, पैटर्न, लंबाई, enum और ज़रूरी प्रॉपर्टी',
     'match.failTitle': { one: 'यह बॉडी {n} तरह से मेल नहीं खाती', other: 'यह बॉडी {n} तरह से मेल नहीं खाती' },
     'match.failBody': 'API ने {status} दिया, लेकिन बॉडी दस्तावेज़ में दिए स्कीमा {model} से मेल नहीं खाती:',
-    'match.note': 'Test Bench केवल यह बताता है। प्रतिक्रिया ठीक वैसी ही दिखती है जैसी मिली।', 'match.showSchema': 'स्कीमा व्यू में दिखाएँ', 'match.copy': 'समस्याएँ कॉपी करें',
+    'match.note': 'Sendproof केवल यह बताता है। प्रतिक्रिया ठीक वैसी ही दिखती है जैसी मिली।', 'match.showSchema': 'स्कीमा व्यू में दिखाएँ', 'match.copy': 'समस्याएँ कॉपी करें',
     'match.more': { one: '{n} और', other: '{n} और' }, 'match.extra': '{model} स्कीमा में नहीं', 'match.what': 'स्कीमा समस्याएँ',
     'match.missing': 'आवश्यक, लेकिन बॉडी में नहीं है',
 

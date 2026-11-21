@@ -1,4 +1,4 @@
-package testbench_test
+package sendproof_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // fakeProvider records its lifecycle so tests can prove cleanup always happens.
@@ -23,7 +23,7 @@ type fakeProvider struct {
 	rolledBack   int
 	closed       int
 	rollbackErr  error
-	changes      []testbench.Change
+	changes      []sendproof.Change
 	observations int
 	label        string
 }
@@ -35,14 +35,14 @@ func (p *fakeProvider) Database() string {
 	return "fixture"
 }
 
-func (p *fakeProvider) Begin(context.Context) (testbench.Session, error) {
+func (p *fakeProvider) Begin(context.Context) (sendproof.Session, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.begun++
 	return &fakeSession{provider: p}, nil
 }
 
-func (p *fakeProvider) Observe(context.Context) (testbench.Observation, error) {
+func (p *fakeProvider) Observe(context.Context) (sendproof.Observation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.observations++
@@ -57,7 +57,7 @@ func (s *fakeSession) Rollback(context.Context) error {
 	s.provider.rolledBack++
 	return s.provider.rollbackErr
 }
-func (s *fakeSession) Changes() []testbench.Change { return s.provider.changes }
+func (s *fakeSession) Changes() []sendproof.Change { return s.provider.changes }
 func (s *fakeSession) ChangesTruncated() bool      { return false }
 func (s *fakeSession) Close() error {
 	s.provider.mu.Lock()
@@ -66,16 +66,16 @@ func (s *fakeSession) Close() error {
 	return nil
 }
 
-type fakeObservation struct{ changes []testbench.Change }
+type fakeObservation struct{ changes []sendproof.Change }
 
-func (o *fakeObservation) Finish(context.Context) ([]testbench.Change, bool, error) {
+func (o *fakeObservation) Finish(context.Context) ([]sendproof.Change, bool, error) {
 	return o.changes, false, nil
 }
 func (o *fakeObservation) Close() error { return nil }
 
 // harness is an application with one marked route and one unmarked route.
 type harness struct {
-	bench    *testbench.Bench
+	bench    *sendproof.Sendproof
 	provider *fakeProvider
 	handler  http.Handler
 	ran      map[string]int
@@ -88,45 +88,45 @@ func (h *harness) count(name string) int {
 	return h.ran[name]
 }
 
-func newHarness(t *testing.T, base string, options ...testbench.Option) *harness {
+func newHarness(t *testing.T, base string, options ...sendproof.Option) *harness {
 	t.Helper()
 	h := &harness{provider: &fakeProvider{}, ran: map[string]int{}}
-	h.provider.changes = []testbench.Change{{Operation: "insert", Table: "items", Key: map[string]any{"id": "a"}, After: map[string]any{"id": "a"}}}
-	principal := func(r *http.Request) (testbench.Principal, bool) {
+	h.provider.changes = []sendproof.Change{{Operation: "insert", Table: "items", Key: map[string]any{"id": "a"}, After: map[string]any{"id": "a"}}}
+	principal := func(r *http.Request) (sendproof.Principal, bool) {
 		if cookie, err := r.Cookie("who"); err == nil {
 			issuer := ""
 			if iss, err := r.Cookie("iss"); err == nil {
 				issuer = iss.Value
 			}
-			return testbench.Principal{Subject: cookie.Value, Name: strings.ToUpper(cookie.Value), Role: "admin", Scheme: "cookie", Issuer: issuer}, true
+			return sendproof.Principal{Subject: cookie.Value, Name: strings.ToUpper(cookie.Value), Role: "admin", Scheme: "cookie", Issuer: issuer}, true
 		}
-		return testbench.Principal{}, false
+		return sendproof.Principal{}, false
 	}
-	all := append([]testbench.Option{
-		testbench.WithEnvironment("Development"), testbench.WithAPIName("Fixture"), testbench.WithProvider(h.provider),
-		testbench.WithPrincipal(principal), testbench.WithOpenAPIURL("/openapi.json"),
-		testbench.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
+	all := append([]sendproof.Option{
+		sendproof.WithEnvironment("Development"), sendproof.WithAPIName("Fixture"), sendproof.WithProvider(h.provider),
+		sendproof.WithPrincipal(principal), sendproof.WithOpenAPIURL("/openapi.json"),
+		sendproof.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
 	}, options...)
-	bench, err := testbench.New(all...)
+	bench, err := sendproof.New(all...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.bench = bench
 
-	logger := slog.New(testbench.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
+	logger := slog.New(sendproof.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
 	mux := http.NewServeMux()
 	bench.HandlePreview(mux, "POST /items/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		h.ran["marked"]++
 		h.mu.Unlock()
 		logger.InfoContext(r.Context(), "created:"+r.PathValue("id"), "id", r.PathValue("id"))
-		suppressed := testbench.RecordEmail(r.Context(), "Created item", "a@example.test", []string{"b@example.test"}, "Hi", "Body")
+		suppressed := sendproof.RecordEmail(r.Context(), "Created item", "a@example.test", []string{"b@example.test"}, "Hi", "Body")
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Set-Cookie", "inner=1")
 		w.Header().Set("Location", "/elsewhere")
 		w.Header().Set("X-Suppressed", map[bool]string{true: "yes", false: "no"}[suppressed])
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":"` + r.PathValue("id") + `","base":"` + testbench.PathBase(r) + `"}`))
+		_, _ = w.Write([]byte(`{"id":"` + r.PathValue("id") + `","base":"` + sendproof.PathBase(r) + `"}`))
 	}))
 	bench.HandlePreview(mux, "POST /boom", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("handler exploded") }))
 	bench.HandlePreview(mux, "POST /large", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,10 +134,10 @@ func newHarness(t *testing.T, base string, options ...testbench.Option) *harness
 	}))
 	bench.HandlePreview(mux, "POST /flood", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for i := 0; i < 600; i++ {
-			testbench.Log(r.Context(), "Information", "line")
+			sendproof.Log(r.Context(), "Information", "line")
 		}
 		for i := 0; i < 150; i++ {
-			testbench.RecordEffect(r.Context(), "message", "queued", map[string]any{"n": i})
+			sendproof.RecordEffect(r.Context(), "message", "queued", map[string]any{"n": i})
 		}
 	}))
 	mux.HandleFunc("POST /ordinary/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +147,7 @@ func newHarness(t *testing.T, base string, options ...testbench.Option) *harness
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	h.handler = testbench.StripPathBase(base, bench.Middleware(mux))
+	h.handler = sendproof.StripPathBase(base, bench.Middleware(mux))
 	return h
 }
 
@@ -179,7 +179,7 @@ func decode(t *testing.T, response *httptest.ResponseRecorder) map[string]any {
 
 func TestPreviewConfirmsOnlyAfterRollback(t *testing.T) {
 	h := newHarness(t, "/tenant")
-	response := h.do("POST", "/tenant/bench/_preview/items/a", rollback)
+	response := h.do("POST", "/tenant/sendproof/_preview/items/a", rollback)
 	if response.Code != 200 {
 		t.Fatalf("status %d: %s", response.Code, response.Body)
 	}
@@ -229,17 +229,17 @@ func TestPreviewConfirmsOnlyAfterRollback(t *testing.T) {
 
 func TestPathBaseIsEnforced(t *testing.T) {
 	h := newHarness(t, "/tenant")
-	if code := h.do("GET", "/bench/_api/capabilities", nil).Code; code != 404 {
+	if code := h.do("GET", "/sendproof/_api/capabilities", nil).Code; code != 404 {
 		t.Errorf("outside the mount: %d", code)
 	}
 	if code := h.do("GET", "/tenantry/ready", nil).Code; code != 404 {
 		t.Errorf("sibling prefix: %d", code)
 	}
-	redirect := h.do("GET", "/tenant/bench?from=x", nil)
-	if redirect.Code != 302 || redirect.Header().Get("Location") != "/tenant/bench/?from=x" {
+	redirect := h.do("GET", "/tenant/sendproof?from=x", nil)
+	if redirect.Code != 302 || redirect.Header().Get("Location") != "/tenant/sendproof/?from=x" {
 		t.Errorf("redirect %d %q", redirect.Code, redirect.Header().Get("Location"))
 	}
-	capabilities := decode(t, h.do("GET", "/tenant/bench/_api/capabilities", nil))
+	capabilities := decode(t, h.do("GET", "/tenant/sendproof/_api/capabilities", nil))
 	if capabilities["openApiUrl"] != "/tenant/openapi.json" || capabilities["identity"] != nil {
 		t.Errorf("capabilities = %v", capabilities)
 	}
@@ -247,7 +247,7 @@ func TestPathBaseIsEnforced(t *testing.T) {
 	if provider["url"] != "/tenant/auth/sign-in" || provider["kind"] != "cookie" {
 		t.Errorf("provider = %v", provider)
 	}
-	signedIn := decode(t, h.do("GET", "/tenant/bench/_api/capabilities", map[string]string{"Cookie": "who=ada"}))
+	signedIn := decode(t, h.do("GET", "/tenant/sendproof/_api/capabilities", map[string]string{"Cookie": "who=ada"}))
 	if signedIn["identity"].(map[string]any)["name"] != "ADA" {
 		t.Errorf("identity = %v", signedIn["identity"])
 	}
@@ -255,7 +255,7 @@ func TestPathBaseIsEnforced(t *testing.T) {
 
 func TestCapabilitiesAdvertiseOnlyMarkedOperations(t *testing.T) {
 	h := newHarness(t, "")
-	capabilities := decode(t, h.do("GET", "/bench/_api/capabilities", nil))
+	capabilities := decode(t, h.do("GET", "/sendproof/_api/capabilities", nil))
 	if capabilities["observedSend"] != true || capabilities["database"] != "fixture" {
 		t.Fatalf("capabilities = %v", capabilities)
 	}
@@ -279,18 +279,18 @@ func TestPreviewRejectsInvalidTransport(t *testing.T) {
 		headers map[string]string
 		want    int
 	}{
-		{"no preference", "POST", "/bench/_preview/items/a", map[string]string{"Cookie": "who=ada"}, 400},
-		{"quoted preference", "POST", "/bench/_preview/items/a", map[string]string{"Prefer": `tx="rollback"`}, 400},
-		{"combined preference", "POST", "/bench/_preview/items/a", map[string]string{"Prefer": "trace, tx=rollback"}, 400},
+		{"no preference", "POST", "/sendproof/_preview/items/a", map[string]string{"Cookie": "who=ada"}, 400},
+		{"quoted preference", "POST", "/sendproof/_preview/items/a", map[string]string{"Prefer": `tx="rollback"`}, 400},
+		{"combined preference", "POST", "/sendproof/_preview/items/a", map[string]string{"Prefer": "trace, tx=rollback"}, 400},
 		{"rollback on a real URL", "POST", "/items/a", rollback, 400},
-		{"head", "HEAD", "/bench/_preview/items/a", rollback, 405},
-		{"double slash", "POST", "/bench/_preview//items/a", rollback, 400},
-		{"workbench target", "POST", "/bench/_preview/bench/_api/capabilities", rollback, 400},
-		{"dot segment", "POST", "/bench/_preview/items/../ordinary/a", rollback, 400},
-		{"cross origin", "POST", "/bench/_preview/items/a", merge(rollback, "Origin", "https://elsewhere.example.test"), 403},
-		{"cross site", "POST", "/bench/_preview/items/a", merge(rollback, "Sec-Fetch-Site", "cross-site"), 403},
-		{"unmarked route", "POST", "/bench/_preview/ordinary/a", rollback, 409},
-		{"unknown route", "POST", "/bench/_preview/missing", rollback, 409},
+		{"head", "HEAD", "/sendproof/_preview/items/a", rollback, 405},
+		{"double slash", "POST", "/sendproof/_preview//items/a", rollback, 400},
+		{"workbench target", "POST", "/sendproof/_preview/sendproof/_api/capabilities", rollback, 400},
+		{"dot segment", "POST", "/sendproof/_preview/items/../ordinary/a", rollback, 400},
+		{"cross origin", "POST", "/sendproof/_preview/items/a", merge(rollback, "Origin", "https://elsewhere.example.test"), 403},
+		{"cross site", "POST", "/sendproof/_preview/items/a", merge(rollback, "Sec-Fetch-Site", "cross-site"), 403},
+		{"unmarked route", "POST", "/sendproof/_preview/ordinary/a", rollback, 409},
+		{"unknown route", "POST", "/sendproof/_preview/missing", rollback, 409},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -319,7 +319,7 @@ func merge(headers map[string]string, name, value string) map[string]string {
 func TestFailuresWithholdConfirmationButStillRollBack(t *testing.T) {
 	t.Run("panic", func(t *testing.T) {
 		h := newHarness(t, "")
-		response := h.do("POST", "/bench/_preview/boom", rollback)
+		response := h.do("POST", "/sendproof/_preview/boom", rollback)
 		if response.Code != 500 || strings.Contains(response.Body.String(), "rolledBack") {
 			t.Fatalf("status %d: %s", response.Code, response.Body)
 		}
@@ -330,7 +330,7 @@ func TestFailuresWithholdConfirmationButStillRollBack(t *testing.T) {
 	t.Run("rollback failure", func(t *testing.T) {
 		h := newHarness(t, "")
 		h.provider.rollbackErr = errors.New("injected")
-		response := h.do("POST", "/bench/_preview/items/a", rollback)
+		response := h.do("POST", "/sendproof/_preview/items/a", rollback)
 		if response.Code != 500 || strings.Contains(response.Body.String(), "rolledBack") {
 			t.Fatalf("status %d: %s", response.Code, response.Body)
 		}
@@ -340,7 +340,7 @@ func TestFailuresWithholdConfirmationButStillRollBack(t *testing.T) {
 	})
 	t.Run("oversized response", func(t *testing.T) {
 		h := newHarness(t, "")
-		response := h.do("POST", "/bench/_preview/large", rollback)
+		response := h.do("POST", "/sendproof/_preview/large", rollback)
 		if response.Code != 413 || h.provider.rolledBack != 1 {
 			t.Fatalf("status %d rolledBack=%d", response.Code, h.provider.rolledBack)
 		}
@@ -349,8 +349,8 @@ func TestFailuresWithholdConfirmationButStillRollBack(t *testing.T) {
 
 func TestCaptureLimitsAreReported(t *testing.T) {
 	h := newHarness(t, "")
-	body := decode(t, h.do("POST", "/bench/_preview/flood", rollback))
-	for name, limit := range map[string]int{"logs": testbench.MaxLogs, "effects": testbench.MaxEffects} {
+	body := decode(t, h.do("POST", "/sendproof/_preview/flood", rollback))
+	for name, limit := range map[string]int{"logs": sendproof.MaxLogs, "effects": sendproof.MaxEffects} {
 		if got := len(body[name].([]any)); got != limit {
 			t.Errorf("%s retained %d, want %d", name, got, limit)
 		}
@@ -361,14 +361,14 @@ func TestCaptureLimitsAreReported(t *testing.T) {
 }
 
 func TestDisabledEnvironmentExposesNothing(t *testing.T) {
-	h := newHarness(t, "", testbench.WithEnvironment("Production"))
-	if code := h.do("GET", "/bench/_api/capabilities", nil).Code; code != 404 {
+	h := newHarness(t, "", sendproof.WithEnvironment("Production"))
+	if code := h.do("GET", "/sendproof/_api/capabilities", nil).Code; code != 404 {
 		t.Errorf("capabilities: %d", code)
 	}
-	if code := h.do("GET", "/bench/", nil).Code; code != 404 {
+	if code := h.do("GET", "/sendproof/", nil).Code; code != 404 {
 		t.Errorf("index: %d", code)
 	}
-	if code := h.do("POST", "/bench/_preview/items/a", rollback).Code; code != 404 {
+	if code := h.do("POST", "/sendproof/_preview/items/a", rollback).Code; code != 404 {
 		t.Errorf("preview: %d", code)
 	}
 	if code := h.do("GET", "/ready", nil).Code; code != 200 {
@@ -377,18 +377,18 @@ func TestDisabledEnvironmentExposesNothing(t *testing.T) {
 }
 
 func TestNoProviderOffersNoPreview(t *testing.T) {
-	bench, _ := testbench.New(testbench.WithEnvironment("Development"))
+	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"))
 	mux := http.NewServeMux()
 	bench.HandlePreview(mux, "POST /items", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	handler := bench.Middleware(mux)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest("GET", "/bench/_api/capabilities", nil))
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "/sendproof/_api/capabilities", nil))
 	var capabilities map[string]any
 	_ = json.Unmarshal(response.Body.Bytes(), &capabilities)
 	if operations := capabilities["previewOperations"].([]any); len(operations) != 0 || capabilities["observedSend"] != false {
 		t.Errorf("capabilities = %v", capabilities)
 	}
-	request := httptest.NewRequest("POST", "/bench/_preview/items", nil)
+	request := httptest.NewRequest("POST", "/sendproof/_preview/items", nil)
 	request.Header.Set("Prefer", "tx=rollback")
 	preview := httptest.NewRecorder()
 	handler.ServeHTTP(preview, request)
@@ -398,37 +398,37 @@ func TestNoProviderOffersNoPreview(t *testing.T) {
 }
 
 func TestAccessPolicyGuardsTheWorkbench(t *testing.T) {
-	h := newHarness(t, "", testbench.WithAccessPolicy(func(r *http.Request) bool {
+	h := newHarness(t, "", sendproof.WithAccessPolicy(func(r *http.Request) bool {
 		cookie, err := r.Cookie("who")
 		return err == nil && cookie.Value == "ada"
 	}))
-	if code := h.do("GET", "/bench/_api/capabilities", nil).Code; code != 401 {
+	if code := h.do("GET", "/sendproof/_api/capabilities", nil).Code; code != 401 {
 		t.Errorf("anonymous: %d", code)
 	}
-	if code := h.do("GET", "/bench/_api/capabilities", map[string]string{"Cookie": "who=bob"}).Code; code != 403 {
+	if code := h.do("GET", "/sendproof/_api/capabilities", map[string]string{"Cookie": "who=bob"}).Code; code != 403 {
 		t.Errorf("forbidden: %d", code)
 	}
-	if code := h.do("POST", "/bench/_preview/items/a", map[string]string{"Prefer": "tx=rollback", "Cookie": "who=bob"}).Code; code != 403 {
+	if code := h.do("POST", "/sendproof/_preview/items/a", map[string]string{"Prefer": "tx=rollback", "Cookie": "who=bob"}).Code; code != 403 {
 		t.Errorf("preview: %d", code)
 	}
-	if code := h.do("GET", "/bench/_api/capabilities", map[string]string{"Cookie": "who=ada"}).Code; code != 200 {
+	if code := h.do("GET", "/sendproof/_api/capabilities", map[string]string{"Cookie": "who=ada"}).Code; code != 200 {
 		t.Errorf("allowed: %d", code)
 	}
 }
 
 func TestEmbeddedUIIsServed(t *testing.T) {
 	h := newHarness(t, "/tenant")
-	index := h.do("GET", "/tenant/bench/", nil)
-	if index.Code != 200 || !strings.Contains(index.Body.String(), "Test Bench") || index.Header().Get("X-Content-Type-Options") != "nosniff" {
+	index := h.do("GET", "/tenant/sendproof/", nil)
+	if index.Code != 200 || !strings.Contains(index.Body.String(), "Sendproof") || index.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("index: %d %v", index.Code, index.Header())
 	}
 	if !strings.Contains(index.Header().Get("Cache-Control"), "no-cache") {
 		t.Errorf("cache-control = %q", index.Header().Get("Cache-Control"))
 	}
-	if code := h.do("GET", "/tenant/bench/missing.js", nil).Code; code != 404 {
+	if code := h.do("GET", "/tenant/sendproof/missing.js", nil).Code; code != 404 {
 		t.Errorf("missing asset: %d", code)
 	}
-	if version, hash := testbench.UIVersion(); version == "" || len(hash) != 64 {
+	if version, hash := sendproof.UIVersion(); version == "" || len(hash) != 64 {
 		t.Errorf("UI manifest = %q %q", version, hash)
 	}
 }
@@ -437,30 +437,30 @@ func TestObservedSendTraceBelongsToItsOwner(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	var mu sync.Mutex
 	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
-	h := newHarness(t, "/tenant", testbench.WithTraceTTL(5*time.Second), testbench.WithClock(clock))
+	h := newHarness(t, "/tenant", sendproof.WithTraceTTL(5*time.Second), sendproof.WithClock(clock))
 	send := map[string]string{"Prefer": "trace", "Cookie": "who=ada"}
 
 	anonymous := h.do("POST", "/tenant/items/x", map[string]string{"Prefer": "trace"})
-	if anonymous.Header().Get("X-TestBench-Trace") != "" {
+	if anonymous.Header().Get("X-Sendproof-Trace") != "" {
 		t.Error("an anonymous send must not be traced")
 	}
 	foreign := h.do("POST", "/tenant/items/x", merge(send, "Origin", "https://elsewhere.example.test"))
-	if foreign.Code != 201 || foreign.Header().Get("X-TestBench-Trace") != "" {
+	if foreign.Code != 201 || foreign.Header().Get("X-Sendproof-Trace") != "" {
 		t.Error("a cross-origin send must run untraced")
 	}
-	if code := h.do("POST", "/tenant/ordinary/x", send).Header().Get("X-TestBench-Trace"); code != "" {
+	if code := h.do("POST", "/tenant/ordinary/x", send).Header().Get("X-Sendproof-Trace"); code != "" {
 		t.Error("an unmarked route must not be traced")
 	}
 
 	sent := h.do("POST", "/tenant/items/traced", send)
-	id := sent.Header().Get("X-TestBench-Trace")
+	id := sent.Header().Get("X-Sendproof-Trace")
 	if sent.Code != 201 || len(id) != 32 || !strings.Contains(sent.Header().Get("Server-Timing"), "db;dur=") {
 		t.Fatalf("sent %d trace=%q headers=%v", sent.Code, id, sent.Header())
 	}
 	if h.provider.begun != 0 || h.provider.rolledBack != 0 {
 		t.Error("an observed send must not open a rollback session")
 	}
-	path := "/tenant/bench/_api/traces/" + id
+	path := "/tenant/sendproof/_api/traces/" + id
 	owned := h.do("GET", path, map[string]string{"Cookie": "who=ada"})
 	if owned.Code != 200 || owned.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("owner read: %d %v", owned.Code, owned.Header())
@@ -497,12 +497,12 @@ func TestIsSecretName(t *testing.T) {
 	secret := []string{"fixture_secret", "PasswordHash", "api_key", "RefreshToken", "client key", "@auth_token", "salt", "session_id", "DELETE FROM sessions WHERE id = ?"}
 	plain := []string{"IdempotencyKey", "Monkey", "id", "name", "primary_key", "tokens_issued_at_" + "x" + "yz"}
 	for _, name := range secret {
-		if !testbench.IsSecretName(name) {
+		if !sendproof.IsSecretName(name) {
 			t.Errorf("%q should be secret", name)
 		}
 	}
 	for _, name := range plain[:5] {
-		if testbench.IsSecretName(name) {
+		if sendproof.IsSecretName(name) {
 			t.Errorf("%q should be visible", name)
 		}
 	}
@@ -510,7 +510,7 @@ func TestIsSecretName(t *testing.T) {
 
 // previewRequest sends a same-origin preview of method and target to handler.
 func previewRequest(handler http.Handler, method, target string, headers map[string]string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, "/bench/_preview"+target, strings.NewReader(`{}`))
+	request := httptest.NewRequest(method, "/sendproof/_preview"+target, strings.NewReader(`{}`))
 	request.Header.Set("Prefer", "tx=rollback")
 	for name, value := range headers {
 		request.Header.Set(name, value)
@@ -522,7 +522,7 @@ func previewRequest(handler http.Handler, method, target string, headers map[str
 
 func TestPreviewRunsOnlyTheCheckedOperation(t *testing.T) {
 	provider := &fakeProvider{}
-	bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(provider))
+	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithProvider(provider))
 	var mu sync.Mutex
 	ran := map[string]int{}
 	mark := func(name string) http.Handler {
@@ -564,14 +564,14 @@ func TestPreviewRunsOnlyTheCheckedOperation(t *testing.T) {
 }
 
 func TestPreviewSuppressesEffectsOutsideTheMarkedHandler(t *testing.T) {
-	bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(&fakeProvider{}))
+	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithProvider(&fakeProvider{}))
 	// The template is marked, but the router sends this path to an unmarked handler.
 	_ = bench.Operation("POST", "/shadow/{id}")
 	var suppressed, preview bool
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /shadow/x", func(w http.ResponseWriter, r *http.Request) {
-		suppressed = testbench.RecordEmail(r.Context(), "Reset", "a@example.test", []string{"b@example.test"}, "Hi", "Body")
-		preview = testbench.IsPreview(r.Context())
+		suppressed = sendproof.RecordEmail(r.Context(), "Reset", "a@example.test", []string{"b@example.test"}, "Hi", "Body")
+		preview = sendproof.IsPreview(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
 	response := previewRequest(bench.Middleware(mux), "POST", "/shadow/x", nil)
@@ -585,13 +585,13 @@ func TestPreviewSuppressesEffectsOutsideTheMarkedHandler(t *testing.T) {
 
 func TestSecretColumnsAndLogAttributesAreRedacted(t *testing.T) {
 	h := newHarness(t, "")
-	h.provider.changes = []testbench.Change{{
+	h.provider.changes = []sendproof.Change{{
 		Operation: "update", Table: "users", Key: map[string]any{"id": 7, "reset_token": "key-token-value"},
 		Before: map[string]any{"id": 7, "name": "Ada", "password_hash": "old-hash-value"},
 		After:  map[string]any{"id": 7, "name": "Ada", "password_hash": "new-hash-value", "apiKey": "key-value"},
 	}}
 	mux := http.NewServeMux()
-	logger := slog.New(testbench.SlogHandler(nil))
+	logger := slog.New(sendproof.SlogHandler(nil))
 	h.bench.HandlePreview(mux, "POST /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger.InfoContext(r.Context(), "signed in", "user", "ada", "password", "hunter2-value", slog.Group("auth", "access_token", "token-value"))
 		w.WriteHeader(http.StatusNoContent)
@@ -614,16 +614,16 @@ func TestSecretColumnsAndLogAttributesAreRedacted(t *testing.T) {
 func TestDiscoveryWithholdsConnectionDetails(t *testing.T) {
 	for _, label := range []string{"postgres://app:pw@db.internal/app", "Server=db;Password=pw", "/var/lib/app.db", `C:\data\app.db`, "app@db.internal"} {
 		provider := &fakeProvider{label: label}
-		bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(provider))
+		bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithProvider(provider))
 		response := httptest.NewRecorder()
-		bench.Middleware(http.NotFoundHandler()).ServeHTTP(response, httptest.NewRequest("GET", "/bench/_api/capabilities", nil))
+		bench.Middleware(http.NotFoundHandler()).ServeHTTP(response, httptest.NewRequest("GET", "/sendproof/_api/capabilities", nil))
 		var capabilities map[string]any
 		_ = json.Unmarshal(response.Body.Bytes(), &capabilities)
 		if capabilities["database"] != nil {
 			t.Errorf("discovery published %q", capabilities["database"])
 		}
 	}
-	if !testbench.IsDisplayLabel("Inventory (SQLite)") {
+	if !sendproof.IsDisplayLabel("Inventory (SQLite)") {
 		t.Error("a plain label must be accepted")
 	}
 }

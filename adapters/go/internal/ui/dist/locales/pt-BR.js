@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'aaaa' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'depois',
     'unit.bytes': '{n} B',
 
@@ -54,7 +54,7 @@ export default {
     'side.noMatchModelsBody': 'A pesquisa abrange nomes de modelos e suas descrições.',
     'side.try': 'Tente “{query}”',
     'side.emptyTitle': 'Esta API ainda não tem operações',
-    'side.emptyBody': 'O Test Bench lista todos os caminhos em {url}. Mapeie um endpoint e recarregue.',
+    'side.emptyBody': 'O Sendproof lista todos os caminhos em {url}. Mapeie um endpoint e recarregue.',
     'side.reload': 'Recarregar especificação',
     'side.noModelsTitle': 'Nenhum modelo nesta especificação',
     'side.noModelsBody': 'Os modelos vêm de {source}. Corpos de requisição e resposta que usam esquemas inline continuam aparecendo em Docs, em cada operação.',
@@ -84,7 +84,7 @@ export default {
     'display.digits': 'Dígitos',
     'display.latin': 'Latinos',
     'display.arabicIndic': 'Indo-arábicos',
-    'display.digitsHelp': 'Apenas os números e as datas do próprio Test Bench. Os dados capturados são mostrados exatamente como foram armazenados.',
+    'display.digitsHelp': 'Apenas os números e as datas do próprio Sendproof. Os dados capturados são mostrados exatamente como foram armazenados.',
     'display.close': 'Fechar',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -275,7 +275,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Requisitos de segurança', 'auth.scheme.cookie': 'Login por cookie', 'auth.scheme.apiKey': 'Chave de API', 'auth.scheme.http': 'Autenticação HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Login',
-    'auth.sessionBody': 'Entre como um usuário desta API. O Test Bench envia a sessão por você.', 'auth.schemeBody': 'Entre em {name}; o Test Bench envia a sessão.',
+    'auth.sessionBody': 'Entre como um usuário desta API. O Sendproof envia a sessão por você.', 'auth.schemeBody': 'Entre em {name}; o Sendproof envia a sessão.',
     'auth.signInNeeded': 'Login', 'auth.notSignedIn': 'Não conectado', 'auth.permission': 'Permissão',
     'auth.permissionBody': 'Verificada pela API após o login. Sem ela, a chamada retorna 403.', 'auth.checkedOnSend': 'Verificada no envio',
     'auth.unknown': 'Desconhecida até o login', 'auth.seeded': 'Usar uma conta de exemplo…', 'auth.publicBody': 'Esta operação não exige login.',
@@ -311,7 +311,7 @@ export default {
     'res.before.Headers.title': 'Os cabeçalhos da resposta aparecerão aqui',
     'res.before.headers.body': 'Todos os cabeçalhos que a API retorna, mais os cabeçalhos da requisição exatamente como foram enviados, após a resolução das variáveis.',
     'res.notCaptured.database': 'Enviar não captura as alterações no banco de dados',
-    'res.notCaptured.databaseBody': 'Enviar confirma de verdade, e o Test Bench fica fora da transação. Use a prévia para ver as linhas antes, ou ative o envio rastreado para registrá-las à medida que são confirmadas.',
+    'res.notCaptured.databaseBody': 'Enviar confirma de verdade, e o Sendproof fica fora da transação. Use a prévia para ver as linhas antes, ou ative o envio rastreado para registrá-las à medida que são confirmadas.',
     'res.notCaptured.databaseNoTrace': 'Enviar confirma de verdade, e esta API não o rastreia. Use a prévia para ver as linhas antes.',
     'res.notCaptured.effects': 'Enviar não captura os efeitos colaterais',
     'res.notCaptured.effectsBody': 'Eles foram executados de verdade. A prévia os mostra sem enviar, ou ative o envio rastreado para registrá-los à medida que acontecem.',
@@ -336,13 +336,13 @@ export default {
     'res.network.title': 'Não foi possível acessar a API',
     'res.network.body': 'Nada voltou de {origin}. A requisição pode não ter chegado ao servidor, então nada foi salvo.',
     'res.network.why': 'A API está em execução? Inicie-a novamente e tente de novo. Sua requisição foi mantida como estava.',
-    'res.error.title': 'Não foi possível concluir a requisição', 'res.error.why': 'O Test Bench não alterou nada. Verifique a requisição e o console da API.',
+    'res.error.title': 'Não foi possível concluir a requisição', 'res.error.why': 'O Sendproof não alterou nada. Verifique a requisição e o console da API.',
 
     // Boot
-    'boot.title': 'Não foi possível carregar o documento OpenAPI', 'boot.capabilitiesStatus': 'A descoberta do Test Bench retornou {status}.', 'boot.documentStatus': 'O documento OpenAPI retornou {status}.',
-    'boot.unsupported': 'A versão do Test Bench desta API não é compatível com este workbench.',
-    'boot.body': '{request} falhou: {message} O Test Bench monta todas as telas a partir dele, então ainda não há nada para mostrar.',
-    'boot.bodyStatus': '{request} retornou {status}. O Test Bench monta todas as telas a partir dele, então ainda não há nada para mostrar.',
+    'boot.title': 'Não foi possível carregar o documento OpenAPI', 'boot.capabilitiesStatus': 'A descoberta do Sendproof retornou {status}.', 'boot.documentStatus': 'O documento OpenAPI retornou {status}.',
+    'boot.unsupported': 'A versão do Sendproof desta API não é compatível com este workbench.',
+    'boot.body': '{request} falhou: {message} O Sendproof monta todas as telas a partir dele, então ainda não há nada para mostrar.',
+    'boot.bodyStatus': '{request} retornou {status}. O Sendproof monta todas as telas a partir dele, então ainda não há nada para mostrar.',
     'boot.why': 'Geralmente é um erro de inicialização da API, ou falta AddOpenApi(). O console da API tem os detalhes.',
     'boot.whyAuth': 'O documento exige um usuário conectado. Entre e tente novamente.',
     'boot.open': 'Abrir {url}', 'boot.copy': 'Copiar erro', 'boot.noOperations': 'Nenhuma operação', 'boot.noOperationsBody': 'Elas aparecem assim que a especificação for carregada.',
@@ -373,7 +373,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Visão geral', 'overview.operations': p('{n} operação', '{n} operações'), 'overview.models': p('{n} modelo', '{n} modelos'),
-    'overview.how': 'Como o Test Bench funciona', 'overview.preview': 'Prévia', 'overview.send': 'Enviar', 'overview.autofill': 'Autopreencher',
+    'overview.how': 'Como o Sendproof funciona', 'overview.preview': 'Prévia', 'overview.send': 'Enviar', 'overview.autofill': 'Autopreencher',
     'overview.previewBody': 'Executa a requisição de verdade dentro de uma transação, mostra cada linha, e-mail e log que ela causou e depois reverte.',
     'overview.sendBody': 'Executa de verdade e confirma, exatamente como qualquer outro cliente.',
     'overview.autofillBody': 'Preenche os campos a partir do esquema, com IDs reais vindos dos próprios endpoints de listagem da API.',
@@ -507,7 +507,7 @@ export default {
     'match.schema': 'Esquema', 'match.checked': 'Verificado', 'match.checks': 'Tipos, formatos, padrões, tamanhos, enums e propriedades obrigatórias',
     'match.failTitle': p('{n} motivo pelo qual este corpo não corresponde', '{n} motivos pelos quais este corpo não corresponde'),
     'match.failBody': 'A API respondeu {status}, mas o corpo não corresponde a {model}, o esquema documentado:',
-    'match.note': 'O Test Bench apenas informa isso. A resposta é mostrada exatamente como foi recebida.', 'match.showSchema': 'Mostrar na visualização Esquema', 'match.copy': 'Copiar problemas',
+    'match.note': 'O Sendproof apenas informa isso. A resposta é mostrada exatamente como foi recebida.', 'match.showSchema': 'Mostrar na visualização Esquema', 'match.copy': 'Copiar problemas',
     'match.more': p('mais {n}', 'mais {n}'), 'match.extra': 'Não está no esquema {model}', 'match.what': 'problemas de esquema',
     'match.missing': 'Obrigatório, mas ausente do corpo',
 

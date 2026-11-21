@@ -1,4 +1,4 @@
-package chibench
+package chisendproof
 
 import "testing"
 

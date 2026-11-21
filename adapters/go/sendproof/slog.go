@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -16,7 +16,7 @@ type slogHandler struct {
 
 // SlogHandler wraps next so that records logged with a request context, such as
 // logger.InfoContext(ctx, ...), also appear in the preview or observed trace.
-// Records logged without the request context, or outside Test Bench, only reach
+// Records logged without the request context, or outside Sendproof, only reach
 // next. A nil next records without forwarding.
 func SlogHandler(next slog.Handler) slog.Handler {
 	return &slogHandler{next: next}

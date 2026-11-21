@@ -1,12 +1,12 @@
-// Package echobench marks Echo routes for Test Bench Preview.
+// Package echosendproof marks Echo routes for Sendproof Preview.
 //
-// Wrap the Echo instance with testbench.Bench.Middleware, so a preview is routed
+// Wrap the Echo instance with sendproof.Sendproof.Middleware, so a preview is routed
 // and authenticated by Echo like the real request:
 //
 //	e := echo.New()
-//	e.POST("/items/:id", createItem, echobench.Preview(bench, http.MethodPost, "/items/:id"))
+//	e.POST("/items/:id", createItem, echosendproof.Preview(bench, http.MethodPost, "/items/:id"))
 //	http.ListenAndServe(addr, bench.Middleware(e))
-package echobench
+package echosendproof
 
 import (
 	"regexp"
@@ -14,13 +14,13 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 var param = regexp.MustCompile(`:([A-Za-z0-9_]+)`)
 
 // Template converts an Echo route path into the OpenAPI path template that Test
-// Bench advertises.
+// Sendproof advertises.
 func Template(path string) string {
 	template := param.ReplaceAllString(path, "{$1}")
 	if strings.HasSuffix(template, "/*") {
@@ -31,7 +31,7 @@ func Template(path string) string {
 
 // Preview returns the route marker for use as route middleware. Pass the full
 // route path, including the prefix of any enclosing group.
-func Preview(bench *testbench.Bench, method, path string) echo.MiddlewareFunc {
+func Preview(bench *sendproof.Sendproof, method, path string) echo.MiddlewareFunc {
 	operation := bench.Operation(method, Template(path))
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

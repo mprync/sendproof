@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 )
 
 // errPreviewTooLarge is returned to a handler whose preview response exceeds the cap.
-var errPreviewTooLarge = errors.New("testbench: the preview response exceeds the 1 MiB limit")
+var errPreviewTooLarge = errors.New("sendproof: the preview response exceeds the 1 MiB limit")
 
 // captureWriter buffers the response of a previewed handler. Nothing reaches the
 // client, so the real response can describe the preview itself.

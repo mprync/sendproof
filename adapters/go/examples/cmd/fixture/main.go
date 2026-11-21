@@ -1,4 +1,4 @@
-// Command fixture runs the Test Bench conformance fixture for one framework.
+// Command fixture runs the Sendproof conformance fixture for one framework.
 //
 //	fixture [nethttp|chi|gin|echo] [sql|gorm]
 //
@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/examples/fixture"
+	"github.com/mprync/sendproof/adapters/go/examples/fixture"
 )
 
 func main() {

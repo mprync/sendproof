@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"context"
@@ -72,7 +72,7 @@ func (s *requestState) enterObserved(r *http.Request, op *Operation) {
 	if observing, ok := provider.(ObservingProvider); ok {
 		var err error
 		if observation, err = observing.Observe(context.WithoutCancel(r.Context())); err != nil {
-			bench.cfg.logger.Warn("Test Bench could not start observing the send", "error", err)
+			bench.cfg.logger.Warn("Sendproof could not start observing the send", "error", err)
 			return
 		}
 	}
@@ -85,7 +85,7 @@ func (s *requestState) enterObserved(r *http.Request, op *Operation) {
 
 // finishObserved stores the trace of an observed send, or discards its slot when
 // the send did not complete. It runs after the handler returns or panics.
-func (b *Bench) finishObserved(r *http.Request, state *requestState) {
+func (b *Sendproof) finishObserved(r *http.Request, state *requestState) {
 	state.mu.Lock()
 	invoked, reservation, observation, completed := state.invoked, state.reservation, state.observation, state.completed
 	state.mu.Unlock()
@@ -104,7 +104,7 @@ func (b *Bench) finishObserved(r *http.Request, state *requestState) {
 		}
 		if observation != nil {
 			if err := observation.Close(); err != nil {
-				b.cfg.logger.Warn("Test Bench could not release the send observation", "error", err)
+				b.cfg.logger.Warn("Sendproof could not release the send observation", "error", err)
 			}
 		}
 	}()
@@ -117,7 +117,7 @@ func (b *Bench) finishObserved(r *http.Request, state *requestState) {
 	if observation != nil {
 		var err error
 		if changes, truncated, err = observation.Finish(context.WithoutCancel(r.Context())); err != nil {
-			b.cfg.logger.Warn("Test Bench could not collect the observed send", "error", err)
+			b.cfg.logger.Warn("Sendproof could not collect the observed send", "error", err)
 			return
 		}
 	}

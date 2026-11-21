@@ -3,7 +3,7 @@ package dbsql
 import (
 	"fmt"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // Option configures Wrap.
@@ -20,7 +20,7 @@ type config struct {
 // characters is rejected.
 func WithDatabaseLabel(label string) Option {
 	return func(c *config) error {
-		if !testbench.IsDisplayLabel(label) {
+		if !sendproof.IsDisplayLabel(label) {
 			return fmt.Errorf("dbsql: the database label %q looks like connection details; use a bare name", label)
 		}
 		c.label = label

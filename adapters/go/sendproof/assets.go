@@ -1,4 +1,4 @@
-package testbench
+package sendproof
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/internal/ui"
+	"github.com/mprync/sendproof/adapters/go/internal/ui"
 )
 
 // assetManifest is the manifest.json emitted by tools/pack-ui.mjs.

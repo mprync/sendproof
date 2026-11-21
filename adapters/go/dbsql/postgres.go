@@ -35,27 +35,27 @@ import (
 const auditLockTimeout = "5s"
 
 var auditSetup = []string{
-	`CREATE TEMPORARY TABLE testbench_audit (seq bigserial PRIMARY KEY, relid oid NOT NULL,
+	`CREATE TEMPORARY TABLE sendproof_audit (seq bigserial PRIMARY KEY, relid oid NOT NULL,
 		operation text NOT NULL, old_row jsonb, new_row jsonb) ON COMMIT DROP`,
-	`CREATE FUNCTION pg_temp.testbench_audit() RETURNS trigger LANGUAGE plpgsql AS $testbench$
+	`CREATE FUNCTION pg_temp.sendproof_audit() RETURNS trigger LANGUAGE plpgsql AS $sendproof$
 	BEGIN
 		IF TG_LEVEL = 'STATEMENT' THEN
-			INSERT INTO pg_temp.testbench_audit (relid, operation) VALUES (TG_RELID, TG_OP);
+			INSERT INTO pg_temp.sendproof_audit (relid, operation) VALUES (TG_RELID, TG_OP);
 		ELSE
-			INSERT INTO pg_temp.testbench_audit (relid, operation, old_row, new_row) VALUES (TG_RELID, TG_OP,
+			INSERT INTO pg_temp.sendproof_audit (relid, operation, old_row, new_row) VALUES (TG_RELID, TG_OP,
 				CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END,
 				CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) END);
 		END IF;
 		RETURN NULL;
-	END $testbench$`,
-	`CREATE TEMPORARY TABLE testbench_guard (id int) ON COMMIT DROP`,
-	`CREATE FUNCTION pg_temp.testbench_refuse_commit() RETURNS trigger LANGUAGE plpgsql AS $testbench$
+	END $sendproof$`,
+	`CREATE TEMPORARY TABLE sendproof_guard (id int) ON COMMIT DROP`,
+	`CREATE FUNCTION pg_temp.sendproof_refuse_commit() RETURNS trigger LANGUAGE plpgsql AS $sendproof$
 	BEGIN
-		RAISE EXCEPTION 'Test Bench: a preview transaction must never commit';
-	END $testbench$`,
-	`CREATE CONSTRAINT TRIGGER testbench_refuse_commit AFTER INSERT ON pg_temp.testbench_guard
-		DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.testbench_refuse_commit()`,
-	`INSERT INTO pg_temp.testbench_guard VALUES (1)`,
+		RAISE EXCEPTION 'Sendproof: a preview transaction must never commit';
+	END $sendproof$`,
+	`CREATE CONSTRAINT TRIGGER sendproof_refuse_commit AFTER INSERT ON pg_temp.sendproof_guard
+		DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.sendproof_refuse_commit()`,
+	`INSERT INTO pg_temp.sendproof_guard VALUES (1)`,
 }
 
 // auditTables selects the ordinary and partitioned tables to instrument:
@@ -66,18 +66,18 @@ const auditTables = `FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespa
 		AND n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\_%'
 		AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')`
 
-var auditInstall = `DO $testbench$
+var auditInstall = `DO $sendproof$
 DECLARE target record;
 BEGIN
 	FOR target IN SELECT c.oid::regclass AS relation, c.relkind ` + auditTables + `
 		AND has_table_privilege(c.oid, 'TRIGGER') ORDER BY c.oid
 	LOOP
-		EXECUTE format('CREATE TRIGGER "!testbench_audit" AFTER INSERT OR UPDATE OR DELETE ON %s FOR EACH ROW EXECUTE FUNCTION pg_temp.testbench_audit()', target.relation);
+		EXECUTE format('CREATE TRIGGER "!sendproof_audit" AFTER INSERT OR UPDATE OR DELETE ON %s FOR EACH ROW EXECUTE FUNCTION pg_temp.sendproof_audit()', target.relation);
 		IF target.relkind = 'r' THEN
-			EXECUTE format('CREATE TRIGGER "!testbench_audit_truncate" AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.testbench_audit()', target.relation);
+			EXECUTE format('CREATE TRIGGER "!sendproof_audit_truncate" AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.sendproof_audit()', target.relation);
 		END IF;
 	END LOOP;
-END $testbench$`
+END $sendproof$`
 
 // auditBlind counts tables the role can write but not instrument.
 var auditBlind = `SELECT count(*) ` + auditTables + `
@@ -122,7 +122,7 @@ func readAudit(ctx context.Context, source rowSource, limit int) ([]rowEvent, bo
 	tables := map[int64]tableName{}
 	rows, err := source.QueryContext(ctx, `SELECT c.oid::bigint, n.nspname, c.relname, n.nspname = current_schema()
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE c.oid IN (SELECT DISTINCT relid FROM pg_temp.testbench_audit)`)
+		WHERE c.oid IN (SELECT DISTINCT relid FROM pg_temp.sendproof_audit)`)
 	if err != nil {
 		return nil, false, nil, err
 	}
@@ -148,7 +148,7 @@ func readAudit(ctx context.Context, source rowSource, limit int) ([]rowEvent, bo
 	rows, err = source.QueryContext(ctx, `SELECT i.indrelid::bigint, a.attname FROM pg_index i
 		CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
 		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
-		WHERE i.indisprimary AND i.indrelid IN (SELECT DISTINCT relid FROM pg_temp.testbench_audit)
+		WHERE i.indisprimary AND i.indrelid IN (SELECT DISTINCT relid FROM pg_temp.sendproof_audit)
 		ORDER BY i.indrelid, k.ord`)
 	if err != nil {
 		return nil, false, nil, err
@@ -167,7 +167,7 @@ func readAudit(ctx context.Context, source rowSource, limit int) ([]rowEvent, bo
 	}
 
 	rows, err = source.QueryContext(ctx, `SELECT relid::bigint, operation, old_row::text, new_row::text
-		FROM pg_temp.testbench_audit WHERE operation <> 'UPDATE' OR old_row IS DISTINCT FROM new_row
+		FROM pg_temp.sendproof_audit WHERE operation <> 'UPDATE' OR old_row IS DISTINCT FROM new_row
 		ORDER BY seq LIMIT $1`, limit+1)
 	if err != nil {
 		return nil, false, nil, err

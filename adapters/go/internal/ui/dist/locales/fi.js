@@ -11,7 +11,7 @@ export default {
   dateLetters: { day: 'pp', month: 'kk', year: 'vvvv' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'sitten',
     'unit.bytes': '{n} t',
 
@@ -54,7 +54,7 @@ export default {
     'side.noMatchModelsBody': 'Haku kattaa mallien nimet ja kuvaukset.',
     'side.try': 'Kokeile “{query}”',
     'side.emptyTitle': 'Tässä APIssa ei ole vielä operaatioita',
-    'side.emptyBody': 'Test Bench listaa jokaisen polun kohteessa {url}. Määritä päätepiste ja lataa uudelleen.',
+    'side.emptyBody': 'Sendproof listaa jokaisen polun kohteessa {url}. Määritä päätepiste ja lataa uudelleen.',
     'side.reload': 'Lataa speksi uudelleen',
     'side.noModelsTitle': 'Tässä speksissä ei ole malleja',
     'side.noModelsBody': 'Mallit tulevat kohteesta {source}. Sisäisiä skeemoja käyttävät pyyntöjen ja vastausten rungot näkyvät silti kunkin operaation Docs-näkymässä.',
@@ -84,7 +84,7 @@ export default {
     'display.digits': 'Numerot',
     'display.latin': 'Latinalaiset',
     'display.arabicIndic': 'Arabialais-intialaiset',
-    'display.digitsHelp': 'Vain Test Benchin omat luvut ja päivämäärät. Tallennettu data näytetään täsmälleen sellaisena kuin se on tallennettu.',
+    'display.digitsHelp': 'Vain Sendproofin omat luvut ja päivämäärät. Tallennettu data näytetään täsmälleen sellaisena kuin se on tallennettu.',
     'display.close': 'Sulje',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -275,7 +275,7 @@ export default {
     // Auth tab
     'auth.requirements': 'Suojausvaatimukset', 'auth.scheme.cookie': 'Evästekirjautuminen', 'auth.scheme.apiKey': 'API-avain', 'auth.scheme.http': 'HTTP-todennus',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'Kirjautuminen',
-    'auth.sessionBody': 'Kirjaudu sisään tämän APIn käyttäjänä. Test Bench lähettää istunnon puolestasi.', 'auth.schemeBody': 'Kirjaudu palveluun {name}; Test Bench lähettää istunnon.',
+    'auth.sessionBody': 'Kirjaudu sisään tämän APIn käyttäjänä. Sendproof lähettää istunnon puolestasi.', 'auth.schemeBody': 'Kirjaudu palveluun {name}; Sendproof lähettää istunnon.',
     'auth.signInNeeded': 'Sisäänkirjautuminen', 'auth.notSignedIn': 'Ei kirjautunut sisään', 'auth.permission': 'Oikeus',
     'auth.permissionBody': 'API tarkistaa sen sisäänkirjautumisen jälkeen. Ilman sitä kutsu palauttaa 403.', 'auth.checkedOnSend': 'Tarkistetaan lähetettäessä',
     'auth.unknown': 'Tuntematon ennen sisäänkirjautumista', 'auth.seeded': 'Käytä valmista tiliä…', 'auth.publicBody': 'Tämä operaatio ei vaadi sisäänkirjautumista.',
@@ -311,7 +311,7 @@ export default {
     'res.before.Headers.title': 'Vastauksen otsakkeet näkyvät tässä',
     'res.before.headers.body': 'Jokainen API:n palauttama otsake sekä pyynnön otsakkeet täsmälleen sellaisina kuin ne lähetettiin muuttujien ratkaisun jälkeen.',
     'res.notCaptured.database': 'Lähetys ei tallenna tietokantamuutoksia',
-    'res.notCaptured.databaseBody': 'Lähetys tallentaa muutokset oikeasti, eikä Test Bench ole mukana transaktiossa. Katso rivit ensin Esikatselulla tai ota jäljitetty lähetys käyttöön tallentaaksesi ne sitä mukaa kuin ne kirjataan.',
+    'res.notCaptured.databaseBody': 'Lähetys tallentaa muutokset oikeasti, eikä Sendproof ole mukana transaktiossa. Katso rivit ensin Esikatselulla tai ota jäljitetty lähetys käyttöön tallentaaksesi ne sitä mukaa kuin ne kirjataan.',
     'res.notCaptured.databaseNoTrace': 'Lähetys tallentaa muutokset oikeasti, eikä tämä API jäljitä sitä. Katso rivit ensin Esikatselulla.',
     'res.notCaptured.effects': 'Lähetys ei tallenna sivuvaikutuksia',
     'res.notCaptured.effectsBody': 'Ne suoritettiin oikeasti. Esikatselu näyttää ne lähettämättä, tai ota jäljitetty lähetys käyttöön tallentaaksesi ne niiden tapahtuessa.',
@@ -336,13 +336,13 @@ export default {
     'res.network.title': 'APIin ei saatu yhteyttä',
     'res.network.body': 'Kohteesta {origin} ei tullut mitään. Pyyntö ei välttämättä ehtinyt palvelimelle, joten mitään ei tallennettu.',
     'res.network.why': 'Onko API käynnissä? Käynnistä se uudelleen ja yritä sitten uudelleen. Pyyntösi säilyy sellaisenaan.',
-    'res.error.title': 'Pyyntöä ei voitu suorittaa loppuun', 'res.error.why': 'Test Bench ei muuttanut mitään. Tarkista pyyntö ja APIn konsoli.',
+    'res.error.title': 'Pyyntöä ei voitu suorittaa loppuun', 'res.error.why': 'Sendproof ei muuttanut mitään. Tarkista pyyntö ja APIn konsoli.',
 
     // Boot
-    'boot.title': 'OpenAPI-dokumentin lataus epäonnistui', 'boot.capabilitiesStatus': 'Test Benchin etsintä palautti {status}.', 'boot.documentStatus': 'OpenAPI-dokumentti palautti {status}.',
-    'boot.unsupported': 'Tämä työpöytä ei tue tämän APIn Test Bench -versiota.',
-    'boot.body': '{request} epäonnistui: {message} Test Bench rakentaa jokaisen näkymän siitä, joten näytettävää ei vielä ole.',
-    'boot.bodyStatus': '{request} palautti {status}. Test Bench rakentaa jokaisen näkymän siitä, joten näytettävää ei vielä ole.',
+    'boot.title': 'OpenAPI-dokumentin lataus epäonnistui', 'boot.capabilitiesStatus': 'Sendproofin etsintä palautti {status}.', 'boot.documentStatus': 'OpenAPI-dokumentti palautti {status}.',
+    'boot.unsupported': 'Tämä työpöytä ei tue tämän APIn Sendproof -versiota.',
+    'boot.body': '{request} epäonnistui: {message} Sendproof rakentaa jokaisen näkymän siitä, joten näytettävää ei vielä ole.',
+    'boot.bodyStatus': '{request} palautti {status}. Sendproof rakentaa jokaisen näkymän siitä, joten näytettävää ei vielä ole.',
     'boot.why': 'Yleensä APIn käynnistysvirhe tai AddOpenApi() puuttuu. APIn konsolissa on lisätietoja.',
     'boot.whyAuth': 'Dokumentti vaatii kirjautuneen käyttäjän. Kirjaudu sisään ja yritä uudelleen.',
     'boot.open': 'Avaa {url}', 'boot.copy': 'Kopioi virhe', 'boot.noOperations': 'Ei operaatioita', 'boot.noOperationsBody': 'Ne ilmestyvät, kun speksi on ladattu.',
@@ -373,7 +373,7 @@ export default {
 
     // Overview
     'overview.crumb': 'Yleiskatsaus', 'overview.operations': { one: '{n} operaatio', other: '{n} operaatiota' }, 'overview.models': { one: '{n} malli', other: '{n} mallia' },
-    'overview.how': 'Näin Test Bench toimii', 'overview.preview': 'Esikatselu', 'overview.send': 'Lähetys', 'overview.autofill': 'Automaattitäyttö',
+    'overview.how': 'Näin Sendproof toimii', 'overview.preview': 'Esikatselu', 'overview.send': 'Lähetys', 'overview.autofill': 'Automaattitäyttö',
     'overview.previewBody': 'Suorittaa pyynnön oikeasti transaktiossa, näyttää jokaisen sen aiheuttaman rivin, sähköpostin ja lokin ja palauttaa sitten muutokset.',
     'overview.sendBody': 'Suorittaa sen oikeasti ja tallentaa muutokset, täsmälleen kuten mikä tahansa muu asiakas.',
     'overview.autofillBody': 'Täyttää kentät skeemasta, ja ID:t haetaan APIn omista luettelopäätepisteistä.',
@@ -507,7 +507,7 @@ export default {
     'match.schema': 'Skeema', 'match.checked': 'Tarkistettu', 'match.checks': 'Tyypit, muodot, kaavat, pituudet, enumit ja pakolliset ominaisuudet',
     'match.failTitle': { one: '{n} tapa, jolla tämä runko ei vastaa', other: '{n} tapaa, joilla tämä runko ei vastaa' },
     'match.failBody': 'API vastasi {status}, mutta runko ei vastaa dokumentoitua skeemaa {model}:',
-    'match.note': 'Test Bench vain raportoi tämän. Vastaus näytetään täsmälleen sellaisena kuin se vastaanotettiin.', 'match.showSchema': 'Näytä Skeema-näkymässä', 'match.copy': 'Kopioi ongelmat',
+    'match.note': 'Sendproof vain raportoi tämän. Vastaus näytetään täsmälleen sellaisena kuin se vastaanotettiin.', 'match.showSchema': 'Näytä Skeema-näkymässä', 'match.copy': 'Kopioi ongelmat',
     'match.more': { one: '{n} lisää', other: '{n} lisää' }, 'match.extra': 'Ei skeemassa {model}', 'match.what': 'skeemaongelmat',
     'match.missing': 'Pakollinen, mutta puuttuu rungosta',
 

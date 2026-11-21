@@ -9,7 +9,7 @@ export default {
   dateLetters: { day: 'วว', month: 'ดด', year: 'ปปปป' },
   strings: {
     ...capture,
-    'app.name': 'Test Bench',
+    'app.name': 'Sendproof',
     'kbd.then': 'แล้ว',
     'unit.bytes': '{n} B',
 
@@ -52,7 +52,7 @@ export default {
     'side.noMatchModelsBody': 'การค้นหาครอบคลุมชื่อโมเดลและคำอธิบาย',
     'side.try': 'ลอง “{query}”',
     'side.emptyTitle': 'API นี้ยังไม่มีการดำเนินการ',
-    'side.emptyBody': 'Test Bench แสดงทุกพาธใน {url} แมปเอนด์พอยต์แล้วโหลดใหม่',
+    'side.emptyBody': 'Sendproof แสดงทุกพาธใน {url} แมปเอนด์พอยต์แล้วโหลดใหม่',
     'side.reload': 'โหลดสเปกใหม่',
     'side.noModelsTitle': 'สเปกนี้ไม่มีโมเดล',
     'side.noModelsBody': 'โมเดลมาจาก {source} เนื้อหาคำขอและการตอบกลับที่ใช้สคีมาแบบอินไลน์ยังคงแสดงในเอกสารของแต่ละการดำเนินการ',
@@ -82,7 +82,7 @@ export default {
     'display.digits': 'ตัวเลข',
     'display.latin': 'ละติน',
     'display.arabicIndic': 'อารบิก-อินดิก',
-    'display.digitsHelp': 'ใช้กับตัวเลขและวันที่ของ Test Bench เองเท่านั้น ข้อมูลที่ดักจับจะแสดงตามที่จัดเก็บทุกประการ',
+    'display.digitsHelp': 'ใช้กับตัวเลขและวันที่ของ Sendproof เองเท่านั้น ข้อมูลที่ดักจับจะแสดงตามที่จัดเก็บทุกประการ',
     'display.close': 'ปิด',
 
     // Shortcut labels (sheet, palette, tooltips)
@@ -273,7 +273,7 @@ export default {
     // Auth tab
     'auth.requirements': 'ข้อกำหนดด้านความปลอดภัย', 'auth.scheme.cookie': 'เข้าสู่ระบบด้วยคุกกี้', 'auth.scheme.apiKey': 'API key', 'auth.scheme.http': 'การยืนยันตัวตน HTTP',
     'auth.scheme.oauth2': 'OAuth 2.0', 'auth.scheme.openIdConnect': 'OpenID Connect', 'auth.scheme.other': 'เข้าสู่ระบบ',
-    'auth.sessionBody': 'เข้าสู่ระบบในฐานะผู้ใช้ของ API นี้ Test Bench จะส่งเซสชันให้คุณ', 'auth.schemeBody': 'เข้าสู่ระบบ {name} Test Bench จะส่งเซสชันให้',
+    'auth.sessionBody': 'เข้าสู่ระบบในฐานะผู้ใช้ของ API นี้ Sendproof จะส่งเซสชันให้คุณ', 'auth.schemeBody': 'เข้าสู่ระบบ {name} Sendproof จะส่งเซสชันให้',
     'auth.signInNeeded': 'เข้าสู่ระบบ', 'auth.notSignedIn': 'ยังไม่ได้เข้าสู่ระบบ', 'auth.permission': 'สิทธิ์',
     'auth.permissionBody': 'API ตรวจสอบหลังเข้าสู่ระบบ หากไม่มีสิทธิ์ การเรียกจะได้ 403', 'auth.checkedOnSend': 'ตรวจสอบเมื่อคุณส่ง',
     'auth.unknown': 'ไม่ทราบจนกว่าจะเข้าสู่ระบบ', 'auth.seeded': 'ใช้บัญชีตัวอย่าง…', 'auth.publicBody': 'การดำเนินการนี้ไม่ต้องเข้าสู่ระบบ',
@@ -309,7 +309,7 @@ export default {
     'res.before.Headers.title': 'เฮดเดอร์การตอบกลับจะแสดงที่นี่',
     'res.before.headers.body': 'ทุกเฮดเดอร์ที่ API ส่งคืน รวมถึงเฮดเดอร์คำขอตามที่ส่งจริง หลังแทนค่าตัวแปรแล้ว',
     'res.notCaptured.database': 'การส่งไม่ดักจับการเปลี่ยนแปลงฐานข้อมูล',
-    'res.notCaptured.databaseBody': 'การส่งบันทึกถาวรจริง และ Test Bench ไม่เข้าไปในทรานแซกชัน ใช้การดูตัวอย่างเพื่อดูแถวก่อน หรือเปิดการส่งแบบติดตามเพื่อบันทึกแถวขณะที่ถูกบันทึกถาวร',
+    'res.notCaptured.databaseBody': 'การส่งบันทึกถาวรจริง และ Sendproof ไม่เข้าไปในทรานแซกชัน ใช้การดูตัวอย่างเพื่อดูแถวก่อน หรือเปิดการส่งแบบติดตามเพื่อบันทึกแถวขณะที่ถูกบันทึกถาวร',
     'res.notCaptured.databaseNoTrace': 'การส่งบันทึกถาวรจริง และ API นี้ไม่ติดตามการส่ง ใช้การดูตัวอย่างเพื่อดูแถวก่อน',
     'res.notCaptured.effects': 'การส่งไม่ดักจับผลข้างเคียง',
     'res.notCaptured.effectsBody': 'ผลข้างเคียงทำงานจริงแล้ว การดูตัวอย่างจะแสดงโดยไม่ส่งจริง หรือเปิดการส่งแบบติดตามเพื่อบันทึกขณะที่เกิดขึ้น',
@@ -334,13 +334,13 @@ export default {
     'res.network.title': 'เชื่อมต่อ API ไม่ได้',
     'res.network.body': 'ไม่มีข้อมูลตอบกลับจาก {origin} คำขออาจไปไม่ถึงเซิร์ฟเวอร์ จึงไม่มีการบันทึกอะไร',
     'res.network.why': 'API กำลังทำงานอยู่หรือไม่ เริ่มใหม่แล้วลองอีกครั้ง คำขอของคุณยังคงอยู่ตามเดิม',
-    'res.error.title': 'ไม่สามารถทำคำขอให้เสร็จได้', 'res.error.why': 'Test Bench ไม่ได้เปลี่ยนแปลงอะไร ตรวจสอบคำขอและคอนโซลของ API',
+    'res.error.title': 'ไม่สามารถทำคำขอให้เสร็จได้', 'res.error.why': 'Sendproof ไม่ได้เปลี่ยนแปลงอะไร ตรวจสอบคำขอและคอนโซลของ API',
 
     // Boot
-    'boot.title': 'โหลดเอกสาร OpenAPI ไม่ได้', 'boot.capabilitiesStatus': 'การค้นพบ Test Bench ส่งคืน {status}', 'boot.documentStatus': 'เอกสาร OpenAPI ส่งคืน {status}',
-    'boot.unsupported': 'เวิร์กเบนช์นี้ไม่รองรับ Test Bench เวอร์ชันของ API นี้',
-    'boot.body': '{request} ล้มเหลว: {message} Test Bench สร้างทุกหน้าจอจากเอกสารนี้ จึงยังไม่มีอะไรให้แสดง',
-    'boot.bodyStatus': '{request} ส่งคืน {status} Test Bench สร้างทุกหน้าจอจากเอกสารนี้ จึงยังไม่มีอะไรให้แสดง',
+    'boot.title': 'โหลดเอกสาร OpenAPI ไม่ได้', 'boot.capabilitiesStatus': 'การค้นพบ Sendproof ส่งคืน {status}', 'boot.documentStatus': 'เอกสาร OpenAPI ส่งคืน {status}',
+    'boot.unsupported': 'เวิร์กเบนช์นี้ไม่รองรับ Sendproof เวอร์ชันของ API นี้',
+    'boot.body': '{request} ล้มเหลว: {message} Sendproof สร้างทุกหน้าจอจากเอกสารนี้ จึงยังไม่มีอะไรให้แสดง',
+    'boot.bodyStatus': '{request} ส่งคืน {status} Sendproof สร้างทุกหน้าจอจากเอกสารนี้ จึงยังไม่มีอะไรให้แสดง',
     'boot.why': 'มักเป็นข้อผิดพลาดตอนเริ่มต้นของ API หรือขาด AddOpenApi() ดูรายละเอียดในคอนโซลของ API',
     'boot.whyAuth': 'เอกสารต้องมีผู้ใช้ที่เข้าสู่ระบบ เข้าสู่ระบบแล้วลองอีกครั้ง',
     'boot.open': 'เปิด {url}', 'boot.copy': 'คัดลอกข้อผิดพลาด', 'boot.noOperations': 'ไม่มีการดำเนินการ', 'boot.noOperationsBody': 'จะแสดงเมื่อโหลดสเปกแล้ว',
@@ -371,7 +371,7 @@ export default {
 
     // Overview
     'overview.crumb': 'ภาพรวม', 'overview.operations': { other: '{n} การดำเนินการ' }, 'overview.models': { other: '{n} โมเดล' },
-    'overview.how': 'วิธีการทำงานของ Test Bench', 'overview.preview': 'ดูตัวอย่าง', 'overview.send': 'ส่ง', 'overview.autofill': 'กรอกอัตโนมัติ',
+    'overview.how': 'วิธีการทำงานของ Sendproof', 'overview.preview': 'ดูตัวอย่าง', 'overview.send': 'ส่ง', 'overview.autofill': 'กรอกอัตโนมัติ',
     'overview.previewBody': 'รันคำขอจริงภายในทรานแซกชัน แสดงทุกแถว อีเมล และล็อกที่เกิดขึ้น แล้วย้อนกลับ',
     'overview.sendBody': 'รันจริงและบันทึกถาวร เหมือนไคลเอนต์อื่นทุกประการ',
     'overview.autofillBody': 'กรอกฟิลด์จากสคีมา พร้อม ID จริงจากเอนด์พอยต์รายการของ API เอง',
@@ -505,7 +505,7 @@ export default {
     'match.schema': 'สคีมา', 'match.checked': 'ตรวจสอบแล้ว', 'match.checks': 'ประเภท รูปแบบ แพตเทิร์น ความยาว enum และพร็อพเพอร์ตีที่จำเป็น',
     'match.failTitle': { other: 'เนื้อหานี้ไม่ตรงกัน {n} จุด' },
     'match.failBody': 'API ตอบ {status} แต่เนื้อหาไม่ตรงกับ {model} ซึ่งเป็นสคีมาที่ระบุไว้ในเอกสาร:',
-    'match.note': 'Test Bench รายงานเท่านั้น การตอบกลับแสดงตามที่ได้รับทุกประการ', 'match.showSchema': 'แสดงในมุมมองสคีมา', 'match.copy': 'คัดลอกปัญหา',
+    'match.note': 'Sendproof รายงานเท่านั้น การตอบกลับแสดงตามที่ได้รับทุกประการ', 'match.showSchema': 'แสดงในมุมมองสคีมา', 'match.copy': 'คัดลอกปัญหา',
     'match.more': { other: 'อีก {n}' }, 'match.extra': 'ไม่อยู่ในสคีมา {model}', 'match.what': 'ปัญหาสคีมา',
     'match.missing': 'จำเป็น แต่ไม่มีในเนื้อหา',
 

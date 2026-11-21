@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/test-bench/test-bench/adapters/go/examples/fixture"
+	"github.com/mprync/sendproof/adapters/go/examples/fixture"
 )
 
 // TestEveryFrameworkAndStore runs the key protocol checks against each binding
@@ -45,7 +45,7 @@ func TestRollbackFailureWithholdsConfirmation(t *testing.T) {
 					}
 					t.Cleanup(cleanup)
 					cookie := signIn(t, handler, "")
-					request := httptest.NewRequest("POST", "/bench/_preview/items", strings.NewReader(`{"id":"r1","name":"Rolled back"}`))
+					request := httptest.NewRequest("POST", "/sendproof/_preview/items", strings.NewReader(`{"id":"r1","name":"Rolled back"}`))
 					request.Header.Set("Cookie", cookie)
 					request.Header.Set("Prefer", "tx=rollback")
 					response := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func exercise(t *testing.T, framework, store string, database fixture.Database) 
 		t.Fatalf("sign-in %d", signIn.Code)
 	}
 
-	created := do("POST", "/tenant/bench/_preview/items", `{"id":"p1","name":"Preview"}`, cookie, "Prefer", "tx=rollback")
+	created := do("POST", "/tenant/sendproof/_preview/items", `{"id":"p1","name":"Preview"}`, cookie, "Prefer", "tx=rollback")
 	var envelope map[string]any
 	_ = json.Unmarshal(created.Body.Bytes(), &envelope)
 	if created.Code != 200 || envelope["status"] != float64(201) || len(envelope["changes"].([]any)) != 1 {
@@ -121,13 +121,13 @@ func exercise(t *testing.T, framework, store string, database fixture.Database) 
 	if read := do("GET", "/tenant/items/p1", "", cookie); read.Code != 404 {
 		t.Fatalf("the preview persisted: %d", read.Code)
 	}
-	if anonymous := do("POST", "/tenant/bench/_preview/items", `{}`, "", "Prefer", "tx=rollback"); anonymous.Code != 401 {
+	if anonymous := do("POST", "/tenant/sendproof/_preview/items", `{}`, "", "Prefer", "tx=rollback"); anonymous.Code != 401 {
 		t.Errorf("anonymous preview = %d", anonymous.Code)
 	}
-	if unmarked := do("POST", "/tenant/bench/_preview/items/p1/ordinary", ``, cookie, "Prefer", "tx=rollback"); unmarked.Code != 409 {
+	if unmarked := do("POST", "/tenant/sendproof/_preview/items/p1/ordinary", ``, cookie, "Prefer", "tx=rollback"); unmarked.Code != 409 {
 		t.Errorf("unmarked preview = %d", unmarked.Code)
 	}
-	boom := do("POST", "/tenant/bench/_preview/items/p2/fail?mode=exception", ``, cookie, "Prefer", "tx=rollback")
+	boom := do("POST", "/tenant/sendproof/_preview/items/p2/fail?mode=exception", ``, cookie, "Prefer", "tx=rollback")
 	if boom.Code != 500 || strings.Contains(boom.Body.String(), "rolledBack") {
 		t.Errorf("a panicking handler = %d %s", boom.Code, boom.Body)
 	}

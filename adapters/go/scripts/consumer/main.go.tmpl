@@ -19,20 +19,20 @@ import (
 	"{{BASE}}/echo"
 	"{{BASE}}/gin"
 	"{{BASE}}/gorm"
-	"{{BASE}}/testbench"
+	"{{BASE}}/sendproof"
 )
 
 func main() {
-	bench, err := testbench.New(testbench.WithEnvironment("Development"), testbench.WithOpenAPIURL("/openapi.json"))
+	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithOpenAPIURL("/openapi.json"))
 	if err != nil {
-		fail("testbench.New: %v", err)
+		fail("sendproof.New: %v", err)
 	}
 
 	// Compile-time use of each released module's public surface.
-	_ = chibench.Preview(bench, http.MethodPost, "/items/{id}")
-	_ = ginbench.Preview(bench, http.MethodPost, "/items/:id")
-	_ = echobench.Preview(bench, http.MethodPost, "/items/:id")
-	_ = gormbench.NewPool
+	_ = chisendproof.Preview(bench, http.MethodPost, "/items/{id}")
+	_ = ginsendproof.Preview(bench, http.MethodPost, "/items/:id")
+	_ = echosendproof.Preview(bench, http.MethodPost, "/items/:id")
+	_ = gormsendproof.NewPool
 	_ = dbsql.Wrap
 
 	mux := http.NewServeMux()
@@ -45,18 +45,18 @@ func main() {
 	defer server.Close()
 
 	// The workbench page and one of its embedded scripts come from the core zip.
-	page := get(server.URL + "/bench/")
+	page := get(server.URL + "/sendproof/")
 	if !strings.Contains(strings.ToLower(page), "<html") {
-		fail("GET /bench/ did not return the workbench page: %.80q", page)
+		fail("GET /sendproof/ did not return the workbench page: %.80q", page)
 	}
-	if script := get(server.URL + "/bench/app.js"); len(script) < 1000 {
-		fail("GET /bench/app.js returned %d bytes; the embedded UI is missing", len(script))
+	if script := get(server.URL + "/sendproof/app.js"); len(script) < 1000 {
+		fail("GET /sendproof/app.js returned %d bytes; the embedded UI is missing", len(script))
 	}
 	// Discovery names the application's OpenAPI document, which the consumer serves.
 	var capabilities struct {
 		OpenAPIURL string `json:"openApiUrl"`
 	}
-	if err := json.Unmarshal([]byte(get(server.URL+"/bench/_api/capabilities")), &capabilities); err != nil || capabilities.OpenAPIURL == "" {
+	if err := json.Unmarshal([]byte(get(server.URL+"/sendproof/_api/capabilities")), &capabilities); err != nil || capabilities.OpenAPIURL == "" {
 		fail("capabilities did not name an OpenAPI document: %v", err)
 	}
 	var document struct {

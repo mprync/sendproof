@@ -1,4 +1,4 @@
-// Package fixture is the Go implementation of the Test Bench conformance
+// Package fixture is the Go implementation of the Sendproof conformance
 // fixture (spec/conformance/fixture.md). One handler set is bound to net/http,
 // chi, Gin and Echo, and to database/sql or GORM, so every adapter is exercised
 // through the same protocol checks.
@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/test-bench/test-bench/adapters/go/testbench"
+	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
 // Config selects the fixture's behavior.
@@ -40,7 +40,7 @@ func New(cfg Config) (http.Handler, func(), error) {
 	var directory string
 	if database.Directory == "" {
 		var err error
-		if directory, err = os.MkdirTemp("", "testbench-fixture-"); err != nil {
+		if directory, err = os.MkdirTemp("", "sendproof-fixture-"); err != nil {
 			return nil, nil, err
 		}
 		database.Directory = directory
@@ -61,36 +61,36 @@ func New(cfg Config) (http.Handler, func(), error) {
 	}
 
 	people := newSessions()
-	options := []testbench.Option{
-		testbench.WithEnvironment("Development"),
-		testbench.WithAPIName("Test Bench Conformance"),
-		testbench.WithOpenAPIURL("/openapi.json"),
-		testbench.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
-		testbench.WithAuthProvider("Development personas", "personas", "/auth/personas"),
-		testbench.WithPrincipal(people.principal),
-		testbench.WithTraceTTL(orDefault(cfg.TraceTTL, 5*time.Second)),
-		testbench.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+	options := []sendproof.Option{
+		sendproof.WithEnvironment("Development"),
+		sendproof.WithAPIName("Sendproof Conformance"),
+		sendproof.WithOpenAPIURL("/openapi.json"),
+		sendproof.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
+		sendproof.WithAuthProvider("Development personas", "personas", "/auth/personas"),
+		sendproof.WithPrincipal(people.principal),
+		sendproof.WithTraceTTL(orDefault(cfg.TraceTTL, 5*time.Second)),
+		sendproof.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	}
 	switch cfg.Scenario {
 	case "disabled":
 		// Outside the configured environments the workbench and Preview are off.
-		options = append(options, testbench.WithEnvironment("Production"))
+		options = append(options, sendproof.WithEnvironment("Production"))
 	case "no-provider":
 	case "rollback-failure":
-		options = append(options, testbench.WithProvider(failingRollback{data.provider()}))
+		options = append(options, sendproof.WithProvider(failingRollback{data.provider()}))
 	case "", "standard":
-		options = append(options, testbench.WithProvider(data.provider()))
+		options = append(options, sendproof.WithProvider(data.provider()))
 	default:
 		cleanup()
 		return nil, nil, fmt.Errorf("unknown scenario %q", cfg.Scenario)
 	}
-	bench, err := testbench.New(options...)
+	bench, err := sendproof.New(options...)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
 
-	logger := slog.New(testbench.SlogHandler(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	logger := slog.New(sendproof.SlogHandler(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	app := &handlers{store: data, logger: logger}
 
 	shared := http.NewServeMux()
@@ -112,7 +112,7 @@ func New(cfg Config) (http.Handler, func(), error) {
 		cleanup()
 		return nil, nil, fmt.Errorf("unknown framework %q", cfg.Framework)
 	}
-	return testbench.StripPathBase(cfg.PathBase, bench.Middleware(router)), cleanup, nil
+	return sendproof.StripPathBase(cfg.PathBase, bench.Middleware(router)), cleanup, nil
 }
 
 func orDefault(value, fallback time.Duration) time.Duration {
@@ -152,9 +152,9 @@ func (r route) role() string {
 
 // failingRollback wraps a provider so that its sessions report a rollback failure
 // after really rolling back, which is how a broken transport must be detected.
-type failingRollback struct{ testbench.Provider }
+type failingRollback struct{ sendproof.Provider }
 
-func (p failingRollback) Begin(ctx context.Context) (testbench.Session, error) {
+func (p failingRollback) Begin(ctx context.Context) (sendproof.Session, error) {
 	session, err := p.Provider.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -162,10 +162,10 @@ func (p failingRollback) Begin(ctx context.Context) (testbench.Session, error) {
 	return &failingSession{Session: session}, nil
 }
 
-type failingSession struct{ testbench.Session }
+type failingSession struct{ sendproof.Session }
 
 // Unwrap exposes the real session, so the data layer still enlists in it.
-func (s *failingSession) Unwrap() testbench.Session { return s.Session }
+func (s *failingSession) Unwrap() sendproof.Session { return s.Session }
 
 func (s *failingSession) Rollback(ctx context.Context) error {
 	_ = s.Session.Rollback(ctx) // discard the data, then report the injected failure
