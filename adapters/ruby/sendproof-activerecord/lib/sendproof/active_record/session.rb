@@ -10,7 +10,7 @@ module Sendproof
       # @!attribute marked [Boolean] whether the transaction opened with {SAVEPOINT} (MySQL and MariaDB)
       Enrollment = Struct.new(:connection, :transaction, :marked)
 
-      # The savepoint a MySQL or MariaDB Preview opens its transaction with, for the backstop in
+      # The savepoint every Preview opens its transaction with, for the backstop in
       # {#rollback!}. Rails names its own savepoints +active_record_<n>+, so it never makes this one, and
       # the {TransactionGuard} refuses a handler's +RELEASE+ or +ROLLBACK TO+ of it like a +COMMIT+.
       SAVEPOINT = "sendproof_preview"
@@ -25,15 +25,13 @@ module Sendproof
         @closed = false
       end
 
-      # Starts a transaction on +connection+. It is lazy, so no BEGIN is sent until the first statement,
-      # except on MySQL and MariaDB, where the transaction opens at once with {SAVEPOINT}.
+      # Starts a transaction on +connection+ and opens it at once with {SAVEPOINT}, the backstop's mark
+      # (on every database: a commit the guard can't see erases it).
       def enroll(connection)
         return if @enrollments.any? { |enrollment| enrollment.connection.equal?(connection) }
 
         enrollment = Enrollment.new(connection, connection.begin_transaction(joinable: false), false)
         @enrollments << enrollment
-        return unless TransactionGuard::MYSQL_ADAPTERS.include?(connection.pool.db_config.adapter.to_s)
-
         connection.create_savepoint(SAVEPOINT) # materializes the BEGIN first
         enrollment.marked = true
       end
@@ -93,9 +91,9 @@ module Sendproof
 
       private
 
-      # The backstop on MySQL and MariaDB: the savepoint the Preview transaction opened with must still
-      # exist. Any commit, explicit or implicit, erases every savepoint, and with autocommit off MySQL
-      # then opens a new transaction by itself, so a savepoint made now would prove nothing. Error 1305
+      # The backstop, on every database: the savepoint the Preview transaction opened with must still
+      # exist. Any commit, explicit or implicit, erases every savepoint, and the driver (or MySQL with
+      # autocommit off) may then open a new transaction by itself, so a savepoint made now would prove nothing. Error 1305
       # (SAVEPOINT does not exist), or a lost connection, means the rollback can't be confirmed; the
       # rollback itself still runs.
       def check_still_open(enrollment, failures)

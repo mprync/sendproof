@@ -118,6 +118,30 @@ class ProviderTest < Minitest::Test
     Item.delete_all
   end
 
+  # The start-savepoint backstop on every database: a commit on the driver's own handle, then a new
+  # transaction, would let a plain rollback succeed. The savepoint made when the Preview began is gone.
+  def test_a_preview_committed_on_the_raw_driver_connection_is_never_confirmed
+    error = assert_raises(RuntimeError) do
+      preview do
+        Item.create!(id: "escaped", name: "Escaped")
+        raw = Item.lease_connection.raw_connection # around every guard
+        if MYSQL
+          raw.query("COMMIT")
+          raw.query("BEGIN")
+          raw.query("INSERT INTO items (id, name) VALUES ('after', 'After')")
+        else
+          raw.execute("COMMIT")
+          raw.execute("BEGIN")
+          raw.execute("INSERT INTO items (id, name) VALUES ('after', 'After')")
+        end
+      end
+    end
+    assert_match(/committed before its rollback/, error.message)
+    assert_includes durable_items, "escaped"
+  ensure
+    Item.delete_all
+  end
+
   def test_changes_are_capped_and_flagged
     session, = preview { (Sendproof::Limits::CHANGES + 3).times { |n| Item.create!(id: "i#{n}", name: "n") } }
     assert_equal Sendproof::Limits::CHANGES, session.changes.length
