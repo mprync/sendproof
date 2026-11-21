@@ -30,22 +30,6 @@ internal sealed class SendproofCommitDiagnostics : IObserver<DiagnosticListener>
         _listeners = DiagnosticListener.AllListeners.Subscribe(this);
     }
 
-    /// <summary>Set while the Preview session itself rolls back, so only the handler's rollback is refused.</summary>
-    private static readonly AsyncLocal<bool> OwnRollback = new();
-
-    /// <summary>Runs the Preview's own rollback, which must not be refused.</summary>
-    internal static async Task RollingBackAsync(Func<Task> rollback)
-    {
-        OwnRollback.Value = true;
-        try
-        {
-            await rollback();
-        }
-        finally
-        {
-            OwnRollback.Value = false;
-        }
-    }
 
     // A commit would persist the Preview's writes. A full rollback would end the Preview transaction, after which a save
     // writes for real (MongoDB's provider saves a single document with no transaction at all). Savepoint rollbacks
@@ -71,7 +55,8 @@ internal sealed class SendproofCommitDiagnostics : IObserver<DiagnosticListener>
 
     void IObserver<KeyValuePair<string, object?>>.OnNext(KeyValuePair<string, object?> value)
     {
-        if (IsCommitting(value.Key) && !OwnRollback.Value && _capture.Current is { InPreview: true })
+        // The Preview's own rollback (see OwnSql) is the one that must not be refused.
+        if (IsCommitting(value.Key) && !OwnSql.IsActive && _capture.Current is { InPreview: true })
         {
             var verb = value.Key.EndsWith(".TransactionCommitting", StringComparison.Ordinal) ? "commit" : "rollback";
             throw _capture.RefuseInPreview($"Preview owns the transaction, so the handler's {verb} cannot run during Preview.")!;

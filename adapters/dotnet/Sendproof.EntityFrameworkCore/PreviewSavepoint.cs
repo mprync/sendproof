@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Sendproof.AspNetCore;
 
 namespace Sendproof.EntityFrameworkCore;
 
@@ -24,10 +25,12 @@ internal sealed class PreviewSavepoint
     private PreviewSavepoint(DbContext context) => _context = context;
 
     /// <summary>Makes the savepoint in the Preview transaction just opened on the context's connection.</summary>
-    internal static async Task<PreviewSavepoint> OpenAsync(DbContext context, CancellationToken cancellationToken)
+    internal static async Task<PreviewSavepoint> OpenAsync(DbContext context, CaptureContext capture, CancellationToken cancellationToken)
     {
         var savepoint = new PreviewSavepoint(context);
         await savepoint.RunAsync("SAVEPOINT " + SqlStatements.PreviewSavepointName, cancellationToken);
+        // Lets the MySql.Data hook prove the transaction is still open before each statement (see SqlGuard.CheckMySqlData).
+        SqlGuard.RegisterPreviewConnection(context.Database.GetDbConnection(), capture, savepoint);
         return savepoint;
     }
 
@@ -37,7 +40,7 @@ internal sealed class PreviewSavepoint
     {
         try
         {
-            await RunAsync("ROLLBACK TO SAVEPOINT " + SqlStatements.PreviewSavepointName, cancellationToken);
+            await OwnSql.RunAsync(() => RunAsync("ROLLBACK TO SAVEPOINT " + SqlStatements.PreviewSavepointName, cancellationToken));
         }
         catch (DbException failure)
         {
@@ -49,11 +52,47 @@ internal sealed class PreviewSavepoint
         }
     }
 
+    /// <summary>A throwaway savepoint for <see cref="StillOpen"/>; being the newest, releasing it touches no other.</summary>
+    private const string ProbeName = "sendproof_probe";
+
+    /// <summary>
+    /// Whether a transaction is still open on the connection, in one round trip: a savepoint made with no transaction
+    /// open (auto-commit on, after the server rolled the Preview transaction back) is gone at once, so releasing it fails.
+    /// With auto-commit off MySQL opens a new transaction instead, so the probe passes; nothing a later statement writes
+    /// can then commit, and <see cref="VerifyAsync"/> still fails the Preview at the end. Runs from inside the driver's
+    /// command hook, so it is synchronous and marked as Sendproof's own work.
+    /// </summary>
+    internal bool StillOpen()
+    {
+        var open = true;
+        OwnSql.Run(() =>
+        {
+            try
+            {
+                using var command = Command($"SAVEPOINT {ProbeName}; RELEASE SAVEPOINT {ProbeName}");
+                command.ExecuteNonQuery();
+            }
+            catch (DbException)
+            {
+                open = false;
+            }
+        });
+        return open;
+    }
+
+    private DbCommand Command(string sql)
+    {
+        var connection = _context.Database.GetDbConnection();
+        var command = (connection is SendproofDbConnection guarded ? guarded.Inner : connection).CreateCommand();
+        command.CommandText = sql;
+        command.Transaction = SendproofDbConnection.Unwrap(_context.Database.CurrentTransaction?.GetDbTransaction());
+        return command;
+    }
+
     private async Task RunAsync(string sql, CancellationToken cancellationToken)
     {
-        await using var command = _context.Database.GetDbConnection().CreateCommand();
-        command.CommandText = sql;
-        command.Transaction = _context.Database.CurrentTransaction?.GetDbTransaction();
+        // On the provider's own connection, past Sendproof's guarding one, which refuses this savepoint's name.
+        await using var command = Command(sql);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

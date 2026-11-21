@@ -34,14 +34,43 @@ internal sealed class SendproofCommandInterceptor(CaptureContext capture, Sendpr
 
     private InterceptionResult<T> Guard<T>(DbCommand command, CommandEventData eventData, InterceptionResult<T> result)
     {
-        if (capture.Current is { InPreview: true } &&
-            SqlStatements.EndsTransaction(command.CommandType, command.CommandText,
-                PreviewTurns.IsMySql(eventData.Context?.Database.ProviderName), safeProcedures?.Names))
+        SqlGuard.Check(capture, command.CommandType, command.CommandText,
+            PreviewTurns.IsMySql(eventData.Context?.Database.ProviderName), safeProcedures?.Names);
+        return result;
+    }
+
+    // A failed command may mean the database rolled the Preview transaction back (deadlock, lock wait timeout, or a SQL
+    // Server error under XACT_ABORT ON): every later statement in the Preview is then refused. See SqlGuard.
+    public override void CommandFailed(DbCommand command, CommandErrorEventData eventData) =>
+        SqlGuard.Failed(capture, eventData.Exception, SqlServerTransactionGone(command, eventData.Exception));
+
+    public override Task CommandFailedAsync(DbCommand command, CommandErrorEventData eventData, CancellationToken cancellationToken = default)
+    {
+        CommandFailed(command, eventData);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>On SQL Server, asks <c>@@TRANCOUNT</c> whether the error ended the transaction; otherwise <see langword="null"/>.</summary>
+    private bool? SqlServerTransactionGone(DbCommand command, Exception error)
+    {
+        if (!SqlGuard.IsSqlServerError(error) || capture.Current is not { InPreview: true } || command.Connection is not { } connection ||
+            connection.State != System.Data.ConnectionState.Open)
         {
-            throw capture.RefuseInPreview("Preview owns the SQL transaction, so a statement that ends or replaces it cannot run during Preview.")!;
+            return null;
         }
 
-        return result;
+        try
+        {
+            using var probe = connection.CreateCommand();
+            probe.CommandText = "SELECT @@TRANCOUNT";
+            probe.Transaction = command.Transaction;
+            return Convert.ToInt32(probe.ExecuteScalar(), CultureInfo.InvariantCulture) == 0;
+        }
+        catch (DbException)
+        {
+            // A transaction the server ended may refuse even this; the Preview can't be confirmed either way.
+            return true;
+        }
     }
 
     public override DbDataReader ReaderExecuted(DbCommand command, CommandExecutedEventData eventData, DbDataReader result)

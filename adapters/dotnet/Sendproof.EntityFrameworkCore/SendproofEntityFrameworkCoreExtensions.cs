@@ -19,6 +19,7 @@ public static class SendproofEntityFrameworkCoreExtensions
         SafeProcedures.Of(builder.Services);
         builder.Services.TryAddSingleton<SendproofCommandInterceptor>();
         builder.Services.TryAddSingleton<SendproofTransactionInterceptor>();
+        builder.Services.TryAddSingleton<SendproofConnectionInterceptor>();
         builder.Services.TryAddSingleton<SendproofCommitDiagnostics>();
         builder.Services.ConfigureDbContext<TContext>((services, options) =>
         {
@@ -27,7 +28,9 @@ public static class SendproofEntityFrameworkCoreExtensions
             var interceptors = new IInterceptor[]
             {
                 services.GetRequiredService<SendproofCommandInterceptor>(),
-                services.GetRequiredService<SendproofTransactionInterceptor>()
+                services.GetRequiredService<SendproofTransactionInterceptor>(),
+                // Guards plain ADO.NET and Dapper on Database.GetDbConnection() too (see SendproofDbConnection).
+                services.GetRequiredService<SendproofConnectionInterceptor>()
             };
             var registered = options.Options.FindExtension<Microsoft.EntityFrameworkCore.Infrastructure.CoreOptionsExtension>()?.Interceptors;
             options.AddInterceptors(interceptors.Where(interceptor => registered?.Contains(interceptor) != true));

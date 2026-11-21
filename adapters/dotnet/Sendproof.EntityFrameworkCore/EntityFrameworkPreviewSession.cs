@@ -36,7 +36,7 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
             }
         }
 
-        await SendproofCommitDiagnostics.RollingBackAsync(() => transaction.RollbackAsync(cancellationToken));
+        await OwnSql.RunAsync(() => transaction.RollbackAsync(cancellationToken));
         _rolledBack = true;
         if (ended is not null) throw ended;
     }
@@ -54,7 +54,8 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
         {
             try
             {
-                await transaction.DisposeAsync();
+                // The Preview's own cleanup, which the guarding connection lets end the transaction.
+                await OwnSql.RunAsync(() => transaction.DisposeAsync().AsTask());
             }
             finally
             {

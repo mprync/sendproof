@@ -30,6 +30,8 @@ public sealed class MySqlEscapeTests
     [InlineData("/*! CALL sendproof_commit_probe() */")]
     [InlineData("PREPARE s FROM 'COMMIT'")]
     [InlineData("EXECUTE s")]
+    [InlineData("EXECUTE IMMEDIATE 'COMMIT'")]
+    [InlineData("execute immediate @sql")]
     [InlineData("CHECK TABLE t")]
     [InlineData("IMPORT TABLE FROM 'f'")]
     [InlineData("CHANGE MASTER TO MASTER_HOST='h'")]
@@ -148,16 +150,29 @@ public sealed class MySqlEscapeTests
         using var current = run.Services.GetRequiredService<CaptureContext>().Enter(recorder);
         await using var session = await scope.ServiceProvider.GetRequiredService<IPreviewProvider>()
             .BeginAsync(new DefaultHttpContext { RequestServices = scope.ServiceProvider }, CancellationToken.None);
-        await handler(db);
+        Exception? handlerFailure = null;
         try
         {
-            await session.RollbackAsync(CancellationToken.None);
-            return (null, recorder.Fault);
+            await handler(db);
         }
         catch (Exception failure)
         {
-            return (failure, recorder.Fault);
+            // An assertion in the handler: reported after the rollback, so the cleanup can't hide it.
+            handlerFailure = failure;
         }
+
+        Exception? rollbackFailure = null;
+        try
+        {
+            await session.RollbackAsync(CancellationToken.None);
+        }
+        catch (Exception failure)
+        {
+            rollbackFailure = failure;
+        }
+
+        if (handlerFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(handlerFailure);
+        return (rollbackFailure, recorder.Fault);
     }
 
     /// <summary>Runs SQL on the context's connection with plain ADO.NET, which EF Core's interceptors never see.</summary>
@@ -168,6 +183,12 @@ public sealed class MySqlEscapeTests
         command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
         await command.ExecuteNonQueryAsync();
     }
+
+    /// <summary>
+    /// Runs SQL past every Sendproof guard, standing in for a route none of them sees (a connection the application
+    /// created itself, a trigger, another driver).
+    /// </summary>
+    private static Task RawPastTheGuard(ExampleContext db, string sql) => OwnSql.RunAsync(() => Raw(db, sql));
 
     private static async Task<int> CountAsync(Run run, string id)
     {
@@ -200,6 +221,92 @@ public sealed class MySqlEscapeTests
     }
 
     [ServiceFact("mysql")]
+    public async Task PlainAdoNetOnTheContextsConnectionIsRefusedBeforeSending()
+    {
+        await using var run = await StartAsync();
+        foreach (var sql in new[] { "COMMIT", "CALL sendproof_commit_probe()", "CREATE TABLE sendproof_escape_raw (n INT)",
+                     "RELEASE SAVEPOINT sendproof_preview" })
+        {
+            var id = "raw-" + sql.Length;
+            var outcome = await PreviewAsync(run, async db =>
+            {
+                db.Items.Add(new Item { Id = id, Name = "x" });
+                await db.SaveChangesAsync();
+                // The way Dapper or hand-written ADO.NET reaches the database: a command on EF Core's own connection,
+                // which EF Core's interceptors never see.
+                await Assert.ThrowsAsync<PreviewTransactionControlException>(() => Raw(db, sql));
+            });
+            Assert.NotNull(outcome.Fault);
+            Assert.Equal(0, await CountAsync(run, id));
+        }
+
+        var transactional = await PreviewAsync(run, async db =>
+        {
+            db.Items.Add(new Item { Id = "raw-transaction", Name = "x" });
+            await db.SaveChangesAsync();
+            // The driver's own COMMIT for MySqlTransaction.Commit() meets the same hook.
+            Assert.Throws<PreviewTransactionControlException>(() => db.Database.CurrentTransaction!.GetDbTransaction().Commit());
+            // MySql.Data refuses a nested transaction itself; either way nothing is sent.
+            Assert.ThrowsAny<Exception>(() => db.Database.GetDbConnection().BeginTransaction());
+        });
+        Assert.NotNull(transactional.Fault);
+        Assert.Equal(0, await CountAsync(run, "raw-transaction"));
+
+        // Ordinary raw reads and writes still run inside the Preview transaction.
+        var ordinary = await PreviewAsync(run, async db =>
+        {
+            await Raw(db, "INSERT INTO Items (Id, Name) VALUES ('raw-ok', 'x')");
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM Items WHERE Id = 'raw-ok'";
+            command.Transaction = db.Database.CurrentTransaction!.GetDbTransaction();
+            Assert.Equal(1L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        });
+        Assert.Null(ordinary.Fault);
+        Assert.Null(ordinary.Rollback);
+        Assert.Equal(0, await CountAsync(run, "raw-ok"));
+    }
+
+    [Fact]
+    public async Task PlainAdoNetOnASqliteContextsConnectionIsRefusedBeforeSending()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "sp_raw_" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddDbContext<ExampleContext>(options => options.UseSqlite($"Data Source={path}"));
+            services.AddSendproof().AddEntityFrameworkCore<ExampleContext>();
+            await using var root = services.BuildServiceProvider();
+            await using (var setup = root.CreateAsyncScope())
+            {
+                await setup.ServiceProvider.GetRequiredService<ExampleContext>().Database.EnsureCreatedAsync();
+            }
+
+            await using (var scope = root.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<ExampleContext>();
+                var recorder = scope.ServiceProvider.GetRequiredService<SendproofPreview>();
+                recorder.MarkPreview();
+                using var current = root.GetRequiredService<CaptureContext>().Enter(recorder);
+                await using var session = await scope.ServiceProvider.GetRequiredService<IPreviewProvider>()
+                    .BeginAsync(new DefaultHttpContext { RequestServices = scope.ServiceProvider }, CancellationToken.None);
+                db.Items.Add(new Item { Id = "sqlite-raw", Name = "x" });
+                await db.SaveChangesAsync();
+                await Assert.ThrowsAsync<PreviewTransactionControlException>(() => Raw(db, "COMMIT"));
+                Assert.NotNull(recorder.Fault);
+                await session.RollbackAsync(CancellationToken.None);
+            }
+
+            await using var verify = root.CreateAsyncScope();
+            Assert.Empty(await verify.ServiceProvider.GetRequiredService<ExampleContext>().Items.ToListAsync());
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            File.Delete(path);
+        }
+    }
+
+    [ServiceFact("mysql")]
     public async Task ACommitTheGuardsMissFailsThePreviewWithAutoCommitOff()
     {
         await using var run = await StartAsync();
@@ -207,8 +314,8 @@ public sealed class MySqlEscapeTests
         {
             db.Items.Add(new Item { Id = "escaped", Name = "x" });
             await db.SaveChangesAsync();
-            // Plain ADO.NET bypasses EF Core's interceptors: the commit goes through.
-            await Raw(db, "COMMIT");
+            // Past every Sendproof wrapper: the provider's own connection, which only Sendproof holds.
+            await RawPastTheGuard(db, "COMMIT");
             // With auto-commit off MySQL opens a new transaction implicitly, so a check made only at the end (a fresh
             // SAVEPOINT then RELEASE) would succeed and wrongly report the Preview transaction as still open.
             db.Items.Add(new Item { Id = "after", Name = "x" });
@@ -237,6 +344,64 @@ public sealed class MySqlEscapeTests
             Assert.Null(outcome.Rollback);
             Assert.Null(outcome.Fault);
             Assert.Equal(0, await CountAsync(run, "kept-" + autocommitOff));
+        }
+    }
+
+    /// <summary>
+    /// A deadlock rolls the whole Preview transaction back, so with auto-commit on a retry would commit for real. The
+    /// Preview is made the deadlock victim (the other transaction has written more rows, and InnoDB rolls back the
+    /// smaller one), then the handler retries the write through EF Core and through plain ADO.NET.
+    /// </summary>
+    [ServiceFact("mysql")]
+    public async Task AfterADeadlockEveryFurtherStatementIsRefusedAndARetryNeverCommits()
+    {
+        foreach (var throughEf in new[] { true, false })
+        {
+            await using var run = await StartAsync();
+            await using (var seed = run.Services.CreateAsyncScope())
+            {
+                var db = seed.ServiceProvider.GetRequiredService<ExampleContext>();
+                db.Items.AddRange(new Item { Id = "a", Name = "a" }, new Item { Id = "b", Name = "b" });
+                await db.SaveChangesAsync();
+            }
+
+            await using var other = new MySql.Data.MySqlClient.MySqlConnection($"{ServiceFactAttribute.MySqlRoot};database={run.Database}");
+            await other.OpenAsync();
+            await using var otherTransaction = await other.BeginTransactionAsync();
+            async Task OtherAsync(string sql)
+            {
+                await using var command = other.CreateCommand();
+                command.CommandText = sql;
+                command.Transaction = otherTransaction;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await OtherAsync("INSERT INTO Items (Id, Name) VALUES ('w1', 'w'), ('w2', 'w'), ('w3', 'w'), ('w4', 'w')");
+            await OtherAsync("UPDATE Items SET Name = 'other' WHERE Id = 'b'");
+
+            Exception? original = null;
+            var outcome = await PreviewAsync(run, async db =>
+            {
+                Task Run(string sql) => throughEf ? db.Database.ExecuteSqlRawAsync(sql) : Raw(db, sql);
+                await Run("UPDATE Items SET Name = 'preview' WHERE Id = 'a'");
+                var blocked = OtherAsync("UPDATE Items SET Name = 'other' WHERE Id = 'a'");
+                await Task.Delay(300);
+                original = await Record.ExceptionAsync(() => Run("UPDATE Items SET Name = 'preview' WHERE Id = 'b'"));
+                await blocked;
+                // The handler's retry, as an ORM's retry policy would make it: refused before sending.
+                var retry = await Record.ExceptionAsync(() => Run("INSERT INTO Items (Id, Name) VALUES ('retry', 'x')"));
+                Assert.True(retry is PreviewTransactionControlException, $"through EF Core: {throughEf}; {retry}");
+                db.Items.Add(new Item { Id = "retry-ef", Name = "x" });
+                await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+            });
+            await otherTransaction.RollbackAsync();
+
+            // The handler saw the database's own deadlock error, and the Preview failed.
+            Assert.Contains("Deadlock", Assert.IsAssignableFrom<DbException>(original is DbException ? original : original?.InnerException).Message,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(outcome.Fault);
+            Assert.Equal(0, await CountAsync(run, "retry"));
+            Assert.Equal(0, await CountAsync(run, "retry-ef"));
         }
     }
 

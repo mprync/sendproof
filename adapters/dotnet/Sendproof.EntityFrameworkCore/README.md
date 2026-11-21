@@ -37,12 +37,39 @@ builder.Services.AddSendproof().WithSafeProcedures("audit_touch", "reports.refre
 > listed procedure that commits persists the Preview's writes. Names match exactly (case-insensitively), with no
 > wildcards.
 
-Plain ADO.NET commands on the context's connection (`GetDbConnection().CreateCommand()`) don't pass EF Core's
-interceptors, so they can't be refused. As a backstop the Preview makes savepoint `sendproof_preview` as soon as
-its transaction opens and rolls back to it before the final rollback. Any commit erases every savepoint, so a
-missing savepoint means the Preview's writes may have persisted: the Preview answers 500 without confirmation.
-(MySQL has no `@@in_transaction`, and with auto-commit off it opens a new transaction after a commit, so a check
-made only at the end can't see one.) Statements naming the savepoint are refused.
+### Plain ADO.NET and Dapper
+
+Commands sent on the context's own connection (`Database.GetDbConnection()` with Dapper, or a hand-written
+`DbCommand`) skip EF Core's interceptors, so Sendproof guards the connection itself when EF Core creates it:
+
+- **MySql.Data** (`MySql.EntityFrameworkCore`): the driver's own command hook (`CommandInterceptors` in the
+  connection string, added for you) runs the same check before every command, including the driver's own `COMMIT`
+  for `MySqlTransaction.Commit()`.
+- **SQLite**: the connection is wrapped so its commands, transaction and `Close()` are checked the same way.
+- **Other providers** (Pomelo/MySqlConnector, Npgsql, SQL Server): their EF Core providers need the driver's own
+  connection type and the drivers have no command hook, so plain ADO.NET on them is not guarded. On MySQL the
+  savepoint backstop below still fails the Preview, but only after the write.
+
+A connection your application creates and passes to EF Core isn't created by EF Core, so it isn't guarded either.
+
+### Savepoint backstop
+
+The Preview makes savepoint `sendproof_preview` as soon as its transaction opens and rolls back to it before the
+final rollback. Any commit erases every savepoint, so a missing savepoint means the Preview's writes may have
+persisted: the Preview answers 500 without confirmation. (MySQL has no `@@in_transaction`, and with auto-commit
+off it opens a new transaction after a commit, so a check made only at the end can't see one.) Statements naming
+the savepoint are refused.
+
+### Deadlocks and aborted transactions
+
+A MySQL deadlock (1213) or lock wait timeout (1205), a SQL Server deadlock victim (1205), or any SQL Server error
+that leaves `@@TRANCOUNT` at 0 (as under `XACT_ABORT ON`) rolls the whole Preview transaction back, so a retry would
+run outside it and, with auto-commit on, commit for real. Once Sendproof sees one, it refuses every further statement
+in that Preview before sending, and the Preview answers 500 without confirmation; the handler still gets the
+database's original error. EF Core commands are checked through EF Core's failure event. On MySql.Data each statement
+in a Preview first runs a one-round-trip probe (`SAVEPOINT sendproof_probe; RELEASE SAVEPOINT sendproof_probe`) that
+fails once the transaction is gone, so a deadlock seen through plain ADO.NET is caught too. MySQL's 1205 counts
+whether or not `innodb_rollback_on_timeout` is on.
 
 Observed sends use the same tracked-change capture while the application manages its
 normal transactions. The EF adapter also attaches a command interceptor to the

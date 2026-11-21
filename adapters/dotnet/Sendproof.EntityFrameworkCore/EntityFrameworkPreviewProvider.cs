@@ -82,14 +82,16 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
         var turn = await PreviewTurns.EnterAsync(db.Database.ProviderName, cancellationToken);
         try
         {
-            var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            // Sendproof's own work, which the guards let through (a MySQL driver hook sees the BEGIN).
+            var transaction = await OwnSql.RunAsync(() => db.Database.BeginTransactionAsync(cancellationToken));
             PreviewSavepoint? savepoint = null;
             if (PreviewTurns.IsMySql(db.Database.ProviderName))
             {
                 try
                 {
                     // The backstop: a commit while the handler runs erases this savepoint.
-                    savepoint = await PreviewSavepoint.OpenAsync(db, cancellationToken);
+                    var capture = context.RequestServices.GetRequiredService<CaptureContext>();
+                    savepoint = await OwnSql.RunAsync(() => PreviewSavepoint.OpenAsync(db, capture, cancellationToken));
                 }
                 catch
                 {
