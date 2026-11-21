@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test Bench capabilities v1",
+  "type": "object",
+  "required": ["protocolVersion", "apiName", "environment", "openApiUrl", "database", "identity", "authProviders", "previewOperations"],
+  "properties": {
+    "protocolVersion": { "const": 1 },
+    "apiName": { "type": "string" },
+    "environment": { "type": "string" },
+    "openApiUrl": { "$ref": "#/$defs/localUrl" },
+    "fieldModules": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/localUrl" } },
+    "database": { "type": ["string", "null"] },
+    "identity": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "required": ["name"],
+          "properties": {
+            "name": { "type": ["string", "null"] },
+            "role": { "type": "string", "description": "Display label from the authenticated identity's role claim type." }
+          }
+        }
+      ]
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["name", "url"],
+        "properties": { "name": { "type": "string" }, "url": { "$ref": "#/$defs/localUrl" } }
+      }
+    },
+    "authProviders": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["label", "kind", "url"],
+        "properties": {
+          "label": { "type": "string" },
+          "kind": { "type": "string" },
+          "url": { "oneOf": [{ "$ref": "#/$defs/localUrl" }, { "type": "null" }] }
+        }
+      }
+    },
+    "observedSend": { "type": "boolean", "description": "Supports Prefer: trace for advertised preview operations." },
+    "previewOperations": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["method", "path"],
+        "properties": { "method": { "type": "string", "pattern": "^[A-Z]+$" }, "path": { "$ref": "#/$defs/localUrl" } }
+      }
+    }
+  },
+  "$defs": {
+    "localUrl": { "type": "string", "pattern": "^/(?!/)" }
+  }
+}

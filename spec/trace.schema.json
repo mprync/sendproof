@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test Bench observed send trace v1",
+  "type": "object",
+  "required": ["changes", "effects", "logs", "timing"],
+  "properties": {
+    "changes": { "$ref": "preview.schema.json#/properties/changes" },
+    "effects": { "$ref": "preview.schema.json#/properties/effects" },
+    "logs": { "$ref": "preview.schema.json#/properties/logs" },
+    "changesTruncated": { "type": "boolean" },
+    "effectsTruncated": { "type": "boolean" },
+    "logsTruncated": { "type": "boolean" },
+    "timing": {
+      "type": "object",
+      "required": ["auth", "handler", "db", "queryCount", "serialize"],
+      "properties": {
+        "auth": { "type": "number", "minimum": 0 },
+        "handler": { "type": "number", "minimum": 0 },
+        "db": { "type": "number", "minimum": 0 },
+        "queryCount": { "type": "integer", "minimum": 0 },
+        "serialize": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

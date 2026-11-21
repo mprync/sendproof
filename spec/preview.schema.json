@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test Bench confirmed preview v1",
+  "type": "object",
+  "required": ["status", "headers", "body", "changes", "effects", "logs", "rolledBack"],
+  "properties": {
+    "rolledBack": {"const": true},
+    "status": {"type": "integer", "minimum": 100, "maximum": 599},
+    "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+    "body": true,
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/changes"}},
+    "effects": {"type": "array", "items": {"$ref": "#/$defs/effects"}},
+    "logs": {"type": "array", "items": {"$ref": "#/$defs/logs"}},
+    "changesTruncated": {"type": "boolean"},
+    "effectsTruncated": {"type": "boolean"},
+    "logsTruncated": {"type": "boolean"}
+  },
+  "$defs": {
+    "changes": {
+      "type": "object",
+      "required": ["operation", "table", "key", "before", "after"],
+      "properties": {
+        "operation": {"type": "string"},
+        "table": {"type": "string"},
+        "key": true,
+        "before": {"type": ["null", "object"]},
+        "after": {"type": ["null", "object"]}
+      }
+    },
+    "effects": {
+      "type": "object",
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {"type": "string"},
+        "description": {"type": "string"},
+        "data": true,
+        "delivered": {"type": "boolean"}
+      }
+    },
+    "logs": {
+      "type": "object",
+      "required": ["level", "message"],
+      "properties": {
+        "level": {"type": "string"},
+        "message": {"type": "string"},
+        "category": {"type": "string"},
+        "eventId": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}
+        },
+        "offsetMs": {"type": "number", "minimum": 0},
+        "elapsedMs": {"type": "number", "minimum": 0},
+        "properties": {"type": "object", "additionalProperties": {"type": "string"}},
+        "exception": {
+          "type": "object",
+          "required": ["type", "message"],
+          "properties": {"type": {"type": "string"}, "message": {"type": "string"}}
+        },
+        "sql": {
+          "type": "object",
+          "required": ["text", "parameters"],
+          "properties": {
+            "text": {"type": "string"},
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "value", "dbType"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "value": {"type": ["string", "null"]},
+                  "dbType": {"type": "string"}
+                }
+              }
+            },
+            "rowsAffected": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}
