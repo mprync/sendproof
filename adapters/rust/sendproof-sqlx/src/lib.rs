@@ -37,6 +37,7 @@
 
 mod backend;
 mod db;
+mod executor;
 mod log;
 mod provider;
 mod query;

@@ -45,22 +45,18 @@ trait Server: Backend {
     /// Runs SQL on a pool connection, outside any capture.
     fn exec<'a>(pool: &'a Pool<Self>, sql: &'a str) -> BoxFuture<'a, ()>;
     fn count<'a>(pool: &'a Pool<Self>, sql: &'a str) -> BoxFuture<'a, i64>;
-    /// Runs raw SQL on the handler's connection, bypassing [`DbConn::query`].
+    /// Runs plain SQLx (`raw_sql`) on the handler's connection, bypassing [`DbConn::query`].
     fn raw<'a>(conn: &'a mut DbConn<Self>, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>>;
     /// A statement that writes five rows to `items`.
     const BULK: &'static str;
     /// A statement that ends the current transaction.
     const END_TRANSACTION: &'static str;
-    /// Whether the backend stops a raw [`Self::END_TRANSACTION`] from committing a preview.
-    const RAW_END_PREVENTED: bool;
 }
 
 impl Server for Postgres {
     const ENV: &'static str = "BENCH_POSTGRES_URL";
     const BULK: &'static str = "INSERT INTO items (id, name) SELECT 'b' || g, :name FROM generate_series(1, 5) AS g";
     const END_TRANSACTION: &'static str = "COMMIT";
-    // The preview's deferred constraint trigger fails the commit.
-    const RAW_END_PREVENTED: bool = true;
 
     fn open(url: String) -> BoxFuture<'static, (Pool<Self>, BoxFuture<'static, ()>)> {
         Box::pin(async move {
@@ -109,7 +105,7 @@ impl Server for Postgres {
     }
 
     fn raw<'a>(conn: &'a mut DbConn<Self>, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(&mut **conn).await.map(drop) })
+        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(conn).await.map(drop) })
     }
 }
 
@@ -119,8 +115,6 @@ impl Server for MySql {
         "INSERT INTO items (id, name) VALUES ('b1', :name), ('b2', :name), ('b3', :name), ('b4', :name), ('b5', :name)";
     // DDL commits the transaction implicitly.
     const END_TRANSACTION: &'static str = "CREATE TABLE implicit_commit (x INT)";
-    // MySQL has no hook that can refuse an implicit commit made by raw SQL.
-    const RAW_END_PREVENTED: bool = false;
 
     fn open(url: String) -> BoxFuture<'static, (Pool<Self>, BoxFuture<'static, ()>)> {
         Box::pin(async move {
@@ -163,7 +157,7 @@ impl Server for MySql {
     }
 
     fn raw<'a>(conn: &'a mut DbConn<Self>, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(&mut **conn).await.map(drop) })
+        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(conn).await.map(drop) })
     }
 }
 
@@ -265,7 +259,12 @@ async fn duplicate<B: Backend>(db: Db<B>) -> Result<StatusCode, DbError> {
 async fn end_transaction<B: Server>(db: Db<B>) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
     insert(&mut conn, "escaped", "Committed").await?;
-    B::raw(&mut conn, B::END_TRANSACTION).await?;
+    // Plain SQLx on the handler's connection is checked too: refused before it is sent.
+    match B::raw(&mut conn, B::END_TRANSACTION).await {
+        Err(sqlx::Error::InvalidArgument(message)) if message.contains("refused") => {}
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    insert(&mut conn, "after", "Rolled back").await?;
     Ok(StatusCode::OK)
 }
 
@@ -453,9 +452,7 @@ async fn ending_the_transaction_inside_a_preview_is_unconfirmed<B: Server>(pool:
     let response = app.clone().oneshot(preview("/end")).await.unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(response.headers().get("preference-applied").is_none(), "no rollback is claimed");
-    if B::RAW_END_PREVENTED {
-        assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0, "the raw commit was refused");
-    }
+    assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0, "the raw commit was refused before it was sent");
     // The connection is still usable for the next preview.
     let next = json_body(app.oneshot(preview("/sequence")).await.unwrap()).await;
     assert_eq!(next["rolledBack"], true, "{next}");

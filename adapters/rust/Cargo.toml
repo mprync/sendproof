@@ -40,6 +40,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libsqlite3-sys = { version = "0.40", default-features = false }
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio"] }
+# `offline` turns on `Executor::describe`, which sendproof-sqlx's own `Executor` impls must then
+# provide. Enabled here always, so they compile whether or not the application enables `sqlx/macros`.
+sqlx-core = { version = "0.9.1", default-features = false, features = ["offline"] }
+sqlx-sqlite = { version = "0.9.1", default-features = false, features = ["offline"] }
+sqlx-postgres = { version = "0.9.1", default-features = false, features = ["offline"] }
+sqlx-mysql = { version = "0.9.1", default-features = false, features = ["offline"] }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }

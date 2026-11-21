@@ -43,20 +43,20 @@ async fn create(db: Db, body: web::Json<Value>) -> Result<HttpResponse, DbError>
     sqlx::query("INSERT INTO items (id, name) VALUES (?1, ?2)")
         .bind(body["id"].as_str().unwrap())
         .bind(body["name"].as_str().unwrap())
-        .execute(&mut *conn)
+        .execute(&mut conn)
         .await?;
     Ok(HttpResponse::Created().finish())
 }
 
 async fn boom(db: Db) -> Result<HttpResponse, DbError> {
     let mut conn = db.acquire().await?;
-    sqlx::query("INSERT INTO items (id, name) VALUES ('boom', 'x')").execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO items (id, name) VALUES ('boom', 'x')").execute(&mut conn).await?;
     panic!("handler failure after writing");
 }
 
 async fn ungated(db: Db) -> Result<HttpResponse, DbError> {
     let mut conn = db.acquire().await?;
-    sqlx::query("INSERT INTO items (id, name) VALUES ('ungated', 'x')").execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO items (id, name) VALUES ('ungated', 'x')").execute(&mut conn).await?;
     Ok(HttpResponse::Created().finish())
 }
 

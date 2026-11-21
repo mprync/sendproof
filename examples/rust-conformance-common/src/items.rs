@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use sendproof_core::capture::{self, EmailEffect};
-use sendproof_sqlx::{Backend, Db, DbError, RowsAffected};
+use sendproof_sqlx::{Backend, Db, DbConn, DbError, RowsAffected};
 
 /// What an operation answers with.
 pub struct Outcome {
@@ -248,19 +248,20 @@ where
     })
 }
 
-/// Executes a raw `COMMIT` on the connection the handler uses, below the named-query layer that already
-/// refuses it. Implemented for each SQLx backend.
+/// Executes a `COMMIT` through plain SQLx (`raw_sql`) on the connection the handler uses, rather than
+/// through a named query. In a preview the connection refuses it before it is sent. Implemented for
+/// each SQLx backend.
 pub trait RawCommit: Backend {
-    fn raw_commit(connection: &mut Self::Connection) -> sendproof_core::BoxFuture<'_, ()>;
+    fn raw_commit(conn: &mut DbConn<Self>) -> sendproof_core::BoxFuture<'_, ()>;
 }
 
 macro_rules! raw_commit {
     ($backend:ty) => {
         impl RawCommit for $backend {
-            fn raw_commit(connection: &mut Self::Connection) -> sendproof_core::BoxFuture<'_, ()> {
+            fn raw_commit(conn: &mut DbConn<Self>) -> sendproof_core::BoxFuture<'_, ()> {
                 Box::pin(async move {
                     // The error is the point: a preview refuses the commit, and the handler carries on.
-                    let _ = sqlx::raw_sql("COMMIT").execute(connection).await;
+                    let _ = sqlx::raw_sql("COMMIT").execute(conn).await;
                 })
             }
         }

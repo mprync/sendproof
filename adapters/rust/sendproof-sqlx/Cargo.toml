@@ -13,11 +13,11 @@ readme = "README.md"
 [features]
 default = ["sqlite"]
 # SQLite: the pre-update hook captures every row change.
-sqlite = ["sqlx/sqlite", "sqlx/sqlite-preupdate-hook", "dep:libsqlite3-sys"]
+sqlite = ["sqlx/sqlite", "sqlx/sqlite-preupdate-hook", "dep:libsqlite3-sys", "dep:sqlx-sqlite"]
 # PostgreSQL: session-temporary row triggers capture every row change.
-postgres = ["sqlx/postgres", "sqlx/json"]
+postgres = ["sqlx/postgres", "sqlx/json", "dep:sqlx-postgres"]
 # MySQL: primary-key-scoped before/after reads around named statements.
-mysql = ["sqlx/mysql", "sqlx/json"]
+mysql = ["sqlx/mysql", "sqlx/json", "dep:sqlx-mysql"]
 # `Db` as an Axum extractor.
 axum = ["dep:axum"]
 # `Db` as an Actix Web extractor (`web::Data<Pool<B>>` in `app_data`).
@@ -26,6 +26,12 @@ actix = ["dep:actix-web"]
 [dependencies]
 sendproof-core.workspace = true
 sqlx.workspace = true
+# Only for their `offline` feature (see the workspace manifest): `DbConn` implements `sqlx::Executor`.
+sqlx-core.workspace = true
+sqlx-sqlite = { workspace = true, optional = true }
+sqlx-postgres = { workspace = true, optional = true }
+sqlx-mysql = { workspace = true, optional = true }
+futures-util.workspace = true
 libsqlite3-sys = { workspace = true, optional = true }
 http.workspace = true
 serde_json.workspace = true

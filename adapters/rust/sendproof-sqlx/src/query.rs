@@ -191,6 +191,32 @@ impl Rules {
     pub(crate) fn broken(&self) -> bool {
         self.broken.load(std::sync::atomic::Ordering::SeqCst)
     }
+
+    /// Checks a preview statement before it is sent: refuses every statement once the database has
+    /// ended the transaction, and any statement that would end or escape it (which also fails the
+    /// preview). Answers the refusal message.
+    pub(crate) fn admit<B: Backend>(&self, sql: &str) -> Result<(), String> {
+        if self.broken() {
+            return Err(
+                "Sendproof refused the statement: the database already rolled the preview transaction back after a deadlock or lock wait timeout".into(),
+            );
+        }
+        if let Some(verb) = preview_refusal(sql, B::DIALECT, &self.procedures) {
+            self.refused.store(true, std::sync::atomic::Ordering::SeqCst);
+            return Err(format!(
+                "Sendproof refused `{verb}` in a preview: it would end the preview transaction and make its writes permanent"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Notes an error a preview statement answered. One that rolled the whole transaction back
+    /// refuses every later statement of the preview; the handler still gets the original error.
+    pub(crate) fn witness<B: Backend>(&self, error: &sqlx::Error) {
+        if B::ends_transaction(error) {
+            self.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
 }
 
 impl<'c, B: Backend> NamedQuery<'c, B> {
@@ -246,24 +272,12 @@ impl<'c, B: Backend> NamedQuery<'c, B> {
         // In a preview, a statement that ends the transaction would make the writes before it
         // permanent. Refuse it before it reaches the database.
         let preview = self.capture.as_deref().is_some_and(B::rolls_back);
-        if preview && self.safe.broken() {
-            return Err(DbError::Query(
-                "Sendproof refused the statement: the database already rolled the preview transaction back after a deadlock or lock wait timeout".into(),
-            ));
-        }
-        if preview && let Some(verb) = preview_refusal(&self.statement.original, B::DIALECT, &self.safe.procedures) {
-            self.safe.refused.store(true, std::sync::atomic::Ordering::SeqCst);
-            return Err(DbError::Query(format!(
-                "Sendproof refused `{verb}` in a preview: it would end the preview transaction and make its writes permanent"
-            )));
+        if preview {
+            self.safe.admit::<B>(&self.statement.original).map_err(DbError::Query)?;
         }
         let result = B::run(self.connection, self.capture.as_deref(), &self.statement, fetch).await;
-        // The handler still gets the original error; every later statement of the preview is refused.
-        if preview
-            && let Err(DbError::Sqlx(error)) = &result
-            && B::ends_transaction(error)
-        {
-            self.safe.broken.store(true, std::sync::atomic::Ordering::SeqCst);
+        if preview && let Err(DbError::Sqlx(error)) = &result {
+            self.safe.witness::<B>(error);
         }
         result
     }

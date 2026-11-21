@@ -57,7 +57,7 @@ async fn create(db: Db, Json(body): Json<Value>) -> Result<StatusCode, DbError> 
     sqlx::query("INSERT INTO items (id, name) VALUES (?1, ?2)")
         .bind(body["id"].as_str().unwrap())
         .bind(body["name"].as_str().unwrap())
-        .execute(&mut *conn)
+        .execute(&mut conn)
         .await?;
     Ok(StatusCode::CREATED)
 }
@@ -67,32 +67,32 @@ async fn bulk(db: Db) -> Result<StatusCode, DbError> {
     sqlx::query(
         "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 5) INSERT INTO items SELECT 'b' || x, 'bulk' FROM c",
     )
-    .execute(&mut *conn)
+    .execute(&mut conn)
     .await?;
     Ok(StatusCode::OK)
 }
 
 async fn boom(db: Db) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
-    sqlx::query("INSERT INTO items (id, name) VALUES ('boom', 'x')").execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO items (id, name) VALUES ('boom', 'x')").execute(&mut conn).await?;
     panic!("handler failure after writing");
 }
 
 /// Reads before it writes, the shape that fails at once with `database is locked` when a deferred transaction upgrades.
 async fn bump(db: Db, Json(body): Json<Value>) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
-    let seen: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items").fetch_one(&mut *conn).await?;
+    let seen: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items").fetch_one(&mut conn).await?;
     sqlx::query("INSERT INTO items (id, name) VALUES (?1, ?2)")
         .bind(body["id"].as_str().unwrap())
         .bind(format!("seen {seen}"))
-        .execute(&mut *conn)
+        .execute(&mut conn)
         .await?;
     Ok(StatusCode::CREATED)
 }
 
 async fn ungated(db: Db) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
-    sqlx::query("INSERT INTO items (id, name) VALUES ('ungated', 'x')").execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO items (id, name) VALUES ('ungated', 'x')").execute(&mut conn).await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -327,10 +327,10 @@ fn single(pool: SqlitePool, route: axum::routing::MethodRouter<State>, policy: b
 async fn a_raw_commit_inside_a_preview_never_persists_anything() {
     async fn escape(db: Db) -> Result<StatusCode, DbError> {
         let mut conn = db.acquire().await?;
-        sqlx::query("INSERT INTO items (id, name) VALUES ('before', 'x')").execute(&mut *conn).await?;
+        sqlx::query("INSERT INTO items (id, name) VALUES ('before', 'x')").execute(&mut conn).await?;
         // Ignore the refusal and keep writing, as careless handler code might.
-        let _ = sqlx::raw_sql("COMMIT").execute(&mut *conn).await;
-        let _ = sqlx::query("INSERT INTO items (id, name) VALUES ('after', 'x')").execute(&mut *conn).await;
+        let _ = sqlx::raw_sql("COMMIT").execute(&mut conn).await;
+        let _ = sqlx::query("INSERT INTO items (id, name) VALUES ('after', 'x')").execute(&mut conn).await;
         Ok(StatusCode::OK)
     }
     let pool = pool().await;
@@ -341,6 +341,35 @@ async fn a_raw_commit_inside_a_preview_never_persists_anything() {
     assert_eq!(count(&pool, "items").await, 0, "the commit hook turned every commit into a rollback");
     // The connection commits normally again once the preview is over.
     sqlx::query("INSERT INTO items (id, name) VALUES ('later', 'x')").execute(&pool).await.unwrap();
+    assert_eq!(count(&pool, "items").await, 1);
+}
+
+#[tokio::test]
+async fn plain_sqlx_on_the_connection_and_its_transactions_is_checked_before_sending() {
+    fn refused<T: std::fmt::Debug>(result: Result<T, sqlx::Error>) {
+        assert!(matches!(&result, Err(sqlx::Error::InvalidArgument(message)) if message.contains("refused")), "{result:?}");
+    }
+    async fn escape(db: Db) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        sqlx::query("INSERT INTO items (id, name) VALUES ('before', 'x')").execute(&mut conn).await?;
+        refused(sqlx::raw_sql("COMMIT").execute(&mut conn).await);
+        refused(sqlx::query("SAVEPOINT sendproof_preview").fetch_optional(&mut conn).await);
+        refused(sqlx::query("COMMIT").fetch_all(&mut conn).await);
+        let mut tx = conn.begin().await?;
+        sqlx::query("INSERT INTO items (id, name) VALUES ('nested', 'x')").execute(&mut tx).await?;
+        refused(sqlx::raw_sql("END").execute(&mut tx).await);
+        refused(sqlx::Executor::prepare(&mut tx, sqlx::SqlSafeStr::into_sql_str("ROLLBACK")).await);
+        tx.commit().await?;
+        Ok(StatusCode::OK)
+    }
+    let pool = pool().await;
+    let app = single(pool.clone(), post(escape), false);
+    let response = app.clone().oneshot(preview("/op", json!({}))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "a refused statement fails the preview");
+    assert_eq!(count(&pool, "items").await, 0);
+    // Outside a preview the same statements reach the database.
+    let mut conn = Db::from_pool(pool.clone()).acquire().await.unwrap();
+    sqlx::raw_sql("BEGIN; INSERT INTO items (id, name) VALUES ('sent', 'x'); COMMIT").execute(&mut conn).await.unwrap();
     assert_eq!(count(&pool, "items").await, 1);
 }
 

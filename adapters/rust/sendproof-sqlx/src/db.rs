@@ -1,10 +1,6 @@
 //! Access to the request's database connection.
 
-use std::{
-    fmt,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::{fmt, sync::Arc};
 
 use sendproof_core::Enrollment;
 use sqlx::{Pool, Transaction, pool::PoolConnection};
@@ -12,6 +8,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
     backend::Backend,
+    executor::Guarded,
     query::{NamedQuery, Rules},
 };
 
@@ -136,8 +133,12 @@ impl<B: Backend> Db<B> {
     }
 }
 
-/// A database connection. Dereferences to the backend's connection (for example
-/// [`SqliteConnection`](sqlx::SqliteConnection)); pass `&mut *conn` to SQLx.
+/// A database connection.
+///
+/// Use [`query`](Self::query) for named parameters, or plain SQLx: `&mut DbConn` is a
+/// [`sqlx::Executor`], so `sqlx::query("…").execute(&mut conn)` works. In a preview, every statement
+/// is checked before it is sent, and one that would end the preview transaction is refused. The raw
+/// SQLx connection is never handed out, so no statement can skip that check.
 pub struct DbConn<B: Backend> {
     inner: Inner<B>,
     capture: Option<Arc<B::Capture>>,
@@ -155,7 +156,7 @@ impl<B: Backend> DbConn<B> {
     /// Starts a named-parameter query on this connection.
     pub fn query(&mut self, sql: &str) -> NamedQuery<'_, B> {
         let (capture, safe) = (self.capture.clone(), self.safe.clone());
-        NamedQuery::new(&mut **self, capture, safe, sql)
+        NamedQuery::new(self.connection(), capture, safe, sql)
     }
 
     /// Begins a transaction, or a savepoint inside the preview's transaction.
@@ -164,18 +165,15 @@ impl<B: Backend> DbConn<B> {
     pub async fn begin(&mut self) -> Result<DbTransaction<'_, B>, DbError> {
         let (capture, safe) = (self.capture.clone(), self.safe.clone());
         let mark = capture.as_deref().map_or(0, B::mark);
-        let transaction = sqlx::Connection::begin(&mut **self).await?;
+        let transaction = sqlx::Connection::begin(self.connection()).await?;
         Ok(DbTransaction { transaction: Some(transaction), capture, safe, mark })
     }
-}
 
-impl<B: Backend> Deref for DbConn<B> {
-    type Target = B::Connection;
-
-    fn deref(&self) -> &B::Connection {
-        match &self.inner {
+    /// The raw connection. Private: handlers send statements only through the guarded paths.
+    fn connection(&mut self) -> &mut B::Connection {
+        match &mut self.inner {
             Inner::Pool(connection) => connection,
-            Inner::Scoped(slot) => match &**slot {
+            Inner::Scoped(slot) => match &mut **slot {
                 Slot::Tx(transaction) => transaction,
                 Slot::Conn(connection) => connection,
                 // A guard is only created for an open slot, and the provider closes the slot
@@ -184,22 +182,32 @@ impl<B: Backend> Deref for DbConn<B> {
             },
         }
     }
-}
 
-impl<B: Backend> DerefMut for DbConn<B> {
-    fn deref_mut(&mut self) -> &mut B::Connection {
-        match &mut self.inner {
-            Inner::Pool(connection) => connection,
-            Inner::Scoped(slot) => match &mut **slot {
-                Slot::Tx(transaction) => transaction,
-                Slot::Conn(connection) => connection,
-                Slot::Closed => unreachable!("a closed scope never hands out a connection"),
-            },
-        }
+    /// The connection for one plain SQLx call, guarded in a preview.
+    pub(crate) fn guarded(&mut self) -> Guarded<'_, B> {
+        let rules = preview_rules::<B>(self.capture.as_deref(), &self.safe);
+        Guarded { connection: self.connection(), rules }
     }
 }
 
-/// A transaction started with [`DbConn::begin`]. Dereferences to the backend's connection.
+impl<B: Backend> fmt::Debug for DbConn<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let source = match &self.inner {
+            Inner::Pool(_) => "pool",
+            Inner::Scoped(_) if self.capture.as_deref().is_some_and(B::rolls_back) => "preview",
+            Inner::Scoped(_) => "observed send",
+        };
+        f.debug_struct("DbConn").field("source", &source).finish_non_exhaustive()
+    }
+}
+
+/// The statement guard's rules when `capture` belongs to a preview; `None` otherwise.
+fn preview_rules<B: Backend>(capture: Option<&B::Capture>, safe: &Arc<Rules>) -> Option<Arc<Rules>> {
+    capture.is_some_and(B::rolls_back).then(|| safe.clone())
+}
+
+/// A transaction started with [`DbConn::begin`]. Like [`DbConn`], `&mut DbTransaction` is a guarded
+/// [`sqlx::Executor`].
 ///
 /// Dropping it without [`commit`](Self::commit) rolls it back, like a SQLx transaction.
 pub struct DbTransaction<'c, B: Backend> {
@@ -213,7 +221,18 @@ impl<B: Backend> DbTransaction<'_, B> {
     /// Starts a named-parameter query inside the transaction.
     pub fn query(&mut self, sql: &str) -> NamedQuery<'_, B> {
         let (capture, safe) = (self.capture.clone(), self.safe.clone());
-        NamedQuery::new(&mut **self, capture, safe, sql)
+        NamedQuery::new(self.connection(), capture, safe, sql)
+    }
+
+    /// The raw connection. Private: handlers send statements only through the guarded paths.
+    fn connection(&mut self) -> &mut B::Connection {
+        self.transaction.as_deref_mut().expect("an open transaction")
+    }
+
+    /// The connection for one plain SQLx call, guarded in a preview.
+    pub(crate) fn guarded(&mut self) -> Guarded<'_, B> {
+        let rules = preview_rules::<B>(self.capture.as_deref(), &self.safe);
+        Guarded { connection: self.connection(), rules }
     }
 
     /// Commits the transaction (releases the savepoint when nested).
@@ -249,17 +268,9 @@ impl<B: Backend> Drop for DbTransaction<'_, B> {
     }
 }
 
-impl<B: Backend> Deref for DbTransaction<'_, B> {
-    type Target = B::Connection;
-
-    fn deref(&self) -> &B::Connection {
-        self.transaction.as_deref().expect("an open transaction")
-    }
-}
-
-impl<B: Backend> DerefMut for DbTransaction<'_, B> {
-    fn deref_mut(&mut self) -> &mut B::Connection {
-        self.transaction.as_deref_mut().expect("an open transaction")
+impl<B: Backend> fmt::Debug for DbTransaction<'_, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbTransaction").field("open", &self.transaction.is_some()).finish_non_exhaustive()
     }
 }
 
