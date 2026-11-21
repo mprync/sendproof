@@ -162,7 +162,11 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 ## Previews on MySQL take turns
 
-MySQL and MariaDB deadlock when three or more Previews insert the same new key at once and the first rolls back. The Eloquent and Doctrine providers therefore let one Preview run at a time on each MySQL database. PHP serves requests in separate worker processes, so the turn is an advisory file lock in the system temporary directory, which orders the Previews of every process on the host, a wider guarantee than the per-process turn of the other bindings. Previews sent to different hosts of one application still run at the same time and can still deadlock; the Preview then fails safely and nothing is written. Sends and observed Sends never wait. See [verified databases](../../docs/bindings/databases.md).
+MySQL and MariaDB deadlock when three or more Previews insert the same new key at once and the first rolls back. The Eloquent and Doctrine providers therefore let one Preview run at a time on each MySQL database. PHP serves requests in separate worker processes, so the turn is an advisory file lock in the system temporary directory, which orders the Previews of every process on the host, a wider guarantee than the per-process turn of the other bindings. Previews sent to different hosts of one application still run at the same time and can still deadlock; the Preview then fails safely and nothing is written. Sends and observed Sends never wait.
+
+- **The lock file** is `sendproof-turn-<hash>.lock` in `sys_get_temp_dir()`, one per database (host, port and name; never shown). Every PHP process that serves Previews must be able to open it for writing, so run them as one user, or give them a shared temporary directory. A process that can't open it fails the Preview before it starts.
+- **Release**: the turn is released when the Preview's transaction ends, and the operating system releases the lock when the request ends or the process dies, after a fatal error or a crash too.
+- **No deadlock with the application**: a Preview takes the turn before it opens its transaction and before the handler runs, and Sends never take it, so a Preview never waits for the turn while holding a database lock. A Preview whose connections include two that point at the same database takes the turn once. A Preview that waits longer than 60 seconds fails without running. See [verified databases](../../docs/bindings/databases.md).
 
 ## Logs and redaction
 

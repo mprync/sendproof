@@ -66,15 +66,36 @@ final class PreviewTurnsTest extends TestCase
 
     public function testReleasingTwiceIsSafeAndAGivenUpWaitFailsTheStartOfThePreview(): void
     {
-        $first = PreviewTurns::take('db-d', 1, $this->directory);
+        $process = $this->holder('db-d', 700);
         try {
             PreviewTurns::take('db-d', 0.05, $this->directory);
             $this->fail('A turn that never came must throw.');
         } catch (\RuntimeException $error) {
             $this->assertStringContainsString('did not run', $error->getMessage());
         }
+        proc_close($process);
+        $first = PreviewTurns::take('db-d', 1, $this->directory);
         $first->release();
         $first->release();
         PreviewTurns::take('db-d', 1, $this->directory)->release();
+    }
+
+    public function testAPreviewWithTwoConnectionsToOneDatabaseTakesTheTurnOnce(): void
+    {
+        // Two configured connections (a read and a write name) that point at one database.
+        $started = hrtime(true);
+        $first = PreviewTurns::take('db-e', 1, $this->directory);
+        $second = PreviewTurns::take('db-e', 1, $this->directory);
+        $this->assertLessThan(500, (hrtime(true) - $started) / 1e6, 'The Preview must not wait for the turn it already holds.');
+
+        $second->release();
+        $process = proc_open([PHP_BINARY, '-r', sprintf('require %s; Sendproof\Core\Preview\PreviewTurns::take(%s, 0.2, %s); echo "took";', var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true), var_export('db-e', true), var_export($this->directory, true))], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertStringNotContainsString('took', (string) stream_get_contents($pipes[1]), 'The turn is still held while the first connection holds it.');
+        proc_close($process);
+
+        $first->release();
+        $process = proc_open([PHP_BINARY, '-r', sprintf('require %s; Sendproof\Core\Preview\PreviewTurns::take(%s, 1, %s); echo "took";', var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true), var_export('db-e', true), var_export($this->directory, true))], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertSame('took', stream_get_contents($pipes[1]), 'Releasing the last hold hands the turn on.');
+        proc_close($process);
     }
 }

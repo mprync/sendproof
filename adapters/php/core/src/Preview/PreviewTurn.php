@@ -13,20 +13,20 @@ namespace Sendproof\Core\Preview;
  */
 final class PreviewTurn
 {
-    /** @param resource|null $handle */
-    public function __construct(private $handle)
+    /** @param string $path The lock file this turn holds; {@see PreviewTurns} owns the lock itself */
+    public function __construct(private ?string $path)
     {
     }
 
     /** Hands the turn to the next waiting Preview. Safe to call more than once. */
     public function release(): void
     {
-        if ($this->handle === null) {
+        if ($this->path === null) {
             return;
         }
-        flock($this->handle, LOCK_UN);
-        fclose($this->handle);
-        $this->handle = null;
+        $path = $this->path;
+        $this->path = null;
+        PreviewTurns::giveBack($path);
     }
 
     public function __destruct()

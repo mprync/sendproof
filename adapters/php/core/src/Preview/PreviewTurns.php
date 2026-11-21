@@ -21,6 +21,9 @@ namespace Sendproof\Core\Preview;
  */
 final class PreviewTurns
 {
+    /** @var array<string,array{0:resource,1:int}> The turns this process holds, by lock file, and how many holds each has */
+    private static array $held = [];
+
     /**
      * Waits for this database's turn.
      *
@@ -32,6 +35,13 @@ final class PreviewTurns
     public static function take(string $database, float $timeoutSeconds = 60.0, ?string $directory = null): PreviewTurn
     {
         $path = rtrim($directory ?? sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . 'sendproof-turn-' . hash('sha256', $database) . '.lock';
+        // One Preview that enrolls two connections to the same database already has the turn. A
+        // second lock on the file from this process would wait for the first, which never comes.
+        if (isset(self::$held[$path])) {
+            self::$held[$path][1]++;
+
+            return new PreviewTurn($path);
+        }
         $handle = fopen($path, 'c');
         if ($handle === false) {
             throw new \RuntimeException('Cannot open the Preview turn lock.');
@@ -45,6 +55,24 @@ final class PreviewTurns
             usleep(2000);
         }
 
-        return new PreviewTurn($handle);
+        self::$held[$path] = [$handle, 1];
+
+        return new PreviewTurn($path);
+    }
+
+    /**
+     * Gives back one hold on the turn at `$path`; the lock is released with the last one.
+     *
+     * @internal Called by {@see PreviewTurn::release()}
+     */
+    public static function giveBack(string $path): void
+    {
+        if (!isset(self::$held[$path]) || --self::$held[$path][1] > 0) {
+            return;
+        }
+        $handle = self::$held[$path][0];
+        unset(self::$held[$path]);
+        flock($handle, LOCK_UN);
+        fclose($handle);
     }
 }
