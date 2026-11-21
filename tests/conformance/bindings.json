@@ -287,6 +287,21 @@
       "id": "php-symfony",
       "database": "sqlite",
       "toolchain": "php",
+    {
+      "id": "php-laravel-mysql",
+      "database": "mysql",
+      "toolchain": "php",
+      "port": 5421,
+      "readiness": "/ready",
+      "prepare": "sh adapters/php/scripts/prepare.sh",
+      "test": "sh adapters/php/scripts/test.sh",
+      "start": [
+        "php",
+        "adapters/php/examples/laravel-fixture/serve.php"
+      ],
+      "traceTtlMs": 5000,
+      "sharedRules": ["secret-columns", "raw-commit"]
+    },
       "port": 5374,
       "readiness": "/ready",
       "prepare": "sh adapters/php/scripts/prepare.sh",
