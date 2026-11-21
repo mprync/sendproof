@@ -44,6 +44,11 @@ return [
     // connection a previewed operation writes to; unlisted connections are NOT rolled back.
     'connections' => [null],
 
+    // MySQL and MariaDB: a Preview refuses CALL, because a stored procedure can commit the Preview
+    // transaction. List procedures that never commit, by exact name ('refresh_totals' or
+    // 'reports.rebuild'; case-insensitive; no wildcards). Sendproof trusts this list.
+    'safe_procedures' => [],
+
     // Display label for the database. Defaults to the connection's database name without its path.
     'database_label' => env('SENDPROOF_DATABASE_LABEL'),
 

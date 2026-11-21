@@ -12,13 +12,14 @@ use Sendproof\Core\Capture\Recorder;
 /** Wraps each new driver connection so its statements are captured. */
 final class CaptureDriver extends AbstractDriverMiddleware
 {
-    public function __construct(DriverInterface $driver, private readonly Recorder $recorder, private readonly bool $showValues)
+    /** @param list<string> $safeProcedures see {@see CaptureMiddleware} */
+    public function __construct(DriverInterface $driver, private readonly Recorder $recorder, private readonly bool $showValues, private readonly array $safeProcedures = [])
     {
         parent::__construct($driver);
     }
 
     public function connect(#[\SensitiveParameter] array $params): ConnectionInterface
     {
-        return new CaptureConnection(parent::connect($params), $this->recorder, $this->showValues, in_array($params['driver'] ?? '', ['pdo_mysql', 'mysqli'], true));
+        return new CaptureConnection(parent::connect($params), $this->recorder, $this->showValues, in_array($params['driver'] ?? '', ['pdo_mysql', 'mysqli'], true), $this->safeProcedures);
     }
 }

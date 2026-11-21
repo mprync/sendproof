@@ -29,7 +29,7 @@ return static function (ContainerConfigurator $container): void {
     $services->set(DefaultIdentityResolver::class);
 
     $services->set(CaptureMiddleware::class)
-        ->args([service(Recorder::class), param('sendproof.sql_values'), param('kernel.environment')])
+        ->args([service(Recorder::class), param('sendproof.sql_values'), param('kernel.environment'), param('sendproof.safe_procedures')])
         ->tag('doctrine.middleware');
 
     $services->set(DoctrinePreviewProvider::class)

@@ -38,6 +38,7 @@ final class SendproofServiceProvider extends ServiceProvider
             (array) $app['config']->get('sendproof.connections', [null]),
             $app['config']->get('sendproof.database_label'),
             fn (): Recorder => $app->make(Recorder::class),
+            (array) $app['config']->get('sendproof.safe_procedures', []),
         ));
     }
 

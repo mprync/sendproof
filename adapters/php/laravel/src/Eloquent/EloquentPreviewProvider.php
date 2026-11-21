@@ -26,13 +26,29 @@ use Sendproof\Core\Stores\PreviewTransactionControlException;
  */
 class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSystem
 {
+    /**
+     * The savepoint a MySQL or MariaDB Preview opens its transaction with, for the backstop in
+     * {@see EloquentSession::rollback()}. Laravel names its own savepoints `trans<n>`, so it never
+     * makes this one, and a handler's `RELEASE` or `ROLLBACK TO` of it is refused like a `COMMIT`.
+     */
+    public const SAVEPOINT = 'sendproof_preview';
+
     /** @var \WeakMap<Connection,true>|null Connections that already refuse transaction control during a Preview */
     private static ?\WeakMap $guarded = null;
+
+    /** @var list<string> Procedures the host declared never commit, lower-cased */
+    protected array $safeProcedures;
 
     /**
      * @param list<string|null> $connections
      * @param Closure(): Recorder|null $recorder Resolves the request's recorder; without it a Preview
      *                                           does not refuse a handler's `COMMIT`
+     * @param iterable<string> $safeProcedures On MySQL and MariaDB a Preview refuses `CALL`, because a
+     *        stored procedure can commit the Preview transaction. List the procedures that never commit,
+     *        by exact name (optionally `schema.name`; case-insensitive, like MySQL), to allow calling
+     *        them. The binding trusts the list: a listed procedure that does commit makes the Preview's
+     *        writes durable, and the savepoint check before the rollback then answers 500.
+     * @throws \InvalidArgumentException when a safe procedure is not an exact name
      */
     public function __construct(
         protected DatabaseManager $database,
@@ -40,7 +56,9 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         protected array $connections = [null],
         protected ?string $label = null,
         protected ?Closure $recorder = null,
+        iterable $safeProcedures = [],
     ) {
+        $this->safeProcedures = Statements::normalizeProcedures($safeProcedures);
     }
 
     public function databaseSystem(): ?string
@@ -70,9 +88,10 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
 
     /**
      * Refuses, before it reaches the database, any statement that would end or escape the Preview
-     * transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SET autocommit`, and on MySQL the statements it
-     * commits implicitly). The refusal also fails the Preview with 500, even if the handler
-     * catches it. Savepoints stay allowed.
+     * transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SET autocommit`, the {@see SAVEPOINT}, and on
+     * MySQL the statements it commits implicitly, `EXECUTE` and `CALL` of an undeclared procedure).
+     * The refusal also fails the Preview with 500, even if the handler catches it. Savepoints stay
+     * allowed.
      */
     protected function refuseTransactionControl(Connection $connection): void
     {
@@ -86,10 +105,11 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         self::$guarded[$connection] = true;
         $mysql = $this->takesTurns($connection);
         $recorder = $this->recorder;
-        $connection->beforeExecuting(static function (string $query) use ($mysql, $recorder): void {
+        $safe = $this->safeProcedures;
+        $connection->beforeExecuting(static function (string $query) use ($mysql, $recorder, $safe): void {
             $current = $recorder();
-            if ($current->isPreview() && Statements::endsTransaction($query, $mysql)) {
-                $error = new PreviewTransactionControlException('A statement that would end the Preview transaction was refused during Preview.');
+            if ($current->isPreview() && ($reason = Statements::reason($query, $mysql, $safe, self::SAVEPOINT)) !== null) {
+                $error = new PreviewTransactionControlException("A statement that would end the Preview transaction was refused during Preview: {$reason}.");
                 $current->refuse($error);
 
                 throw $error;
@@ -134,13 +154,19 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                 }
                 $before = $connection->transactionLevel();
                 $connection->beginTransaction();
-                $enrolled[] = [$connection, $before];
+                $marked = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
+                $enrolled[] = [$connection, $before, $marked];
+                if ($marked) {
+                    // The backstop's mark, made first thing in the Preview transaction, on the PDO itself
+                    // so it neither passes the handler's guard nor shows in the SQL log.
+                    $connection->getPdo()->exec('SAVEPOINT ' . self::SAVEPOINT);
+                }
             }
         } catch (\Throwable $error) {
             foreach ($turns as $turn) {
                 $turn->release();
             }
-            foreach ($enrolled as [$connection, $before]) {
+            foreach ($enrolled as [$connection, $before, $_]) {
                 try {
                     $connection->rollBack($before);
                 } catch (\Throwable) {

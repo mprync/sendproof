@@ -47,6 +47,8 @@ final class Configuration implements ConfigurationInterface
                 ->arrayNode('connections')->scalarPrototype()->end()->defaultValue(['default'])
                     ->info('Doctrine connections enrolled in a preview. Unlisted connections are NOT rolled back.')->end()
                 ->scalarNode('database_label')->defaultNull()->end()
+                ->arrayNode('safe_procedures')->scalarPrototype()->end()->defaultValue([])
+                    ->info('MySQL and MariaDB: procedures that never commit, by exact name, which a Preview may CALL. Sendproof trusts this list.')->end()
                 ->booleanNode('include_sql_parameter_values')->defaultNull()
                     ->info('Show SQL parameter values. Null shows them in dev and test only.')->end()
                 ->arrayNode('trace')->addDefaultsIfNotSet()->children()

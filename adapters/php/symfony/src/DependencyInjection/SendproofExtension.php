@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
+use Sendproof\Core\Capture\Statements;
 use Sendproof\Core\Contracts\PreviewProvider;
 use Sendproof\Symfony\Doctrine\DoctrinePreviewProvider;
 use Sendproof\Symfony\Identity\DefaultIdentityResolver;
@@ -29,6 +30,8 @@ final class SendproofExtension extends Extension
         $container->setParameter('sendproof.connections', $config['connections']);
         $container->setParameter('sendproof.database_label', $config['database_label']);
         $container->setParameter('sendproof.sql_values', $config['include_sql_parameter_values']);
+        // Checked here, so a wildcard or quoted name fails the container build rather than a Preview.
+        $container->setParameter('sendproof.safe_procedures', Statements::normalizeProcedures($config['safe_procedures']));
 
         (new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config')))->load('services.php');
 

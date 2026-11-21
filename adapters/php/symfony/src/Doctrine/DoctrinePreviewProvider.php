@@ -21,6 +21,13 @@ use Sendproof\Core\Preview\PreviewTurns;
  */
 class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSystem
 {
+    /**
+     * The savepoint a MySQL or MariaDB Preview opens its transaction with, for the backstop in
+     * {@see DoctrineSession::rollback()}. DBAL names its own savepoints `DOCTRINE_<n>`, so it never
+     * makes this one, and {@see CaptureConnection} refuses a handler's `RELEASE` or `ROLLBACK TO` of it.
+     */
+    public const SAVEPOINT = 'sendproof_preview';
+
     /** @param list<string> $connections Doctrine connection names */
     public function __construct(
         protected ManagerRegistry $registry,
@@ -92,13 +99,19 @@ class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                 }
                 $before = $connection->getTransactionNestingLevel();
                 $connection->beginTransaction();
-                $enrolled[] = [$connection, $before];
+                $marked = in_array($connection->getParams()['driver'] ?? '', ['pdo_mysql', 'mysqli'], true);
+                $enrolled[] = [$connection, $before, $marked];
+                if ($marked) {
+                    // The backstop's mark, made first thing in the Preview transaction, on the driver's own
+                    // connection so it neither passes the handler's guard nor shows in the SQL log.
+                    self::native($connection, 'SAVEPOINT ' . self::SAVEPOINT);
+                }
             }
         } catch (\Throwable $error) {
             foreach ($turns as $turn) {
                 $turn->release();
             }
-            foreach ($enrolled as [$connection, $before]) {
+            foreach ($enrolled as [$connection, $before, $_]) {
                 try {
                     while ($connection->getTransactionNestingLevel() > $before) {
                         $connection->rollBack();
@@ -120,6 +133,30 @@ class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         $this->collector->start();
 
         return new DoctrineObservation($this->collector);
+    }
+
+    /**
+     * Runs `$sql` on the driver's own connection (PDO or mysqli), past the DBAL middleware.
+     *
+     * @throws \Throwable when the statement fails
+     */
+    public static function native(Connection $connection, string $sql): void
+    {
+        $native = $connection->getNativeConnection();
+        if ($native instanceof \PDO) {
+            $native->exec($sql);
+
+            return;
+        }
+        if ($native instanceof \mysqli) {
+            if ($native->query($sql) === false) {
+                throw new \RuntimeException($native->error, $native->errno);
+            }
+
+            return;
+        }
+
+        throw new \LogicException('The Preview needs a PDO or mysqli connection for its MySQL savepoint.');
     }
 
     private function connection(string $name): Connection

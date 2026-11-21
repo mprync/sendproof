@@ -17,15 +17,17 @@ use Sendproof\Core\Stores\PreviewTransactionControlException;
  * Records statements that run without prepared parameters, and wraps prepared ones.
  *
  * During a Preview it also refuses, before the statement reaches the database, anything that would
- * end or escape the Preview transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SET autocommit`, and on
- * MySQL the statements it commits implicitly) and a driver-level commit. The refusal fails the
- * Preview with 500 even if the handler catches it. Savepoints stay allowed.
+ * end or escape the Preview transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SET autocommit`, the
+ * Preview's own savepoint, and on MySQL the statements it commits implicitly, `EXECUTE` and `CALL`
+ * of a procedure not declared safe) and a driver-level commit. The refusal fails the Preview with
+ * 500 even if the handler catches it. Savepoints stay allowed.
  */
 final class CaptureConnection extends AbstractConnectionMiddleware
 {
     private const CATEGORY = 'Doctrine.DBAL.Connection';
 
-    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues, private readonly bool $mysql = false)
+    /** @param list<string> $safeProcedures see {@see CaptureMiddleware} */
+    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues, private readonly bool $mysql = false, private readonly array $safeProcedures = [])
     {
         parent::__construct($connection);
     }
@@ -68,8 +70,9 @@ final class CaptureConnection extends AbstractConnectionMiddleware
 
     private function refuseTransactionControl(string $sql): void
     {
-        if ($this->recorder->isPreview() && Statements::endsTransaction($sql, $this->mysql)) {
-            $this->refuse('A statement that would end the Preview transaction was refused during Preview.');
+        if ($this->recorder->isPreview()
+            && ($reason = Statements::reason($sql, $this->mysql, $this->safeProcedures, DoctrinePreviewProvider::SAVEPOINT)) !== null) {
+            $this->refuse("A statement that would end the Preview transaction was refused during Preview: {$reason}.");
         }
     }
 
