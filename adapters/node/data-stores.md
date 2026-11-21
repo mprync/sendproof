@@ -14,7 +14,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you pass to `mongoStore`, `mongooseStore`, `redisStore` or `dynamoStore`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis cluster or pool client, and a raw socket. Hook every client your handlers use, at startup.
+> The binding covers a store only through the client you pass to `mongoStore`, `mongooseStore`, `redisStore` or `dynamoStore`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis cluster client, a pool you create separately (`createClientPool()`), and a raw socket. Hook every client your handlers use, at startup.
 
 ## Register the stores
 
@@ -56,9 +56,11 @@ app.get('/documents/:id', async (req, res) => {
 ```
 
 - Call `mongoStore` before the client connects, or create the client with `{ monitorCommands: true }`. The store relies on command monitoring and refuses a connected client without it.
+- The store proves its monitor is installed on this client: the `hello` it sends to detect the topology must reach its own listener. If it doesn't (monitoring turned off before connecting), or the listener was later removed from the client, discovery reports `guard` mode with "Preview unavailable: MongoDB command monitoring isn't reaching the binding…" and every Preview answers 500 before the handler runs.
 - During a Preview, every database and collection method adds the Preview session to its options. A call that passes its own session is refused, and the Preview answers 500.
-- `client.startSession()` and `client.withSession()` hand out the Preview session. Its `startTransaction` and `withTransaction` run inside the Preview transaction; its `commitTransaction` and `abortTransaction` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`. A raw `{ commitTransaction: 1 }` or `{ abortTransaction: 1 }` command through `db.command()` is refused the same way.
-- An aggregation cursor's `out()`, `merge()` and `addStage()` are checked when you call them, so a `$out` or `$merge` added after `aggregate()` is blocked before it is sent.
+- `client.startSession()` and `client.withSession()` hand out the Preview session. Its `startTransaction` and `withTransaction` run inside the Preview transaction, and its `endSession` does nothing: the Preview ends the session after the handler. Its `commitTransaction` and `abortTransaction` never reach the server and fail the Preview with 500, like a raw SQL `COMMIT`. The store patches the driver's `ClientSession` class rather than the session object, so calling the driver's method directly, such as `ClientSession.prototype.commitTransaction.call(session)`, is refused too. Other sessions behave as usual. A raw `{ commitTransaction: 1 }` or `{ abortTransaction: 1 }` command through `db.command()` is refused the same way.
+- An aggregation cursor's `out()`, `merge()` and `addStage()` are checked when you call them, so a `$out` or `$merge` added after `aggregate()` is blocked before it is sent. A cursor's `clone()` is guarded the same way.
+- Derived handles stay guarded: `db(name, options)`, `collection(name, options)`, `admin()` and `clone()` return guarded handles.
 - A Preview may hold its transaction for `previewTimeoutMs`, 50 seconds by default (below MongoDB's 60-second transaction lifetime). A handler still running at the limit loses the transaction: its later commands fail, nothing commits, and the Preview answers 500.
 
 ### MongoDB with Mongoose 8
@@ -69,13 +71,15 @@ const catalog = mongooseStore(mongoose, { name: 'catalog' });
 const Item = mongoose.model('Item', itemSchema); // define models after mongooseStore
 ```
 
-Call `mongooseStore` after `mongoose.connect` and before defining models: it adds a global plugin, which only reaches models compiled afterwards, and it refuses an instance that already has models. Queries, `save()`, `Model.create`, `insertMany`, `bulkWrite`, aggregations and `connection.transaction()` all join the Preview transaction through Mongoose's `transactionAsyncLocalStorage`, which the store turns on.
+Call `mongooseStore` after `mongoose.connect` and before defining models: it adds a global plugin, which only reaches models compiled afterwards, and it refuses an instance that already has models. Queries, `save()`, `Model.create`, `insertMany`, `bulkWrite`, aggregations, `connection.transaction()`, `connection.withSession()` and `startSession()` all join the Preview transaction through Mongoose's `transactionAsyncLocalStorage`, which the store turns on. The session they hand out is sealed like the driver's: the handler can't commit, abort or end it, even through the session found in `transactionAsyncLocalStorage`.
+
+Mongoose creates collections and indexes for a new model in the background. Await `Model.init()` for each model before the app serves requests, or wrap the model definitions in `detached()`, so those writes aren't taken for a Preview's (see [Background work](#background-work-detached)).
 
 `Model.collection.*` and `connection.db.*` bypass Mongoose's middleware. During a Preview, a write through them reaches MongoDB without the Preview session and commits; the store sees it through command monitoring and fails the Preview with 500, so no rollback is claimed for it. The same goes for a raw `commitTransaction` sent through `connection.db` with the Preview session: it may commit the Preview's writes, so the Preview fails with 500. Use model methods in previewed handlers.
 
 ### Redis
 
-`redisStore(client)` hooks an ioredis 5 or node-redis 5 client in place, before or after it connects. Pipelines and `MULTI` are classified before anything is written, so a refused write sends no command of the batch, not even `MULTI`. `client.duplicate()` returns a hooked copy.
+`redisStore(client)` hooks an ioredis 5 or node-redis 5 client in place, before or after it connects. Pipelines and `MULTI` are classified before anything is written, so a refused write sends no command of the batch, not even `MULTI`. `client.duplicate()` returns a hooked copy. With node-redis, `withTypeMapping()`, `withCommandOptions()` and the other derived clients share the hook, and a pool made with `client.createPool()` hooks each of its clients before their first command.
 
 - ioredis with `enableAutoPipelining` is refused at registration: auto-pipelining batches commands from different requests, so a refused write can't be removed from the batch safely. Use a separate client without it for previewed handlers.
 - node-redis 4 is not supported: its command path is private and can't be hooked.
@@ -83,6 +87,21 @@ Call `mongooseStore` after `mongoose.connect` and before defining models: it add
 ### DynamoDB
 
 `dynamoStore(client)` adds one middleware at the AWS SDK v3 `initialize` step, which runs before a request is serialized or signed, so credentials and signatures never reach a capture. A `DynamoDBDocumentClient` made with `DynamoDBDocumentClient.from(client)` shares the base client's middleware stack: hooking either covers both.
+
+## Background work: `detached()`
+
+Each store write is attributed to the request that sent it. The binding attributes every request a Node HTTP server in the process serves, whatever the framework or middleware order, and Hono's middleware does the same on other runtimes.
+
+While a Preview is open, a store write with no request attribution fails every open Preview with 500: it may be a write of the Preview's that lost its async context, and the binding can't tell. The write itself is not blocked. Wrap background work that writes to a hooked store, such as a queue consumer, a scheduled job or startup seeding, in `detached()`:
+
+```ts
+import { detached } from '@sendproof/core';
+
+setInterval(() => detached(() => redis.incr('heartbeat')), 60_000);
+queue.on('job', job => detached(() => processJob(job)));
+```
+
+`detached()` changes nothing inside a request: a Preview's guard still blocks the write, so a handler can't use it to let a write through. With no Preview open, unattributed writes are never reported.
 
 ## Mark an operation `preview: false`
 

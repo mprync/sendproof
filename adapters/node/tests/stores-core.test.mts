@@ -8,6 +8,7 @@ import {
   PreviewWriteBlockedError, redactDeep, redisTable, refuseInPreview, sanitizeDocument,
 } from '@sendproof/core';
 import type { CaptureRecorder, DataStore } from '@sendproof/core';
+import type { Request } from 'express';
 import { assertBlocked, assertUnconfirmed, cases, dbEntries, handle, specTable, startApp } from './support/stores.mts';
 
 test('embedded data-store tables match spec/data-stores', () => {
@@ -162,6 +163,36 @@ test('every cleanup step runs when one store fails to finish, and the Preview an
   await assertUnconfirmed(await app.preview('POST', '/items/cleanup'));
   assert.deepEqual(finished, ['failing', 'healthy'], 'A failed abort must not skip the other stores');
   assert.equal(await app.db.get('SELECT id FROM items WHERE id = :id', { id: 'cleanup' }), undefined, 'A failed abort must not skip the SQL rollback');
+});
+
+test('a client that disconnects mid-Preview still gets every store finished and SQL rolled back', async t => {
+  const finished: string[] = [];
+  let done: () => void = () => {};
+  const allFinished = new Promise<void>(resolve => { done = resolve; });
+  const store = fakeStore({ finish: async () => { finished.push('store'); done(); } });
+  const hold = holder();
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/items/{id}', (req: Request, _res: unknown, next: (error?: unknown) => void) => {
+      app.db.write('INSERT INTO items (id, name) VALUES (:id, :name)', { id: req.params.id as string, name: 'Abandoned' }, { table: 'items', keys: [{ id: req.params.id }] })
+        .then(() => next(), next);
+    }, hold.route);
+  });
+  // JavaScript can't cancel a running handler, and a dropped connection doesn't interrupt the
+  // Preview pipeline: the handler finishes, then every cleanup step runs.
+  const abort = new AbortController();
+  const request = fetch(app.url + '/sendproof/_preview/items/abandoned', { method: 'POST', headers: { prefer: 'tx=rollback', origin: app.url }, signal: abort.signal });
+  await hold.held(1);
+  abort.abort();
+  await assert.rejects(request);
+  hold.release();
+  await allFinished;
+  assert.deepEqual(finished, ['store']);
+  // The SQLite Preview turn was released: the next Preview runs, and the abandoned insert is gone.
+  const next = app.preview('POST', '/items/next');
+  await hold.held(1);
+  hold.release();
+  assert.equal((await next).status, 200);
+  assert.equal(await app.db.get('SELECT id FROM items WHERE id = :id', { id: 'abandoned' }), undefined);
 });
 
 /** A route that holds every Preview that reaches it until `release()`, so a test can act while Previews are open. */

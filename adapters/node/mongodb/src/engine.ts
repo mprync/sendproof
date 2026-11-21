@@ -4,13 +4,16 @@
  * - **Topology**: `hello` decides the mode once. A replica set or mongos with logical sessions runs
  *   in `preview` mode; anything else in `guard` mode (spec/data-stores.md "Starting the transaction").
  * - **Session**: each `preview`-mode Preview gets one client session with a snapshot/majority
- *   transaction. The handler's own `startTransaction` and `withTransaction` join it; its
- *   `commitTransaction` and `abortTransaction` never reach the server and fail the Preview with 500.
+ *   transaction. Its `ClientSession` class is sealed: the handler's own `startTransaction` and
+ *   `withTransaction` join it, `endSession` waits for the Preview, and `commitTransaction` and
+ *   `abortTransaction` never reach the server and fail the Preview with 500, however they're called.
  * - **Guard**: {@link MongoEngine.check} classifies a command before the hook sends it.
  * - **Monitoring** (the tripwire): every command the client sends is seen in the request's async
- *   context. A write during a Preview without the Preview's `lsid` fails the Preview with 500, a
- *   reply with code 263 blocks it, and every other command becomes a `Db` log entry. Candidate
- *   document ids for change capture come from the same events.
+ *   context. Detection's `hello` must reach this engine's listener, and each Preview checks the
+ *   listener is still attached, or the Preview answers 500. A write during a Preview without the
+ *   Preview's `lsid` fails the Preview with 500, a write with no request while a Preview is open
+ *   fails every open Preview, a reply with code 263 blocks it, and every other command becomes a
+ *   `Db` log entry. Candidate document ids for change capture come from the same events.
  * - **Finish**: after the handler, changes are read (inside the transaction for `after`, and at the
  *   transaction's own snapshot time for `before`), then the transaction is aborted and the session
  *   ended. A Preview that outlives `previewTimeoutMs` is aborted early and answers 500.
