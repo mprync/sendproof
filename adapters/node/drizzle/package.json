@@ -1,0 +1,32 @@
+{
+  "name": "@test-bench/drizzle",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench rollback and automatic row capture for Drizzle on PostgreSQL, MySQL and SQLite",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "engines": {
+    "node": ">=22.16"
+  },
+  "dependencies": {
+    "@test-bench/core": "0.1.0-alpha.1",
+    "@test-bench/sqlite": "0.1.0-alpha.1"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.0"
+  },
+  "devDependencies": {
+    "drizzle-orm": "0.45.4"
+  }
+}

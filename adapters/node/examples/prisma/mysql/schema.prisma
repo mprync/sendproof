@@ -1,0 +1,48 @@
+// Test Bench conformance fixture schema for mysql. The fixture creates the tables itself.
+// Generate with: npm run generate-prisma-fixture (see adapters/node/prisma/README.md).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "./generated"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+// Writes the primary-key metadata used for automatic change capture.
+generator testBench {
+  // Use the workspace build before npm has linked the package's executable.
+  provider = "node ./prisma/dist/generator.js"
+  output   = "./generated/test-bench"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Item {
+  id    String  @id
+  name  String
+  notes Note[]
+
+  @@map("items")
+}
+
+// Used by the local tests: an autoincrement key, a mapped column and a relation.
+model Note {
+  id     Int    @id @default(autoincrement())
+  itemId String @map("item_id")
+  body   String
+  item   Item   @relation(fields: [itemId], references: [id])
+
+  @@map("notes")
+}
+
+// Used by the local tests: a composite primary key and a BigInt column.
+model Entry {
+  book   String
+  line   Int
+  amount BigInt @map("amount_minor")
+
+  @@id([book, line])
+  @@map("entries")
+}

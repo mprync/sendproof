@@ -1,0 +1,42 @@
+{
+  "name": "@test-bench/prisma",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench rollback and row capture for Prisma driver adapters",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./generator": {
+      "types": "./dist/generator.d.ts",
+      "default": "./dist/generator.js"
+    }
+  },
+  "bin": {
+    "test-bench-prisma-generator": "./dist/generator.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": {
+    "node": "^22.12 || >=24.0"
+  },
+  "dependencies": {
+    "@test-bench/core": "0.1.0-alpha.1"
+  },
+  "peerDependencies": {
+    "@prisma/client": "^7.10.0",
+    "@prisma/driver-adapter-utils": "^7.10.0"
+  },
+  "devDependencies": {
+    "@prisma/adapter-better-sqlite3": "7.10.1",
+    "@prisma/adapter-mariadb": "7.10.1",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@prisma/driver-adapter-utils": "7.10.1",
+    "prisma": "7.10.1"
+  }
+}

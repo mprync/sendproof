@@ -1,0 +1,26 @@
+{
+  "name": "@test-bench/nestjs",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench module for NestJS with the Express HTTP adapter",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@test-bench/core": "0.1.0-alpha.1" },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0"
+  }
+}

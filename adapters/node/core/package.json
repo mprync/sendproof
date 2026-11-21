@@ -1,0 +1,29 @@
+{
+  "name": "@test-bench/core",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench workbench protocol and shared UI for Node",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node-http": {
+      "types": "./dist/node-http.d.ts",
+      "default": "./dist/node-http.js"
+    }
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=22.14"
+  },
+  "scripts": {
+    "build": "tsc -b && npm run pack-ui",
+    "pack-ui": "node ../../../tools/pack-ui.mjs --out assets",
+    "prepack": "npm run build"
+  }
+}

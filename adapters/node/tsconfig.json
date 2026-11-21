@@ -1,0 +1,35 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./core"
+    },
+    {
+      "path": "./express"
+    },
+    {
+      "path": "./fastify"
+    },
+    {
+      "path": "./hono"
+    },
+    {
+      "path": "./nestjs"
+    },
+    {
+      "path": "./sqlite"
+    },
+    {
+      "path": "./knex"
+    },
+    {
+      "path": "./drizzle"
+    },
+    {
+      "path": "./typeorm"
+    },
+    {
+      "path": "./prisma"
+    }
+  ]
+}

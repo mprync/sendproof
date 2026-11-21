@@ -1,0 +1,40 @@
+{
+  "name": "test-bench-node",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "core",
+    "express",
+    "sqlite",
+    "fastify",
+    "hono",
+    "nestjs",
+    "drizzle",
+    "knex",
+    "typeorm",
+    "prisma"
+  ],
+  "devDependencies": {
+    "@electric-sql/pglite": "0.4.3",
+    "@types/node": "^22.18.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/pg": "^8.15.5",
+    "expect-type": "1.4.0",
+    "mysql2": "^3.17.0",
+    "pg": "^8.16.3",
+    "postgres": "3.4.7",
+    "tedious": "^19.2.0",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "build": "tsc -b && npm run pack-ui --workspace @test-bench/core",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs tests/*.test.mts",
+    "build:ts": "tsc -b",
+    "build:fixtures": "npm run build && npm run generate-prisma-fixture",
+    "typecheck": "tsc --noEmit -p tsconfig.types.json",
+    "generate-prisma-fixture": "prisma generate --schema examples/prisma/sqlite/schema.prisma && prisma generate --schema examples/prisma/postgresql/schema.prisma && prisma generate --schema examples/prisma/mysql/schema.prisma"
+  }
+}

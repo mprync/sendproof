@@ -1,0 +1,14 @@
+{
+  "name": "@test-bench/typeorm",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench rollback and automatic row capture for TypeORM",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@test-bench/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "typeorm": "^0.3.28" },
+  "devDependencies": { "better-sqlite3": "^12.0.0", "typeorm": "^0.3.28" }
+}

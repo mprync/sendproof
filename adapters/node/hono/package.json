@@ -1,0 +1,14 @@
+{
+  "name": "@test-bench/hono",
+  "version": "0.1.0-alpha.1",
+  "description": "Test Bench integration for Hono",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@test-bench/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "hono": "^4.0.0" },
+  "devDependencies": { "hono": "^4.0.0", "@hono/node-server": "^1.0.0" }
+}

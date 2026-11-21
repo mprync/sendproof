@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Test Bench Conformance", "version": "1.0.0" },
+  "paths": {
+    "/items": {
+      "post": {
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Item" }, "400": { "description": "Invalid input" } }
+      }
+    },
+    "/items/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "responses": { "200": { "$ref": "#/components/responses/Item" }, "404": { "description": "Unknown item" } } },
+      "patch": {
+        "parameters": [{ "name": "tag", "in": "query", "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Item" }, "404": { "description": "Unknown item" } }
+      },
+      "delete": { "responses": { "204": { "description": "Item deleted" } } }
+    },
+    "/items/{id}/fail": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "responses": { "409": { "description": "Fixture conflict" } } }
+    },
+    "/items/{id}/large": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "responses": { "200": { "description": "Large response", "content": { "text/plain": { "schema": { "type": "string" } } } } } }
+    },
+    "/items/{id}/redirect": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "responses": { "302": { "description": "Redirect to the item" } } }
+    },
+    "/items/{id}/capture": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "responses": { "200": { "description": "Capture limits exercised" } } }
+    },
+    "/items/{id}/ordinary": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "responses": { "201": { "$ref": "#/components/responses/Item" } } }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "responses": {
+      "Item": { "description": "One item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Item" } } } }
+    },
+    "schemas": {
+      "Item": { "type": "object", "required": ["id", "name"], "properties": { "id": { "type": "string" }, "name": { "type": "string" } } }
+    }
+  }
+}

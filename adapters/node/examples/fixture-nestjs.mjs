@@ -1,0 +1,72 @@
+import 'reflect-metadata';
+import { readFile } from 'node:fs/promises';
+import { Controller, Delete, ForbiddenException, Get, Module, Patch, Post,
+  Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { TestBenchModule, TestBenchPreview } from '@test-bench/nestjs';
+import { authProviders, createFixture } from './fixture-service.mjs';
+
+const scenario = process.env.BENCH_SCENARIO ?? 'standard';
+const basePath = process.env.BENCH_PATH_BASE ?? '';
+const port = Number(process.env.PORT ?? 5355);
+const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
+const { session, previewProvider, operations, ordinary } = createFixture(':memory:', scenario);
+
+class FixturePolicy {
+  canActivate(context) {
+    const request = context.switchToHttp().getRequest();
+    const identity = session(request.headers.cookie);
+    if (!identity) throw new UnauthorizedException();
+    if (request.method !== 'GET' && identity.role !== 'admin') throw new ForbiddenException();
+    return true;
+  }
+}
+
+class FixtureController {
+  ready() { return 'ready'; }
+  openApi() { return spec; }
+}
+Controller()(FixtureController);
+Get('/ready')(FixtureController.prototype, 'ready', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'ready'));
+Get('/api-json')(FixtureController.prototype, 'openApi', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'openApi'));
+
+const verbs = { DELETE: Delete, GET: Get, PATCH: Patch, POST: Post };
+for (const [index, operation] of [...operations, ...ordinary].entries()) {
+  const { method, path, handler } = operation;
+  const name = 'operation' + index;
+  Object.defineProperty(FixtureController.prototype, name, {
+    async value(req, res) {
+      const response = await handler({
+        base: basePath, params: req.params, body: req.body,
+        query: new URLSearchParams(req.url.split('?')[1] ?? ''),
+        identity: session(req.headers.cookie),
+      });
+      res.status(response.status).set(response.headers);
+      if (response.body === null) return res.end();
+      if (typeof response.body === 'string') return res.send(response.body);
+      return res.json(response.body);
+    },
+  });
+  const descriptor = Object.getOwnPropertyDescriptor(FixtureController.prototype, name);
+  const routePath = path.replace(/\{(.*?)\}/g, ':$1');
+  verbs[method](routePath)(FixtureController.prototype, name, descriptor);
+  Req()(FixtureController.prototype, name, 0);
+  Res()(FixtureController.prototype, name, 1);
+  if (path.startsWith('/items')) UseGuards(FixturePolicy)(FixtureController.prototype, name, descriptor);
+  if (operations.includes(operation)) TestBenchPreview(method, path)(FixtureController.prototype, name, descriptor);
+}
+
+class FixtureModule {}
+Module({
+  controllers: [FixtureController],
+  imports: [TestBenchModule.forRoot({
+    apiName: 'Test Bench Conformance',
+    environment: scenario === 'disabled' ? 'production' : 'development',
+    basePath, database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000,
+    resolveIdentity: ({ headers }) => session(headers.cookie),
+  })],
+})(FixtureModule);
+
+const app = await NestFactory.create(FixtureModule, { logger: ['error'] });
+if (basePath) app.setGlobalPrefix(basePath.slice(1));
+await app.listen(port, '127.0.0.1');
