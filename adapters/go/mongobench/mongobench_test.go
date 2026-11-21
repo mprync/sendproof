@@ -237,6 +237,27 @@ func newApp(t *testing.T, o appOptions) *app {
 		}
 		w.WriteHeader(201)
 	}))
+	// session/reach takes the driver session out of the joined context and commits
+	// it: the Preview's transaction must never be reachable that way.
+	bench.HandlePreview(mux, "POST /session/reach", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		commit := func(ctx context.Context) error {
+			if _, err := a.docs.InsertOne(ctx, bson.D{{Key: "_id", Value: "reached"}}); err != nil {
+				return err
+			}
+			if session := mongo.SessionFromContext(ctx); session != nil {
+				return session.CommitTransaction(ctx)
+			}
+			return nil
+		}
+		client := store.Client(hooked)
+		if r.URL.Query().Get("via") == "use" {
+			_ = client.UseSession(r.Context(), commit)
+		} else {
+			session, _ := client.StartSession(r.Context())
+			_, _ = session.WithTransaction(r.Context(), func(ctx context.Context) (any, error) { return nil, commit(ctx) })
+		}
+		w.WriteHeader(201)
+	}))
 	// slow updates a document, then waits for the gate: a second Preview of the same document conflicts.
 	bench.HandlePreview(mux, "PATCH /slow/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := a.docs.UpdateOne(r.Context(), bson.D{{Key: "_id", Value: r.PathValue("id")}}, bson.D{{Key: "$set", Value: bson.D{{Key: "name", Value: "slow"}}}})
@@ -440,6 +461,20 @@ func TestWithTransactionJoinsThePreviewTransaction(t *testing.T) {
 	response := a.preview("POST", "/session/with", `{}`)
 	if response.Code != 200 || len(changesOf(t, response)) != 1 || a.count(t, "joined") != 0 {
 		t.Fatalf("withTransaction must join and roll back: %d %s", response.Code, response.Body)
+	}
+}
+
+func TestTheJoinedContextNeverHandsOutThePreviewSession(t *testing.T) {
+	a := newApp(t, appOptions{monitor: true})
+	for _, via := range []string{"with", "use"} {
+		response := a.preview("POST", "/session/reach?via="+via, `{}`)
+		if a.count(t, "reached") != 0 {
+			_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "reached"}})
+			t.Fatalf("%s: the handler committed the Preview transaction: %d %s", via, response.Code, response.Body)
+		}
+		if response.Code != 200 || len(changesOf(t, response)) != 1 {
+			t.Errorf("%s: the joined write must be previewed and rolled back: %d %s", via, response.Code, response.Body)
+		}
 	}
 }
 

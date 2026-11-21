@@ -100,10 +100,13 @@ func (c *Client) BulkWrite(ctx context.Context, writes []mongo.ClientBulkWrite, 
 }
 
 // UseSession runs fn in a session. During a Preview fn runs in the Preview's
-// transaction instead of a new one.
+// transaction instead of a new one: the guarded handles add the Preview's session
+// to each call, and fn's context carries no driver session, so
+// mongo.SessionFromContext returns nil and the Preview's transaction can never be
+// committed from the handler.
 func (c *Client) UseSession(ctx context.Context, fn func(context.Context) error) error {
 	if state := c.store.previewOf(ctx); sendproof.IsPreview(ctx) && state != nil && state.session != nil {
-		return fn(mongo.NewSessionContext(ctx, state.session))
+		return fn(ctx)
 	}
 	return c.raw.UseSession(ctx, fn)
 }
@@ -145,11 +148,23 @@ func (s *Session) StartTransaction(opts ...options.Lister[options.TransactionOpt
 }
 
 // WithTransaction runs fn in a transaction: during a Preview, the Preview's own.
+// As with UseSession, fn's context then carries no driver session; the guarded
+// handles join the Preview's transaction on every call.
 func (s *Session) WithTransaction(ctx context.Context, fn func(context.Context) (any, error), opts ...options.Lister[options.TransactionOptions]) (any, error) {
-	if state := s.joined(); state != nil {
-		return fn(mongo.NewSessionContext(ctx, state.session))
+	if s.joined() != nil {
+		return fn(ctx)
 	}
 	return s.raw.WithTransaction(ctx, fn, opts...)
+}
+
+// Context returns ctx bound to the session, for the guarded calls a handler makes
+// between StartTransaction and CommitTransaction. During a Preview it returns ctx
+// unchanged, because the guarded handles already join the Preview's transaction.
+func (s *Session) Context(ctx context.Context) context.Context {
+	if s.joined() != nil || s.raw == nil {
+		return ctx
+	}
+	return mongo.NewSessionContext(ctx, s.raw)
 }
 
 // CommitTransaction commits; during a Preview it is refused and fails the Preview.
