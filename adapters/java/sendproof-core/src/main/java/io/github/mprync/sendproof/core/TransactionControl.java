@@ -163,9 +163,6 @@ public final class TransactionControl {
             return null;
         }
         String first = lower(statement.get(0));
-        if (namesPreviewSavepoint(statement)) {
-            return "savepoint " + PreviewSavepoint.NAME;
-        }
         if (first.equals("call")) {
             return safeProcedures.contains(procedure(statement)) ? null : "call";
         }
@@ -176,19 +173,22 @@ public final class TransactionControl {
     }
 
     /**
-     * Whether the statement is {@code SAVEPOINT}, {@code RELEASE SAVEPOINT} or {@code ROLLBACK [WORK] TO [SAVEPOINT]} of
-     * the backstop's {@link PreviewSavepoint#NAME}: releasing it or rolling back to it would let a later commit go
-     * unnoticed, and making it again would bring it back after one.
+     * Whether the statement is {@code SAVEPOINT}, {@code RELEASE SAVEPOINT}, {@code ROLLBACK [WORK] TO [SAVEPOINT]} or SQL
+     * Server's {@code SAVE TRANSACTION} / {@code ROLLBACK TRANSACTION} of the backstop's {@link PreviewSavepoint#NAME}, on
+     * any database: releasing it or rolling back to it would let a later commit go unnoticed, and making it again would
+     * bring it back after one.
      */
     private static boolean namesPreviewSavepoint(List<String> statement) {
         String first = lower(statement.get(0));
-        if (!first.equals("savepoint") && !first.equals("release") && !first.equals("rollback")) {
+        if (!first.equals("savepoint") && !first.equals("release") && !first.equals("rollback") && !first.equals("save")) {
             return false;
         }
-        if (first.equals("rollback") && !statement.stream().map(TransactionControl::lower).toList().contains("to")) {
-            return false;
+        // The name is the last token, quoted as `x`, "x" or [x].
+        int end = statement.size() - 1;
+        if (end > 0 && statement.get(end).equals("]")) {
+            end--;
         }
-        String last = lower(statement.get(statement.size() - 1)).replace("`", "");
+        String last = lower(statement.get(end)).replace("`", "").replace("\"", "");
         return last.equals(PreviewSavepoint.NAME);
     }
 
@@ -204,6 +204,9 @@ public final class TransactionControl {
     private static String check(List<String> tokens, boolean mysql) {
         if (tokens.isEmpty()) {
             return null;
+        }
+        if (namesPreviewSavepoint(tokens)) {
+            return "savepoint " + PreviewSavepoint.NAME;
         }
         String first = lower(tokens.get(0));
         String second = tokens.size() > 1 ? lower(tokens.get(1)) : "";

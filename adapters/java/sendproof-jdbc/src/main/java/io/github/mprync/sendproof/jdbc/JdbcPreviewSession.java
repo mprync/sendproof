@@ -24,8 +24,8 @@ import net.ttddyy.dsproxy.proxy.ProxyJdbcObject;
  * makes {@link #rollback()} fail, so the preview is never confirmed even if the handler swallowed the error.
  *
  * <p>On MySQL and MariaDB the session also refuses {@code CALL} (except declared safe procedures) and the rest of
- * MySQL's implicit-commit list, and keeps a {@link PreviewSavepoint} as a backstop: if the savepoint is gone when the
- * Preview ends, something committed the transaction and {@link #rollback()} fails.
+ * MySQL's implicit-commit list. On every database it keeps a {@link PreviewSavepoint} as a backstop: if the savepoint is
+ * gone when the Preview ends, something committed the transaction and {@link #rollback()} fails.
  */
 final class JdbcPreviewSession implements PreviewSession {
     /** Open sessions by the connection objects that identify them (the proxy and the pool's connection). */
@@ -53,8 +53,7 @@ final class JdbcPreviewSession implements PreviewSession {
         try {
             real.setAutoCommit(false);
             // On the pool's connection, past the SQL capture, so the probe never shows in the request's SQL log.
-            this.savepoint = TransactionControl.isMySql(system)
-                    ? PreviewSavepoint.open(target instanceof Connection physical ? physical : real) : null;
+            this.savepoint = PreviewSavepoint.open(target instanceof Connection physical ? physical : real, system);
         } catch (SQLException | RuntimeException failure) {
             closeQuietly(real);
             throw failure;

@@ -13,7 +13,8 @@ Because every operation must be fully enrolled, these are refused rather than al
 - SQL and JDBC calls that end the transaction (`COMMIT`, `ROLLBACK`, DDL, `Connection.commit()`).
 
 On MySQL and MariaDB the preview also refuses `CALL`, the rest of MySQL's implicit-commit list and `PREPARE`/`EXECUTE`,
-and keeps a savepoint backstop, exactly as [sendproof-jdbc](../sendproof-jdbc/README.md#mysql-and-mariadb) describes.
+exactly as [sendproof-jdbc](../sendproof-jdbc/README.md#mysql-and-mariadb) describes. On every database it keeps the
+[savepoint backstop](../sendproof-jdbc/README.md#savepoint-backstop-every-database).
 The backstop needs the transaction manager's `DataSource` (`JpaTransactionManager` or `DataSourceTransactionManager`).
 After a deadlock, lock wait timeout or SQL Server `XACT_ABORT` error, every further statement is refused and the final
 flush is skipped, as [sendproof-jdbc](../sendproof-jdbc/README.md#deadlocks-and-aborted-transactions) describes.

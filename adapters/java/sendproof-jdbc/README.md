@@ -46,11 +46,17 @@ val provider = JdbcPreviewProvider(dataSource) { "inventory_dev" }.safeProcedure
 > **Warning:** `safeProcedures` is your statement that the procedures never commit. Sendproof trusts it: a listed
 > procedure that commits persists the preview's writes. Names match exactly (case-insensitively), with no wildcards.
 
-As a backstop the preview makes savepoint `sendproof_preview` as soon as its transaction opens, on the pool's connection
-so it never shows in the SQL log, and rolls back to it before the final rollback. Any commit erases every savepoint, so
-a missing savepoint means something committed the preview's writes, and the preview answers 500 without confirmation.
-(MySQL has no `@@in_transaction`, and with auto-commit off it opens a new transaction after a commit, so a check made
-only at the end can't see a commit.) A handler's own `rollback()` lets nothing escape; the savepoint is made again.
+### Savepoint backstop (every database)
+
+On every database the preview makes savepoint `sendproof_preview` as soon as its transaction opens (`SAVE TRANSACTION`
+on SQL Server), on the pool's connection so it never shows in the SQL log, and rolls back to it before the final
+rollback. Any commit erases every savepoint, so a missing savepoint means something committed the preview's writes by
+a route the checks above couldn't see (the driver's own connection, a trigger), and the preview answers 500 without
+confirmation. A check made only at the end can't see a commit: MySQL has no `@@in_transaction`, and with auto-commit
+off MySQL and SQL Server (`IMPLICIT_TRANSACTIONS`) open a new transaction after a commit, so even `@@TRANCOUNT` looks
+open. Rolling back to the savepoint, rather than releasing it, also works in a PostgreSQL transaction a handled error
+left aborted. A handler's own `rollback()` lets nothing escape; the savepoint is made again. Statements and JDBC
+savepoint calls naming `sendproof_preview` are refused on every database.
 
 ### Deadlocks and aborted transactions
 

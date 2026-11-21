@@ -76,15 +76,12 @@ final class JpaPreviewSession implements PreviewSession {
     }
 
     /**
-     * On MySQL and MariaDB, makes the backstop {@link PreviewSavepoint} in the transaction just opened, on the pool's
+     * Makes the backstop {@link PreviewSavepoint} in the transaction just opened, on every SQL database, on the pool's
      * connection so the probe stays out of the SQL log. Needs the transaction manager's {@link DataSource} (JPA and
-     * JDBC transaction managers); without one, or on another database, there is no backstop and this returns
-     * {@code null}. Also settles the guard's database when the provider didn't name one.
+     * JDBC transaction managers); without one there is no backstop and this returns {@code null}. Also settles the
+     * guard's database when the provider didn't name one.
      */
     private PreviewSavepoint openSavepoint(String system) {
-        if (system != null && !TransactionControl.isMySql(system)) {
-            return null;
-        }
         DataSource dataSource = transactions instanceof JpaTransactionManager jpa ? jpa.getDataSource()
                 : transactions instanceof DataSourceTransactionManager jdbc ? jdbc.getDataSource() : null;
         if (dataSource == null || !TransactionSynchronizationManager.hasResource(dataSource)) {
@@ -94,14 +91,11 @@ final class JpaPreviewSession implements PreviewSession {
         try {
             String id = system != null ? system : DatabaseSystem.of(connection.getMetaData().getDatabaseProductName());
             guard.system(id);
-            if (!TransactionControl.isMySql(id)) {
-                return null;
-            }
             Connection physical = connection instanceof ProxyJdbcObject proxy && proxy.getTarget() instanceof Connection target
                     ? target : connection;
-            return PreviewSavepoint.open(physical);
+            return PreviewSavepoint.open(physical, id);
         } catch (SQLException failure) {
-            throw new IllegalStateException("The Preview's MySQL savepoint couldn't be made.", failure);
+            throw new IllegalStateException("The Preview's backstop savepoint couldn't be made.", failure);
         } finally {
             DataSourceUtils.releaseConnection(connection, dataSource);
         }

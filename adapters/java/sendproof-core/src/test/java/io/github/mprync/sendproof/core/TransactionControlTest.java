@@ -130,6 +130,19 @@ class TransactionControlTest {
     }
 
     @Test
+    void everyDatabaseRefusesTheHandlerTouchingThePreviewSavepoint() {
+        for (String system : new String[] {"postgresql", "sqlite", "h2", "mssql", null}) {
+            for (String sql : List.of("RELEASE SAVEPOINT sendproof_preview", "ROLLBACK TO SAVEPOINT sendproof_preview",
+                    "SAVEPOINT \"sendproof_preview\"", "SAVE TRANSACTION sendproof_preview", "SAVE TRAN [sendproof_preview]",
+                    "ROLLBACK TRANSACTION sendproof_preview")) {
+                assertThat(TransactionControl.find(sql, system, NONE)).as(system + ": " + sql).isNotNull();
+            }
+            assertThat(TransactionControl.find("SAVE TRANSACTION nested", system, NONE)).as(system).isNull();
+            assertThat(TransactionControl.find("ROLLBACK TO SAVEPOINT nested", system, NONE)).as(system).isNull();
+        }
+    }
+
+    @Test
     void otherDatabasesReadStringsAsTheServerDoes() {
         // PostgreSQL's E'' strings take backslash escapes, so the string ends at the second quote and COMMIT runs.
         assertThat(TransactionControl.find("SELECT E'a\\''; COMMIT", "postgresql", NONE)).isEqualTo("commit");
