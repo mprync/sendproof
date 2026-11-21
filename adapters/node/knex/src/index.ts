@@ -8,6 +8,7 @@ import { dialectOf, isTransient } from './dialect.js';
 import { compareKeys, insertedRows, keysFromData, keysFromResult, normalizeKey, readPrimaryKey, rowsOf } from './keys.js';
 import { guardPreview, resolveTable, trackClient } from './tracked.js';
 import type { BuilderState, TableName } from './tracked.js';
+import { PreviewTurns } from './turns.js';
 import type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
 
 export type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
@@ -73,6 +74,8 @@ export class KnexPreview implements PreviewProvider {
   readonly #trackedKeyLimit: number;
   readonly #retries: number;
   readonly #retryDelayMs: number;
+  /** MySQL previews take turns: concurrent rolled-back inserts of one key would deadlock (see PreviewTurns). */
+  readonly #turns: PreviewTurns | undefined;
 
   readonly #logQuery = (query: { sql: string; bindings?: readonly unknown[] }): void => {
     const recorder = currentCapture();
@@ -96,6 +99,7 @@ export class KnexPreview implements PreviewProvider {
     this.#database = database;
     this.#pool = trackClient(database, (builder, state, execute) => this.#mutation(database, undefined, builder, state, execute));
     this.#dialect = dialectOf(database);
+    this.#turns = this.#dialect === 'mysql' ? new PreviewTurns() : undefined;
     this.#trackedKeyLimit = trackedKeyLimit;
     this.#retries = retries;
     this.#retryDelayMs = retryDelayMs;
@@ -205,6 +209,11 @@ export class KnexPreview implements PreviewProvider {
   /** Run `dispatch` in a transaction that is always rolled back, resolving only after rollback. */
   async preview<T>(dispatch: () => Promise<T>): Promise<T> {
     if (this.#transaction.getStore()) throw new Error('Nested Knex previews are unavailable.');
+    return this.#turns ? this.#turns.run(() => this.#previewNow(dispatch)) : this.#previewNow(dispatch);
+  }
+
+  /** Run one Preview: open its transaction, dispatch, then roll back and confirm the rollback. */
+  async #previewNow<T>(dispatch: () => Promise<T>): Promise<T> {
     const connection = await this.#database.transaction(undefined as never, { doNotRejectOnRollback: true });
     const completion = connection.executionPromise.then(() => true as const, (error: unknown) => ({ error }));
     const scope = this.#scope(connection, 0, undefined, true);
