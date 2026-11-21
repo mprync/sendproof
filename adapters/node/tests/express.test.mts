@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import express from 'express';
 import type { Express, NextFunction, Request, RequestHandler, Response } from 'express';
@@ -301,6 +302,43 @@ test('handler and provider failures return a safe 500 problem, roll back and rep
   assert.equal((failed.body as Problem).title, 'The preview could not be completed safely.');
   assert.equal(thrown.errors.length, 1);
   assert.match(String((thrown.errors[0] as Error).message), /provider down/);
+});
+
+test('a commit on the raw SQLite driver followed by a new BEGIN fails the Preview with 500', async t => {
+  // The provider never hands out its driver; reach it the way careless code might, from outside the provider.
+  let driver: DatabaseSync | undefined;
+  const exec = DatabaseSync.prototype.exec;
+  DatabaseSync.prototype.exec = function (this: DatabaseSync, sql: string) {
+    if (sql === 'BEGIN IMMEDIATE') driver = this;
+    return exec.call(this, sql);
+  };
+  t.after(() => { DatabaseSync.prototype.exec = exec; });
+  const h = await start(t, {}, '', (bench, db) => {
+    bench.operation('POST', '/items/{id}/escape', async (req, res) => {
+      const id = String(req.params.id);
+      await db.write('INSERT INTO items (id, name) VALUES (:id, :id)', { id }, { table: 'items', keys: [{ id }] });
+      driver!.exec('COMMIT');
+      // A new transaction is open again at the end, so only the savepoint set at the start can tell.
+      driver!.exec('BEGIN');
+      await db.write('INSERT INTO items (id, name) VALUES (:id, :id)', { id: id + '-after' }, { table: 'items', keys: [{ id: id + '-after' }] });
+      res.status(201).json({ id });
+    });
+    bench.operation('POST', '/items/{id}/unwind', async (req, res) => {
+      const id = String(req.params.id);
+      await db.write('INSERT INTO items (id, name) VALUES (:id, :id)', { id }, { table: 'items', keys: [{ id }] });
+      // Ignored, as careless code might: the refusal still fails the Preview.
+      const refusal = await db.queryRows('ROLLBACK TO SAVEPOINT sendproof_preview', [], 'run').then(() => 'ran', (error: Error) => error.message);
+      res.status(201).json({ id, refusal });
+    });
+  });
+  const { response } = await preview(h, '/items/raw/escape', { user: 'admin' });
+  assert.equal(response.status, 500);
+  assert.match(String((h.errors[0] as Error).message), /savepoint set when the Preview started was gone/);
+  assert.equal(await exists(h.db, 'raw-after'), false, 'the writes after the commit still roll back');
+
+  const unwound = await preview(h, '/items/held/unwind', { user: 'admin' });
+  assert.equal(unwound.response.status, 500, 'a handler may not touch the Preview savepoint');
+  assert.equal(await exists(h.db, 'held'), false);
 });
 
 test('preview responses drop connection-scoped headers and cookies', async t => {

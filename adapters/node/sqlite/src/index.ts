@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue, SQLOutputValue, StatementResultingChanges } from 'node:sqlite';
-import { endsTransaction, refuseInPreview } from '@sendproof/core';
+import { endsTransaction, previewSavepointHeld, refuseInPreview, setPreviewSavepoint } from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import { defaultTrackedKeyLimit, trackRows } from './rows.js';
 import type { Row, RowKey, TrackedRows } from './rows.js';
@@ -69,7 +69,9 @@ function isBusy(error: unknown): boolean {
 /**
  * A request-scoped SQLite connection with guarded transactional writes and row snapshots.
  *
- * Preview wraps the operation in `BEGIN IMMEDIATE` and `ROLLBACK`. {@link transaction} gives the
+ * Preview wraps the operation in `BEGIN IMMEDIATE` and `ROLLBACK`, with `SAVEPOINT sendproof_preview` set at the start
+ * and rolled back to before the rollback: if that fails, something committed the Preview transaction, and the Preview
+ * fails rather than being confirmed. {@link transaction} gives the
  * application the same shape for real work: it commits at the outermost level, and a nested call
  * becomes a savepoint. A released savepoint is retained, so its writes stay in the enclosing
  * transaction and a Preview rollback still discards them. A failed savepoint rolls back alone.
@@ -219,9 +221,13 @@ export class SQLiteDatabase implements PreviewProvider {
   ): Promise<T> {
     connection.exec('BEGIN IMMEDIATE');
     began();
+    const preview = ending === 'rollback';
+    const run = async (sql: string) => connection.exec(sql);
     const scope: Scope = { open: true, depth: 0, children: Promise.resolve() };
     let result: T;
     try {
+      // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
+      if (preview) await setPreviewSavepoint(run, 'sqlite');
       result = await this.#scope.run(scope, callback);
     } catch (error) {
       scope.open = false;
@@ -229,15 +235,20 @@ export class SQLiteDatabase implements PreviewProvider {
       throw error;
     }
     scope.open = false;
-    if (!connection.isTransaction) {
-      throw new Error('The operation completed the SQLite transaction before it could be ' +
-        (ending === 'commit' ? 'committed.' : 'rolled back.'));
-    }
+    // A commit erases the savepoint even when a new transaction was opened after it, which a check that some
+    // transaction is open at the end would miss.
+    const contained = !preview || await previewSavepointHeld(run, 'sqlite');
     try {
-      connection.exec(ending === 'commit' ? 'COMMIT' : 'ROLLBACK');
+      // After a commit with nothing opened since, there is no transaction left to roll back.
+      if (!preview) connection.exec('COMMIT');
+      else if (connection.isTransaction) connection.exec('ROLLBACK');
     } catch (error) {
       this.#abandon(connection, error);
       throw error;
+    }
+    if (!contained) {
+      throw new Error('The SQLite preview was not contained: the savepoint set when the Preview started was gone, ' +
+        'so something committed the Preview transaction.');
     }
     return result;
   }

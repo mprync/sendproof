@@ -1,6 +1,6 @@
 # @sendproof/sqlite
 
-Use the provider for operations whose SQL can share one Node SQLite connection. It wraps Preview in `BEGIN IMMEDIATE` and `ROLLBACK`, queues concurrent leases, and rejects writes from an expired preview context. The same methods perform ordinary autocommit writes during Send. The package is strict TypeScript and ships generated declarations.
+Use the provider for operations whose SQL can share one Node SQLite connection. It wraps Preview in `BEGIN IMMEDIATE` and `ROLLBACK`, sets the savepoint `sendproof_preview` when the Preview starts and rolls back to it before the rollback (any commit, even one sent through the driver directly and followed by a new `BEGIN`, erases it, so a missing savepoint fails the Preview, and a handler may not touch that savepoint), queues concurrent leases, and rejects writes from an expired preview context. The same methods perform ordinary autocommit writes during Send. The package is strict TypeScript and ships generated declarations.
 
 ```ts
 import { SQLiteDatabase } from '@sendproof/sqlite';
