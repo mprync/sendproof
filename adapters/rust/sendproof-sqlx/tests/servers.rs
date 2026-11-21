@@ -820,6 +820,43 @@ async fn mysql_refuses_every_statement_after_a_deadlock() {
     .await;
 }
 
+/// Review finding 5 of docs/plans/data-stores.md: a preview whose future is dropped mid-handler (a client
+/// that disconnects) rolls back and hands back its MySQL turn, so the next preview runs instead of waiting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mysql_a_dropped_preview_rolls_back_and_releases_its_turn() {
+    async fn stuck(State(state): State<AppState<MySql>>, db: Db<MySql>) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        insert(&mut conn, "dropped", "Preview").await?;
+        state.signals.written.notify_one();
+        std::future::pending::<()>().await;
+        Ok(StatusCode::CREATED)
+    }
+    async fn quick(db: Db<MySql>) -> Result<StatusCode, DbError> {
+        let mut conn = db.acquire().await?;
+        insert(&mut conn, "next", "Preview").await?;
+        Ok(StatusCode::CREATED)
+    }
+    with_server::<MySql, _, _>(|pool| async move {
+        let provider = SqlxProvider::new(pool.clone());
+        let signals = Arc::new(Signals::default());
+        let request = tokio::spawn(single_route(provider.clone(), pool.clone(), signals.clone(), stuck).oneshot(preview("/run")));
+        signals.written.notified().await;
+        request.abort();
+        let _ = request.await;
+        // A clone of the provider shares the turn the dropped preview held.
+        let next = tokio::time::timeout(
+            Duration::from_secs(10),
+            single_route(provider, pool.clone(), Arc::default(), quick).oneshot(preview("/run")),
+        )
+        .await
+        .expect("the next preview waited for a turn the dropped one never released")
+        .unwrap();
+        assert_eq!(next.status(), StatusCode::OK);
+        assert_eq!(MySql::count(&pool, "SELECT COUNT(*) FROM items").await, 0, "the dropped preview rolled back");
+    })
+    .await;
+}
+
 /// MySQL upserts and replaces report what they did to the existing row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mysql_reports_upserts_replaces_and_generated_keys() {
