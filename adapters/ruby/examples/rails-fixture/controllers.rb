@@ -72,7 +72,7 @@ module Fixture
 
   class ItemsController < BaseController
     # Create/update/delete and the demonstration operations are previewable. `show` and `ordinary` are not.
-    sendproof_preview only: %i[create update destroy fail large redirect capture commit remember]
+    sendproof_preview only: %i[create update destroy fail large redirect capture commit remember escape]
 
     before_action :authenticate!
     before_action :require_admin!, except: :show
@@ -144,6 +144,22 @@ module Fixture
     def commit
       Item.create!(id: params[:id], name: params.require(:name))
       Item.lease_connection.execute("COMMIT")
+      render json: { id: params[:id], name: params[:name] }, status: :created
+    end
+
+    # MySQL only (the shared mysql-escape rule): inserts, then runs a statement that commits without saying
+    # COMMIT, on the same connection. A Preview must refuse it before it is sent.
+    def escape
+      via = params.require(:via)
+      return head(:bad_request) unless %w[ddl call].include?(via) && params[:id].match?(/\A\w+\z/) # the id names a table
+
+      Item.create!(id: params[:id], name: params.require(:name))
+      connection = Item.lease_connection
+      if via == "ddl"
+        connection.execute("CREATE TABLE sendproof_escape_#{params[:id]} (n INT)") # commits implicitly
+      else
+        connection.execute("CALL sendproof_commit_probe()") # the procedure runs COMMIT
+      end
       render json: { id: params[:id], name: params[:name] }, status: :created
     end
 
@@ -354,6 +370,7 @@ module Fixture
     paths["/accounts"] = { post: { summary: "Create an account", responses: { "201" => { description: "Created" } } } }
     paths["/accounts/{id}"] = { parameters: [id_param], get: { summary: "Read an account", responses: { "200" => { description: "The account" } } } }
     paths["/items/{id}/commit"] = { post: simple.call("Insert, then COMMIT by hand", "201") }
+    paths["/items/{id}/escape"] = { post: simple.call("Insert, then commit implicitly (DDL or CALL)", "201") } if MYSQL
     if STORES.any?
       paths["/items/{id}/remember"] = { post: { summary: "Insert, then write a guarded store", parameters: [id_param,
         { name: "store", in: "query", required: true, schema: { type: "string", enum: %w[redis dynamodb] } }],

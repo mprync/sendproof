@@ -364,7 +364,7 @@
     {
       "id": "ruby-rails-mysql",
       "database": "mysql",
-      "sharedRules": ["secret-columns", "raw-commit"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "ruby",
       "port": 5398,
       "readiness": "/ready",

@@ -16,6 +16,7 @@ Rails.application.routes.draw do
     %w[fail large redirect capture ordinary commit].each do |action|
       post "/items/:id/#{action}", to: "items##{action}", constraints: id
     end
+    post "/items/:id/escape", to: "items#escape", constraints: id if Fixture::MYSQL
     post "/accounts", to: "accounts#create"
     get "/accounts/:id", to: "accounts#show", constraints: id
 

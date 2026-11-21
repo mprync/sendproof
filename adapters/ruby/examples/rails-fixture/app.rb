@@ -37,6 +37,8 @@ module Fixture
   REDIS_URL = ENV["BENCH_REDIS_URL"]
   DYNAMODB_URL = ENV["BENCH_DYNAMODB_URL"]
   STORES = (SCENARIO == "no-provider" ? [] : [(:mongodb if MONGODB_URL), (:redis if REDIS_URL), (:dynamodb if DYNAMODB_URL)].compact).freeze
+  # On MySQL the fixture also serves the mysql-escape route (spec/conformance/fixture.md).
+  MYSQL = ENV["BENCH_DATABASE"] == "mysql"
   PASSWORD = "bench-fixture"
   USERS = {
     "admin@example.test" => { name: "Fixture Admin", role: "admin" },
@@ -128,6 +130,13 @@ module Fixture
           t.string :email, null: false
           t.string :password_hash, null: false
         end
+      end
+      # mysql-escape: a procedure that commits. The fixture declares no procedure safe.
+      if Fixture::MYSQL
+        connection = ActiveRecord::Base.lease_connection
+        exists = connection.select_value("SELECT COUNT(*) FROM information_schema.routines " \
+                                         "WHERE routine_schema = DATABASE() AND routine_name = 'sendproof_commit_probe'")
+        connection.execute("CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END") if exists.to_i.zero?
       end
     end
 
