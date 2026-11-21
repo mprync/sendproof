@@ -140,6 +140,17 @@ class MongoidHookTest < Minitest::Test
     end
   end
 
+  # A client Mongoid builds after the store hooked its predecessor has no monitor: its writes would be
+  # neither guarded nor rolled back. The Preview must refuse to start rather than confirm.
+  def test_a_preview_refuses_to_start_when_mongoid_rebuilt_the_hooked_client
+    ::Mongoid::Clients.clear
+    assert_raises(Sendproof::ConfigurationError) { preview([@store]) { |_| Doc.create!(name: "Unhooked") } }
+    assert_empty stored(name: "Unhooked")
+  ensure
+    @store&.unhook!
+    ::Mongoid::Clients.clear
+  end
+
   def test_discovery_lists_the_store_in_preview_mode
     assert_equal({ system: "mongodb", name: "catalog", mode: :preview }, @store.describe)
   end

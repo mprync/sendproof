@@ -233,6 +233,31 @@ class MongoHookTest < Minitest::Test
     assert_empty stored(_id: "raw-commit")
   end
 
+  # A handler that gets hold of the Preview session still can't end its transaction: whatever calls the
+  # driver's own commit or abort, the command is refused by name before it is sent, on every hooked client.
+  def test_a_handler_holding_the_preview_session_can_never_commit_it
+    recorder = preview([@store]) do |_|
+      session = @client.start_session
+      @client[:documents].insert_one({ _id: "held" })
+      commit = ::Mongo::Session.instance_method(:commit_transaction)
+      assert_raises(Sendproof::PreviewTransactionControl) { commit.bind(session).call }
+      derived = @raw.with(app_name: "holder")
+      @others << derived
+      assert_raises(::Mongo::Error::InvalidSession) { derived.database.command({ commitTransaction: 1 }, session: session) }
+    end
+    refute_nil recorder.fault
+    assert_empty stored(_id: "held")
+    # Ending the session by hand leaves the transaction to the server's lifetime limit: the Preview fails.
+    assert_raises(::Mongo::Error::InvalidSession) do
+      preview([@store]) do |_|
+        session = @client.start_session
+        @client[:documents].insert_one({ _id: "ended" })
+        assert_raises(Sendproof::PreviewTransactionControl) { ::Mongo::Session.instance_method(:end_session).bind(session).call }
+      end
+    end
+    assert_empty stored(_id: "ended")
+  end
+
   def test_start_and_with_transaction_join_the_preview_transaction
     recorder = preview([@store]) do |_|
       @client.with_session do |session|
@@ -387,6 +412,14 @@ class MongoHookTest < Minitest::Test
     assert_match(/outside any request/, recorder.fault.message)
     detached = preview([@store]) { |_| Thread.new { Sendproof.detached { @raw[:documents].insert_one(_id: "worker") } }.join }
     assert_nil detached.fault
+  end
+
+  # The tripwire proves it is installed on the guarded client itself, not on some other client.
+  def test_a_preview_refuses_to_start_when_the_monitor_left_the_guarded_client
+    guard_mode_store
+    @raw.unsubscribe(::Mongo::Monitoring::COMMAND, @store.engine.subscriber)
+    assert_raises(Sendproof::ConfigurationError) { preview([@store]) { |_| @client[:documents].insert_one(_id: "unguarded") } }
+    assert_empty stored(_id: "unguarded")
   end
 
   # --- the driver behavior the guard relies on (mongo 2.26) ---------------------------------------------

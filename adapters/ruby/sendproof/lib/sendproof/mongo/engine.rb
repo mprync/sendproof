@@ -128,6 +128,11 @@ module Sendproof
 
       def active? = @active
 
+      # @return [Boolean] whether +client+'s commands reach this engine's subscriber
+      def hooked?(client)
+        (client.monitoring.subscribers[::Mongo::Monitoring::COMMAND] || []).include?(@subscriber)
+      end
+
       # Runs engine-internal commands (topology, change capture, abort) without logging or tripping.
       def internal
         previous = Thread.current[:sendproof_mongo_internal]
@@ -175,6 +180,11 @@ module Sendproof
       # transaction instead of ending it.
       def begin_preview(recorder)
         return unless @active && recorder.store_state(self).nil?
+
+        # The tripwire must be on the guarded client itself: without it, nothing would be guarded or rolled back.
+        unless hooked?(@client)
+          raise ConfigurationError, "The MongoDB client's command monitor was removed, so the Preview can't guard it."
+        end
 
         mode = detect[:mode]
         unless mode == :preview
