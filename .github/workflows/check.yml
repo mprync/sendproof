@@ -8,13 +8,24 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # Git for Windows' bash on Windows runners, so every step uses one shell language.
+    shell: bash
+
 jobs:
+  # .NET build and tests plus the UI unit tests on every host OS; browser checks on Linux.
   verify:
-    runs-on: ubuntu-latest
+    name: Verify / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
@@ -22,85 +33,53 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - name: Select package version
-        shell: bash
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: |
-          version=$(dotnet msbuild adapters/dotnet/TestBench.AspNetCore -getProperty:Version)
-          if [[ "$REF_TYPE" == tag ]]; then
-            version=${REF_NAME#v}
-            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-              echo "Invalid release tag: $REF_NAME" >&2
-              exit 1
-            fi
-          fi
-          echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
-          echo "REPOSITORY_URL=$REPOSITORY_URL" >> "$GITHUB_ENV"
       - name: Build
         id: build
-        run: dotnet build TestBench.slnx -c Release -warnaserror -p:Version="$PACKAGE_VERSION" -p:RepositoryUrl="$REPOSITORY_URL" -p:ContinuousIntegrationBuild=true
+        run: dotnet build TestBench.slnx -c Release -warnaserror
       - name: Test .NET
         id: dotnet_tests
-        run: dotnet test TestBench.slnx -c Release --no-build -p:Version="$PACKAGE_VERSION" -p:RepositoryUrl="$REPOSITORY_URL" -p:ContinuousIntegrationBuild=true
+        run: dotnet test TestBench.slnx -c Release --no-build
       - name: Test JavaScript
         id: js_tests
         run: node --test tests/ui/*.test.mjs ui/*.test.mjs
-      - run: npm ci --prefix tools
-      - run: npx playwright install --with-deps chromium
+      - if: runner.os == 'Linux'
+        run: npm ci --prefix tools
+      - if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
         working-directory: tools
       - name: Test browser
         id: browser_tests
+        if: runner.os == 'Linux'
         run: node tools/browser-test.mjs --no-build
       - name: Upload browser evidence
-        if: always()
+        if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-evidence
           path: artifacts/browser/
           if-no-files-found: ignore
-      - name: Pack both adapters and symbols
-        id: pack
-        run: |
-          dotnet pack adapters/dotnet/TestBench.AspNetCore -c Release --no-build -o artifacts/packages -p:Version="$PACKAGE_VERSION" -p:RepositoryUrl="$REPOSITORY_URL" -p:ContinuousIntegrationBuild=true
-          dotnet pack adapters/dotnet/TestBench.EntityFrameworkCore -c Release --no-build -o artifacts/packages -p:Version="$PACKAGE_VERSION" -p:RepositoryUrl="$REPOSITORY_URL" -p:ContinuousIntegrationBuild=true
-      - name: Verify packages and install into a consumer
-        id: consumer
-        run: python3 tools/check-packages.py artifacts/packages
-      - name: Create checksums
-        run: |
-          cd artifacts/packages
-          sha256sum ./*.nupkg ./*.snupkg > SHA256SUMS
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: nuget-packages
-          path: artifacts/packages/
-          if-no-files-found: error
-      - name: Summarize release checks
+      - name: Summarize checks
         if: always()
         env:
+          OS: ${{ matrix.os }}
           BUILD: ${{ steps.build.outcome }}
           DOTNET: ${{ steps.dotnet_tests.outcome }}
           JS: ${{ steps.js_tests.outcome }}
           BROWSER: ${{ steps.browser_tests.outcome }}
-          PACK: ${{ steps.pack.outcome }}
-          CONSUMER: ${{ steps.consumer.outcome }}
         run: |
           {
+            echo "### Verify on $OS"
             echo '| Check | Outcome |'
             echo '| --- | --- |'
             echo "| Release build | $BUILD |"
             echo "| .NET tests | $DOTNET |"
             echo "| JavaScript tests | $JS |"
-            echo "| Browser, accessibility and mock comparisons | $BROWSER |"
-            echo "| NuGet packages and symbols | $PACK |"
-            echo "| Archive and clean-install tests | $CONSUMER |"
+            echo "| Browser, accessibility and mock comparisons | ${BROWSER:-skipped} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   conformance-matrix:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       bindings: ${{ steps.manifest.outputs.bindings }}
     steps:
@@ -116,10 +95,12 @@ jobs:
           bindings=$(node tests/conformance/run.mjs --matrix)
           echo "bindings=$bindings" >> "$GITHUB_OUTPUT"
 
+  # Every binding and database combination on Linux, with database services.
   conformance:
     name: Protocol / ${{ matrix.id }} / ${{ matrix.database }}
     needs: conformance-matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.conformance-matrix.outputs.bindings) }}
@@ -213,26 +194,124 @@ jobs:
           BINDING: ${{ matrix.id }}
         run: node tests/conformance/run.mjs "$BINDING"
 
-  publish:
+  # One job per registry and host OS. Each builds that registry's packages, installs them into a fresh
+  # consumer application and serves the workbench (the release dry run: no upload), and on Windows and
+  # macOS also runs one SQLite (Java: H2) conformance profile of that language. The Linux packages are
+  # the release artifacts: built once here, checksummed, and published unchanged by the jobs below.
+  platforms:
+    name: Packages / ${{ matrix.registry }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        registry: [nuget, npm, pypi, maven, crates, rubygems, packagist, go]
+        include:
+          - { registry: nuget, binding: dotnet-aspnetcore, toolchain: dotnet }
+          - { registry: npm, binding: node-express, toolchain: node }
+          - { registry: pypi, binding: python-fastapi, toolchain: python }
+          - { registry: maven, binding: java-spring, toolchain: java }
+          - { registry: crates, binding: rust-axum, toolchain: rust }
+          - { registry: rubygems, binding: ruby-rails, toolchain: ruby }
+          - { registry: packagist, binding: php-symfony, toolchain: php }
+          - { registry: go, binding: go-net-http, toolchain: go }
+    env:
+      REGISTRY: ${{ matrix.registry }}
+      BINDING: ${{ matrix.binding }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - if: matrix.toolchain == 'dotnet'
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 10.0.x
+      - if: matrix.toolchain == 'python' || matrix.toolchain == 'dotnet'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - if: matrix.toolchain == 'java'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - if: matrix.toolchain == 'go'
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: adapters/go/**/go.sum
+      - if: matrix.toolchain == 'php'
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # 2.37.0
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          # pcntl does not exist on Windows; zip is needed by composer archive.
+          extensions: ${{ matrix.os == 'windows-latest' && 'pdo_sqlite, sqlite3, mbstring, dom, zip' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, zip' }}
+      - if: matrix.toolchain == 'ruby'
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: '3.4'
+      - name: Select Rust stable
+        if: matrix.toolchain == 'rust'
+        run: rustup toolchain install stable --profile minimal
+      - name: Run the ${{ matrix.binding }} conformance profile
+        if: runner.os != 'Linux'
+        run: |
+          npm ci --prefix tests/conformance
+          prepare=$(node -e 'const m=require("./tests/conformance/bindings.json");process.stdout.write(m.bindings.find(b=>b.id===process.argv[1]).prepare??"")' "$BINDING")
+          bash -euo pipefail -c "$prepare"
+          node tests/conformance/run.mjs "$BINDING"
+      - name: Build packages and run the consumer smoke test
+        if: github.ref_type != 'tag'
+        run: node tools/pack-all.mjs --verify --require-toolchains --only "$REGISTRY"
+      - name: Build release packages and run the consumer smoke test
+        if: github.ref_type == 'tag'
+        # --release: the tag is the version, every toolchain is required and MODULE_PATH must name this repository.
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: node tools/pack-all.mjs --verify --release --version "${REF_NAME#v}" --only "$REGISTRY"
+      - name: Rehearse the upload without publishing
+        if: runner.os == 'Linux'
+        run: |
+          version=$(node -p 'require("./artifacts/packages/'"$REGISTRY"'/RELEASE.json").version')
+          node tools/release/publish.mjs "$REGISTRY" "artifacts/packages/$REGISTRY" --tag "v$version" --dry-run
+      - name: Upload release artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.registry }}
+          path: artifacts/packages/${{ matrix.registry }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  # Publishing: only for a pushed v* tag, only after every check passed on every OS, one GitHub
+  # environment per registry (add required reviewers there). Each job downloads the artifact built
+  # above and publish.mjs re-checks SHA256SUMS, the version and the commit before uploading.
+  publish-nuget:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [verify, conformance]
+    needs: [verify, conformance, platforms]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: nuget
     permissions:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: nuget-packages
-          path: artifacts/packages
-      - name: Verify artifact checksums
-        working-directory: artifacts/packages
-        run: sha256sum --check SHA256SUMS
+          name: packages-nuget
+          path: artifacts/packages/nuget
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: 10.0.x
-      - name: Log in to nuget.org
+      - name: Log in to nuget.org (trusted publishing)
         id: login
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
@@ -240,4 +319,184 @@ jobs:
       - name: Publish packages and matching symbols
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
-        run: dotnet nuget push 'artifacts/packages/*.nupkg' --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+        run: node tools/release/publish.mjs nuget artifacts/packages/nuget --tag "$GITHUB_REF_NAME"
+
+  publish-npm:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Require npm 11.5.1 or newer for trusted publishing
+        run: |
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)" \
+            || { echo "npm $(npm --version) cannot use trusted publishing; use a Node release that bundles npm 11.5.1+" >&2; exit 1; }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-npm
+          path: artifacts/packages/npm
+      - name: Publish with provenance
+        run: node tools/release/publish.mjs npm artifacts/packages/npm --tag "$GITHUB_REF_NAME"
+
+  publish-pypi:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-pypi
+          path: artifacts/packages/pypi
+      - name: Verify and collect the distributions
+        run: node tools/release/publish.mjs pypi artifacts/packages/pypi --tag "$GITHUB_REF_NAME"
+      - name: Publish with trusted publishing and attestations
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: artifacts/pypi-upload/
+
+  publish-maven:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: maven-central
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-maven
+          path: artifacts/packages/maven
+      - name: Sign, bundle and upload to the Central Portal
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: node tools/release/publish.mjs maven artifacts/packages/maven --tag "$GITHUB_REF_NAME"
+
+  publish-crates:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-crates
+          path: artifacts/packages/crates
+      - name: Select Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - name: Log in to crates.io (trusted publishing)
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: node tools/release/publish.mjs crates artifacts/packages/crates --tag "$GITHUB_REF_NAME"
+
+  publish-rubygems:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: rubygems
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: '3.4'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-rubygems
+          path: artifacts/packages/rubygems
+      - name: Log in to RubyGems.org (trusted publishing)
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: Push gems in dependency order
+        run: node tools/release/publish.mjs rubygems artifacts/packages/rubygems --tag "$GITHUB_REF_NAME"
+
+  publish-packagist:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: packagist
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-packagist
+          path: artifacts/packages/packagist
+      - name: Get a short-lived token for the split repositories
+        id: split
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.SPLIT_APP_ID }}
+          private-key: ${{ secrets.SPLIT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: >-
+            ${{ github.event.repository.name }}-php-core,
+            ${{ github.event.repository.name }}-php-laravel,
+            ${{ github.event.repository.name }}-php-symfony
+      - name: Push release trees and tags to the split repositories
+        env:
+          GH_SPLIT_TOKEN: ${{ steps.split.outputs.token }}
+        run: node tools/release/publish.mjs packagist artifacts/packages/packagist --tag "$GITHUB_REF_NAME"
+
+  publish-go:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, conformance, platforms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: go
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The job pushes the module tags with this job's token.
+          persist-credentials: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-go
+          path: artifacts/packages/go
+      - name: Push the module tags and warm the Go proxy
+        run: node tools/release/publish.mjs go artifacts/packages/go --tag "$GITHUB_REF_NAME"
