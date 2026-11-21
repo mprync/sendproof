@@ -19,6 +19,6 @@ final class CaptureDriver extends AbstractDriverMiddleware
 
     public function connect(#[\SensitiveParameter] array $params): ConnectionInterface
     {
-        return new CaptureConnection(parent::connect($params), $this->recorder, $this->showValues);
+        return new CaptureConnection(parent::connect($params), $this->recorder, $this->showValues, in_array($params['driver'] ?? '', ['pdo_mysql', 'mysqli'], true));
     }
 }

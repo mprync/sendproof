@@ -47,6 +47,12 @@ final class GuardedClient extends Client
         parent::__construct();
     }
 
+    /** The hook the client's handles share, which holds the engine. */
+    public function hook(): MongoHook
+    {
+        return $this->hook;
+    }
+
     public function __debugInfo(): array
     {
         return $this->inner->__debugInfo();

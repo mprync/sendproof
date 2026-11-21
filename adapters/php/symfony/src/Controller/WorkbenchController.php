@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Sendproof\Core\Capabilities;
+use Sendproof\Core\Contracts\DescribesDatabaseSystem;
 use Sendproof\Core\Protocol;
 use Sendproof\Symfony\Http\RouteCatalog;
 use Sendproof\Symfony\SendproofManager;
@@ -61,7 +62,7 @@ final class WorkbenchController
             return $this->notFound();
         }
         $base = $request->getBaseUrl();
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         $available = $provider !== null && $provider->isAvailable();
         $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
 
@@ -77,6 +78,10 @@ final class WorkbenchController
                 'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => $entry['url'] === null ? null : $withBase((string) $entry['url']),
             ], $this->manager->setting('auth_providers')),
             $available ? $this->catalog->operations() : [],
+            ['language' => 'php', 'framework' => 'Symfony'],
+            array_map(static fn (\Sendproof\Core\Stores\DataStore $store): array => $store->describe(), $this->manager->dataStores()),
+            $available ? $this->catalog->unavailable() : [],
+            $provider instanceof DescribesDatabaseSystem ? $provider->databaseSystem() : null,
         );
 
         return $this->json($capabilities);

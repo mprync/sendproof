@@ -19,7 +19,10 @@
     "sendproof/core": "^0.1 || dev-main"
   },
   "require-dev": {
+    "aws/aws-sdk-php": "^3.300",
+    "mongodb/mongodb": "^2.1",
     "phpunit/phpunit": "^11.0",
+    "predis/predis": "^2.2 || ^3.0",
     "symfony/security-bundle": "^7.0|^8.0"
   },
   "suggest": {

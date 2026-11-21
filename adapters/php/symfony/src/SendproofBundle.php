@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Sendproof\Symfony;
 
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\HttpKernel\Bundle\Bundle;
+use Sendproof\Symfony\DependencyInjection\DataStorePass;
 use Sendproof\Symfony\DependencyInjection\SendproofExtension;
 
 /**
@@ -20,6 +22,11 @@ final class SendproofBundle extends Bundle
     {
         // The extension alias is `sendproof`, not the `sendproof` Symfony would derive from the class name.
         return $this->extension ??= new SendproofExtension();
+    }
+
+    public function build(ContainerBuilder $container): void
+    {
+        $container->addCompilerPass(new DataStorePass());
     }
 
     public function getPath(): string

@@ -18,8 +18,11 @@ final class DoctrineSession implements PreviewSession
 {
     private bool $disposed = false;
 
-    /** @param list<array{0:Connection,1:int}> $enrolled Connection and its nesting level before the preview */
-    public function __construct(private readonly array $enrolled, private readonly OrmChangeCollector $collector)
+    /**
+     * @param list<array{0:Connection,1:int}> $enrolled Connection and its nesting level before the preview
+     * @param list<\Sendproof\Core\Preview\PreviewTurn> $turns The MySQL turns this Preview holds, handed back once its transactions have ended
+     */
+    public function __construct(private readonly array $enrolled, private readonly OrmChangeCollector $collector, private readonly array $turns = [])
     {
     }
 
@@ -50,8 +53,17 @@ final class DoctrineSession implements PreviewSession
             }
         }
 
+        // The transactions have ended, so the next Preview may start.
+        $this->releaseTurns();
         if ($failure !== null) {
             throw $failure;
+        }
+    }
+
+    private function releaseTurns(): void
+    {
+        foreach ($this->turns as $turn) {
+            $turn->release();
         }
     }
 
@@ -69,6 +81,7 @@ final class DoctrineSession implements PreviewSession
                 // Best effort. The preview was already withheld when rollback failed earlier.
             }
         }
+        $this->releaseTurns();
     }
 
     private function unwind(Connection $connection, int $level): void

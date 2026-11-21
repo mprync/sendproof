@@ -10,24 +10,45 @@ use Doctrine\DBAL\Driver\Result;
 use Doctrine\DBAL\Driver\Statement as StatementInterface;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Core\Capture\Statements;
+use Sendproof\Core\Stores\PreviewTransactionControlException;
 
-/** Records statements that run without prepared parameters, and wraps prepared ones. */
+/**
+ * Records statements that run without prepared parameters, and wraps prepared ones.
+ *
+ * During a Preview it also refuses, before the statement reaches the database, anything that would
+ * end or escape the Preview transaction (`COMMIT`, `ROLLBACK`, `BEGIN`, `SET autocommit`, and on
+ * MySQL the statements it commits implicitly) and a driver-level commit. The refusal fails the
+ * Preview with 500 even if the handler catches it. Savepoints stay allowed.
+ */
 final class CaptureConnection extends AbstractConnectionMiddleware
 {
     private const CATEGORY = 'Doctrine.DBAL.Connection';
 
-    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues)
+    public function __construct(ConnectionInterface $connection, private readonly Recorder $recorder, private readonly bool $showValues, private readonly bool $mysql = false)
     {
         parent::__construct($connection);
     }
 
     public function prepare(string $sql): StatementInterface
     {
+        $this->refuseTransactionControl($sql);
+
         return new CaptureStatement(parent::prepare($sql), $sql, $this->recorder, $this->showValues);
+    }
+
+    public function commit(): void
+    {
+        // DBAL reaches the driver only for the outermost transaction, which a Preview owns.
+        if ($this->recorder->isPreview()) {
+            $this->refuse('A commit that would end the Preview transaction was refused during Preview.');
+        }
+        parent::commit();
     }
 
     public function query(string $sql): Result
     {
+        $this->refuseTransactionControl($sql);
         $started = hrtime(true);
         $result = parent::query($sql);
         $this->record($sql, $started, null);
@@ -37,11 +58,27 @@ final class CaptureConnection extends AbstractConnectionMiddleware
 
     public function exec(string $sql): int|string
     {
+        $this->refuseTransactionControl($sql);
         $started = hrtime(true);
         $affected = parent::exec($sql);
         $this->record($sql, $started, is_int($affected) ? $affected : null);
 
         return $affected;
+    }
+
+    private function refuseTransactionControl(string $sql): void
+    {
+        if ($this->recorder->isPreview() && Statements::endsTransaction($sql, $this->mysql)) {
+            $this->refuse('A statement that would end the Preview transaction was refused during Preview.');
+        }
+    }
+
+    private function refuse(string $message): never
+    {
+        $error = new PreviewTransactionControlException($message);
+        $this->recorder->refuse($error);
+
+        throw $error;
     }
 
     private function record(string $sql, int $started, ?int $rows): void

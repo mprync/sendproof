@@ -292,7 +292,9 @@
       "prepare": "sh adapters/php/scripts/prepare.sh",
       "test": "sh adapters/php/scripts/test.sh",
       "start": ["php", "adapters/php/examples/symfony-fixture/serve.php"],
-      "traceTtlMs": 5000
+      "traceTtlMs": 5000,
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"]
     },
     {
       "id": "ruby-rails",

@@ -22,7 +22,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 return static function (ContainerConfigurator $container): void {
     $services = $container->services();
 
-    $services->set(Recorder::class);
+    $services->set(Recorder::class)->tag('kernel.reset', ['method' => 'forget']);
     $services->set(OrmChangeCollector::class)
         ->tag('doctrine.event_listener', ['event' => 'onFlush'])
         ->tag('doctrine.event_listener', ['event' => 'postFlush']);
@@ -45,6 +45,7 @@ return static function (ContainerConfigurator $container): void {
             null, // PreviewProvider: replaced by the extension according to `sendproof.provider`
             service('security.token_storage')->nullOnInvalid(),
             service('security.authorization_checker')->nullOnInvalid(),
+            null, // HookedStores: set by DataStorePass when data stores are configured and enabled
         ]);
     $services->alias(SendproofManager::class, 'sendproof.manager');
 

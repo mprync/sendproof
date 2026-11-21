@@ -3,8 +3,8 @@
 /**
  * Starts the Symfony conformance fixture on loopback.
  *
- * Reads PORT, BENCH_PATH_BASE and BENCH_SCENARIO from the environment, creates an empty SQLite
- * database for this process, then replaces itself with `php -S` so the runner's process-group
+ * Reads PORT, BENCH_PATH_BASE and BENCH_SCENARIO from the environment, creates empty SQLite tables
+ * for this process (the data-store variables, BENCH_MONGODB_URL and the rest, pass through untouched), then replaces itself with `php -S` so the runner's process-group
  * signals stop the server. The `disabled` scenario runs in the `prod` environment.
  */
 
@@ -24,6 +24,7 @@ mkdir($directory, 0700, true);
 $database = $directory . '/fixture.sqlite';
 $pdo = new PDO('sqlite:' . $database);
 $pdo->exec('create table items (id varchar(255) primary key not null, name varchar(255) not null)');
+$pdo->exec('create table accounts (id varchar(255) primary key not null, email varchar(255) not null, password_hash varchar(255) not null)');
 $pdo = null;
 
 $environment = [

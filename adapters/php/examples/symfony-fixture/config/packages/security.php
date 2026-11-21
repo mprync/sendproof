@@ -19,8 +19,8 @@ return static function (ContainerConfigurator $container): void {
         // Anonymous API callers receive 401, a viewer may only read, and only the admin may write.
         'access_control' => [
             ['path' => '^/auth/personas', 'roles' => 'ROLE_ADMIN'],
-            ['path' => '^/items', 'methods' => ['GET'], 'roles' => 'ROLE_USER'],
-            ['path' => '^/items', 'roles' => 'ROLE_ADMIN'],
+            ['path' => '^/(items|accounts|documents|counters|orders)', 'methods' => ['GET'], 'roles' => 'ROLE_USER'],
+            ['path' => '^/(items|accounts|documents|counters|orders)', 'roles' => 'ROLE_ADMIN'],
         ],
     ]);
 };

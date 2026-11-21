@@ -106,7 +106,7 @@ final class PreviewListener
         if (!$this->sameOrigin($request)) {
             return $this->problem(403, 'This preview is forbidden.');
         }
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         if ($provider === null || !$provider->isAvailable()) {
             return $this->problem(503, 'Preview requires one available preview provider.');
         }
@@ -116,7 +116,7 @@ final class PreviewListener
         $inner->attributes->set(self::MODE, 'preview');
         $runner = new PreviewRunner($this->manager->recorder(), $this->reporter());
 
-        return $this->respond($runner->run($provider, $state, fn (): CapturedResponse => $this->capture($inner), $inner));
+        return $this->respond($runner->run($provider, $state, fn (): CapturedResponse => $this->capture($inner), $inner, $this->manager->dataStores()));
     }
 
     /** Runs an ordinary request with tracing when its route opted in; null leaves it untouched. */
@@ -127,7 +127,7 @@ final class PreviewListener
         } catch (\Throwable) {
             return null;
         }
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         if (!$this->catalog->isMarked($parameters) || $provider === null || !$provider->isAvailable()) {
             return null;
         }
@@ -194,6 +194,13 @@ final class PreviewListener
 
     private function respond(PreviewResult $result): Response
     {
+        if ($result->blocked !== null) {
+            // The write guard stopped the Preview: 409 problem+json, never a confirmation.
+            $response = new JsonResponse($result->problem(), 409, ['Cache-Control' => 'no-store']);
+            $response->headers->set('Content-Type', 'application/problem+json');
+
+            return $response;
+        }
         if (!$result->isConfirmed()) {
             return $this->problem($result->status, $result->title, $result->headers);
         }

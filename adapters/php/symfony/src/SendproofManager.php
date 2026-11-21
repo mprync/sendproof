@@ -10,11 +10,14 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Preview\NoSqlProvider;
+use Sendproof\Core\Stores\DataStore;
 use Sendproof\Core\Trace\FileTraceStore;
 use Sendproof\Core\Trace\TraceOwner;
 use Sendproof\Core\Trace\TraceStore;
 use Sendproof\Core\Ui\UiBundle;
 use Sendproof\Symfony\Identity\IdentityResolver;
+use Sendproof\Symfony\Stores\HookedStores;
 
 /**
  * Application-level services for Sendproof: opt-in, identity, authorization, provider and storage.
@@ -35,6 +38,7 @@ final class SendproofManager
         private readonly ?PreviewProvider $provider = null,
         private readonly ?TokenStorageInterface $tokens = null,
         private readonly ?AuthorizationCheckerInterface $authorization = null,
+        private readonly ?HookedStores $stores = null,
     ) {
     }
 
@@ -57,6 +61,22 @@ final class SendproofManager
     public function provider(): ?PreviewProvider
     {
         return $this->provider;
+    }
+
+    /**
+     * The provider a Preview runs on: the SQL provider, or when the application has none but hooked
+     * data stores, a stand-in that rolls nothing back, so a MongoDB-only or guard-only application
+     * can still Preview.
+     */
+    public function previewProvider(): ?PreviewProvider
+    {
+        return $this->provider ?? ($this->dataStores() !== [] ? new NoSqlProvider() : null);
+    }
+
+    /** @return list<DataStore> The hooked data stores; building them builds (and so hooks) every listed client */
+    public function dataStores(): array
+    {
+        return $this->stores?->all() ?? [];
     }
 
     public function recorder(): Recorder
