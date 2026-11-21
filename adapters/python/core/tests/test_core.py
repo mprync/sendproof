@@ -305,6 +305,11 @@ def test_transaction_guard_refuses_every_mysql_escape_before_sending():
     for sql in ("CALL refresh_totals_all()", "CALL other.refresh_totals()", "CALL rebuild()",
                 "CALL refresh_totals(); COMMIT", "CALL `refresh totals`()"):
         assert escapes(sql, "mysql", safe_procedures=safe), sql
+    audit = normalize_procedures(["audit"])
+    assert escapes("CALL AUDIT()", "mysql", safe_procedures=audit) is None
+    assert escapes("CALL `Audit`()", "mysql", safe_procedures=audit) is None
+    assert escapes("CALL other.audit()", "mysql", safe_procedures=audit)
+    assert escapes("CALL `other`.`audit`()", "mysql", safe_procedures=audit)
     for bad in ("refresh_*", "`p`", "a.b.c", "", 3):
         with pytest.raises(ValueError):
             normalize_procedures([bad])

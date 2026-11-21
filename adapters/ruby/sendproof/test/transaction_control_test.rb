@@ -38,6 +38,11 @@ class TransactionControlTest < Minitest::Test
      "CALL `refresh totals`()"].each do |sql|
       assert TC.ends_transaction?(sql, mysql: true, safe_procedures: safe), sql
     end
+    audit = TC.normalize_procedures(["audit"])
+    refute TC.ends_transaction?("CALL AUDIT()", mysql: true, safe_procedures: audit)
+    refute TC.ends_transaction?("CALL `Audit`()", mysql: true, safe_procedures: audit)
+    assert TC.ends_transaction?("CALL other.audit()", mysql: true, safe_procedures: audit)
+    assert TC.ends_transaction?("CALL `other`.`audit`()", mysql: true, safe_procedures: audit)
     ["refresh_*", "`p`", "a.b.c", "", 3].each do |bad|
       assert_raises(ArgumentError, bad.inspect) { TC.normalize_procedures([bad]) }
     end

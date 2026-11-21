@@ -69,6 +69,11 @@ final class StatementsTest extends TestCase
         foreach (['CALL refresh_totals_all()', 'CALL other.refresh_totals()', 'CALL rebuild()', 'CALL refresh_totals(); COMMIT', 'CALL `refresh totals`()'] as $sql) {
             $this->assertTrue(Statements::endsTransaction($sql, true, $safe), $sql);
         }
+        $audit = Statements::normalizeProcedures(['audit']);
+        $this->assertFalse(Statements::endsTransaction('CALL AUDIT()', true, $audit));
+        $this->assertFalse(Statements::endsTransaction('CALL `Audit`()', true, $audit));
+        $this->assertTrue(Statements::endsTransaction('CALL other.audit()', true, $audit));
+        $this->assertTrue(Statements::endsTransaction('CALL `other`.`audit`()', true, $audit));
         foreach (['refresh_*', '`p`', 'a.b.c', '', 3] as $bad) {
             try {
                 Statements::normalizeProcedures([$bad]);
