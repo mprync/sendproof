@@ -25,18 +25,75 @@ subprojects {
             withSourcesJar()
             withJavadocJar()
         }
+
+        // Every published jar carries the licence, as Maven Central consumers and auditors expect.
+        tasks.withType<Jar>().configureEach {
+            from(rootDir.resolve("../../LICENSE")) { into("META-INF") }
+            manifest.attributes(
+                "Implementation-Title" to project.name,
+                "Implementation-Version" to project.version.toString(),
+            )
+        }
+
+        // The repository URL is never stored in this build: the release tooling supplies it with
+        // -Ptestbench.repositoryUrl=https://<host>/<owner>/<repo>. It is only required when a POM is generated.
+        val repositoryUrl = providers.gradleProperty("testbench.repositoryUrl")
+            .map { it.trim().trimEnd('/').removeSuffix(".git") }
+        fun requireRepositoryUrl(): String = repositoryUrl.orNull?.takeIf { it.isNotEmpty() }
+            ?: throw GradleException(
+                "Publishing needs -Ptestbench.repositoryUrl=https://<host>/<owner>/<repo>; the URL is not stored in the build.",
+            )
+        fun developerConnection(url: String): String =
+            Regex("^https://([^/]+)/(.+)$").matchEntire(url)?.let { "scm:git:ssh://git@${it.groupValues[1]}/${it.groupValues[2]}.git" }
+                ?: "scm:git:$url.git"
+
         extensions.configure<PublishingExtension> {
             publications.create<MavenPublication>("maven") {
                 from(components["java"])
                 versionMapping { allVariants { fromResolutionResult() } }
                 pom {
                     name.set(project.name)
-                    url.set("https://github.com/testbench/test-bench")
-                    licenses { license { name.set("MIT") } }
+                    // Central rejects a component without a description, so a missing one fails the build.
+                    description.set(provider {
+                        project.description?.takeIf { it.isNotBlank() }
+                            ?: throw GradleException("${project.path} is published and needs a description in its build.gradle.kts.")
+                    })
+                    url.set(provider { requireRepositoryUrl() })
+                    licenses {
+                        license {
+                            name.set("MIT")
+                            url.set("https://opensource.org/license/mit")
+                            distribution.set("repo")
+                        }
+                    }
+                    developers {
+                        developer {
+                            id.set("testbench")
+                            name.set("Test Bench contributors")
+                        }
+                    }
+                    scm {
+                        url.set(provider { requireRepositoryUrl() })
+                        connection.set(provider { "scm:git:${requireRepositoryUrl()}.git" })
+                        developerConnection.set(provider { developerConnection(requireRepositoryUrl()) })
+                    }
+                    issueManagement {
+                        system.set("GitHub Issues")
+                        url.set(provider { "${requireRepositoryUrl()}/issues" })
+                    }
                 }
             }
             // `./gradlew publish` writes a Maven layout here so the artifacts can be inspected locally.
-            repositories { maven { name = "local"; url = uri(rootProject.layout.buildDirectory.dir("repo")) } }
+            // The release tooling redirects it with -Ptestbench.repoDir=<dir>.
+            repositories {
+                maven {
+                    name = "local"
+                    url = providers.gradleProperty("testbench.repoDir")
+                        .map { uri(file(it)) }
+                        .orElse(rootProject.layout.buildDirectory.dir("repo").map { it.asFile.toURI() })
+                        .get()
+                }
+            }
         }
     }
 }

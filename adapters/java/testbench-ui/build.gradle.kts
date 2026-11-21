@@ -22,3 +22,24 @@ val packUi by tasks.registering(Exec::class) {
 tasks.processResources {
     from(packUi) { into("testbench-ui") }
 }
+
+// This module has no Java or Kotlin code: the original UI source files are the "sources", and there is no API to
+// document. Maven Central still requires both jars, so the sources jar carries the bundle and the Javadoc jar a note.
+val docsPlaceholder by tasks.registering {
+    val readme = layout.buildDirectory.file("javadoc-placeholder/README.md")
+    outputs.file(readme)
+    doLast {
+        readme.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText("# testbench-ui\n\nThis module only embeds the Test Bench workbench UI as classpath resources under `testbench-ui/`.\nIt has no Java API, so there is no generated Javadoc.\n")
+        }
+    }
+}
+
+tasks.named<Jar>("sourcesJar") {
+    from(packUi) { into("testbench-ui") }
+}
+
+tasks.named<Jar>("javadocJar") {
+    from(docsPlaceholder)
+}

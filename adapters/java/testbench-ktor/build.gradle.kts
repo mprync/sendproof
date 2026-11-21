@@ -31,3 +31,23 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+// Kotlin sources are not processed by the Javadoc tool, so the Javadoc jar Maven Central requires would be empty.
+// It carries a pointer to the real documentation instead; the Kotlin sources ship in the -sources jar.
+val kotlinDocsPlaceholder by tasks.registering {
+    val readme = layout.buildDirectory.file("javadoc-placeholder/README.md")
+    outputs.file(readme)
+    doLast {
+        readme.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                "# testbench-ktor\n\nThis module is written in Kotlin, so there is no generated Javadoc.\n" +
+                    "Read the KDoc comments in the `-sources` jar, or the module README in the repository.\n",
+            )
+        }
+    }
+}
+
+tasks.named<Jar>("javadocJar") {
+    from(kotlinDocsPlaceholder)
+}

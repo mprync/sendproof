@@ -4,9 +4,9 @@ Ktor 3 integration: the embedded workbench, in-process Preview, Observed Send an
 `testbench-jdbc` (or your own `PreviewProvider`).
 
 ```kotlin
-val dataSource = PreviewDataSource(hikari) { true }        // data access must use this
-
 fun Application.module() {
+    // Data access must use this. Bound SQL values are shown only in development mode; secret-named ones never are.
+    val dataSource = PreviewDataSource(hikari) { developmentMode }
     install(TestBench) {
         enabled = environment.config.property("testbench.enabled").getString().toBoolean()   // off by default
         pathBase = ""                                      // the mount; "/tenant" if you route under it

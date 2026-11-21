@@ -12,7 +12,13 @@ val provider = JdbcPreviewProvider(dataSource) { "inventory_dev" }        // non
 
 During a preview every borrower of `dataSource` on the request receives the preview's **one connection**, with
 auto-commit off. `commit()` and `close()` on it do nothing; the preview rolls back and then releases the real
-connection. Outside a preview `PreviewDataSource` behaves like the pool.
+connection. Outside a preview `PreviewDataSource` behaves like the pool. `PreviewDataSource(hikari)` without a
+`showValues` supplier hides every bound value.
+
+Anything that would end the preview's transaction is refused and the preview is answered with a 500 instead of a
+confirmation: `COMMIT`, `ROLLBACK` (but not `ROLLBACK TO SAVEPOINT`), `BEGIN`/`START TRANSACTION`, `SET AUTOCOMMIT`,
+DDL (which H2, MySQL and Oracle commit implicitly), a `commit()`, `close()` or `setAutoCommit(true)` that reaches the
+connection through `Statement.getConnection()`, and `unwrap` to the driver's connection.
 
 The request must run with its `JdbcScope` current. Web adapters do this for you. A coroutine framework must carry the
 thread-local across thread hops, for example `JdbcScope.holder().asContextElement(scope)`.
@@ -22,6 +28,8 @@ thread-local across thread hops, for example `JdbcScope.holder().asContextElemen
 - **SQL**: every statement with duration, rows affected and bound values (hidden unless `showValues` is true; values
   of secret-named columns or in secret-named statements are always `[REDACTED]`). Parameter names are inferred from
   the SQL.
+- **Row changes** hide secret-named columns (`password_hash`, `api_key`, `refreshToken`) as `[REDACTED]` in the
+  key, before and after values, and every value of a secret-named table (`api_tokens`).
 - **Row changes**: JDBC has no change events, so single-row statements in these shapes are reported with before/after
   values by reading the row on the same connection: `insert into t (a, b) values (?, ?)`,
   `update t set a = ? where k = ?`, `delete from t where k = ?` (each `WHERE` term `column = ?`, joined by `AND`).
