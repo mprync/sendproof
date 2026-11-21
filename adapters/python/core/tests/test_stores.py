@@ -396,6 +396,28 @@ def test_sql_rolls_back_with_a_blocked_write_and_a_failed_rollback_outranks_it()
     assert run(bench(_Writes(), provider=failing), lambda scope: guard("redis", "INCR", "write")).status == 500
 
 
+class _Interrupted(BaseException):
+    """Not an ``Exception``: like ``KeyboardInterrupt`` or a gevent timeout raised inside a store's abort."""
+
+
+class _InterruptingStore(_Writes):
+    def finish(self, scope):
+        self.finished += 1
+        raise _Interrupted()
+
+
+def test_every_cleanup_step_runs_when_one_store_is_interrupted():
+    """A store whose abort is interrupted must not skip the other stores or the SQL rollback and release."""
+    provider = _SqlProvider()
+    closed = []
+    provider.session.close = lambda: closed.append(True)
+    first, interrupting = _Writes(), _InterruptingStore()
+    with pytest.raises(_Interrupted):  # re-raised once everything is cleaned up
+        run(bench(first, interrupting, provider=provider), lambda scope: (200, {}))
+    assert (first.finished, interrupting.finished) == (1, 1)
+    assert provider.session.rolled_back is True and closed == [True]
+
+
 def test_preview_works_without_a_sql_provider_when_stores_are_registered():
     engine = bench(_Writes())
     assert engine.provider_available

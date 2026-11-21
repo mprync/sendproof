@@ -16,7 +16,7 @@ from starlette.routing import Match
 from sendproof_core import Identity, PreviewUnavailable, RequestScope, protocol
 from sendproof_core.capture import Capture
 from sendproof_core.provider import run_in_thread
-from sendproof_core.scope import activate, deactivate
+from sendproof_core.scope import activate, deactivate, request_context
 from sendproof_core.workbench import Response, Workbench, blocked_response, json_response, problem_response, trace_owner
 
 from .capture_send import BufferedResponse
@@ -41,6 +41,15 @@ class SendproofMiddleware:
         self.bench = bench
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)  # lifespan: its background tasks belong to no request
+            return
+        # Every request is attributed, so a store write that no request accounts for (a thread a
+        # Preview handler started without its context) can fail the open Previews.
+        with request_context():
+            await self._handle(scope, receive, send)
+
+    async def _handle(self, scope: dict, receive: Callable, send: Callable) -> None:
         bench = self.bench
         if scope["type"] != "http" or not bench.options.enabled:
             await self.app(scope, receive, send)
@@ -243,12 +252,17 @@ class SendproofMiddleware:
                 capture.handler_finished()
                 # Pipeline order (spec/data-stores.md): abort every preview-mode store transaction,
                 # then roll back SQL. A failure of either withholds confirmation.
+                # Every cleanup step runs, shielded from the request's cancellation and whatever an
+                # earlier step raised: an interrupt inside one store's abort must not skip the other
+                # stores, the SQL rollback or the release (and a MySQL Preview's turn). The first
+                # interrupt is re-raised once everything is cleaned up.
                 with anyio.CancelScope(shield=True):
                     for store in reversed(begun):
                         try:
                             await store.afinish(request_scope)
-                        except Exception as error:
+                        except BaseException as error:
                             unsafe = True
+                            interrupted = interrupted or (None if isinstance(error, Exception) else error)
                             logger.error("A Sendproof data store could not finish the preview.", exc_info=error)
                     try:
                         await session.arollback()
@@ -259,15 +273,17 @@ class SendproofMiddleware:
                                 [*session.changes, *request_scope.store_changes],
                                 session.changes_truncated or request_scope.store_changes_truncated, capture.finish(),
                             )
-                    except Exception as error:
+                    except BaseException as error:
                         unsafe = True
+                        interrupted = interrupted or (None if isinstance(error, Exception) else error)
                         logger.error("A Sendproof preview could not roll back for %s %s.", method, path, exc_info=error)
                     finally:
                         capture.finish()
                         try:
                             await session.aclose()
-                        except Exception as error:
+                        except BaseException as error:
                             unsafe = True
+                            interrupted = interrupted or (None if isinstance(error, Exception) else error)
                             logger.error("A Sendproof preview could not release its transaction.", exc_info=error)
         finally:
             deactivate(token)

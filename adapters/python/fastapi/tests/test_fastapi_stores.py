@@ -14,7 +14,8 @@ from fastapi import Depends, FastAPI, Request
 from sqlalchemy import String, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from sendproof_core.stores import PreviewWriteBlocked, mongo_store, redis_store
+from sendproof_core import PreviewProvider, PreviewSession
+from sendproof_core.stores import DataStore, PreviewWriteBlocked, mongo_store, redis_store
 from sendproof_fastapi import Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 from store_support import REDIS_URL, available, fresh, needs, new_mongo
@@ -238,6 +239,148 @@ async def test_async_mongo_previews_roll_back_in_an_async_endpoint(tmp_path):
     reader.drop_database(name)
     reader.close()
     await mongo.close()
+
+
+class _Recording(DataStore):
+    """A store that records its abort; ``interrupt`` makes the abort raise a ``BaseException``."""
+
+    system = "redis"
+
+    def __init__(self, interrupt: BaseException | None = None) -> None:
+        self.finished, self.interrupt = 0, interrupt
+
+    def describe(self):
+        return {"system": "redis", "mode": "guard"}
+
+    async def abegin(self, scope):
+        pass
+
+    async def afinish(self, scope):
+        self.finished += 1
+        if self.interrupt is not None:
+            raise self.interrupt
+
+
+class _SpySession(PreviewSession):
+    def __init__(self) -> None:
+        self.rolled_back = self.closed = False
+
+    @property
+    def changes(self):
+        return []
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
+class _SpyProvider(PreviewProvider):
+    database = "db"
+
+    def __init__(self) -> None:
+        self.sessions: list[_SpySession] = []
+
+    def begin(self, scope):
+        self.sessions.append(_SpySession())
+        return self.sessions[-1]
+
+
+def _bare_app(provider, stores, setup):
+    app = FastAPI()
+    setup(app)
+    Sendproof(app, provider=provider, data_stores=stores, environment="Development",
+              identity=lambda request: Identity("Alex", "admin", "alex", "test"))
+    return app
+
+
+async def test_cancellation_and_an_interrupted_abort_still_run_every_cleanup_step():
+    """``CancelledError`` is a ``BaseException``: a cancelled handler, or a store whose abort is interrupted,
+    must still abort every store, roll back SQL and release the transaction (a MySQL Preview's turn)."""
+    import asyncio
+
+    def setup(app):
+        @app.post("/cancelled")
+        @preview
+        async def cancelled():
+            raise asyncio.CancelledError()  # the task was cancelled mid-handler (a client disconnect)
+
+        @app.post("/ok")
+        @preview
+        async def ok():
+            return {}
+
+    provider, first, last = _SpyProvider(), _Recording(), _Recording()
+    app = _bare_app(provider, [first, last], setup)
+    with pytest.raises(asyncio.CancelledError):
+        await app({"type": "http", "method": "POST", "path": "/sendproof/_preview/cancelled", "raw_path": b"/sendproof/_preview/cancelled",
+                   "root_path": "", "scheme": "http", "query_string": b"", "server": ("test", 80), "client": ("127.0.0.1", 1),
+                   "headers": [(b"host", b"test"), (b"prefer", b"tx=rollback")], "http_version": "1.1", "asgi": {"version": "3.0"}},
+                  _receive, _discard)
+    assert (first.finished, last.finished) == (1, 1)
+    assert provider.sessions[-1].rolled_back and provider.sessions[-1].closed
+
+    class Interrupt(BaseException):
+        pass
+
+    provider, first, interrupting = _SpyProvider(), _Recording(), _Recording(Interrupt())
+    app = _bare_app(provider, [first, interrupting], setup)
+    with pytest.raises(Interrupt):
+        async with client(app) as http:
+            await http.post("/sendproof/_preview/ok", headers=ROLLBACK)
+    assert (first.finished, interrupting.finished) == (1, 1)  # reversed order: the interrupted one ran first
+    assert provider.sessions[-1].rolled_back and provider.sessions[-1].closed
+
+
+async def _receive():
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+async def _discard(message):
+    pass
+
+
+@redis_only
+async def test_a_concurrent_ordinary_request_is_attributed_but_a_stray_thread_fails_the_open_preview(tmp_path, cache):
+    """The adapter marks every request, so only a write nothing accounts for fails the open Previews."""
+    import asyncio
+    import threading
+
+    sync_client, async_client, stores, prefix = cache
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    def setup(app):
+        @app.get("/slow")
+        @preview
+        async def slow():
+            entered.set()
+            await release.wait()
+            return {}
+
+        @app.post("/plain")
+        async def plain():
+            await async_client.set(prefix + "plain", 1)  # an ordinary Send, while the Preview is open
+            return {}
+
+        @app.get("/stray")
+        @preview
+        async def stray():
+            thread = threading.Thread(target=lambda: sync_client.set(prefix + "stray", 1))  # no context copied
+            thread.start()
+            thread.join()
+            return {}
+
+    app, _ = make(tmp_path, stores=stores, setup=setup)
+    async with client(app) as http:
+        pending = asyncio.ensure_future(http.get("/sendproof/_preview/slow", headers=ROLLBACK))
+        await entered.wait()
+        assert (await http.post("/plain")).status_code == 200
+        release.set()
+        assert (await pending).json()["rolledBack"] is True
+        stray = await http.get("/sendproof/_preview/stray", headers=ROLLBACK)
+        assert stray.status_code == 500 and "preference-applied" not in stray.headers
+    await async_client.aclose()
 
 
 @needs("mongodb")

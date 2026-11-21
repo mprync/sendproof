@@ -212,11 +212,16 @@ class SyncBench:
             except BaseException as error:  # SystemExit, gevent.Timeout...: roll back, then re-raise
                 failure = interrupted = error
             scope.capture.handler_finished()
+            # Every cleanup step runs, whatever an earlier one raised: an interrupt (KeyboardInterrupt,
+            # a gevent timeout) inside one store's abort must not skip the other stores, the SQL
+            # rollback or the release of the transaction (and a MySQL Preview's turn). The first
+            # interrupt is re-raised once everything is cleaned up.
             for store in reversed(begun):
                 try:
                     store.finish(scope)
-                except Exception as error:
+                except BaseException as error:
                     unsafe = True
+                    interrupted = interrupted or (None if isinstance(error, Exception) else error)
                     logger.error("A Sendproof data store could not finish the preview.", exc_info=error)
             try:
                 session.rollback()
@@ -227,15 +232,17 @@ class SyncBench:
                         [*session.changes, *scope.store_changes],
                         session.changes_truncated or scope.store_changes_truncated, scope.capture.finish(),
                     )
-            except Exception as error:
+            except BaseException as error:
                 unsafe = True
+                interrupted = interrupted or (None if isinstance(error, Exception) else error)
                 logger.error("A Sendproof preview could not roll back for %s %s.", method, path, exc_info=error)
             finally:
                 scope.capture.finish()
                 try:
                     session.close()
-                except Exception as error:
+                except BaseException as error:
                     unsafe = True
+                    interrupted = interrupted or (None if isinstance(error, Exception) else error)
                     logger.error("A Sendproof preview could not release its transaction.", exc_info=error)
             if interrupted is not None:
                 raise interrupted
