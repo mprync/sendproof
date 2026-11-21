@@ -268,15 +268,12 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                 }
                 $before = $connection->transactionLevel();
                 $connection->beginTransaction();
-                $marked = in_array($connection->getDriverName(), ['mysql', 'mariadb'], true);
-                $enrolled[] = [$connection, $before, $marked];
-                if ($marked) {
-                    // The backstop's mark, made first thing in the Preview transaction, on the PDO itself
-                    // so it neither passes the handler's guard nor shows in the SQL log.
-                    $connection->getPdo()->exec('SAVEPOINT ' . self::SAVEPOINT);
-                    if (($undo = $this->watchStatements($connection)) !== null) {
-                        $restore[] = $undo;
-                    }
+                $enrolled[] = [$connection, $before, true];
+                // The backstop's mark, on every database, made first thing in the Preview transaction on
+                // the PDO itself, so it neither passes the handler's guard nor shows in the SQL log.
+                $connection->getPdo()->exec(($connection->getDriverName() === 'sqlsrv' ? 'SAVE TRANSACTION ' : 'SAVEPOINT ') . self::SAVEPOINT);
+                if (in_array($connection->getDriverName(), ['mysql', 'mariadb'], true) && ($undo = $this->watchStatements($connection)) !== null) {
+                    $restore[] = $undo;
                 }
             }
         } catch (\Throwable $error) {

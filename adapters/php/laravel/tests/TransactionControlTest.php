@@ -65,6 +65,46 @@ final class TransactionControlTest extends TestCase
         $this->assertSame(0, $this->widgetCount());
     }
 
+    /**
+     * The start-savepoint backstop on every database: a commit on the PDO itself, then a new transaction,
+     * would let a plain rollback succeed. The savepoint made when the Preview began is gone, so it answers 500.
+     */
+    public function testAPreviewCommittedOnThePdoItselfIsNeverConfirmed(): void
+    {
+        $this->mark('/widgets/{id}/around', function (string $id) {
+            Widget::create(['id' => $id, 'name' => 'escaped']);
+            $pdo = DB::connection()->getPdo(); // around every guard
+            $pdo->exec('COMMIT');
+            $pdo->exec('BEGIN');
+            $pdo->exec("INSERT INTO widgets (id, name) VALUES ('{$id}-after', 'after')");
+
+            return response()->json(['id' => $id]);
+        });
+        $this->signIn();
+
+        $response = $this->preview('/widgets/w1/around')->assertStatus(500);
+        $this->assertNotTrue($response->json('rolledBack'));
+        $this->assertSame(1, $this->widgetCount(), 'The write before the commit stays; the Preview never claims otherwise.');
+    }
+
+    public function testAHandlerMayNotReleaseThePreviewSavepoint(): void
+    {
+        $this->mark('/widgets/{id}/release', function (string $id) {
+            Widget::create(['id' => $id, 'name' => 'x']);
+            try {
+                DB::unprepared('RELEASE SAVEPOINT sendproof_preview');
+            } catch (PreviewTransactionControlException) {
+                // Caught: the Preview still answers 500.
+            }
+
+            return response()->json(['id' => $id]);
+        });
+        $this->signIn();
+
+        $this->preview('/widgets/w1/release')->assertStatus(500);
+        $this->assertSame(0, $this->widgetCount());
+    }
+
     public function testSavepointsAndNestedTransactionsStayAllowed(): void
     {
         $this->signIn();

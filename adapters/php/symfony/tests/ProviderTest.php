@@ -93,6 +93,31 @@ final class ProviderTest extends DoctrineTestCase
         }
     }
 
+    /**
+     * The start-savepoint backstop on every database: a commit on the driver's own connection, then a new
+     * transaction, would let a plain rollback succeed. The savepoint made when the Preview began is gone.
+     */
+    public function testAPreviewCommittedOnTheNativeConnectionIsNeverConfirmed(): void
+    {
+        $session = $this->provider()->begin(null);
+        $this->recorder->begin(true);
+        $native = $this->connection->getNativeConnection(); // around every guard
+        $this->assertInstanceOf(\PDO::class, $native);
+        try {
+            $native->exec("insert into widgets (id, name) values ('w1', 'escaped')");
+            $native->exec('COMMIT');
+            $native->exec('BEGIN');
+            $native->exec("insert into widgets (id, name) values ('w2', 'after')");
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessageMatches('/committed before its rollback/');
+            $session->rollback();
+        } finally {
+            $session->dispose();
+            $this->recorder->finish();
+            $this->assertSame(1, $this->rowCount(), 'The write before the commit stays; the Preview never claims otherwise.');
+        }
+    }
+
     public function testNestedTransactionsAreUnwoundToTheStartingLevel(): void
     {
         $session = $this->provider()->begin(null);

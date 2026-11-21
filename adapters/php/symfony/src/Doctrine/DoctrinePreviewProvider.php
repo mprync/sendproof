@@ -99,13 +99,10 @@ class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSyste
                 }
                 $before = $connection->getTransactionNestingLevel();
                 $connection->beginTransaction();
-                $marked = in_array($connection->getParams()['driver'] ?? '', ['pdo_mysql', 'mysqli'], true);
-                $enrolled[] = [$connection, $before, $marked];
-                if ($marked) {
-                    // The backstop's mark, made first thing in the Preview transaction, on the driver's own
-                    // connection so it neither passes the handler's guard nor shows in the SQL log.
-                    self::native($connection, 'SAVEPOINT ' . self::SAVEPOINT);
-                }
+                $enrolled[] = [$connection, $before, true];
+                // The backstop's mark, on every database, made first thing in the Preview transaction on the
+                // driver's own connection, so it neither passes the handler's guard nor shows in the SQL log.
+                self::native($connection, (self::sqlServer($connection) ? 'SAVE TRANSACTION ' : 'SAVEPOINT ') . self::SAVEPOINT);
             }
         } catch (\Throwable $error) {
             foreach ($turns as $turn) {
@@ -135,28 +132,46 @@ class DoctrinePreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         return new DoctrineObservation($this->collector);
     }
 
+    /** Whether the connection is SQL Server, which marks a savepoint with `SAVE TRANSACTION`. */
+    public static function sqlServer(Connection $connection): bool
+    {
+        return in_array($connection->getParams()['driver'] ?? '', ['pdo_sqlsrv', 'sqlsrv'], true);
+    }
+
     /**
-     * Runs `$sql` on the driver's own connection (PDO or mysqli), past the DBAL middleware.
+     * Runs `$sql` on the driver's own connection, past the DBAL middleware, and answers its first row.
      *
+     * @return list<mixed>|null
      * @throws \Throwable when the statement fails
      */
-    public static function native(Connection $connection, string $sql): void
+    public static function native(Connection $connection, string $sql): ?array
     {
         $native = $connection->getNativeConnection();
         if ($native instanceof \PDO) {
-            $native->exec($sql);
+            $statement = $native->query($sql);
+            $row = $statement === false ? false : $statement->fetch(\PDO::FETCH_NUM);
 
-            return;
+            return $row === false ? null : $row;
         }
         if ($native instanceof \mysqli) {
-            if ($native->query($sql) === false) {
+            $result = $native->query($sql);
+            if ($result === false) {
                 throw new \RuntimeException($native->error, $native->errno);
             }
 
-            return;
+            return $result instanceof \mysqli_result ? ($result->fetch_row() ?? null) : null;
+        }
+        if (is_resource($native) && function_exists('sqlsrv_query')) {
+            $statement = sqlsrv_query($native, $sql);
+            if ($statement === false) {
+                throw new \RuntimeException('The SQL Server statement failed.');
+            }
+            $row = sqlsrv_fetch_array($statement, SQLSRV_FETCH_NUMERIC);
+
+            return is_array($row) ? $row : null;
         }
 
-        throw new \LogicException('The Preview needs a PDO or mysqli connection for its MySQL savepoint.');
+        throw new \LogicException('The Preview needs the driver connection for its savepoint.');
     }
 
     private function connection(string $name): Connection

@@ -43,11 +43,13 @@ final class DoctrineSession implements PreviewSession
         foreach ($this->enrolled as $enrollment) {
             [$connection, $before] = $enrollment;
             try {
-                if ($enrollment[2] ?? false) {
-                    $this->checkStillOpen($connection);
-                }
                 if ($connection->getTransactionNestingLevel() <= $before) {
                     throw new \RuntimeException('The previewed operation committed or closed the preview transaction, so rollback cannot be confirmed.');
+                }
+                // The handler's nested transactions first: rolling back to the start savepoint erases theirs.
+                $this->unwind($connection, $before + 1);
+                if ($enrollment[2] ?? false) {
+                    $this->checkStillOpen($connection);
                 }
                 $this->unwind($connection, $before);
                 if ($connection->getTransactionNestingLevel() !== $before || ($before === 0 && $this->nativeTransactionOpen($connection))) {
@@ -101,15 +103,24 @@ final class DoctrineSession implements PreviewSession
     }
 
     /**
-     * The backstop on MySQL and MariaDB: the savepoint the Preview transaction opened with must still
-     * exist. Any commit, explicit or implicit, erases every savepoint, and with autocommit off MySQL then
-     * opens a new transaction by itself (which `PDO::inTransaction()` reports as open), so a savepoint
-     * made now would prove nothing. Error 1305 (SAVEPOINT does not exist), or a lost connection, means
-     * the rollback can't be confirmed.
+     * The backstop, on every database: the savepoint the Preview transaction opened with must still
+     * exist. Any commit, explicit or implicit, erases every savepoint, and the driver (or MySQL with
+     * autocommit off) may then open a new transaction by itself (which `PDO::inTransaction()` reports
+     * as open), so a savepoint made now would prove nothing. A missing savepoint, or a lost connection,
+     * means the rollback can't be confirmed. SQL Server can't test a savepoint without rolling back to
+     * it, so there the transaction must still be open (`@@TRANCOUNT` at least 1, `XACT_STATE()` not 0).
      */
     private function checkStillOpen(Connection $connection): void
     {
         try {
+            if (DoctrinePreviewProvider::sqlServer($connection)) {
+                [$count, $state] = DoctrinePreviewProvider::native($connection, 'SELECT @@TRANCOUNT, XACT_STATE()') ?? [0, 0];
+                if ((int) $count < 1 || (int) $state === 0) {
+                    throw new \RuntimeException('No transaction is open.');
+                }
+
+                return;
+            }
             DoctrinePreviewProvider::native($connection, 'ROLLBACK TO SAVEPOINT ' . DoctrinePreviewProvider::SAVEPOINT);
         } catch (\Throwable $error) {
             throw new \RuntimeException("The Preview transaction was committed before its rollback (its savepoint is gone), so the Preview can't be confirmed.", 0, $error);
