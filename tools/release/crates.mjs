@@ -19,7 +19,7 @@ import {
 export const title = 'crates.io';
 
 /** The published crates in dependency order: sendproof-sqlx's dev-dependencies need axum, actix's need sqlx. */
-const CRATES = ['sendproof-core', 'sendproof-axum', 'sendproof-sqlx', 'sendproof-actix'];
+const CRATES = ['sendproof-core', 'sendproof-axum', 'sendproof-sqlx', 'sendproof-actix', 'sendproof-redis', 'sendproof-dynamodb', 'sendproof-mongodb'];
 const workspace = join(root, 'adapters/rust');
 
 /**
