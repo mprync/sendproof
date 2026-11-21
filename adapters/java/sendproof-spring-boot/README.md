@@ -17,6 +17,7 @@ Spring Boot (Servlet/Spring MVC) integration. Add the dependency, set `sendproof
 | `sendproof.field-modules[n]` | none | Same-origin ES modules that add field renderers. |
 | `sendproof.trace.retention` | `5m` | How long a trace stays readable. |
 | `sendproof.sql.include-parameter-values` | development-like only | Show bound SQL values (secrets always hidden). |
+| `sendproof.sql.safe-procedures` | none | MySQL/MariaDB procedures that never commit, which a preview may `CALL` (exact names; see [sendproof-jpa](../sendproof-jpa/README.md)). |
 | `sendproof.filter-order` | `-150` | Must stay before Spring Security's chain (`-100`). |
 
 All URLs are relative to the servlet context path (`server.servlet.context-path`), which is the application mount.

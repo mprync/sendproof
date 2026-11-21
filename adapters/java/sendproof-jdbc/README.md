@@ -20,6 +20,37 @@ confirmation: `COMMIT`, `ROLLBACK` (but not `ROLLBACK TO SAVEPOINT`), `BEGIN`/`S
 DDL (which H2, MySQL and Oracle commit implicitly), a `commit()`, `close()` or `setAutoCommit(true)` that reaches the
 connection through `Statement.getConnection()`, and `unwrap` to the driver's connection.
 
+### MySQL and MariaDB
+
+On MySQL and MariaDB the preview also refuses, before sending:
+
+- the rest of MySQL's [implicit-commit list](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html):
+  `LOCK TABLE(S)`, `ANALYZE`, `OPTIMIZE`, `REPAIR`, `CHECK`, `FLUSH`, `RESET`, `LOAD`, `CACHE INDEX`, `SET PASSWORD`,
+  plugin and replication statements, and every spelling of `SET autocommit` (`SET @@session.autocommit`, a later
+  assignment in a list);
+- SQL-level `PREPARE` and `EXECUTE`, which can run any of these from a string;
+- `CALL`, because a stored procedure can commit, including the JDBC escape `{call p(?)}`;
+- `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO` of `sendproof_preview`, and the JDBC `setSavepoint`,
+  `releaseSavepoint` and `rollback(Savepoint)` calls naming it (see the backstop below).
+
+The check reads SQL as MySQL does: the body of a `/*! ... */` or `/*M! ... */` comment is SQL, `#` starts a comment,
+`--` starts one only before whitespace, and strings are read with and without backslash escapes.
+
+Declare procedures that never commit by exact name to let a preview call them:
+
+```kotlin
+val provider = JdbcPreviewProvider(dataSource) { "inventory_dev" }.safeProcedures("audit_touch", "reports.refresh_totals")
+```
+
+> **Warning:** `safeProcedures` is your statement that the procedures never commit. Sendproof trusts it: a listed
+> procedure that commits persists the preview's writes. Names match exactly (case-insensitively), with no wildcards.
+
+As a backstop the preview makes savepoint `sendproof_preview` as soon as its transaction opens, on the pool's connection
+so it never shows in the SQL log, and rolls back to it before the final rollback. Any commit erases every savepoint, so
+a missing savepoint means something committed the preview's writes, and the preview answers 500 without confirmation.
+(MySQL has no `@@in_transaction`, and with auto-commit off it opens a new transaction after a commit, so a check made
+only at the end can't see a commit.) A handler's own `rollback()` lets nothing escape; the savepoint is made again.
+
 The request must run with its `JdbcScope` current. Web adapters do this for you. A coroutine framework must carry the
 thread-local across thread hops, for example `JdbcScope.holder().asContextElement(scope)`.
 

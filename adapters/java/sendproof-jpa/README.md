@@ -9,7 +9,20 @@ JPA/Hibernate and Spring-managed JDBC data integration for `sendproof-spring-boo
 Because every operation must be fully enrolled, these are refused rather than allowed to persist:
 
 - a nested `@Transactional(propagation = REQUIRES_NEW)` call, which would commit independently;
-- data-changing SQL on a connection that is not in a transaction (for example `Propagation.NOT_SUPPORTED`).
+- data-changing SQL on a connection that is not in a transaction (for example `Propagation.NOT_SUPPORTED`);
+- SQL and JDBC calls that end the transaction (`COMMIT`, `ROLLBACK`, DDL, `Connection.commit()`).
+
+On MySQL and MariaDB the preview also refuses `CALL`, the rest of MySQL's implicit-commit list and `PREPARE`/`EXECUTE`,
+and keeps a savepoint backstop, exactly as [sendproof-jdbc](../sendproof-jdbc/README.md#mysql-and-mariadb) describes.
+The backstop needs the transaction manager's `DataSource` (`JpaTransactionManager` or `DataSourceTransactionManager`).
+Declare procedures that never commit with `sendproof.sql.safe-procedures` (or `JpaPreviewProvider.safeProcedures(...)`):
+
+```properties
+sendproof.sql.safe-procedures=audit_touch,reports.refresh_totals
+```
+
+> **Warning:** the list is your statement that the procedures never commit. Sendproof trusts it: a listed procedure that
+> commits persists the preview's writes. Names match exactly (case-insensitively), with no wildcards.
 
 A `@Transactional` method boundary flushes on return during a preview, so a duplicate key or other constraint violation surfaces where a real commit would raise it and your `@ControllerAdvice` can answer. Repository calls made directly from a controller flush at the end of the preview instead; a violation there leaves the preview unconfirmed (500).
 
