@@ -146,28 +146,23 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 // statements from the handler", on every dialect. It rolls back to the savepoint
 // open() set when the preview started: any commit, explicit or implicit, erases
 // every savepoint, so a failure means something the guard didn't see committed
-// the preview transaction, even under MySQL autocommit=0, where a new
-// transaction opens after a commit. SQL Server can't check a savepoint this way,
-// so @@TRANCOUNT must still count the preview transaction.
+// the preview transaction, even when a new transaction opens after a commit:
+// under MySQL autocommit=0, and under SQL Server IMPLICIT_TRANSACTIONS ON, where
+// @@TRANCOUNT reads 1 again.
 func (s *scope) neverCommitted(ctx context.Context) error {
 	if s.tx == nil {
 		return nil
 	}
-	gone := func(err error) error {
-		return fmt.Errorf("dbsql: the savepoint set when the preview started was gone, so something committed the preview transaction: %w", err)
-	}
-	if s.dialect == DialectSQLServer {
-		var open int
-		if err := s.tx.QueryRowContext(ctx, "SELECT @@TRANCOUNT").Scan(&open); err != nil || open < 1 {
-			return gone(fmt.Errorf("@@TRANCOUNT is %d: %v", open, err))
-		}
-		return nil
-	}
 	// ROLLBACK TO, not RELEASE: it also succeeds on a PostgreSQL transaction an
 	// ordinary handler error aborted, and discards any savepoint the handler left
-	// open after it. The whole transaction rolls back next anyway.
-	if _, err := s.tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+previewSavepoint); err != nil {
-		return gone(err)
+	// open after it. The whole transaction rolls back next anyway. SQL Server
+	// can't release a savepoint at all.
+	rollback := "ROLLBACK TO SAVEPOINT " + previewSavepoint
+	if s.dialect == DialectSQLServer {
+		rollback = "ROLLBACK TRANSACTION " + previewSavepoint
+	}
+	if _, err := s.tx.ExecContext(ctx, rollback); err != nil {
+		return fmt.Errorf("dbsql: the savepoint set when the preview started was gone, so something committed the preview transaction: %w", err)
 	}
 	return nil
 }

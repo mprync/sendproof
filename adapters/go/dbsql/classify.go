@@ -311,11 +311,29 @@ func checkStatement(text string, statement []token, dialect Dialect, safe map[st
 		if words[0] == "EXEC" || words[0] == "EXECUTE" {
 			return refuse(statement, "a procedure can commit the preview transaction")
 		}
-		if words[0] == "SET" && containsWord(statement, "IMPLICIT_TRANSACTIONS") {
+		// ON makes the statement after a commit open a new transaction, which hides
+		// the commit; OFF leaves the open transaction alone (EF Core sends it).
+		if words[0] == "SET" && containsWord(statement, "IMPLICIT_TRANSACTIONS") && !implicitTransactionsOff(statement) {
 			return refuse(statement, "implicit transactions change commit behavior")
 		}
 	}
 	return nil
+}
+
+// implicitTransactionsOff reports whether a SQL Server statement is exactly
+// SET IMPLICIT_TRANSACTIONS OFF, so an option list that also names it, such as
+// SET NOCOUNT, IMPLICIT_TRANSACTIONS ON, stays refused.
+func implicitTransactionsOff(statement []token) bool {
+	want := []string{"SET", "IMPLICIT_TRANSACTIONS", "OFF"}
+	if len(statement) != len(want) {
+		return false
+	}
+	for i, word := range want {
+		if statement[i].kind != tokWord || statement[i].value != word {
+			return false
+		}
+	}
+	return true
 }
 
 // calledProcedure reads the procedure a MySQL CALL names, as `name` or

@@ -42,13 +42,13 @@ func TestPreviewGuard(t *testing.T) {
 		DialectSQLite:    {"COMMIT", "end transaction", "BEGIN IMMEDIATE", "ROLLBACK", "SELECT 1; COMMIT"},
 		DialectPostgres:  {"COMMIT", "ABORT", "START TRANSACTION", "PREPARE TRANSACTION 'x'", "COMMIT PREPARED 'x'"},
 		DialectMySQL:     {"COMMIT", "BEGIN", "CREATE TABLE t (id int)", "ALTER TABLE t ADD c int", "TRUNCATE t", "LOCK TABLES t WRITE", "CALL p()", "SET autocommit = 1", "set @@autocommit=0"},
-		DialectSQLServer: {"COMMIT", "BEGIN TRAN", "ROLLBACK", "ROLLBACK TRANSACTION", "UPDATE t SET a = 1 COMMIT", "EXEC dbo.p", "SET IMPLICIT_TRANSACTIONS ON"},
+		DialectSQLServer: {"COMMIT", "BEGIN TRAN", "ROLLBACK", "ROLLBACK TRANSACTION", "UPDATE t SET a = 1 COMMIT", "EXEC dbo.p", "SET IMPLICIT_TRANSACTIONS ON", "SET NOCOUNT, IMPLICIT_TRANSACTIONS ON", "SET IMPLICIT_TRANSACTIONS OFF; SET IMPLICIT_TRANSACTIONS ON", "ROLLBACK TRANSACTION sendproof_preview"},
 	}
 	allowed := map[Dialect][]string{
 		DialectSQLite:    {"SAVEPOINT a", "RELEASE a", "ROLLBACK TO a", "ROLLBACK TRANSACTION TO SAVEPOINT a", "SELECT 'COMMIT'", "CREATE TABLE t (id int)"},
 		DialectPostgres:  {"SAVEPOINT a", "ROLLBACK TO SAVEPOINT a", "CREATE TABLE t (id int)", "DO $$ BEGIN COMMIT; END $$", "SELECT \"commit\" FROM t"},
 		DialectMySQL:     {"SAVEPOINT a", "ROLLBACK TO a", "CREATE TEMPORARY TABLE t (id int)", "DROP TEMPORARY TABLE t", "INSERT INTO t VALUES ('COMMIT')"},
-		DialectSQLServer: {"SAVE TRANSACTION a", "ROLLBACK TRANSACTION a", "IF 1 = 1 BEGIN UPDATE t SET a = 1 END", "SELECT [commit] FROM t"},
+		DialectSQLServer: {"SAVE TRANSACTION a", "ROLLBACK TRANSACTION a", "IF 1 = 1 BEGIN UPDATE t SET a = 1 END", "SELECT [commit] FROM t", "SET IMPLICIT_TRANSACTIONS OFF", "set implicit_transactions off;"},
 	}
 	for dialect, statements := range refused {
 		for _, statement := range statements {
