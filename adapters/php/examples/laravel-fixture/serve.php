@@ -33,6 +33,8 @@ if ($mysql !== null) {
     );
     $pdo->exec('create table items (id varchar(191) primary key not null, name varchar(255) not null)');
     $pdo->exec('create table accounts (id varchar(191) primary key not null, email varchar(255) not null, password_hash varchar(255) not null)');
+    // mysql-escape (spec/conformance/fixture.md): a procedure that commits. The fixture declares none safe.
+    $pdo->exec('create procedure if not exists sendproof_commit_probe() begin commit; end');
 } else {
     $pdo = new PDO('sqlite:' . $database);
     $pdo->exec('create table items (id text primary key not null, name text not null)');

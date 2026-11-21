@@ -40,7 +40,8 @@ Route::get('/openapi/v1.json', function () {
             '/items/{id}/capture' => $action('Exceed capture limits'),
             '/items/{id}/ordinary' => $action('Send only'),
             '/items/{id}/commit' => $action('Insert then COMMIT'),
-            '/accounts' => ['post' => $operation('Create account')],
+            ...(config('database.default') === 'mysql' ? ['/items/{id}/escape' => $action('Insert, then commit implicitly (DDL or CALL)')] : []),
+            '/accounts' =>['post' => $operation('Create account')],
             '/accounts/{id}' => ['get' => $operation('Read account', ['parameters' => [$id]])],
             '/items/{id}/remember' => $action('Insert, then write a guarded store'),
             '/documents' => ['post' => $operation('Create document')],
@@ -204,6 +205,21 @@ Route::middleware(['fixture.user', 'fixture.admin'])->group(function (): void {
 
         return response()->json(['id' => $id, 'name' => $data['name']], 201);
     })->sendproofPreview();
+
+    // MySQL only (the shared mysql-escape rule): inserts, then on the same connection runs a statement that
+    // commits without saying COMMIT. Preview must refuse it before it is sent.
+    if (config('database.default') === 'mysql') {
+        Route::post('/items/{id}/escape', function (Request $request, string $id) {
+            $data = $request->validate(['name' => 'required|string|max:200', 'via' => 'required|in:ddl,call']);
+            abort_unless(preg_match('/^\w+$/', $id) === 1, 400); // the id names a table below
+            Item::create(['id' => $id, 'name' => $data['name']]);
+            DB::unprepared($data['via'] === 'ddl'
+                ? "CREATE TABLE sendproof_escape_{$id} (n INT)" // commits implicitly
+                : 'CALL sendproof_commit_probe()');             // the procedure runs COMMIT
+
+            return response()->json(['id' => $id, 'name' => $data['name']], 201);
+        })->sendproofPreview();
+    }
 });
 
 // Data stores (spec/conformance/fixture.md#data-store-routes), present when the runner supplies them -----

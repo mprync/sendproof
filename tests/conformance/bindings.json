@@ -331,7 +331,7 @@
         "adapters/php/examples/laravel-fixture/serve.php"
       ],
       "traceTtlMs": 5000,
-      "sharedRules": ["secret-columns", "raw-commit"]
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"]
     },
     {
       "id": "php-symfony",
