@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# The Test Bench conformance fixture: a disposable Rails API backed by one real SQLite table.
-# It doubles as the reference setup for testbench-rails and testbench-activerecord.
+# The Sendproof conformance fixture: a disposable Rails API backed by one real SQLite table.
+# It doubles as the reference setup for sendproof-rails and sendproof-activerecord.
 #
 # Environment: PORT (set by the server), BENCH_PATH_BASE (see config.ru), BENCH_SCENARIO
 # (standard, disabled, no-provider or rollback-failure).
@@ -11,11 +11,11 @@ require "fileutils"
 require "rails"
 require "action_controller/railtie"
 require "active_record/railtie"
-require "testbench/rails"
-require "testbench/active_record"
+require "sendproof/rails"
+require "sendproof/active_record"
 
 # Every process gets its own empty database file, removed on exit.
-DATABASE_DIRECTORY = Dir.mktmpdir("testbench-fixture-")
+DATABASE_DIRECTORY = Dir.mktmpdir("sendproof-fixture-")
 at_exit { FileUtils.remove_entry(DATABASE_DIRECTORY, true) }
 ENV["DATABASE_URL"] = "sqlite3:#{File.join(DATABASE_DIRECTORY, 'fixture.sqlite3')}?timeout=5000&pool=8"
 
@@ -31,7 +31,7 @@ module Fixture
   class InjectedRollbackFailure < StandardError; end
 
   # Same provider, but its rollback reports a failure after the transaction was really rolled back.
-  class FailingRollbackProvider < TestBench::ActiveRecord::Provider
+  class FailingRollbackProvider < Sendproof::ActiveRecord::Provider
     def begin_preview(context)
       super.tap do |session|
         session.define_singleton_method(:rollback!) do
@@ -57,13 +57,13 @@ module Fixture
     config.logger = ActiveSupport::BroadcastLogger.new(ActiveSupport::Logger.new($stderr, level: :info))
     config.root = __dir__
 
-    # Cookie sessions, as a real login would use. They run before Test Bench in the stack.
+    # Cookie sessions, as a real login would use. They run before Sendproof in the stack.
     config.middleware.use ActionDispatch::Cookies
     config.middleware.use ActionDispatch::Session::CookieStore, key: "_fixture_session", same_site: :lax
 
-    bench = config.test_bench
+    bench = config.sendproof
     bench.environments = SCENARIO == "disabled" ? %w[staging] : [Rails.env]
-    bench.api_name = "Test Bench Conformance"
+    bench.api_name = "Sendproof Conformance"
     bench.open_api_url = "/openapi/v1.json"
     bench.trace_ttl = 5
     bench.auth_provider "Fixture sign-in", "cookie", "/auth/sign-in"
@@ -76,7 +76,7 @@ module Fixture
     case SCENARIO
     when "no-provider" then nil
     when "rollback-failure" then bench.use FailingRollbackProvider.new(database: "fixture")
-    else bench.use TestBench::ActiveRecord::Provider.new(database: "fixture")
+    else bench.use Sendproof::ActiveRecord::Provider.new(database: "fixture")
     end
 
     initializer "fixture.database" do

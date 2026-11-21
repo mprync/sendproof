@@ -1,22 +1,22 @@
 PATH
-  remote: testbench-activerecord
+  remote: sendproof-activerecord
   specs:
-    testbench-activerecord (0.1.0.alpha.1)
+    sendproof-activerecord (0.1.0.alpha.1)
       activerecord (>= 8.0, < 9)
-      testbench-core (= 0.1.0.alpha.1)
+      sendproof-core (= 0.1.0.alpha.1)
 
 PATH
-  remote: testbench-rails
+  remote: sendproof-rails
   specs:
-    testbench-rails (0.1.0.alpha.1)
+    sendproof-rails (0.1.0.alpha.1)
       actionpack (>= 8.0, < 9)
       railties (>= 8.0, < 9)
-      testbench-core (= 0.1.0.alpha.1)
+      sendproof-core (= 0.1.0.alpha.1)
 
 PATH
-  remote: testbench
+  remote: sendproof
   specs:
-    testbench-core (0.1.0.alpha.1)
+    sendproof-core (0.1.0.alpha.1)
       rack (>= 3.0, < 4)
 
 GEM
@@ -258,10 +258,10 @@ DEPENDENCIES
   rack-test (~> 2.1)
   rails (~> 8.0.0)
   rake (~> 13.2)
+  sendproof-activerecord!
+  sendproof-core!
+  sendproof-rails!
   sqlite3 (>= 2.1)
-  testbench-activerecord!
-  testbench-core!
-  testbench-rails!
 
 BUNDLED WITH
    2.6.7

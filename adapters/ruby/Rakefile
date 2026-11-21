@@ -1,20 +1,20 @@
 # frozen_string_literal: true
 
 require "rake/testtask"
-require_relative "testbench/lib/testbench/version"
+require_relative "sendproof/lib/sendproof/version"
 
 ROOT = File.expand_path("../..", __dir__)
-CORE_UI = File.expand_path("testbench/lib/testbench/ui", __dir__)
+CORE_UI = File.expand_path("sendproof/lib/sendproof/ui", __dir__)
 
 namespace :ui do
   desc "Pack the shared UI bundle into the core gem (requires Node; never copies UI source by hand)"
   task :pack do
-    require_relative "testbench/lib/testbench/version"
-    sh "node", File.join(ROOT, "tools/pack-ui.mjs"), "--version", TestBench::UI_VERSION, "--out", CORE_UI
+    require_relative "sendproof/lib/sendproof/version"
+    sh "node", File.join(ROOT, "tools/pack-ui.mjs"), "--version", Sendproof::UI_VERSION, "--out", CORE_UI
   end
 end
 
-%w[testbench testbench-activerecord testbench-rails].each do |gem_dir|
+%w[sendproof sendproof-activerecord sendproof-rails].each do |gem_dir|
   Rake::TestTask.new("test:#{gem_dir}") do |task|
     task.libs << File.join(gem_dir, "test") << File.join(gem_dir, "lib")
     task.test_files = FileList[File.join(gem_dir, "test/**/*_test.rb")]
@@ -28,14 +28,14 @@ Rake::TestTask.new("test:fixture") do |task|
 end
 
 desc "Run every Ruby test suite"
-task test: %w[test:testbench test:testbench-activerecord test:testbench-rails test:fixture]
+task test: %w[test:sendproof test:sendproof-activerecord test:sendproof-rails test:fixture]
 
 desc "Build the three gems into pkg/ (packs the UI first)"
 task build: "ui:pack" do
   mkdir_p "pkg"
-  %w[testbench/testbench-core testbench-activerecord/testbench-activerecord testbench-rails/testbench-rails].each do |spec|
+  %w[sendproof/sendproof-core sendproof-activerecord/sendproof-activerecord sendproof-rails/sendproof-rails].each do |spec|
     dir = File.dirname(spec)
-    sh "cd #{dir} && gem build #{File.basename(spec)}.gemspec --output ../pkg/#{File.basename(spec)}-#{TestBench::VERSION}.gem"
+    sh "cd #{dir} && gem build #{File.basename(spec)}.gemspec --output ../pkg/#{File.basename(spec)}-#{Sendproof::VERSION}.gem"
   end
 end
 

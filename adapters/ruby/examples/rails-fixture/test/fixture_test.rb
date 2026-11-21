@@ -31,19 +31,19 @@ class FixtureTest < Minitest::Test
   def durable_ids = Thread.new { ActiveRecord::Base.connection_pool.with_connection { Fixture::Item.order(:id).pluck(:id) } }.value
 
   def test_discovery_advertises_the_fixture_operations_and_cookie_sign_in
-    get "/bench/_api/capabilities"
+    get "/sendproof/_api/capabilities"
     assert_equal 200, last_response.status
     assert_nil json["identity"]
     assert_equal %w[cookie personas], json["authProviders"].map { |p| p["kind"] }
     operations = json["previewOperations"].map { |o| "#{o['method']} #{o['path']}" }
     assert_includes operations, "POST /items/{id}/capture"
     refute_includes operations, "POST /items/{id}/ordinary"
-    assert_equal "Test Bench Conformance", Fixture::OPENAPI[:info][:title]
+    assert_equal "Sendproof Conformance", Fixture::OPENAPI[:info][:title]
   end
 
   def test_preview_rolls_back_and_send_persists
     sign_in
-    post "/bench/_preview/items", JSON.generate(id: "p", name: "Previewed"), ROLLBACK
+    post "/sendproof/_preview/items", JSON.generate(id: "p", name: "Previewed"), ROLLBACK
     assert_equal 200, last_response.status
     assert_equal 201, json["status"]
     assert_equal ["insert"], json["changes"].map { |c| c["operation"] }
@@ -63,14 +63,14 @@ class FixtureTest < Minitest::Test
     post "/items", "{}", "CONTENT_TYPE" => "application/json"
     assert_equal 401, last_response.status
     sign_in("viewer@example.test")
-    post "/bench/_preview/items", JSON.generate(id: "v", name: "x"), ROLLBACK
+    post "/sendproof/_preview/items", JSON.generate(id: "v", name: "x"), ROLLBACK
     assert_equal 403, last_response.status
     assert_nil last_response["preference-applied"]
   end
 
   def test_capture_overflows_every_limit_and_still_rolls_back
     sign_in
-    post "/bench/_preview/items/bulk/capture", "", ROLLBACK
+    post "/sendproof/_preview/items/bulk/capture", "", ROLLBACK
     assert_equal true, json["changesTruncated"]
     assert_equal true, json["effectsTruncated"]
     assert_equal true, json["logsTruncated"]
@@ -79,7 +79,7 @@ class FixtureTest < Minitest::Test
 
   def test_a_raised_failure_is_unconfirmed
     sign_in
-    post "/bench/_preview/items/x/fail?mode=raise", "", ROLLBACK
+    post "/sendproof/_preview/items/x/fail?mode=raise", "", ROLLBACK
     assert_equal 500, last_response.status
     assert_nil last_response["preference-applied"]
     assert_empty durable_ids

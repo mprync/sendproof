@@ -4,19 +4,19 @@
 # (the repository URL) is resolved here, so changing the canonical repository changes every gem.
 #
 # Resolution order:
-#   1. ENV["TESTBENCH_REPOSITORY_URL"], set by tools/release/rubygems.mjs when it builds the gems.
+#   1. ENV["SENDPROOF_REPOSITORY_URL"], set by tools/release/rubygems.mjs when it builds the gems.
 #   2. adapters/go/MODULE_PATH, the repository's single source of truth for its own URL, when the
 #      gemspec is evaluated from a checkout (for example by Bundler's `path:` gems).
 # Anything else raises, so a gem can never be built with an invented repository.
-module TestBenchGemspec
+module SendproofGemspec
   URL_PATTERN = %r{\Ahttps://[^/\s]+/[^/\s]+/[^/\s]+\z}
 
   module_function
 
   def repository_url
-    url = ENV["TESTBENCH_REPOSITORY_URL"].to_s.strip.sub(/\.git\z/, "").chomp("/")
+    url = ENV["SENDPROOF_REPOSITORY_URL"].to_s.strip.sub(/\.git\z/, "").chomp("/")
     url = url_from_module_path if url.empty?
-    raise "TESTBENCH_REPOSITORY_URL is not set and adapters/go/MODULE_PATH was not found" if url.nil?
+    raise "SENDPROOF_REPOSITORY_URL is not set and adapters/go/MODULE_PATH was not found" if url.nil?
     raise "Repository URL must look like https://host/owner/repo, got #{url.inspect}" unless URL_PATTERN.match?(url)
 
     url
@@ -30,7 +30,7 @@ module TestBenchGemspec
     match && "https://#{match[1]}/#{match[2]}/#{match[3]}"
   end
 
-  # Applies the metadata every Test Bench gem shares: homepage, source, issues, changelog, docs, MFA.
+  # Applies the metadata every Sendproof gem shares: homepage, source, issues, changelog, docs, MFA.
   def apply(spec)
     url = repository_url
     spec.homepage = url

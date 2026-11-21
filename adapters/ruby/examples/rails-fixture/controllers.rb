@@ -56,7 +56,7 @@ module Fixture
 
   class ItemsController < BaseController
     # Create/update/delete and the demonstration operations are previewable. `show` and `ordinary` are not.
-    test_bench_preview only: %i[create update destroy fail large redirect capture]
+    sendproof_preview only: %i[create update destroy fail large redirect capture]
 
     before_action :authenticate!
     before_action :require_admin!, except: :show
@@ -114,7 +114,7 @@ module Fixture
     # Overflows every capture limit in one request: 205 changes, 110 effects and 520 logs.
     def capture
       205.times { |n| Item.create!(id: "#{params[:id]}-#{n}", name: "bulk #{n}") }
-      110.times { |n| TestBench.record_job("Bulk job #{n}", name: "bulk", arguments: { n: n }) }
+      110.times { |n| Sendproof.record_job("Bulk job #{n}", name: "bulk", arguments: { n: n }) }
       520.times { |n| Rails.logger.info("capture:#{n}") }
       head :no_content
     end
@@ -136,7 +136,7 @@ module Fixture
     end
 
     def notify(description, id)
-      suppressed = TestBench.record_email(description, from: "noreply@example.test", to: ["admin@example.test"],
+      suppressed = Sendproof.record_email(description, from: "noreply@example.test", to: ["admin@example.test"],
                                                        subject: "Item #{id}", text: "Item #{id} was created.")
       OUTBOX << { description: description, id: id } unless suppressed
     end
@@ -154,7 +154,7 @@ module Fixture
     simple = ->(summary, status = "200") { { summary: summary, parameters: [id_param], responses: { status => { description: summary } } } }
     {
       openapi: "3.0.3",
-      info: { title: "Test Bench Conformance", version: "1.0.0" },
+      info: { title: "Sendproof Conformance", version: "1.0.0" },
       paths: {
         "/items" => { post: { summary: "Create an item", requestBody: body.call(ref),
                               responses: { "201" => json.call("Created"), "422" => { description: "Invalid" } } } },
