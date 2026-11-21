@@ -189,6 +189,27 @@ test('variant selection retains fields and validates the chosen discriminator', 
   assert.equal(form.validate().valid, true);
 });
 
+test('a nullable wrapper (oneOf with null) is one optional schema, not a choice between variants', () => {
+  // ASP.NET writes an optional body as oneOf [null, $ref]; the form must show the real fields.
+  const document = { components: { schemas: { Approve: { type: 'object', properties: { comment: { type: ['null', 'string'], maxLength: 500 } } } } } };
+  const wrapper = { oneOf: [{ type: 'null' }, { $ref: '#/components/schemas/Approve' }] };
+  const resolved = resolveSchema(wrapper, document);
+  assert.equal(resolved.type, 'object');
+  assert.equal(resolved.nullable, true);
+  assert.equal(resolved.oneOf, undefined);
+  assert.deepEqual(sampleValue(wrapper, document), { comment: 'value' });
+  assert.deepEqual(validateSchemaValue({ schema: wrapper, value: null, document }), []);
+  const container = new Node('div');
+  const form = createSchemaForm({ container, schema: wrapper, document, value: undefined });
+  assert.ok(!container.walk().some(node => node['aria-label'] === 'Schema variant'), 'no variant selector');
+  assert.ok(container.walk().some(node => node.dataset.schemaPath === '["comment"]' || node.dataset.optionalPath === '["comment"]'), 'comment field offered');
+  assert.deepEqual(form.getValue() ?? {}, {});
+  // Two real options remain a genuine choice; only the null option is dropped.
+  const choice = resolveSchema({ anyOf: [{ type: 'null' }, { type: 'string' }, { type: 'integer' }] });
+  assert.equal(choice.anyOf.length, 2);
+  assert.equal(choice.nullable, true);
+});
+
 test('lookups use same-origin credentials and retain the chosen typed value', async () => {
   const container = new Node('div');
   const calls = [];
