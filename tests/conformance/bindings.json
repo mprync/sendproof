@@ -289,11 +289,27 @@
     {
       "id": "ruby-rails",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "ruby",
       "port": 5352,
       "readiness": "/ready",
       "prepare": "bash adapters/ruby/bin/prepare",
       "test": "bash adapters/ruby/bin/test",
+      "start": [
+        "bash",
+        "adapters/ruby/bin/fixture"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "ruby-rails-mysql",
+      "database": "mysql",
+      "toolchain": "ruby",
+      "port": 5398,
+      "readiness": "/ready",
+      "prepare": "bash adapters/ruby/bin/prepare",
+      "test": "bash adapters/ruby/bin/test-mysql",
       "start": [
         "bash",
         "adapters/ruby/bin/fixture"
