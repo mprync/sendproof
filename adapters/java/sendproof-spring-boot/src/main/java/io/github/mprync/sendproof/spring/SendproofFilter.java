@@ -48,7 +48,14 @@ final class SendproofFilter extends OncePerRequestFilter {
                 reject(response, 400, "Use the Sendproof preview URL for rollback requests.", null);
                 return;
             }
-            chain.doFilter(request, response);
+            // Every ordinary request is marked, so a data store write that belongs to no request (a background thread) can be
+            // told apart from a Send while a Preview is open.
+            CaptureContext.Scope attributed = CaptureContext.enterAttributed();
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                attributed.close();
+            }
             return;
         }
 

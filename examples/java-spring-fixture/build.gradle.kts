@@ -18,6 +18,8 @@ dependencies {
     implementation(platform(libs.awssdk.bom))
     implementation("software.amazon.awssdk:dynamodb")
     runtimeOnly("com.h2database:h2")
+    // The MySQL conformance entry (BENCH_DATABASE=mysql).
+    runtimeOnly("com.mysql:mysql-connector-j")
 }
 
 tasks.bootJar {

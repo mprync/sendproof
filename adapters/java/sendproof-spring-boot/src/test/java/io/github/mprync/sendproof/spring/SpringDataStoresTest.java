@@ -103,6 +103,30 @@ class SpringDataStoresTest {
             return Map.of("ok", "true");
         }
 
+        /** Handler code reaches for the ambient session and tries to commit it. */
+        @SendproofPreview
+        @PostMapping("/commit-session")
+        Map<String, String> commitSession() {
+            mongo.insert(new Document("_id", "session-commit"), "docs");
+            // The ambient session Spring Data hands to handler code, found where it keeps it.
+            com.mongodb.client.ClientSession session;
+            try {
+                Object holder = org.springframework.transaction.support.TransactionSynchronizationManager
+                        .getResource(mongo.getMongoDatabaseFactory());
+                var getSession = holder.getClass().getDeclaredMethod("getRequiredSession");
+                getSession.setAccessible(true);
+                session = (com.mongodb.client.ClientSession) getSession.invoke(holder);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                throw new IllegalStateException("The test could not find the ambient session", error);
+            }
+            try {
+                session.commitTransaction();
+            } catch (RuntimeException swallowed) {
+                // The handler carries on as a careless one would.
+            }
+            return Map.of("ok", "true");
+        }
+
         @SendproofPreview
         @PostMapping("/out")
         Map<String, String> out() {
@@ -216,6 +240,14 @@ class SpringDataStoresTest {
         assertThat(result.getResponse().getStatus()).isEqualTo(500);
         assertThat(result.getResponse().getHeader("Preference-Applied")).isNull();
         assertThat(committed("docs", "requires-new")).isZero();
+    }
+
+    @Test
+    void handlerCodeNeverHoldsASessionItCanCommit() throws Exception {
+        assumeTrue(mongoUp, "MongoDB isn't running: docker compose -f tests/conformance/compose.yml up -d --wait mongodb");
+        MvcResult result = preview(post("/sendproof/_preview/m/commit-session"));
+        assertThat(result.getResponse().getStatus()).isEqualTo(500);
+        assertThat(committed("docs", "session-commit")).isZero();
     }
 
     @Test

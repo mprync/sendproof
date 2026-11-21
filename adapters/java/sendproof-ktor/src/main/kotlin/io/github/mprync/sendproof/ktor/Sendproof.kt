@@ -123,7 +123,11 @@ internal class SendproofRuntime(private val application: Application, private va
             if (Protocol.requestsRollback(prefer)) {
                 call.respondProblem(400, "Use the Sendproof preview URL for rollback requests.")
                 context.finish()
+                return
             }
+            // Every ordinary call is marked, so a data store write that belongs to no request (a background coroutine) can be
+            // told apart from a Send while a Preview is open.
+            withContext(CaptureContext.attributionHolder().asContextElement(true)) { context.proceed() }
             return
         }
         val target = path.substring(prefix + Protocol.PREVIEW_PREFIX.length)

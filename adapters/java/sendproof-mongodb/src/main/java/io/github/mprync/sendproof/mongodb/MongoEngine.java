@@ -160,6 +160,12 @@ final class MongoEngine {
     private volatile DataStore.Description detected;
     private volatile Mode mode;
     private final String name;
+    /** Proves the command listener is registered on this engine's own client: see {@link #detect}. */
+    private final String probeToken = "sendproof-probe-" + java.util.UUID.randomUUID();
+    private volatile boolean probeSeen;
+
+    /** The reason Preview is unavailable when the engine's client doesn't report its commands to the listener. */
+    static final String NO_TRIPWIRE_REASON = "Preview unavailable: the Sendproof command listener isn't registered on this MongoDB client";
 
     MongoEngine(MongoBackend backend, Set<String> reads, long timeoutMs, String name) {
         this.backend = backend;
@@ -193,7 +199,16 @@ final class MongoEngine {
             return detected;
         }
         try {
-            BsonDocument hello = internal(() -> backend.command("admin", new BsonDocument("hello", new BsonInt32(1)), null));
+            // The probe carries a token only this engine knows. The tripwire counts as installed only when the listener sees
+            // that token on this client's own command, never because some other client's commands were seen.
+            probeSeen = false;
+            BsonDocument hello = internal(() -> backend.command("admin",
+                    new BsonDocument("hello", new BsonInt32(1)).append("comment", new BsonString(probeToken)), null));
+            if (!probeSeen) {
+                mode = Mode.GUARD;
+                detected = new DataStore.Description("mongodb", name, "guard", NO_TRIPWIRE_REASON);
+                return detected;
+            }
             boolean transactions = (hello.containsKey("setName") || (hello.containsKey("msg")
                     && "isdbgrid".equals(hello.getString("msg").getValue()))) && hello.containsKey("logicalSessionTimeoutMinutes")
                     && !hello.get("logicalSessionTimeoutMinutes").isNull();
@@ -362,6 +377,10 @@ final class MongoEngine {
 
     private void started(CommandStartedEvent event) {
         try {
+            if (event.getCommand().containsKey("comment") && event.getCommand().get("comment").isString()
+                    && probeToken.equals(event.getCommand().getString("comment").getValue())) {
+                probeSeen = true;
+            }
             if (internalEvent(event.getRequestContext())) {
                 return;
             }
@@ -380,6 +399,9 @@ final class MongoEngine {
                         + " reached the server during a Preview; the Preview can't be confirmed."));
             } else if (preview != null && kind == CommandKind.WRITE) {
                 watchWrite(preview, command, event.getDatabaseName(), lower, commandName);
+            } else if (preview == null && kind == CommandKind.WRITE && capture == null
+                    && !attributed(event.getRequestContext())) {
+                unattributedWrite(command, event.getDatabaseName(), lower, commandName);
             }
             if (kind == CommandKind.SESSION || SENSITIVE.contains(lower)) {
                 return;
@@ -398,6 +420,37 @@ final class MongoEngine {
         } catch (Exception | LinkageError failure) {
             // Monitoring must never break a command.
             LOG.debug("Sendproof could not observe a MongoDB command.", failure);
+        }
+    }
+
+    private static boolean attributed(com.mongodb.RequestContext context) {
+        return context instanceof CaptureRequestContext ours ? ours.attributed() : CaptureContext.attributed();
+    }
+
+    /**
+     * A write with no request behind it while Previews are open. If it carries an open Preview's own session it is that
+     * Preview's write sent from another thread, and is watched as such. Otherwise nothing can say it isn't a Preview's
+     * write that escaped, so every open Preview fails with 500. Background work declares itself detached to be exempt
+     * ({@link CaptureContext#detached}).
+     */
+    private void unattributedWrite(BsonDocument command, String namespace, String lower, String original) {
+        String lsid = lsidOf(command);
+        java.util.List<Map.Entry<RequestCapture, PreviewState>> open;
+        synchronized (states) {
+            open = new ArrayList<>(states.entrySet());
+        }
+        for (Map.Entry<RequestCapture, PreviewState> entry : open) {
+            if (entry.getValue().lsid.equals(lsid)) {
+                watchWrite(entry.getKey(), command, namespace, lower, original);
+                return;
+            }
+        }
+        for (Map.Entry<RequestCapture, PreviewState> entry : open) {
+            if (!entry.getValue().finished) {
+                entry.getKey().refuse(new PreviewTransactionControlException("A MongoDB " + original
+                        + " with no request attribution was sent while a Preview was open; it may have escaped the Preview, so the "
+                        + "Preview can't be confirmed. Run background work inside CaptureContext.detached."));
+            }
         }
     }
 

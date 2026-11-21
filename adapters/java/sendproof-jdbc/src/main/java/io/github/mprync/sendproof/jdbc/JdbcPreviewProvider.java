@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.jdbc;
 import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
 import io.github.mprync.sendproof.core.PreviewSession;
+import io.github.mprync.sendproof.core.PreviewTurns;
 import java.sql.SQLException;
 import java.util.function.Supplier;
 
@@ -16,6 +17,8 @@ import java.util.function.Supplier;
 public final class JdbcPreviewProvider implements PreviewProvider {
     private final PreviewDataSource dataSource;
     private final Supplier<String> database;
+    private final Supplier<String> system;
+    private final PreviewTurns turns = new PreviewTurns();
 
     /**
      * Creates the provider.
@@ -23,8 +26,17 @@ public final class JdbcPreviewProvider implements PreviewProvider {
      * @param database supplies a short non-secret label for the database, or {@code null}
      */
     public JdbcPreviewProvider(PreviewDataSource dataSource, Supplier<String> database) {
+        this(dataSource, database, dataSource::databaseSystem);
+    }
+
+    /**
+     * Creates the provider with an explicit SQL provider id ({@code postgresql}, {@code mysql} ...), for capabilities
+     * {@code database.system} and to decide whether Previews take turns.
+     */
+    public JdbcPreviewProvider(PreviewDataSource dataSource, Supplier<String> database, Supplier<String> system) {
         this.dataSource = dataSource;
         this.database = database;
+        this.system = system;
     }
 
     @Override
@@ -39,12 +51,25 @@ public final class JdbcPreviewProvider implements PreviewProvider {
 
     @Override
     public String databaseSystem() {
-        return dataSource.databaseSystem();
+        return system.get();
     }
 
+    /**
+     * On MySQL and MariaDB one Preview runs at a time per provider: see {@link PreviewTurns}. The turn is taken before
+     * the connection is borrowed and handed on when the session closes.
+     */
     @Override
     public PreviewSession begin() throws SQLException {
-        return dataSource.beginPreview();
+        if (!PreviewTurns.needed(system.get())) {
+            return dataSource.beginPreview();
+        }
+        turns.acquire();
+        try {
+            return turns.holding(dataSource.beginPreview());
+        } catch (SQLException | RuntimeException | Error failure) {
+            turns.release();
+            throw failure;
+        }
     }
 
     @Override

@@ -15,6 +15,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
+import io.github.mprync.sendproof.core.CaptureContext;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.PreviewOutcome;
 import io.github.mprync.sendproof.core.stores.PreviewWriteBlockedException;
@@ -259,8 +260,8 @@ class MongoStoreTest {
             documents().find().first();
             // Another request commits a new document after the Preview began.
             // (On another thread, as another request would be: a write on this thread is an escape for the tripwire.)
-            Thread other = new Thread(() -> raw.getDatabase(databaseName).getCollection("documents")
-                    .insertOne(new Document("_id", "concurrent").append("name", "Late")));
+            Thread other = new Thread(() -> CaptureContext.detached(() -> raw.getDatabase(databaseName).getCollection("documents")
+                    .insertOne(new Document("_id", "concurrent").append("name", "Late"))));
             other.start();
             other.join();
             documents().updateMany(new Document(), Updates.set("touched", true));
@@ -319,7 +320,8 @@ class MongoStoreTest {
             }).start();
         }
         // A Send in the middle commits normally and outside any Preview session.
-        documents().insertOne(new Document("_id", "sent"));
+        // A Send is a request: its thread is attributed, so it never fails the Previews that are open.
+        CaptureContext.detached(() -> documents().insertOne(new Document("_id", "sent")));
         latch.await();
         results.set(outcomes);
         assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.confirmed()).isTrue());
@@ -363,19 +365,20 @@ class MongoStoreTest {
     @Test
     void aStandaloneServerRunsInGuardMode() throws Exception {
         // Simulate a standalone server's hello: no setName, no sessions.
-        MongoBackend real = SyncSupport.backend(raw);
-        var standalone = new DelegatingBackend(real) {
+        MongoStore guardOnly = MongoStore.builder().build();
+        MongoClient own = withListener(guardOnly);
+        var standaloneOnOwn = new DelegatingBackend(SyncSupport.backend(own)) {
             @Override
             public BsonDocument command(String database, BsonDocument command, Object session) {
                 if (command.containsKey("hello")) {
+                    super.command(database, command, session);
                     return new BsonDocument("isWritablePrimary", org.bson.BsonBoolean.TRUE).append("maxWireVersion", new BsonInt32(25));
                 }
                 return super.command(database, command, session);
             }
         };
-        MongoStore guardOnly = MongoStore.builder().build();
-        guardOnly.attach(standalone, SessionBinder.NONE);
-        MongoDatabase database = guardOnly.guard(raw.getDatabase(databaseName));
+        guardOnly.attach(standaloneOnOwn, SessionBinder.NONE);
+        MongoDatabase database = guardOnly.guard(own.getDatabase(databaseName));
 
         assertThat(guardOnly.describe().mode()).isEqualTo("guard");
         assertThat(guardOnly.describe().reason()).contains("doesn't support transactions");
@@ -392,7 +395,9 @@ class MongoStoreTest {
     @Test
     void aPreviewKeepsTheModeItBeganIn() throws Exception {
         var failures = new java.util.concurrent.atomic.AtomicInteger(1);
-        var flaky = new DelegatingBackend(SyncSupport.backend(raw)) {
+        MongoStore late = MongoStore.builder().build();
+        MongoClient own = withListener(late);
+        var flaky = new DelegatingBackend(SyncSupport.backend(own)) {
             @Override
             public BsonDocument command(String database, BsonDocument command, Object session) {
                 if (command.containsKey("hello") && failures.getAndDecrement() > 0) {
@@ -401,9 +406,8 @@ class MongoStoreTest {
                 return super.command(database, command, session);
             }
         };
-        MongoStore late = MongoStore.builder().build();
         late.attach(flaky, SessionBinder.NONE);
-        MongoDatabase database = late.guard(raw.getDatabase(databaseName));
+        MongoDatabase database = late.guard(own.getDatabase(databaseName));
         var firstOutcome = new AtomicReference<PreviewOutcome>();
         firstOutcome.set(Harness.preview(() -> {
             // Detection failed when this Preview began, so it runs in guard mode. Detection now succeeds for the next one.
@@ -413,6 +417,78 @@ class MongoStoreTest {
         }, late));
         assertThat(firstOutcome.get().blocked()).isTrue();
         assertThat(committed("late")).isZero();
+    }
+
+    @Test
+    void theTripwireIsProvenOnTheGuardedClientItselfNotByOtherClientsCommands() throws Exception {
+        // The store's listener is registered on `raw`, but the store is attached to a second client that has none.
+        MongoClient bare = MongoClients.create(MongoClientSettings.builder().applyConnectionString(new ConnectionString(URL)).build());
+        try {
+            MongoStore unproven = MongoStore.builder().build();
+            unproven.sync(bare);
+            // Commands from `raw`, which does report to the listener, don't count as proof for `bare`.
+            raw.getDatabase(databaseName).getCollection("documents").countDocuments();
+            assertThat(unproven.describe().mode()).isEqualTo("guard");
+            assertThat(unproven.describe().reason()).contains("command listener");
+            // So a Preview there guards instead of claiming a rollback it can't verify.
+            PreviewOutcome outcome = Harness.preview(() -> assertThatThrownBy(() -> unproven.guard(bare.getDatabase(databaseName))
+                    .getCollection("documents").insertOne(new Document("_id", "x"))).isInstanceOf(PreviewWriteBlockedException.class), unproven);
+            assertThat(outcome.blocked()).isTrue();
+        } finally {
+            bare.close();
+        }
+        assertThat(store.describe().mode()).as("the client with its own listener").isEqualTo("preview");
+    }
+
+    @Test
+    void aWriteWithNoRequestAttributionFailsEveryOpenPreviewUnlessDetached() throws Exception {
+        for (boolean detached : new boolean[] {false, true}) {
+            String id = detached ? "worker-detached" : "worker";
+            PreviewOutcome outcome = Harness.preview(() -> {
+                documents().find().first();
+                Thread worker = new Thread(() -> {
+                    Runnable write = () -> raw.getDatabase(databaseName).getCollection("documents").insertOne(new Document("_id", id));
+                    if (detached) {
+                        CaptureContext.detached(write);
+                    } else {
+                        write.run();
+                    }
+                });
+                worker.start();
+                worker.join();
+            }, store);
+            assertThat(outcome.confirmed()).as("detached=" + detached).isEqualTo(detached);
+            if (!detached) {
+                assertThat(outcome.status()).isEqualTo(500);
+            }
+        }
+    }
+
+    @Test
+    void aPreviewSessionUsedFromAnotherThreadIsStillThePreviewsOwnWrite() throws Exception {
+        JsonNode envelope = Harness.envelope(Harness.preview(() -> {
+            ClientSession session = client.startSession();
+            Thread other = new Thread(() -> documents().insertOne(session, new Document("_id", "hopped")));
+            other.start();
+            other.join();
+        }, store));
+        assertThat(change(envelope, "insert").get("key").get("_id").asText()).isEqualTo("hopped");
+        assertThat(committed("hopped")).isZero();
+    }
+
+    private final List<MongoClient> extra = new java.util.ArrayList<>();
+
+    /** A client that reports to {@code other}'s listener: the tripwire must be proven on the client a store guards. */
+    private MongoClient withListener(MongoStore other) {
+        MongoClient made = MongoClients.create(MongoClientSettings.builder().applyConnectionString(new ConnectionString(URL))
+                .addCommandListener(other.commandListener()).build());
+        extra.add(made);
+        return made;
+    }
+
+    @AfterEach
+    void closeExtra() {
+        extra.forEach(MongoClient::close);
     }
 
     private static JsonNode change(JsonNode envelope, String operation) {

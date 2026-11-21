@@ -254,4 +254,41 @@ class JdbcPreviewTest {
         assertThat(DmlStatement.parse("insert into items select * from other")).isNull();
         assertThat(DmlStatement.parse("update items set name = ? where id = ? or x = ?")).isNull();
     }
+
+    @Test
+    void mysqlPreviewsOfOneProviderTakeTurnsAndOtherDatabasesDoNot() throws Exception {
+        for (String system : new String[] {"mysql", "h2"}) {
+            var turnTaking = new JdbcPreviewProvider(enrolled, () -> "Test", () -> system);
+            var open = new java.util.concurrent.atomic.AtomicInteger();
+            var peak = new java.util.concurrent.atomic.AtomicInteger();
+            var started = new java.util.concurrent.CountDownLatch(6);
+            var finished = new java.util.concurrent.CountDownLatch(6);
+            var failures = java.util.Collections.synchronizedList(new java.util.ArrayList<Throwable>());
+            for (int i = 0; i < 6; i++) {
+                new Thread(() -> {
+                    try (var ignored = new JdbcScope().enter()) {
+                        started.countDown();
+                        started.await();
+                        var session = turnTaking.begin();
+                        peak.accumulateAndGet(open.incrementAndGet(), Math::max);
+                        Thread.sleep(60);
+                        open.decrementAndGet();
+                        session.rollback();
+                        session.close();
+                    } catch (Throwable failure) {
+                        failures.add(failure);
+                    } finally {
+                        finished.countDown();
+                    }
+                }).start();
+            }
+            finished.await();
+            assertThat(failures).isEmpty();
+            if (system.equals("mysql")) {
+                assertThat(peak).as("MySQL Previews take turns").hasValue(1);
+            } else {
+                assertThat(peak.get()).as("Other databases Preview concurrently").isGreaterThan(1);
+            }
+        }
+    }
 }

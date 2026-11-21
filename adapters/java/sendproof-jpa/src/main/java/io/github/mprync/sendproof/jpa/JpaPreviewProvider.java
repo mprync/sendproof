@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.jpa;
 import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
 import io.github.mprync.sendproof.core.PreviewSession;
+import io.github.mprync.sendproof.core.PreviewTurns;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.function.Supplier;
 import org.springframework.orm.jpa.JpaTransactionManager;
@@ -23,6 +24,7 @@ public final class JpaPreviewProvider implements PreviewProvider {
     private final EntityManagerFactory entityManagerFactory;
     private final Supplier<String> database;
     private final Supplier<String> system;
+    private final PreviewTurns turns = new PreviewTurns();
 
     /**
      * Creates the provider.
@@ -70,9 +72,22 @@ public final class JpaPreviewProvider implements PreviewProvider {
         return system.get();
     }
 
+    /**
+     * On MySQL and MariaDB one Preview runs at a time per provider: see {@link PreviewTurns}. The turn is taken before
+     * the transaction begins and handed on when the session closes.
+     */
     @Override
     public PreviewSession begin() {
-        return new JpaPreviewSession(transactions, entityManagerFactory);
+        if (!PreviewTurns.needed(system.get())) {
+            return new JpaPreviewSession(transactions, entityManagerFactory);
+        }
+        turns.acquire();
+        try {
+            return turns.holding(new JpaPreviewSession(transactions, entityManagerFactory));
+        } catch (RuntimeException | Error failure) {
+            turns.release();
+            throw failure;
+        }
     }
 
     @Override

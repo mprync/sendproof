@@ -15,10 +15,17 @@ final class CaptureRequestContext implements RequestContext {
     private final Map<Object, Object> values = new HashMap<>();
     private final RequestCapture capture;
     private final boolean internal;
+    private final boolean attributed;
 
-    CaptureRequestContext(RequestCapture capture, boolean internal) {
+    CaptureRequestContext(RequestCapture capture, boolean internal, boolean attributed) {
         this.capture = capture;
         this.internal = internal;
+        this.attributed = attributed;
+    }
+
+    /** Whether the operation started inside a request, or work declared detached. */
+    boolean attributed() {
+        return attributed || capture != null;
     }
 
     /** The capture current where the operation started, or {@code null}. */

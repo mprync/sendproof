@@ -25,7 +25,8 @@ final class ReactiveSupport {
         return new ReactiveContextProvider() {
             @Override
             public RequestContext getContext(Subscriber<?> subscriber) {
-                return new CaptureRequestContext(CaptureContext.current(), MongoEngine.INTERNAL.get() != null);
+                return new CaptureRequestContext(CaptureContext.current(), MongoEngine.INTERNAL.get() != null,
+                        CaptureContext.attributed());
             }
         };
     }

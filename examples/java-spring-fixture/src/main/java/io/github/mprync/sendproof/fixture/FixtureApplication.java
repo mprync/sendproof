@@ -1,9 +1,13 @@
 package io.github.mprync.sendproof.fixture;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
@@ -27,6 +31,17 @@ public class FixtureApplication {
                     "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration"));
         }
         application.setDefaultProperties(Map.of("spring.autoconfigure.exclude", String.join(",", excluded)));
+        if ("mysql".equals(System.getenv("BENCH_DATABASE")) && System.getenv("BENCH_DATABASE_URL") != null) {
+            // A server database: the runner's fresh database replaces the in-memory H2 one.
+            URI url = URI.create(System.getenv("BENCH_DATABASE_URL"));
+            String[] user = url.getUserInfo() == null ? new String[] {"", ""} : (url.getUserInfo() + ":").split(":", 3);
+            var database = new MapPropertySource("benchDatabase", Map.of(
+                    "spring.datasource.url", "jdbc:mysql://" + url.getHost() + ":" + url.getPort() + url.getPath(),
+                    "spring.datasource.username", java.net.URLDecoder.decode(user[0], java.nio.charset.StandardCharsets.UTF_8),
+                    "spring.datasource.password", java.net.URLDecoder.decode(user[1], java.nio.charset.StandardCharsets.UTF_8)));
+            application.addListeners((ApplicationListener<ApplicationEnvironmentPreparedEvent>) event ->
+                    event.getEnvironment().getPropertySources().addFirst(database));
+        }
         application.run(args);
     }
 }

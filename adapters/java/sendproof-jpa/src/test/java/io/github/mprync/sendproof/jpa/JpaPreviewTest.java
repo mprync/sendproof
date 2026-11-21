@@ -213,4 +213,44 @@ class JpaPreviewTest {
         capabilities.get("previewOperations").forEach(o -> operations.add(o.get("method").asText() + " " + o.get("path").asText()));
         assertThat(operations).contains("POST /widgets/{id}", "PATCH /widgets/{id}", "DELETE /widgets/{id}");
     }
+
+    @Autowired
+    org.springframework.transaction.PlatformTransactionManager transactions;
+
+    @Test
+    void mysqlPreviewsOfOneProviderTakeTurnsAndOtherDatabasesDoNot() throws Exception {
+        for (String system : new String[] {"mysql", "h2"}) {
+            var provider = new JpaPreviewProvider(transactions, null, () -> "Test", () -> system);
+            var open = new java.util.concurrent.atomic.AtomicInteger();
+            var peak = new java.util.concurrent.atomic.AtomicInteger();
+            var started = new java.util.concurrent.CountDownLatch(6);
+            var finished = new java.util.concurrent.CountDownLatch(6);
+            var failures = java.util.Collections.synchronizedList(new ArrayList<Throwable>());
+            for (int i = 0; i < 6; i++) {
+                new Thread(() -> {
+                    try {
+                        started.countDown();
+                        started.await();
+                        var session = provider.begin();
+                        peak.accumulateAndGet(open.incrementAndGet(), Math::max);
+                        Thread.sleep(60);
+                        open.decrementAndGet();
+                        session.rollback();
+                        session.close();
+                    } catch (Throwable failure) {
+                        failures.add(failure);
+                    } finally {
+                        finished.countDown();
+                    }
+                }).start();
+            }
+            finished.await();
+            assertThat(failures).isEmpty();
+            if (system.equals("mysql")) {
+                assertThat(peak).as("MySQL Previews take turns").hasValue(1);
+            } else {
+                assertThat(peak.get()).as("Other databases Preview concurrently").isGreaterThan(1);
+            }
+        }
+    }
 }

@@ -38,7 +38,7 @@ public class ItemService {
         entities.persist(item);
         LOG.info("created:{}", id);
         // A bound parameter whose name marks it secret; adapters must never show its value.
-        entities.createNativeQuery("select cast(:fixture_secret as varchar) as fixture_secret")
+        entities.createNativeQuery("select cast(:fixture_secret as char(100)) as fixture_secret")
                 .setParameter("fixture_secret", "fixture-secret-value").getSingleResult();
         if (!capture.tryRecordEmail("Created item", "fixture@example.test", List.of("ops@example.test"), List.of(),
                 "Item created", "Item " + id + " was created.", null)) {

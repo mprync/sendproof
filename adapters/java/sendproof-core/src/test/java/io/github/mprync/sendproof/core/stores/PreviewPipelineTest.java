@@ -216,6 +216,24 @@ class PreviewPipelineTest {
     }
 
     @Test
+    void everyCleanupStepRunsEvenWhenOneStoresAbortAndCloseFail() throws Exception {
+        var provider = new Provider();
+        var failing = new Store();
+        failing.finishFailure = new IllegalStateException("abort failed");
+        var second = new Store();
+        var execution = begin(provider, failing, second);
+        execution.markCompleted();
+        var outcome = execution.finish(new Response(200), null);
+
+        // Both stores finish and close and the SQL transaction rolls back, whatever one of them throws.
+        assertThat(events.stream().filter("store finish"::equals).count()).isEqualTo(2);
+        assertThat(events.stream().filter("store close"::equals).count()).isEqualTo(2);
+        assertThat(events).contains("sql rollback", "sql close");
+        assertThat(outcome.status()).isEqualTo(500);
+        assertThat(outcome.confirmed()).isFalse();
+    }
+
+    @Test
     void aFailedSqlRollbackOutranksABlock() throws Exception {
         var provider = new Provider();
         provider.rollbackFailure = new IllegalStateException("rollback failed");
