@@ -1,4 +1,4 @@
-// npm: the ten @sendproof/* workspaces in adapters/node, packed with `npm pack` from stamped copies.
+// npm: the thirteen @sendproof/* workspaces in adapters/node, packed with `npm pack` from stamped copies.
 //
 // pack    builds the workspaces (strict TypeScript to ESM + .d.ts, UI bundle into core/assets), copies
 //         each package's publishable files into ctx.work, stamps version, repository, homepage, bugs and
@@ -15,8 +15,10 @@ import {
 export const title = 'npm';
 
 const NODE = join(root, 'adapters', 'node');
-// Dependency order: everything needs core; drizzle also needs sqlite.
-const PACKAGES = ['core', 'sqlite', 'express', 'fastify', 'hono', 'nestjs', 'drizzle', 'knex', 'typeorm', 'prisma'];
+// Dependency order: everything needs core; drizzle also needs sqlite. The data-store guards (redis,
+// dynamodb, mongodb) need only core.
+const PACKAGES = ['core', 'sqlite', 'express', 'fastify', 'hono', 'nestjs', 'drizzle', 'knex', 'typeorm', 'prisma',
+  'redis', 'dynamodb', 'mongodb'];
 
 /** The npm CLI cache stays in the repository so sandboxed runs never write to the home directory. */
 const npmEnv = () => ({ npm_config_cache: process.env.npm_config_cache ?? join(root, 'artifacts', 'npm-cache'),
