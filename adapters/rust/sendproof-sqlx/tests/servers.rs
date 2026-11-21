@@ -306,6 +306,15 @@ async fn overlapping<B: Backend>(
     Ok(StatusCode::OK)
 }
 
+/// Inserts one fixed key; several previews run it at once. The pause lets the others reach their insert, and wait on
+/// this one's row, before this preview rolls back.
+async fn shared<B: Backend>(db: Db<B>) -> Result<StatusCode, DbError> {
+    let mut conn = db.acquire().await?;
+    insert(&mut conn, "shared", "Shared").await?;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    Ok(StatusCode::CREATED)
+}
+
 async fn raw_write<B: Server>(db: Db<B>) -> Result<StatusCode, DbError> {
     let mut conn = db.acquire().await?;
     B::raw(&mut conn, "INSERT INTO items (id, name) VALUES ('raw', 'Raw')").await?;
@@ -318,8 +327,8 @@ async fn boom<B: Backend>(db: Db<B>) -> Result<StatusCode, DbError> {
     panic!("handler failure after writing");
 }
 
-const ROUTES: [&str; 10] =
-    ["/sequence", "/bulk", "/nested", "/duplicate", "/end", "/named-end", "/interleaved", "/overlapping", "/raw", "/boom"];
+const ROUTES: [&str; 11] =
+    ["/sequence", "/bulk", "/nested", "/duplicate", "/end", "/named-end", "/interleaved", "/overlapping", "/shared", "/raw", "/boom"];
 
 fn app<B: Server>(pool: Pool<B>, signals: Arc<Signals>) -> Router {
     let mut config = Config::builder("Tests")
@@ -348,6 +357,7 @@ fn app<B: Server>(pool: Pool<B>, signals: Arc<Signals>) -> Router {
         .route("/named-end", post(named_end::<B>))
         .route("/interleaved", post(interleaved::<B>))
         .route("/overlapping", post(overlapping::<B>))
+        .route("/shared", post(shared::<B>))
         .route("/raw", post(raw_write::<B>))
         .route("/boom", post(boom::<B>))
         .bench_gate(&bench)
@@ -495,6 +505,21 @@ async fn concurrent_observed_sends_see_only_their_own_rows<B: Server>(pool: Pool
     assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 4);
 }
 
+/// Previews inserting the same new key at once each report their own insert. On MySQL, InnoDB would abort all but
+/// one with a deadlock when the first rolled back, so the provider lets MySQL previews take turns.
+async fn concurrent_previews_inserting_one_key_all_complete<B: Server>(pool: Pool<B>) {
+    let app = app(pool.clone(), Arc::default());
+    let responses = futures_util::future::join_all((0..8).map(|_| app.clone().oneshot(preview("/shared")))).await;
+    for response in responses {
+        let response = response.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let envelope = json_body(response).await;
+        assert_eq!(envelope["status"], 201, "{envelope}");
+        assert_eq!(item_changes(&envelope), pairs(&[("insert", "shared")]));
+    }
+    assert_eq!(B::count(&pool, "SELECT COUNT(*) FROM items").await, 0);
+}
+
 async fn sequential_requests_reuse_clean_connections<B: Server>(pool: Pool<B>) {
     let app = app(pool.clone(), Arc::default());
     // More requests than pooled connections, alternating previews and observed sends.
@@ -542,6 +567,7 @@ server_tests!(Postgres, postgres:
     a_named_statement_that_ends_the_transaction_is_refused,
     observed_send_ignores_concurrent_writers,
     concurrent_observed_sends_see_only_their_own_rows,
+    concurrent_previews_inserting_one_key_all_complete,
     sequential_requests_reuse_clean_connections,
     a_panicking_observed_handler_is_not_traced,
 );
@@ -555,6 +581,7 @@ server_tests!(MySql, mysql:
     a_named_statement_that_ends_the_transaction_is_refused,
     observed_send_ignores_concurrent_writers,
     concurrent_observed_sends_see_only_their_own_rows,
+    concurrent_previews_inserting_one_key_all_complete,
     sequential_requests_reuse_clean_connections,
     a_panicking_observed_handler_is_not_traced,
 );

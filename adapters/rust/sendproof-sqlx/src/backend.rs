@@ -72,6 +72,13 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// and one fails at once with `database is locked`. Taking the write lock up front makes them queue instead.
     const PREVIEW_BEGIN: &'static str = "BEGIN";
 
+    /// Whether previews through one provider take turns. MySQL sets it: InnoDB checks a new key for duplicates under
+    /// a shared lock, so when three or more transactions insert the same key and the first rolls back, as every
+    /// preview does, the waiters each hold that lock and each need the exclusive one, and InnoDB aborts all but one
+    /// with a deadlock (error 1213). Sent for real, the first insert commits and the others get a duplicate-key error
+    /// instead. Taking turns keeps previews from waiting on one another's rolled-back rows.
+    const SERIAL_PREVIEWS: bool = false;
+
     /// Binds one value.
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments>;
 

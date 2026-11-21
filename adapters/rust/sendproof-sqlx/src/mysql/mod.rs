@@ -469,6 +469,7 @@ impl Driver for MySql {
     const DIALECT: Dialect = dialects::MYSQL;
     // Nothing is installed on the connection.
     const CLOSE_UNFINISHED: bool = false;
+    const SERIAL_PREVIEWS: bool = true;
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {
         match value {

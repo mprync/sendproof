@@ -5,7 +5,7 @@ use std::sync::Arc;
 use http::Extensions;
 use sqlx::Pool;
 use sendproof_core::{BoxError, BoxFuture, Changes, Observation, PreviewProvider, PreviewSession, capture};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
     backend::Backend,
@@ -25,6 +25,9 @@ const ROLLBACK_TO_GUARD: &str = "ROLLBACK TO SAVEPOINT sendproof_guard";
 pub struct SqlxProvider<B: Backend> {
     pool: Pool<B>,
     database: Option<String>,
+    /// Held by the running preview when the backend's previews take turns (see `SERIAL_PREVIEWS`). Clones of the
+    /// provider share it.
+    turn: Arc<Mutex<()>>,
 }
 
 /// The SQLite provider.
@@ -39,14 +42,14 @@ pub type MySqlProvider = SqlxProvider<sqlx::MySql>;
 
 impl<B: Backend> Clone for SqlxProvider<B> {
     fn clone(&self) -> Self {
-        Self { pool: self.pool.clone(), database: self.database.clone() }
+        Self { pool: self.pool.clone(), database: self.database.clone(), turn: self.turn.clone() }
     }
 }
 
 impl<B: Backend> SqlxProvider<B> {
     /// Creates a provider over `pool`.
     pub fn new(pool: Pool<B>) -> Self {
-        Self { pool, database: None }
+        Self { pool, database: None, turn: Arc::new(Mutex::new(())) }
     }
 
     /// The label shown for the database. Use a short name, never a path or connection string.
@@ -80,6 +83,9 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
 
     fn begin_preview<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Box<dyn PreviewSession>, BoxError>> {
         Box::pin(async move {
+            // Wait for this preview's turn before taking a connection, so waiting previews hold none. The session
+            // keeps the guard until it is dropped, after its transaction has ended.
+            let turn = if B::SERIAL_PREVIEWS { Some(self.turn.clone().lock_owned().await) } else { None };
             // On any error below, dropping the transaction rolls back whatever was installed.
             let mut transaction = self.pool.begin_with(B::PREVIEW_BEGIN).await?;
             let capture = Arc::new(B::begin(&mut transaction, true).await?);
@@ -89,7 +95,7 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
             }
             let scope = Scope { slot: Arc::new(Mutex::new(Slot::Tx(transaction))), capture };
             extensions.insert(scope.clone());
-            Ok(Box::new(Session { scope, finished: false }) as Box<dyn PreviewSession>)
+            Ok(Box::new(Session { scope, finished: false, _turn: turn }) as Box<dyn PreviewSession>)
         })
     }
 
@@ -107,7 +113,7 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
             };
             let scope = Scope { slot: Arc::new(Mutex::new(Slot::Conn(connection))), capture };
             extensions.insert(scope.clone());
-            Ok(Some(Box::new(Session { scope, finished: false }) as Box<dyn Observation>))
+            Ok(Some(Box::new(Session { scope, finished: false, _turn: None }) as Box<dyn Observation>))
         })
     }
 }
@@ -117,6 +123,9 @@ struct Session<B: Backend> {
     scope: Scope<B>,
     /// The capture was collected and removed.
     finished: bool,
+    /// The preview's turn, released when the session is dropped: after `rollback` or `close` has ended the
+    /// transaction.
+    _turn: Option<OwnedMutexGuard<()>>,
 }
 
 impl<B: Backend> Session<B> {
