@@ -129,6 +129,10 @@ class ProviderTest < Minitest::Test
           raw.query("COMMIT")
           raw.query("BEGIN")
           raw.query("INSERT INTO items (id, name) VALUES ('after', 'After')")
+        elsif POSTGRESQL
+          raw.exec("COMMIT") # PG::Connection has no +execute+
+          raw.exec("BEGIN")
+          raw.exec("INSERT INTO items (id, name) VALUES ('after', 'After')")
         else
           raw.execute("COMMIT")
           raw.execute("BEGIN")
@@ -138,6 +142,27 @@ class ProviderTest < Minitest::Test
     end
     assert_match(/committed before its rollback/, error.message)
     assert_includes durable_items, "escaped"
+  ensure
+    Item.delete_all
+  end
+
+  # A unique violation answered by the handler (the 409 path). PostgreSQL aborts the whole transaction on any
+  # error, so every later statement fails until a rollback; the savepoint check's ROLLBACK TO SAVEPOINT must
+  # clear that state and the Preview must still roll back cleanly, with the row it created gone and the
+  # connection usable afterwards.
+  def test_a_preview_whose_handler_answered_a_unique_violation_still_rolls_back
+    Item.create!(id: "taken", name: "Original")
+    session, = preview do
+      begin
+        Item.create!(id: "taken", name: "Duplicate")
+      rescue ActiveRecord::RecordNotUnique
+        nil # the handler would answer 409 here
+      end
+    end
+    assert_equal "Original", Item.find("taken").name
+    assert_equal 0, Item.lease_connection.open_transactions
+    assert_equal 1, Item.count, "the connection answers queries again after the aborted transaction"
+    assert_kind_of Array, session.changes
   ensure
     Item.delete_all
   end
@@ -168,7 +193,13 @@ class ProviderTest < Minitest::Test
   end
 
   def test_the_database_label_never_exposes_a_path_or_host
-    assert_equal "test", Sendproof::ActiveRecord::Provider.new.database unless MYSQL
+    # The label is the database name only: "test" for the SQLite file, the provisioned database on PostgreSQL.
+    label = Sendproof::ActiveRecord::Provider.new.database
+    if POSTGRESQL
+      assert_equal ActiveRecord::Base.connection_db_config.database, label
+    else
+      assert_equal "test", label unless MYSQL
+    end
     assert_equal "inventory", Sendproof::ActiveRecord::Provider.new(database: "inventory").database
   end
 
@@ -186,7 +217,8 @@ class SqlCaptureTest < Minitest::Test
     return Item.lease_connection.select_all("SELECT #{Item.lease_connection.quote(value)} AS #{name}", "Probe") if MYSQL
 
     attribute = ActiveRecord::Relation::QueryAttribute.new(name, value, ActiveRecord::Type::String.new)
-    Item.lease_connection.select_all("SELECT ? AS #{name}", "Probe", [attribute])
+    placeholder = POSTGRESQL ? "$1" : "?" # PostgreSQL numbers its parameters
+    Item.lease_connection.select_all("SELECT #{placeholder} AS #{name}", "Probe", [attribute])
   end
 
   # A real Active Record query with a bind named +name+: bound on SQLite, inlined as a literal by an adapter
@@ -379,7 +411,8 @@ class ObservationTest < Minitest::Test
   end
 
   def test_the_provider_names_its_sql_system
-    assert_equal(MYSQL ? "mysql" : "sqlite", Sendproof::ActiveRecord::Provider.new.database_system)
+    expected = MYSQL ? "mysql" : (POSTGRESQL ? "postgresql" : "sqlite")
+    assert_equal expected, Sendproof::ActiveRecord::Provider.new.database_system
     assert_equal "mariadb", Sendproof::ActiveRecord::Provider.new(system: "mariadb").database_system
   end
 

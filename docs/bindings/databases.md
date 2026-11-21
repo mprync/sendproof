@@ -22,7 +22,7 @@ The [conformance manifest](../../tests/conformance/bindings.json) lists the exac
 | Go net/http and GORM | 11/11 | 11/11 | 11/11 | 11/11 | — |
 | Laravel and Eloquent | 11/11 | — | 11/11 | — | — |
 | Symfony and Doctrine | 11/11 | — | — | — | — |
-| Rails and ActiveRecord | 11/11 | — | 11/11 | — | — |
+| Rails and ActiveRecord | 11/11 | 11/11 | 11/11 | — | — |
 | Axum and Actix Web with SQLx | 11/11 each | 11/11 each | 11/11 each | — | — |
 
 Frameworks can use another provider from their ecosystem. The table identifies the combinations tested together. See each provider's guide for automatic row capture, per-statement behavior, concurrency and limits.

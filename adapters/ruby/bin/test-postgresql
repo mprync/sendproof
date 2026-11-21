@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs the ActiveRecord suite against PostgreSQL. The conformance runner provides BENCH_DATABASE=postgresql and
+# BENCH_DATABASE_URL, a fresh server database it drops afterwards. Needs the compose postgres service.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_env"
+cd "$ROOT"
+exec bundle exec rake test:sendproof-activerecord

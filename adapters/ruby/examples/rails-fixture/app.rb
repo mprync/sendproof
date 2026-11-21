@@ -4,7 +4,7 @@
 # It doubles as the reference setup for sendproof-rails and sendproof-activerecord.
 #
 # Environment: PORT (set by the server), BENCH_PATH_BASE (see config.ru), BENCH_SCENARIO
-# (standard, disabled, no-provider or rollback-failure), BENCH_DATABASE (sqlite or mysql) with
+# (standard, disabled, no-provider or rollback-failure), BENCH_DATABASE (sqlite, mysql or postgresql) with
 # BENCH_DATABASE_URL, and the data-store variables of spec/conformance/fixture.md: BENCH_MONGODB_URL,
 # BENCH_REDIS_URL with BENCH_REDIS_PREFIX, and BENCH_DYNAMODB_URL with BENCH_DYNAMODB_TABLE.
 
@@ -25,6 +25,9 @@ require "redis" if ENV["BENCH_REDIS_URL"]
 # Trilogy.
 if ENV["BENCH_DATABASE"] == "mysql"
   ENV["DATABASE_URL"] = ENV.fetch("BENCH_DATABASE_URL").sub(/\Amysql:/, "trilogy:") + "?pool=8"
+elsif ENV["BENCH_DATABASE"] == "postgresql"
+  # PostgreSQL through the pg gem (libpq), on the same kind of fresh server database.
+  ENV["DATABASE_URL"] = ENV.fetch("BENCH_DATABASE_URL").sub(/\Apostgres(ql)?:/, "postgresql:") + "?pool=8"
 else
   DATABASE_DIRECTORY = Dir.mktmpdir("sendproof-fixture-")
   at_exit { FileUtils.remove_entry(DATABASE_DIRECTORY, true) }

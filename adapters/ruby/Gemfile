@@ -23,6 +23,9 @@ gem "aws-sdk-dynamodb", "~> 1.100"
 gem "trilogy", "~> 2.9"
 
 group :development, :test do
+  # PostgreSQL for the ActiveRecord suite and the conformance fixture. Precompiled for common platforms;
+  # elsewhere it builds against libpq (point bundler at it with `bundle config build.pg --with-pg-config=...`).
+  gem "pg", "~> 1.5"
   gem "rake", "~> 13.2"
   gem "minitest", "~> 5.25"
   gem "rack-test", "~> 2.1"

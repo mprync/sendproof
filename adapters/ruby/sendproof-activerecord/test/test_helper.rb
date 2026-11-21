@@ -5,10 +5,15 @@ require "tmpdir"
 require "sendproof/active_record"
 
 # A real database, so a second connection can check what was durably committed: a SQLite file by default,
-# or the MySQL server the conformance runner provisions when BENCH_DATABASE=mysql (see bin/test-mysql).
+# or the MySQL or PostgreSQL server the conformance runner provisions when BENCH_DATABASE=mysql or postgresql
+# (see bin/test-mysql and bin/test-postgresql).
 MYSQL = ENV["BENCH_DATABASE"] == "mysql"
+POSTGRESQL = ENV["BENCH_DATABASE"] == "postgresql"
 if MYSQL
   ActiveRecord::Base.establish_connection(url: ENV.fetch("BENCH_DATABASE_URL").sub(/\Amysql:/, "trilogy:"), pool: 12)
+elsif POSTGRESQL
+  ActiveRecord::Base.establish_connection(url: ENV.fetch("BENCH_DATABASE_URL").sub(/\Apostgres(ql)?:/, "postgresql:"),
+                                          pool: 12)
 else
   DIRECTORY = Dir.mktmpdir("sendproof-ar-")
   # Minitest runs at exit, so clean up after it rather than in a competing at_exit hook.

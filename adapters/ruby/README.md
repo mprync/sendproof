@@ -8,7 +8,7 @@ Mount the Sendproof workbench inside a Rails API and preview what a request will
 | [`sendproof-activerecord`](sendproof-activerecord/README.md) | Preview provider: real SQL transactions, model change capture, SQL log with redaction. |
 | [`sendproof-rails`](sendproof-rails/README.md) | Rails engine: `config.sendproof`, router-based discovery, the `sendproof_preview` controller macro. |
 
-Tested with Ruby 3.4.3, Rails 8.0.5.2 (ActiveRecord, Action Pack), Rack 3.2.8, SQLite (`sqlite3` 2.10.2), MySQL 8.4 (Trilogy 2.13), Puma 8.1.2, and for the data stores Mongoid 9.1 on `mongo` 2.26, `redis` 5.4 on `redis-client` 0.31 and `aws-sdk-dynamodb` 1.187. Other versions and databases are not claimed.
+Tested with Ruby 3.4.3, Rails 8.0.5.2 (ActiveRecord, Action Pack), Rack 3.2.8, SQLite (`sqlite3` 2.10.2), MySQL 8.4 (Trilogy 2.13), PostgreSQL 17 (`pg` 1.7), Puma 8.1.2, and for the data stores Mongoid 9.1 on `mongo` 2.26, `redis` 5.4 on `redis-client` 0.31 and `aws-sdk-dynamodb` 1.187. Other versions and databases are not claimed.
 
 ## Quick start (Rails)
 
@@ -59,13 +59,14 @@ All commands run from this directory and keep dependencies in `vendor/bundle`.
 bin/prepare     # bundle install (network, once) + pack the shared UI bundle (needs Node)
 bin/test        # core, ActiveRecord, Rails and fixture suites; the store tests need the compose services and skip without them
 bin/test-mysql  # the ActiveRecord suite on MySQL (BENCH_DATABASE=mysql, BENCH_DATABASE_URL=mysql://...)
+bin/test-postgresql  # the same on PostgreSQL (BENCH_DATABASE=postgresql, BENCH_DATABASE_URL=postgresql://...)
 bin/fixture     # conformance fixture; honours PORT, BENCH_PATH_BASE, BENCH_SCENARIO and the store variables
 bundle exec rake build   # packs the UI and builds the three gems into pkg/
 ```
 
 The UI is never copied by hand. `rake ui:pack` runs `node tools/pack-ui.mjs --version 0.1.0-alpha.1` and writes `sendproof/lib/sendproof/ui` (`manifest.json` plus the files), which is embedded in the `sendproof-core` gem. Each file's SHA-256 is verified against the manifest before it is served.
 
-Shared HTTP conformance, from the repository root: `node tests/conformance/run.mjs ruby-rails` (with `mongodb redis dynamodb` from `tests/conformance/compose.yml` running) and `node tests/conformance/run.mjs ruby-rails-mysql` (with `BENCH_MYSQL_URL` and the `mysql` service).
+Shared HTTP conformance, from the repository root: `node tests/conformance/run.mjs ruby-rails` (with `mongodb redis dynamodb` from `tests/conformance/compose.yml` running) and `node tests/conformance/run.mjs ruby-rails-mysql` (with `BENCH_MYSQL_URL` and the `mysql` service), and `node tests/conformance/run.mjs ruby-rails-postgresql` (with `BENCH_POSTGRES_URL` and the `postgres` service).
 
 ## Safety model
 

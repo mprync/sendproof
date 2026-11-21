@@ -378,6 +378,21 @@
       "traceTtlMs": 5000
     },
     {
+      "id": "ruby-rails-postgresql",
+      "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "ruby",
+      "port": 5418,
+      "readiness": "/ready",
+      "prepare": "bash adapters/ruby/bin/prepare",
+      "test": "bash adapters/ruby/bin/test-postgresql",
+      "start": [
+        "bash",
+        "adapters/ruby/bin/fixture"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
       "id": "go-net-http",
       "database": "sqlite",
       "stores": ["mongodb", "redis", "dynamodb"],
