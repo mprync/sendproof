@@ -1,0 +1,45 @@
+{
+  "name": "@sendproof/mongodb",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof rollback Preview and write guard for MongoDB: the Node driver and Mongoose",
+  "license": "MIT",
+  "keywords": [
+    "mongodb",
+    "mongoose",
+    "rollback",
+    "sendproof"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "engines": {
+    "node": ">=22.14"
+  },
+  "dependencies": {
+    "@sendproof/core": "0.1.0-alpha.1"
+  },
+  "peerDependencies": {
+    "mongodb": "^6.0.0",
+    "mongoose": "^8.4.0"
+  },
+  "peerDependenciesMeta": {
+    "mongoose": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "mongodb": "^6.22.0",
+    "mongoose": "^8.24.10"
+  }
+}
