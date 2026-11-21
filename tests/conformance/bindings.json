@@ -362,6 +362,7 @@
     {
       "id": "ruby-rails-mysql",
       "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "ruby",
       "port": 5398,
       "readiness": "/ready",
