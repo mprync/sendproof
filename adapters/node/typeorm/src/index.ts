@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { currentCapture, endsTransaction, mayWrite } from '@sendproof/core';
+import { currentCapture, endsTransaction, mayWrite, previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import type { DataSource, EntityManager, EntityTarget, FindOptionsWhere, Logger, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { ChangeTracker } from './changes.js';
@@ -23,6 +23,15 @@ export interface TypeOrmPreviewOptions {
    * A larger table marks the capture truncated and the write appears as SQL only. Default 5000.
    */
   maxTrackedRows?: number;
+  /**
+   * MySQL and MariaDB stored procedures that never commit, by exact name (`name` or `schema.name`, no
+   * wildcards). During a Preview every other `CALL` is refused, because a procedure can run `COMMIT`
+   * or an implicitly committing statement inside the Preview transaction.
+   *
+   * **Warning:** listing a procedure is your statement that it never commits. One that does would
+   * commit the handler's writes; the Preview still fails, but the writes stay.
+   */
+  safeProcedures?: readonly string[];
 }
 
 /** Positional parameters of `QueryRunner.query` as TypeORM's drivers receive them. */
@@ -83,10 +92,16 @@ export class TypeOrmPreview implements PreviewProvider {
   readonly #createQueryRunner: DataSource['createQueryRunner'];
   readonly #wrappers = new WeakMap<QueryRunner, { wrapper: QueryFunction; ownQuery: QueryRunner['query'] | undefined }>();
   #disposed = false;
+  /** MySQL stored procedures the host declared never commit; every other `CALL` is refused in a Preview. */
+  readonly #safeProcedures: ReadonlySet<string>;
+  /** Whether the source is MySQL or MariaDB, whose implicit commits, `CALL` and backstop savepoint apply. */
+  readonly #mysql: boolean;
 
   constructor(source: DataSource, options: TypeOrmPreviewOptions = {}) {
     const maxRows = options.maxTrackedRows ?? defaultMaxTrackedRows;
     if (!Number.isInteger(maxRows) || maxRows < 1) throw new RangeError('maxTrackedRows must be a positive integer.');
+    this.#safeProcedures = safeProcedureNames(options.safeProcedures);
+    this.#mysql = mysqlDrivers.has(source.options.type);
     this.#source = source;
     this.#lease = new ConnectionLease(singleConnectionDrivers.has(source.options.type));
     this.#previewTurns = new ConnectionLease(mysqlDrivers.has(source.options.type));
@@ -161,16 +176,27 @@ export class TypeOrmPreview implements PreviewProvider {
         await runner.connect();
         await runner.startTransaction();
         this.#refused.delete(runner);
+        if (this.#mysql) {
+          try {
+            await setPreviewSavepoint(statement => this.#hidden.run(true, () => runner.query(statement)));
+          } catch (error) {
+            await this.#rollBack(runner);
+            throw error;
+          }
+        }
         const restore = this.#guardCommit(runner);
         try {
           return await this.#withManager(runner.manager, dispatch, runner);
         } finally {
           restore();
-          await this.#rollBack(runner);
+          const contained = await this.#rollBack(runner);
           // Rolled back, but the handler tried to end the transaction itself: never confirm that Preview.
           if (this.#refused.has(runner)) {
             this.#refused.delete(runner);
             throw new Error('The TypeORM preview was not contained: the handler tried to end the Preview transaction.');
+          }
+          if (!contained) {
+            throw new Error('The TypeORM preview was not contained: the savepoint set when the Preview started was gone, so something committed the MySQL transaction.');
           }
         }
       } finally {
@@ -185,10 +211,18 @@ export class TypeOrmPreview implements PreviewProvider {
   }
 
   /** Roll back the preview transaction and every savepoint the handler left open inside it. */
-  async #rollBack(runner: QueryRunner): Promise<void> {
+  /**
+   * Answers whether the transaction was never committed (see {@link #neverCommitted}). The savepoints the handler left
+   * open are rolled back first: releasing the Preview savepoint would also remove every later one.
+   */
+  async #rollBack(runner: QueryRunner): Promise<boolean> {
     if (!runner.isTransactionActive) throw new Error('The TypeORM preview transaction completed early.');
+    const depth = () => (runner as unknown as { transactionDepth: number }).transactionDepth;
     try {
+      while (runner.isTransactionActive && depth() > 1) await runner.rollbackTransaction();
+      const contained = await this.#neverCommitted(runner);
       while (runner.isTransactionActive) await runner.rollbackTransaction();
+      return contained;
     } catch (error) {
       this.#lease.invalidate();
       throw error;
@@ -206,19 +240,36 @@ export class TypeOrmPreview implements PreviewProvider {
     const owned = methods.map(name => [name, Object.hasOwn(runner, name) ? runner[name] : undefined] as const);
     const original = Object.fromEntries(methods.map(name => [name, runner[name]])) as Pick<QueryRunner, Method>;
     const depth = () => (runner as unknown as { transactionDepth: number }).transactionDepth;
-    runner.startTransaction = (...args) => this.#control.run(true, () => original.startTransaction.apply(runner, args));
-    runner.rollbackTransaction = () => this.#control.run(true, () => original.rollbackTransaction.apply(runner));
-    runner.commitTransaction = () => {
-      if (depth() > 1) return this.#control.run(true, () => original.commitTransaction.apply(runner));
+    const refuse = () => {
       this.#refused.add(runner);
       return Promise.reject(new Error(previewOwnsMessage));
     };
+    runner.startTransaction = (...args) => this.#control.run(true, () => original.startTransaction.apply(runner, args));
+    // Rolling back the outermost level would end the Preview transaction, and later writes would then commit on their own.
+    runner.rollbackTransaction = () => depth() > 1 ? this.#control.run(true, () => original.rollbackTransaction.apply(runner)) : refuse();
+    runner.commitTransaction = () => depth() > 1 ? this.#control.run(true, () => original.commitTransaction.apply(runner)) : refuse();
+    // Releasing would hand the connection, with the Preview transaction still open on it, back to the pool.
+    const ownRelease = Object.hasOwn(runner, 'release') ? runner.release : undefined;
+    runner.release = () => refuse();
     return () => {
       for (const [name, own] of owned) {
         if (own) runner[name] = own as never;
         else delete (runner as Partial<QueryRunner>)[name];
       }
+      if (ownRelease) runner.release = ownRelease;
+      else delete (runner as Partial<QueryRunner>).release;
     };
+  }
+
+  /**
+   * The backstop of spec/data-stores.md "Transaction-control statements from the handler": on MySQL
+   * and MariaDB, release the savepoint set when the Preview started. Any commit erases it, including
+   * one by a statement the guard didn't recognise or a procedure wrongly declared safe. Other
+   * databases answer true.
+   */
+  async #neverCommitted(runner: QueryRunner): Promise<boolean> {
+    if (!this.#mysql) return true;
+    return previewSavepointHeld(statement => this.#hidden.run(true, () => runner.query(statement)));
   }
 
   /**
@@ -230,9 +281,9 @@ export class TypeOrmPreview implements PreviewProvider {
     const scope = this.#scopes.getStore();
     if (!scope?.preview || this.#control.getStore()) return;
     if (!scope.open) throw new Error(endedMessage);
-    const provider = mysqlDrivers.has(this.#source.options.type) ? 'mysql' : this.#source.options.type;
+    const provider = this.#mysql ? 'mysql' : this.#source.options.type;
     if (runner === scope.preview) {
-      if (endsTransaction(text, provider)) {
+      if (endsTransaction(text, provider, this.#safeProcedures)) {
         this.#refused.add(runner);
         throw new Error(previewOwnsMessage);
       }

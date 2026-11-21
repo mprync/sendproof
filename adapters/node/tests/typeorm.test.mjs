@@ -250,6 +250,75 @@ for (const dialect of dialects) {
       }
     });
 
+    await suite.test('refuses a handler rolling back or releasing the Preview transaction, so later writes stay inside it', async () => {
+      const { source, provider, items } = await harness(database);
+      try {
+        const attempts = {};
+        const failure = await previewed(provider, () => provider.run(async manager => {
+          const attempt = async (name, run) => {
+            try { await run(); attempts[name] = 'ran'; } catch (error) { attempts[name] = error.message; }
+          };
+          await attempt('rollbackTransaction', () => manager.queryRunner.rollbackTransaction());
+          await attempt('release', () => manager.queryRunner.release());
+          await items(manager).insert({ id: 'after-rollback', name: 'Must roll back' });
+        })).catch(error => error);
+        assert.match(failure.message, /not contained/);
+        for (const [name, message] of Object.entries(attempts)) assert.match(message, /Preview owns the transaction/, name);
+        assert.deepEqual(await provider.run(manager => items(manager).find()), []);
+      } finally {
+        await source.destroy();
+      }
+    });
+
+    if (dialect === 'mysql') await suite.test('refuses CALL and DDL during a MySQL Preview and catches a declared procedure that commits', async () => {
+      const { source, provider, items } = await harness(database);
+      await source.query('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+      await source.query('CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END');
+      const ids = async () => (await source.query('SELECT id FROM items ORDER BY id')).map(row => row.id);
+      try {
+        const refusals = {};
+        const failure = await previewed(provider, () => provider.run(async manager => {
+          await items(manager).insert({ id: 'called', name: 'Must roll back' });
+          for (const statement of ['CALL sendproof_commit_probe()', 'CREATE TABLE escape_ddl (n INT)', 'RELEASE SAVEPOINT sendproof_preview']) {
+            try { await manager.query(statement); refusals[statement] = 'ran'; } catch (error) { refusals[statement] = error.message; }
+          }
+        })).catch(error => error);
+        assert.match(failure.message, /not contained/);
+        for (const [statement, message] of Object.entries(refusals)) assert.match(message, /Preview owns the transaction/, statement);
+        assert.deepEqual(await ids(), []);
+
+        // Wrongly declared safe, the procedure commits; the savepoint set when the Preview started is then gone.
+        const trusting = new TypeOrmPreview(source, { safeProcedures: ['sendproof_commit_probe'] });
+        const declared = await previewed(trusting, () => trusting.run(async manager => {
+          await items(manager).insert({ id: 'declared', name: 'Committed' });
+          await manager.query('CALL sendproof_commit_probe()');
+        })).catch(error => error);
+        assert.match(declared.message, /savepoint set when the Preview started was gone/);
+        trusting.dispose();
+        assert.deepEqual(await ids(), ['declared']);
+
+        // Under autocommit=0 MySQL opens a new transaction after the COMMIT, which only the start savepoint sees through.
+        const manual = await new DataSource({ ...database.options, entities: [Item, Line], extra: { connectionLimit: 1 } }).initialize();
+        await manual.query('SET autocommit = 0');
+        const late = new TypeOrmPreview(manual, { safeProcedures: ['sendproof_commit_probe'] });
+        try {
+          const outcome = await previewed(late, () => late.run(async manager => {
+            await items(manager).insert({ id: 'manual', name: 'Committed' });
+            await manager.query('CALL sendproof_commit_probe()');
+            await items(manager).insert({ id: 'after', name: 'In the implicit transaction' });
+          })).catch(error => error);
+          assert.match(outcome.message, /savepoint set when the Preview started was gone/);
+        } finally {
+          late.dispose();
+          await manual.destroy();
+        }
+        assert.deepEqual(await ids(), ['declared', 'manual']);
+      } finally {
+        await source.query('DROP PROCEDURE IF EXISTS sendproof_commit_probe');
+        await source.destroy();
+      }
+    });
+
     await suite.test('work that outlives an early-settled Preview cannot write after the rollback', async () => {
       const { source, provider, items } = await harness(database);
       try {
