@@ -43,6 +43,7 @@
     {
       "id": "dotnet-aspnetcore-mysql",
       "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "dotnet",
       "port": 5377,
       "readiness": "/ready",

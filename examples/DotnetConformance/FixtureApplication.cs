@@ -75,6 +75,7 @@ public static class FixtureApplication
             // Write-ahead logging is stored in the database file, so connections opened later (the fixture does not pool)
             // use it. The default rollback journal makes concurrent writers poll for the lock and fsync twice per commit.
             if (!mysql) database.ExecuteSqlRaw("PRAGMA journal_mode=WAL");
+            else SharedRuleEndpoints.CreateMySqlProcedures(database);
         }
 
         app.Lifetime.ApplicationStopped.Register(() =>

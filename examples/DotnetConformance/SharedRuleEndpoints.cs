@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Sendproof.AspNetCore;
 
 namespace DotnetConformance;
@@ -44,5 +45,35 @@ internal static class SharedRuleEndpoints
             await db.Database.ExecuteSqlRawAsync("COMMIT");
             return Results.Created($"/items/{Uri.EscapeDataString(id)}", new ItemResponse(id, body.Name));
         }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview().WithSummary("Insert an item, then COMMIT");
+
+        // The mysql-escape rule (spec/conformance/fixture.md "MySQL and MariaDB: mysql-escape"): after the insert, a
+        // statement MySQL commits implicitly, or a procedure that commits. The adapter refuses either before sending.
+        app.MapPost("/items/{id}/escape", async (string id, EscapeItemRequest body, FixtureDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Name) || !System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_]{1,40}$"))
+                return Results.BadRequest();
+            var statement = body.Via switch
+            {
+                "ddl" => $"CREATE TABLE sendproof_escape_{id} (n INT)",
+                "call" => "CALL sendproof_commit_probe()",
+                _ => null
+            };
+            if (statement is null) return Results.BadRequest();
+            db.Items.Add(new Item { Id = id, Name = body.Name });
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync(statement);
+            return Results.Created($"/items/{Uri.EscapeDataString(id)}", new ItemResponse(id, body.Name));
+        }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
+            .WithSummary("Insert an item, then run a statement that commits on MySQL");
     }
+
+    /// <summary>
+    /// On MySQL, creates the procedure the mysql-escape rule calls: <c>sendproof_commit_probe()</c>, which runs
+    /// <c>COMMIT</c>. The fixture declares no procedure as safe, so a Preview must refuse the <c>CALL</c>.
+    /// </summary>
+    internal static void CreateMySqlProcedures(DatabaseFacade database) =>
+        database.ExecuteSqlRaw("CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END");
 }
+
+/// <summary>Body of <c>POST /items/{id}/escape</c>: <c>via</c> is <c>ddl</c> or <c>call</c>.</summary>
+public sealed record EscapeItemRequest(string? Name, string? Via);
