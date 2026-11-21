@@ -54,6 +54,21 @@ for (const target of targets()) {
       assert.deepEqual(await names(client), ['a:A']);
     });
 
+    it('completes concurrent Previews that insert the same new key', async () => {
+      // On MySQL, InnoDB would abort all but one with a deadlock once the first rolled back, so previews take turns.
+      const { preview, client } = await provide();
+      const runs = await Promise.all(Array.from({ length: 6 }, () => capturing(() => preview.preview(() => preview.run(async (tx: Client) => {
+        await tx.item.create({ data: { id: 'shared', name: 'Shared' } });
+        await new Promise(resolve => setTimeout(resolve, 50)); // let the others reach their insert and wait on this row
+        return 'inserted';
+      })))));
+      for (const { result, captured } of runs) {
+        assert.equal(result, 'inserted');
+        assert.deepEqual(captured.changes.map(change => change.key), [{ id: 'shared' }]);
+      }
+      assert.deepEqual(await names(client), []);
+    });
+
     it('identifies composite keys, mapped columns and BigInt values', async () => {
       const { preview, client } = await provide();
       const { captured } = await capturing(() => preview.preview(() => preview.run(async (tx: Client) => {

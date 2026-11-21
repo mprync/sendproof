@@ -93,10 +93,19 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   readonly #capture: ChangeCapture | undefined;
   #queue: Promise<void> = Promise.resolve();
   #invalid = false;
+  /**
+   * MySQL previews take turns. InnoDB checks a new key for duplicates under a shared lock: when three or more
+   * transactions insert the same key and the first rolls back, as every Preview does, the waiters each hold that lock
+   * and each need the exclusive one, so InnoDB aborts all but one with a deadlock (error 1213). Sent for real, the
+   * first insert commits and the others get a duplicate-key error instead.
+   */
+  readonly #serialPreviews: boolean;
+  #previewQueue: Promise<void> = Promise.resolve();
 
   constructor(factory: SqlDriverAdapterFactory, options: PrismaPreviewOptions = {}) {
     this.#provider = factory.provider;
     this.#singleConnection = factory.provider === 'sqlite';
+    this.#serialPreviews = factory.provider === 'mysql';
     this.#transactionOptions = options.transactionOptions;
     const maxRows = options.maxTrackedRows ?? 1000;
     if (!Number.isInteger(maxRows) || maxRows < 1) throw new RangeError('maxTrackedRows must be a positive integer.');
@@ -179,7 +188,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   /** Run dispatch in an interactive transaction and resolve only after acknowledged rollback. */
   async preview<T>(dispatch: () => Promise<T>): Promise<T> {
     if (this.#scopes.getStore()) throw new Error('Nested Prisma previews are unavailable.');
-    return this.#lease(async () => {
+    return this.#previewTurn(() => this.#lease(async () => {
       const probe: Probe = { started: false, settled: false, rolledBack: false, committed: false };
       const rollback = new Error('Sendproof requests rollback.');
       const client = this.#client as ClientWithTransaction<unknown>;
@@ -208,7 +217,21 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
       }
       this.#invalid = true;
       throw new Error('The Prisma preview transaction was not rolled back.');
-    });
+    }));
+  }
+
+  /** Run a MySQL Preview once every earlier one has settled; other databases run previews at once. */
+  async #previewTurn<T>(operation: () => Promise<T>): Promise<T> {
+    if (!this.#serialPreviews) return operation();
+    const previous = this.#previewQueue;
+    let release!: () => void;
+    this.#previewQueue = new Promise(resolve => { release = resolve; });
+    try {
+      await previous;
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   async #intercept({ model, operation, args, query }: ModelOperation): Promise<unknown> {
