@@ -19,6 +19,7 @@ use (
 	./gorm
 	./mongobench
 	./redisbench
+	./searchbench
 	./tools/modzip
 )
 
@@ -31,4 +32,5 @@ replace (
 	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
 	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.1 => ./mongobench
 	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.1 => ./redisbench
+	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.1 => ./searchbench
 )
