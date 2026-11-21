@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Sendproof\Core;
 
-/** Parsing and validation rules of Bench protocol v1 that do not depend on a web framework. */
+/** Parsing and validation rules of Sendproof protocol v1 that do not depend on a web framework. */
 final class Protocol
 {
     public const PREFIX = '/sendproof/_preview';

@@ -30,7 +30,7 @@ if (idle.length) {
   console.log(table(['Binding', 'ready', 'read', 'write'], idle.map(result => [result.binding, ...['ready@1', 'read@1', 'write@1'].map(route => {
     const row = result.idle.comparison[route]; return row?.disabled ? `${row.disabled.p50} / ${row.enabled.p50}` : null;
   })])), '\n');
-  console.log('### Bench feature cost at concurrency 16 (rps, p50 / p95 / p99 ms)\n');
+  console.log('### Sendproof feature cost at concurrency 16 (rps, p50 / p95 / p99 ms)\n');
   console.log(table(['Binding', 'Send', 'Observed Send', 'Preview'], idle.map(result => [result.binding, ...['send@16', 'observedSend@16', 'preview@16'].map(route => {
     const row = result.idle.comparison[route]?.enabled; return row ? `${row.rps} rps, ${row.p50} / ${row.p95} / ${row.p99}` : null;
   })])), '\n');

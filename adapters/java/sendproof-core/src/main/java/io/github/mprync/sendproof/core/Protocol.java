@@ -5,7 +5,7 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Locale;
 
-/** Pure helpers for the Bench protocol v1 rules that every framework adapter shares. */
+/** Pure helpers for the Sendproof protocol v1 rules that every framework adapter shares. */
 public final class Protocol {
     /** The reserved preview route, relative to the application mount. */
     public static final String PREVIEW_PREFIX = "/sendproof/_preview";

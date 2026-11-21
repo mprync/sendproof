@@ -1,6 +1,6 @@
 # Sendproof for Java
 
-Java and Spring Boot bindings for [Sendproof](../../spec/README.md): the embedded workbench UI, OpenAPI discovery, rollback-only **Preview**, trace-producing **Observed Send**, and conformance with the shared Bench protocol v1.
+Java and Spring Boot bindings for [Sendproof](../../spec/README.md): the embedded workbench UI, OpenAPI discovery, rollback-only **Preview**, trace-producing **Observed Send**, and conformance with the shared Sendproof protocol v1.
 
 | Module | Artifact | Purpose |
 | --- | --- | --- |

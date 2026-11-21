@@ -20,7 +20,7 @@ app.use(bench);
 bench.operation('POST', '/items', requireEditor, createItem);
 ```
 
-`operation` registers the real Express handlers in the same router for Send and Preview. Put route-specific auth in that handler chain. Mount the middleware on the application or inside a mounted router. Body parsing and shared session middleware go before the bench. For observed Send, return `subject` and optionally `scheme` from `resolveIdentity`.
+`operation` registers the real Express handlers in the same router for Send and Preview. Put route-specific auth in that handler chain. Mount the middleware on the application or inside a mounted router. Body parsing and shared session middleware go before Sendproof. For observed Send, return `subject` and optionally `scheme` from `resolveIdentity`.
 
 Use a transaction-aware provider such as [`@sendproof/sqlite`](../sqlite). Preview handlers should await all database writes and return a buffered response. Place external effects behind [the core recorder](../core).
 

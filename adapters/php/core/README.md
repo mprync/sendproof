@@ -1,6 +1,6 @@
 # sendproof/core
 
-Framework-neutral PHP core of [Bench protocol v1](../../../spec/README.md). A framework integration such as [`sendproof/laravel`](../laravel/README.md) supplies request dispatch and a database provider; this package supplies everything else.
+Framework-neutral PHP core of [Sendproof protocol v1](../../../spec/README.md). A framework integration such as [`sendproof/laravel`](../laravel/README.md) supplies request dispatch and a database provider; this package supplies everything else.
 
 | Area | Classes |
 | --- | --- |

@@ -1,4 +1,4 @@
-# Bench protocol v1
+# Sendproof protocol v1
 
 The client reads one OpenAPI document and one capabilities response. A framework adapter serves the embedded UI under the application's `/sendproof/` path. All application URLs below include the mount prefix when the host uses a path base such as `/tenant`.
 

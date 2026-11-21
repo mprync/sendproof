@@ -5,13 +5,13 @@ the load harness in [`tests/load`](../tests/load/README.md) and can be reproduce
 
 ## Summary
 
-- **The bench is free when it is off and unmeasurable when it is on.** Ordinary routes run at the same speed with the bench
+- **Sendproof is free when it is off and unmeasurable when it is on.** Ordinary routes run at the same speed with Sendproof
   disabled (the production default) and enabled. Differences are inside run-to-run noise (about ±10%).
 - **Memory stays flat.** All eight runtimes held bounded memory through a 5-minute mixed workload of about 20 thousand to
   3.9 million requests each, including capture overflow and oversize responses. No leak was found.
 - **Preview and observed Send stay correct under concurrency.** Across every binding, 0 Previews persisted, leaked into another
   Preview, or failed; every observed Send committed exactly once and no trace was misattributed.
-- **The expensive cases are database locks, not the bench code.** PostgreSQL providers that install row triggers (Go, Rust)
+- **The expensive cases are database locks, not the Sendproof code.** PostgreSQL providers that install row triggers (Go, Rust)
   take a table lock for the length of each Preview, which stalls ordinary writes. SQLite allows one writer at a time.
   [Guidance](#recommended-limits) covers both.
 
@@ -23,7 +23,7 @@ Four phases run per binding:
 
 | Phase | What it measures |
 | --- | --- |
-| Idle overhead | The same app with the bench disabled and enabled, run side by side in alternating short bursts so machine noise hits both equally. Also times Preview, plain Send and observed Send. |
+| Idle overhead | The same app with Sendproof disabled and enabled, run side by side in alternating short bursts so machine noise hits both equally. Also times Preview, plain Send and observed Send. |
 | Concurrency | 1,000 Previews (distinct ids, same id, same row) and 500 observed Sends at concurrency 32. Checks isolation, rollback and that each Send commits once. |
 | Soak | 5 minutes at concurrency 24 with a mixed workload: Preview and observed Send writes, reads, a Preview that overflows the change, effect and log limits, a Preview whose response exceeds the 1 MiB capture limit, and bodies of about 92 KB. Resident memory of the whole process group is sampled every 5 seconds. |
 | Contention (PostgreSQL) | What running Previews do to ordinary traffic on the same table: row locks, unique-key waits and pool pressure. Lock waiters are sampled from `pg_stat_activity`. |
@@ -46,7 +46,7 @@ it. See [host load](#host-load-explains-the-throughput-dips). Runs date from 202
 
 ## Results
 
-### Idle overhead of the bench
+### Idle overhead of Sendproof
 
 Throughput with the bench enabled divided by throughput with it disabled, median of 8 alternating 1.5-second bursts. A value of
 1.0 means no cost. Values between 0.9 and 1.1 are noise: the bursts themselves vary by about that much.

@@ -125,7 +125,7 @@ A Preview must run exactly the operation that was checked, through the host's ow
 | NODE-9 | Low | Node core | `adapters/node/core/src/index.ts:80,225` | The trace owner had no issuer, and trace IDs were UUIDv4 (122 random bits). | Optional `issuer` added to the owner; IDs are 128-bit hex. | `core-protocol.test.mjs` "trace ids carry 128 random bits…" |
 | PY-8 | Low | Python (all) | `adapters/python/core/src/sendproof_core/workbench.py:50` | The trace owner had no issuer. | Optional `Identity.issuer` is part of the owner. | `test_core.py::test_trace_owner_separates_issuers_*` |
 | PY-11 | Low | Python (all) | `adapters/python/core/src/sendproof_core/trace_store.py:50` | Trace IDs were UUIDv4. | `secrets.token_hex(16)`. | `test_core.py::test_trace_ids_*` |
-| GO-12 | Low | Go (all) | `adapters/go/sendproof/bench.go:104` | The trace owner had no issuer. | `Principal.Issuer` is part of the owner. | `TestObservedSendTraceBelongsToItsOwner` |
+| GO-12 | Low | Go (all) | `adapters/go/sendproof/sendproof.go:104` | The trace owner had no issuer. | `Principal.Issuer` is part of the owner. | `TestObservedSendTraceBelongsToItsOwner` |
 | JVM-6 | Low | Spring, Ktor | `adapters/java/sendproof-core/.../TraceStore.java:66` | Trace IDs were UUIDv4. | 128 bits from `SecureRandom`. | `SecurityRegressionTest::traceIdsUseAllOneHundredTwentyEightBits` |
 | RB-3 | Low | Rails | `adapters/ruby/sendproof/lib/sendproof/trace_store.rb:73` | Trace IDs were UUIDv4. | `SecureRandom.hex(16)`. | `trace_store_test.rb::test_trace_ids_carry_128_random_bits` |
 

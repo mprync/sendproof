@@ -34,7 +34,7 @@ node tools/pack-all.mjs --verify --only npm,pypi
 | Change | Start here | What to verify |
 | --- | --- | --- |
 | Another persistence technology in .NET | `IPreviewProvider` and `IPreviewSession` in the ASP.NET Core adapter | The handler uses the enlisted connection, rollback completes before acknowledgement, and errors leave storage consistent. |
-| Another server framework | [Bench protocol](spec/README.md) | The same UI can discover the spec, sign in, send, and distinguish a confirmed rollback from failure. |
+| Another server framework | [Sendproof protocol](spec/README.md) | The same UI can discover the spec, sign in, send, and distinguish a confirmed rollback from failure. |
 | A field or schema convention | `ui/schema.js`, or a host module configured with `.WithFieldModule()` | Use a second unrelated OpenAPI example. Keep form and JSON edits interchangeable. |
 | Another request export | `ui/snippets.js` | Preserve method, URL, headers, body and preview intent. Cover escaping and credential masking. |
 | Another sign-in method | The application's auth handlers and the workbench provider descriptor | Verify a real sign-in and a permission denial with the same session. |

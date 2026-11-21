@@ -1,6 +1,6 @@
 # Data stores: Preview and the write guard
 
-Protocol v1.1, an additive minor revision of [Bench protocol v1](README.md). Clients and servers that ignore the new fields keep working. This page defines how a binding treats data stores other than its SQL database: document stores, key-value stores and caches.
+Protocol v1.1, an additive minor revision of [Sendproof protocol v1](README.md). Clients and servers that ignore the new fields keep working. This page defines how a binding treats data stores other than its SQL database: document stores, key-value stores and caches.
 
 Every rule here serves one promise: **a confirmed Preview never leaves a write behind.** A store that can roll back joins the Preview transaction. A store that can't is guarded: reads run, and the first write stops the Preview before any byte of that write reaches the store.
 
