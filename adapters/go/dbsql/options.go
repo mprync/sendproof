@@ -1,6 +1,10 @@
 package dbsql
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/test-bench/test-bench/adapters/go/testbench"
+)
 
 // Option configures Wrap.
 type Option func(*config) error
@@ -11,9 +15,14 @@ type config struct {
 }
 
 // WithDatabaseLabel sets the database name shown in the workbench. Use a public
-// label, never a connection string, host or file path.
+// label, never a connection string, host or file path: a label with a URL
+// scheme, user information, path separators, key=value pairs or control
+// characters is rejected.
 func WithDatabaseLabel(label string) Option {
 	return func(c *config) error {
+		if !testbench.IsDisplayLabel(label) {
+			return fmt.Errorf("dbsql: the database label %q looks like connection details; use a bare name", label)
+		}
 		c.label = label
 		return nil
 	}

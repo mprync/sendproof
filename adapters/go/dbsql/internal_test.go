@@ -191,3 +191,71 @@ func TestToChangesSkipsUnchangedUpdates(t *testing.T) {
 		t.Errorf("%+v", changes)
 	}
 }
+
+func TestPreviewGuardSeesThroughQuotingAndComments(t *testing.T) {
+	refused := map[Dialect][]string{
+		// MySQL runs the body of /*! */ and /*M! */ comments, and "--" without a
+		// following space is two minus signs.
+		DialectMySQL: {"/*! COMMIT */", "SELECT 1; /*!50000 COMMIT */", "/*M!100000 DROP TABLE t */", "SELECT 1 --1; COMMIT",
+			"SET PASSWORD = 'x'", "SET DEFAULT ROLE r TO u", "LOAD INDEX INTO CACHE t",
+			// Under NO_BACKSLASH_ESCAPES or ANSI_QUOTES the quote ends at the backslash.
+			`SELECT 'a\'; COMMIT; SELECT '`, `SELECT "a\"; COMMIT; -- "`},
+		// With standard_conforming_strings off a backslash escapes the quote.
+		DialectPostgres:  {`SELECT 'x\''; COMMIT; SELECT '`},
+		DialectSQLite:    {"ATTACH DATABASE 'copy.db' AS copy", "DETACH copy", "VACUUM INTO 'copy.db'"},
+		DialectSQLServer: {"sp_executesql N'COMMIT TRANSACTION'", "dbo.archive_items", "[dbo].[archive_items] 1"},
+	}
+	allowed := map[Dialect][]string{
+		DialectMySQL: {"SELECT 1 -- COMMIT", "SELECT 1 /* COMMIT */", "SELECT /*+ BKA(t) */ * FROM t", "SELECT 2--1",
+			`INSERT INTO t VALUES ('it\'s')`, "/*!40101 SET NAMES utf8mb4 */"},
+		DialectPostgres:  {`SELECT E'it\'s'`, "SELECT 'a''b'"},
+		DialectSQLServer: {"SELECT 1", "(SELECT 1)", "WITH x AS (SELECT 1) SELECT * FROM x", "SAVE TRANSACTION a", "INSERT INTO t VALUES (1)", "SET NOCOUNT ON"},
+	}
+	for dialect, statements := range refused {
+		for _, statement := range statements {
+			if err := previewSafe(statement, analyze(statement, dialect), dialect); !errors.Is(err, ErrUnsafeStatement) {
+				t.Errorf("%v must refuse %q, got %v", dialect, statement, err)
+			}
+		}
+	}
+	for dialect, statements := range allowed {
+		for _, statement := range statements {
+			if err := previewSafe(statement, analyze(statement, dialect), dialect); err != nil {
+				t.Errorf("%v must allow %q: %v", dialect, statement, err)
+			}
+		}
+	}
+	var params int
+	for _, tok := range lex("SELECT /*! ? */ 1", DialectMySQL) {
+		if tok.kind == tokParam {
+			params++
+		}
+	}
+	if params != 1 {
+		t.Errorf("a placeholder in an executable comment was not seen: %d", params)
+	}
+}
+
+func TestReturningIsAddedAfterTheLastToken(t *testing.T) {
+	text := "INSERT INTO items (name) VALUES ($1) -- create an item"
+	info := analyze(text, DialectPostgres)
+	plan, ok := parseDML(text, info.statements[0], DialectPostgres)
+	if !ok {
+		t.Fatal("did not parse")
+	}
+	k := &keyedStatement{plan: plan, meta: &tableMeta{key: []string{"id"}}, source: text, generated: "returning"}
+	if got, want := k.generatedSQL(DialectPostgres), `INSERT INTO items (name) VALUES ($1) RETURNING "id"`; got != want {
+		t.Errorf("generatedSQL = %q, want %q", got, want)
+	}
+}
+
+func TestDatabaseLabelMustBeBare(t *testing.T) {
+	for _, label := range []string{"postgres://app:pw@db/app", "file:/var/lib/app.db", "Server=db;Password=pw", "app@db"} {
+		if err := WithDatabaseLabel(label)(&config{}); err == nil {
+			t.Errorf("label %q was accepted", label)
+		}
+	}
+	if err := WithDatabaseLabel("Inventory")(&config{}); err != nil {
+		t.Error(err)
+	}
+}

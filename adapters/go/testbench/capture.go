@@ -137,7 +137,38 @@ func snapshotValue(value any) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	return raw, true
+	return redactSecretMembers(raw), true
+}
+
+// redactSecretMembers hides the values of the secret-named members of a row
+// snapshot, such as password_hash or api_key, the way SQL parameters with those
+// names are hidden. Values other than JSON objects are returned unchanged.
+func redactSecretMembers(raw json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return raw
+	}
+	var members map[string]json.RawMessage
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+	if decoder.Decode(&members) != nil {
+		return raw
+	}
+	changed := false
+	for name := range members {
+		if IsSecretName(name) {
+			members[name] = json.RawMessage(`"` + redactedValue + `"`)
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	encoded, err := json.Marshal(members)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func rawSize(value any) int {

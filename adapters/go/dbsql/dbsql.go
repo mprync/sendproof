@@ -39,7 +39,9 @@
 //
 // A preview refuses statements that could end its transaction: COMMIT, ROLLBACK
 // and BEGIN, MySQL statements that commit implicitly and procedure calls on
-// MySQL and SQL Server. Application transactions still work through BeginTx,
+// MySQL and SQL Server. The refused call returns ErrUnsafeStatement, and the
+// whole preview then fails instead of being confirmed, even if the handler
+// ignores the error. Application transactions still work through BeginTx,
 // which runs them on savepoints. SQLite's commit hook and PostgreSQL's guard
 // trigger turn any commit that slips through into a rollback, and MySQL and SQL
 // Server previews stop when the database ends the transaction after an error.

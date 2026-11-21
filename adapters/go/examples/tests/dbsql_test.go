@@ -241,12 +241,63 @@ func TestTransactionControlIsRefused(t *testing.T) {
 				}
 			}
 		})
-		if status, envelope := preview(t, handler, "/run"); status != 200 {
+		// The handler ignores the refusals, but a preview that tried to end its
+		// transaction is never confirmed as rolled back.
+		if status, envelope := preview(t, handler, "/run"); status != 500 || envelope["rolledBack"] == true {
 			t.Fatalf("status %d: %v", status, envelope)
 		}
 		if count(t, pool, "items") != 0 {
 			t.Error("a refused statement committed the preview")
 		}
+	})
+}
+
+func TestSecretColumnsAndSessionsAreRedacted(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		exec(t, pool, fmt.Sprintf("CREATE TABLE creds (reset_token %s PRIMARY KEY, password_hash %s NOT NULL, name %s NOT NULL)", e.text, e.text, e.text))
+		exec(t, pool, fmt.Sprintf("CREATE TABLE sessions (id %s PRIMARY KEY, data %s NOT NULL)", e.text, e.text))
+		exec(t, pool, "INSERT INTO sessions (id, data) VALUES ('session-id-value', 'x')")
+		db, err := dbsql.Wrap(pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			var data string
+			if err := db.QueryRowContext(ctx, "SELECT data FROM sessions WHERE id = "+e.ph(1), "session-id-value").Scan(&data); err != nil {
+				t.Error(err)
+			}
+			for _, statement := range []string{
+				"INSERT INTO creds (reset_token, password_hash, name) VALUES (" + e.ph(1) + ", " + e.ph(2) + ", " + e.ph(3) + ")",
+			} {
+				if _, err := db.ExecContext(ctx, statement, "token-value", "hash-value", "Ada"); err != nil {
+					t.Error(err)
+				}
+			}
+			if _, err := db.ExecContext(ctx, "UPDATE creds SET password_hash = "+e.ph(1)+" WHERE reset_token = "+e.ph(2), "new-hash-value", "token-value"); err != nil {
+				t.Error(err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}, testbench.WithSQLParameterValues(true))
+		check := func(what string, result map[string]any) {
+			t.Helper()
+			encoded, _ := json.Marshal(result)
+			for _, leaked := range []string{"token-value", "hash-value", "session-id-value"} {
+				if strings.Contains(string(encoded), leaked) {
+					t.Errorf("the %s leaked %q: %s", what, leaked, encoded)
+				}
+			}
+			if !strings.Contains(string(encoded), `"name":"Ada"`) || !strings.Contains(string(encoded), "[REDACTED]") {
+				t.Errorf("the %s must keep non-secret columns and redact secrets: %s", what, encoded)
+			}
+		}
+		status, envelope := preview(t, handler, "/run")
+		if status != 200 || len(envelope["changes"].([]any)) != 2 {
+			t.Fatalf("status %d: %v", status, envelope)
+		}
+		check("preview", envelope)
+		_, trace := observe(t, handler, "/run")
+		check("trace", trace)
 	})
 }
 

@@ -29,7 +29,7 @@ type trace struct {
 // traceOwner identifies who may read a trace: one authenticated subject within one
 // authentication scheme and mount prefix.
 type traceOwner struct {
-	scheme, subject, pathBase string
+	scheme, issuer, subject, pathBase string
 }
 
 // reservation is a trace slot that is filled when the observed send finishes.

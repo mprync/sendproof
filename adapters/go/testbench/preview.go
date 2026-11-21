@@ -45,6 +45,11 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	case !isSameOrigin(r):
 		reject(w, http.StatusForbidden, "Cross-origin preview requests are not allowed.")
 		return
+	case r.URL.Query().Has("_method"):
+		// A method-override middleware would route the preview to an operation
+		// other than the one checked below.
+		reject(w, http.StatusBadRequest, "A Test Bench preview cannot override its method.")
+		return
 	}
 	if status := b.authorize(r); status != 0 {
 		title := "Authentication is required for this preview."
@@ -70,7 +75,8 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 		reject(w, http.StatusBadRequest, "The Test Bench preview target is invalid.")
 		return
 	}
-	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r), target: decoded}
+	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r),
+		target: decoded, method: r.Method, escaped: target}
 	inner := withState(r.Clone(r.Context()), state)
 	inner.URL.Path, inner.URL.RawPath = decoded, ""
 	if inner.URL.EscapedPath() != target {
@@ -79,6 +85,9 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	inner.RequestURI = inner.URL.RequestURI()
 	// An encoding middleware would compress the buffered body the preview must read.
 	inner.Header.Del("Accept-Encoding")
+	for _, name := range methodOverrideHeaders {
+		inner.Header.Del(name)
+	}
 
 	capture := newCaptureWriter()
 	capture.header.Set("Cache-Control", "no-store")
@@ -139,6 +148,10 @@ func (b *Bench) servePreview(w http.ResponseWriter, r *http.Request, next http.H
 	headers.Set("Content-Type", "application/json; charset=utf-8")
 	_, _ = w.Write(encoded)
 }
+
+// methodOverrideHeaders are removed from the dispatched preview so a method
+// override middleware cannot run an operation other than the checked one.
+var methodOverrideHeaders = []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"}
 
 // buildEnvelope assembles the confirmed result after a successful rollback.
 func (b *Bench) buildEnvelope(capture *captureWriter, session Session, snapshot captureSnapshot) *previewEnvelope {
@@ -211,7 +224,9 @@ func rejectUnexecuted(w http.ResponseWriter, capture *captureWriter, invoked boo
 func (s *requestState) enterPreview(w http.ResponseWriter, r *http.Request, op *Operation) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.invoked || op.method != r.Method {
+	// The marker must belong to the operation the transport checked: a router
+	// rewrite or method override must not swap in another marked operation.
+	if s.invoked || op.method != r.Method || op.method != s.method || !op.matches(s.method, s.escaped) {
 		w.WriteHeader(http.StatusConflict)
 		return false
 	}

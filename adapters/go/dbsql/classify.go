@@ -34,7 +34,10 @@ type statementInfo struct {
 }
 
 func analyze(text string, dialect Dialect) statementInfo {
-	tokens := lex(text, dialect)
+	return analyzeTokens(lex(text, dialect), dialect)
+}
+
+func analyzeTokens(tokens []token, dialect Dialect) statementInfo {
 	info := statementInfo{tokens: tokens, statements: splitStatements(tokens)}
 	for _, statement := range info.statements {
 		words := leadingWords(statement, 4)
@@ -177,6 +180,36 @@ var mysqlImplicitCommit = map[string]bool{
 	"XA": true, "IMPORT": true, "CALL": true, "BEGIN": true, "START": true,
 }
 
+// sqlServerStatements are the keywords a T-SQL batch can start with. SQL Server
+// runs a batch that starts with any other name as a procedure call, even without
+// EXEC, so sp_executesql N'COMMIT' would end the preview transaction.
+var sqlServerStatements = map[string]bool{
+	"ALTER": true, "BACKUP": true, "BEGIN": true, "BREAK": true, "BULK": true, "CHECKPOINT": true,
+	"CLOSE": true, "COMMIT": true, "CONTINUE": true, "CREATE": true, "DBCC": true, "DEALLOCATE": true,
+	"DECLARE": true, "DELETE": true, "DENY": true, "DISABLE": true, "DROP": true, "ELSE": true,
+	"ENABLE": true, "END": true, "EXEC": true, "EXECUTE": true, "FETCH": true, "GET": true, "GOTO": true,
+	"GRANT": true, "IF": true, "INSERT": true, "KILL": true, "MERGE": true, "MOVE": true, "OPEN": true,
+	"PRINT": true, "RAISERROR": true, "READTEXT": true, "RECEIVE": true, "RECONFIGURE": true,
+	"RESTORE": true, "RETURN": true, "REVERT": true, "REVOKE": true, "ROLLBACK": true, "SAVE": true,
+	"SELECT": true, "SEND": true, "SET": true, "SETUSER": true, "SHUTDOWN": true, "THROW": true,
+	"TRUNCATE": true, "UPDATE": true, "UPDATETEXT": true, "USE": true, "WAITFOR": true, "WHILE": true,
+	"WITH": true, "WRITETEXT": true,
+}
+
+// previewSafe refuses a text that could end the preview transaction. MySQL and
+// PostgreSQL texts are checked under both readings of their string literals,
+// because a session setting the provider cannot see decides whether a backslash
+// escapes a quote; refusing when either reading is unsafe keeps the guard sound.
+func previewSafe(text string, info statementInfo, dialect Dialect) error {
+	if err := checkPreviewSafe(info, dialect); err != nil {
+		return err
+	}
+	if dialect == DialectMySQL || dialect == DialectPostgres {
+		return checkPreviewSafe(analyzeTokens(lexWith(text, dialect, true), dialect), dialect)
+	}
+	return nil
+}
+
 // checkPreviewSafe refuses statements that could commit or end the preview
 // transaction. Savepoint statements are allowed: the journal follows them.
 func checkPreviewSafe(info statementInfo, dialect Dialect) error {
@@ -209,8 +242,13 @@ func checkPreviewSafe(info statementInfo, dialect Dialect) error {
 			}
 		}
 		switch dialect {
+		case DialectSQLite:
+			switch words[0] {
+			case "ATTACH", "DETACH", "VACUUM":
+				return refuse(statement, "it changes databases outside the preview transaction")
+			}
 		case DialectMySQL:
-			if mysqlImplicitCommit[words[0]] && !temporaryTable(words) {
+			if mysqlImplicitCommit[words[0]] && !temporaryTable(words) || mysqlImplicitCommitPhrase(words) {
 				return refuse(statement, "MySQL commits the open transaction before this statement")
 			}
 			if words[0] == "SET" && containsWord(statement, "AUTOCOMMIT", "@@AUTOCOMMIT", "@@SESSION.AUTOCOMMIT") {
@@ -226,6 +264,9 @@ func checkPreviewSafe(info statementInfo, dialect Dialect) error {
 		}
 	}
 	if dialect == DialectSQLServer {
+		if first := firstToken(info.tokens); first.kind == tokIdent || first.kind == tokWord && !sqlServerStatements[first.value] {
+			return refuse(info.tokens, "a batch that starts with a name calls that procedure, which can commit the preview transaction")
+		}
 		// T-SQL does not need semicolons between statements, so scan the whole batch.
 		for index, tok := range info.tokens {
 			next := func(offset int) token {
@@ -253,6 +294,33 @@ func checkPreviewSafe(info statementInfo, dialect Dialect) error {
 		}
 	}
 	return nil
+}
+
+// mysqlImplicitCommitPhrase recognizes implicit-commit statements whose first
+// keyword alone is ambiguous: SET PASSWORD, SET DEFAULT ROLE and LOAD INDEX INTO
+// CACHE write to the mysql schema or the key cache and commit first.
+func mysqlImplicitCommitPhrase(words []string) bool {
+	if len(words) < 2 {
+		return false
+	}
+	switch {
+	case words[0] == "SET" && words[1] == "PASSWORD",
+		words[0] == "SET" && words[1] == "DEFAULT" && len(words) > 2 && words[2] == "ROLE",
+		words[0] == "LOAD" && words[1] == "INDEX":
+		return true
+	}
+	return false
+}
+
+// firstToken returns the first token of a batch after any opening parentheses,
+// or the zero token when there is none.
+func firstToken(tokens []token) token {
+	for _, tok := range tokens {
+		if !tok.is(tokPunct, "(") {
+			return tok
+		}
+	}
+	return token{kind: tokPunct}
 }
 
 func temporaryTable(words []string) bool {

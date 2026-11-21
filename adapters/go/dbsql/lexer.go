@@ -47,25 +47,49 @@ func (t token) word(value string) bool { return t.kind == tokWord && t.value == 
 
 // lex tokenizes text for the dialect. Unterminated literals run to the end of the
 // text; the database reports the syntax error itself.
-func lex(text string, dialect Dialect) []token {
+func lex(text string, dialect Dialect) []token { return lexWith(text, dialect, false) }
+
+// lexWith tokenizes text. With altStrings set it reads string literals under the
+// dialect's other session setting: MySQL without backslash escapes
+// (NO_BACKSLASH_ESCAPES, or ANSI_QUOTES identifiers) and PostgreSQL with
+// backslash escapes (standard_conforming_strings off). The preview guard checks
+// both readings, so a statement cannot hide transaction control inside what only
+// one of them considers a string.
+func lexWith(text string, dialect Dialect, altStrings bool) []token {
 	var tokens []token
+	// quoteBackslash reports whether a backslash escapes the next byte in '...'
+	// and, for MySQL, "..." literals.
+	quoteBackslash := dialect == DialectMySQL && !altStrings || dialect == DialectPostgres && altStrings
+	// executable is set inside a MySQL /*! ... */ or MariaDB /*M! ... */ comment,
+	// whose content the server runs as SQL.
+	executable := false
 	for i := 0; i < len(text); {
 		c := text[i]
 		switch {
 		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f':
 			i++
-		case c == '-' && strings.HasPrefix(text[i:], "--"), c == '#' && dialect == DialectMySQL:
+		case executable && c == '*' && strings.HasPrefix(text[i:], "*/"):
+			executable = false
+			i += 2
+		case c == '-' && strings.HasPrefix(text[i:], "--") && (dialect != DialectMySQL || mysqlDashComment(text, i)),
+			c == '#' && dialect == DialectMySQL:
 			for i < len(text) && text[i] != '\n' {
 				i++
 			}
+		case c == '/' && dialect == DialectMySQL && !executable && (strings.HasPrefix(text[i:], "/*!") || strings.HasPrefix(text[i:], "/*M!")):
+			// The server executes the body of an executable comment (an optional
+			// version number follows the marker), so it is lexed as SQL.
+			i += strings.IndexByte(text[i:], '!') + 1
+			i, _ = scanDigits(text, i)
+			executable = true
 		case c == '/' && strings.HasPrefix(text[i:], "/*"):
 			i = skipBlockComment(text, i, dialect == DialectPostgres)
 		case c == '\'':
-			end, value := scanQuoted(text, i, '\'', dialect == DialectMySQL)
+			end, value := scanQuoted(text, i, '\'', quoteBackslash)
 			tokens = append(tokens, token{kind: tokString, start: i, end: end, value: value})
 			i = end
 		case c == '"':
-			end, value := scanQuoted(text, i, '"', dialect == DialectMySQL)
+			end, value := scanQuoted(text, i, '"', dialect == DialectMySQL && quoteBackslash)
 			kind := tokIdent
 			if dialect == DialectMySQL { // without ANSI_QUOTES MySQL reads "..." as a string
 				kind = tokString
@@ -143,7 +167,7 @@ func lex(text string, dialect Dialect) []token {
 			end := scanWord(text, i)
 			// N'...', E'...', X'...' and B'...' are prefixed string literals.
 			if end == i+1 && end < len(text) && text[end] == '\'' && strings.ContainsRune("NnEeXxBb", rune(c)) {
-				backslash := dialect == DialectMySQL || c == 'E' || c == 'e'
+				backslash := quoteBackslash || dialect == DialectPostgres && (c == 'E' || c == 'e')
 				stop, value := scanQuoted(text, end, '\'', backslash)
 				tokens = append(tokens, token{kind: tokString, start: i, end: stop, value: value})
 				i = stop
@@ -161,6 +185,12 @@ func lex(text string, dialect Dialect) []token {
 		}
 	}
 	return tokens
+}
+
+// mysqlDashComment reports whether the "--" at i starts a MySQL comment, which
+// needs a following space or control character: MySQL reads 1--1 as 1 - -1.
+func mysqlDashComment(text string, i int) bool {
+	return i+2 >= len(text) || text[i+2] <= ' '
 }
 
 func namedParamDialect(prefix byte, dialect Dialect) bool {

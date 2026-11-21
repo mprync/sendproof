@@ -97,10 +97,11 @@ func (b *Bench) principal(r *http.Request) (Principal, bool) {
 func (b *Bench) owner(r *http.Request) (traceOwner, bool) {
 	principal, ok := b.principal(r)
 	base := b.pathBase(r)
-	if !ok || principal.Subject == "" || len(principal.Subject) > maxName || len(principal.Scheme) > maxName || len(base) > 4096 {
+	if !ok || principal.Subject == "" || len(principal.Subject) > maxName || len(principal.Scheme) > maxName ||
+		len(principal.Issuer) > maxText || len(base) > 4096 {
 		return traceOwner{}, false
 	}
-	return traceOwner{scheme: principal.Scheme, subject: principal.Subject, pathBase: base}, true
+	return traceOwner{scheme: principal.Scheme, issuer: principal.Issuer, subject: principal.Subject, pathBase: base}, true
 }
 
 // authorize applies the workbench access policy. It returns the HTTP status to

@@ -89,6 +89,10 @@ type Principal struct {
 	// Scheme names the authentication context, for example "cookie". Traces belong
 	// to one subject within one scheme.
 	Scheme string
+	// Issuer optionally names who vouched for the subject, such as an OpenID
+	// Connect issuer URL, when one scheme accepts identities from several issuers.
+	// Traces belong to one subject of one issuer.
+	Issuer string
 }
 
 // SQLArg is one bound parameter of an executed command.

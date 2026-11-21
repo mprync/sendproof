@@ -32,6 +32,22 @@ func isLocalURL(value string) bool {
 	return true
 }
 
+// IsDisplayLabel reports whether label can be published as a database display
+// name: a bare name without a URL scheme, user information, path separators,
+// key=value pairs or control characters, at most 256 bytes long. Providers use
+// it to refuse connection strings, hosts with credentials and file paths.
+func IsDisplayLabel(label string) bool {
+	if len(label) > maxName || strings.Contains(label, "://") || strings.ContainsAny(label, "@/\\=;") {
+		return false
+	}
+	for _, r := range label {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // preferTokens splits every Prefer header value into trimmed comma-separated tokens.
 func preferTokens(r *http.Request) []string {
 	var tokens []string
@@ -151,11 +167,14 @@ func hasSegmentPrefix(path, prefix string) bool {
 }
 
 // secretWords and secretKeyQualifiers drive IsSecretName. Words are matched whole,
-// so IdempotencyKey or Monkey stay visible while PasswordHash, api_key and
-// RefreshToken are hidden.
+// so IdempotencyKey or Monkey stay visible while PasswordHash, api_key,
+// RefreshToken and session_id are hidden.
 var secretWords = map[string]bool{
 	"password": true, "passwd": true, "pwd": true, "secret": true, "token": true,
 	"hash": true, "salt": true, "credential": true, "credentials": true, "apikey": true,
+	// Session identifiers are bearer secrets too: a statement on a sessions table
+	// or a session_id parameter must not publish them.
+	"session": true, "sessions": true,
 }
 
 // "key" alone is ordinary (primary key, idempotency key); it is secret only after these words.

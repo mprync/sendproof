@@ -110,8 +110,10 @@ func (b *Bench) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 		}
 		identity = entry
 	}
+	// Discovery is public in Development, so a label that looks like connection
+	// details is withheld rather than published.
 	var database any
-	if provider := b.provider(); provider != nil && provider.Database() != "" {
+	if provider := b.provider(); provider != nil && provider.Database() != "" && IsDisplayLabel(provider.Database()) {
 		database = provider.Database()
 	}
 	operations := b.previewOperations()

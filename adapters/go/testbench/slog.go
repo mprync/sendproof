@@ -89,7 +89,12 @@ func addAttr(props map[string]string, prefix string, attr slog.Attr) {
 		}
 		return
 	}
-	props[prefix+attr.Key] = attr.Value.String()
+	name := prefix + attr.Key
+	if IsSecretName(name) {
+		props[name] = redactedValue // for example password=..., api_key=...
+		return
+	}
+	props[name] = attr.Value.String()
 }
 
 // levelName maps slog levels to the display names the workbench uses.

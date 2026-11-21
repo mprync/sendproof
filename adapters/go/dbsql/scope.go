@@ -335,7 +335,8 @@ func (s *scope) exec(ctx context.Context, target conn, inTx bool, text string, a
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := checkPreviewSafe(info, s.dialect); err != nil {
+		if err := previewSafe(text, info, s.dialect); err != nil {
+			s.fail(err) // a refused statement is never confirmed as a rollback
 			return nil, err
 		}
 	}
@@ -531,7 +532,8 @@ func (s *scope) withQuery(ctx context.Context, target conn, inTx bool, text stri
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := checkPreviewSafe(info, s.dialect); err != nil {
+		if err := previewSafe(text, info, s.dialect); err != nil {
+			s.fail(err) // a refused statement is never confirmed as a rollback
 			return err
 		}
 	}
@@ -590,7 +592,8 @@ func (s *scope) prepare(ctx context.Context, target conn, text string) (*sql.Stm
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := checkPreviewSafe(info, s.dialect); err != nil {
+		if err := previewSafe(text, info, s.dialect); err != nil {
+			s.fail(err) // a refused statement is never confirmed as a rollback
 			return nil, err
 		}
 	}

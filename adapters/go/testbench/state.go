@@ -30,6 +30,8 @@ type requestState struct {
 
 	// Preview.
 	target    string // path the handler must still see after rewriting
+	method    string // method the preview was checked for
+	escaped   string // escaped target path the preview was checked for
 	invoked   bool
 	completed bool
 	session   Session
@@ -52,10 +54,13 @@ func withState(r *http.Request, state *requestState) *http.Request {
 }
 
 // IsPreview reports whether ctx belongs to a rollback-only preview. Applications
-// can use it to skip work that must not happen during a preview.
+// can use it to skip work that must not happen during a preview. It also reports
+// true while the request runs outside its marked handler, for example in a
+// handler the router chose that was never marked, because nothing such code does
+// is rolled back.
 func IsPreview(ctx context.Context) bool {
 	state := stateFrom(ctx)
-	return state != nil && state.rec != nil && state.rec.isPreview()
+	return state != nil && state.kind == kindPreview
 }
 
 // IsCapturing reports whether a preview or an observed send is recording ctx.
@@ -100,15 +105,17 @@ func SendObservation(ctx context.Context) Observation {
 
 // RecordEffect records an intended side effect, such as an email, publication or
 // webhook, and returns true when the caller must not perform it. A preview
-// suppresses the effect. An observed send records it as delivered and returns
-// false so the caller proceeds. Outside Test Bench it records nothing and returns
-// false. The data value is serialized for display and bounded.
+// suppresses the effect, also when it is registered outside the marked handler
+// or after the preview finished. An observed send records it as delivered and
+// returns false so the caller proceeds. Outside Test Bench it records nothing and
+// returns false. The data value is serialized for display and bounded.
 func RecordEffect(ctx context.Context, kind, description string, data any) (suppress bool) {
 	state := stateFrom(ctx)
 	if state == nil || state.rec == nil {
 		return false
 	}
-	return state.rec.recordEffect(kind, description, data)
+	suppress = state.rec.recordEffect(kind, description, data)
+	return suppress || state.kind == kindPreview
 }
 
 // RecordEmail records an email effect with the conventional data shape and returns

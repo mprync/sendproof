@@ -25,9 +25,15 @@ type fakeProvider struct {
 	rollbackErr  error
 	changes      []testbench.Change
 	observations int
+	label        string
 }
 
-func (p *fakeProvider) Database() string { return "fixture" }
+func (p *fakeProvider) Database() string {
+	if p.label != "" {
+		return p.label
+	}
+	return "fixture"
+}
 
 func (p *fakeProvider) Begin(context.Context) (testbench.Session, error) {
 	p.mu.Lock()
@@ -88,7 +94,11 @@ func newHarness(t *testing.T, base string, options ...testbench.Option) *harness
 	h.provider.changes = []testbench.Change{{Operation: "insert", Table: "items", Key: map[string]any{"id": "a"}, After: map[string]any{"id": "a"}}}
 	principal := func(r *http.Request) (testbench.Principal, bool) {
 		if cookie, err := r.Cookie("who"); err == nil {
-			return testbench.Principal{Subject: cookie.Value, Name: strings.ToUpper(cookie.Value), Role: "admin", Scheme: "cookie"}, true
+			issuer := ""
+			if iss, err := r.Cookie("iss"); err == nil {
+				issuer = iss.Value
+			}
+			return testbench.Principal{Subject: cookie.Value, Name: strings.ToUpper(cookie.Value), Role: "admin", Scheme: "cookie", Issuer: issuer}, true
 		}
 		return testbench.Principal{}, false
 	}
@@ -469,6 +479,9 @@ func TestObservedSendTraceBelongsToItsOwner(t *testing.T) {
 	if code := h.do("GET", path, map[string]string{"Cookie": "who=bob"}).Code; code != 404 {
 		t.Errorf("foreign read: %d", code)
 	}
+	if code := h.do("GET", path, map[string]string{"Cookie": "who=ada; iss=https://other.example.test"}).Code; code != 404 {
+		t.Errorf("same subject from another issuer read the trace: %d", code)
+	}
 	if code := h.do("GET", path, nil).Code; code != 404 {
 		t.Errorf("anonymous read: %d", code)
 	}
@@ -481,7 +494,7 @@ func TestObservedSendTraceBelongsToItsOwner(t *testing.T) {
 }
 
 func TestIsSecretName(t *testing.T) {
-	secret := []string{"fixture_secret", "PasswordHash", "api_key", "RefreshToken", "client key", "@auth_token", "salt"}
+	secret := []string{"fixture_secret", "PasswordHash", "api_key", "RefreshToken", "client key", "@auth_token", "salt", "session_id", "DELETE FROM sessions WHERE id = ?"}
 	plain := []string{"IdempotencyKey", "Monkey", "id", "name", "primary_key", "tokens_issued_at_" + "x" + "yz"}
 	for _, name := range secret {
 		if !testbench.IsSecretName(name) {
@@ -492,5 +505,125 @@ func TestIsSecretName(t *testing.T) {
 		if testbench.IsSecretName(name) {
 			t.Errorf("%q should be visible", name)
 		}
+	}
+}
+
+// previewRequest sends a same-origin preview of method and target to handler.
+func previewRequest(handler http.Handler, method, target string, headers map[string]string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, "/bench/_preview"+target, strings.NewReader(`{}`))
+	request.Header.Set("Prefer", "tx=rollback")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func TestPreviewRunsOnlyTheCheckedOperation(t *testing.T) {
+	provider := &fakeProvider{}
+	bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(provider))
+	var mu sync.Mutex
+	ran := map[string]int{}
+	mark := func(name string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			ran[name]++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+	mux := http.NewServeMux()
+	bench.HandlePreview(mux, "POST /items/{id}", mark("post"))
+	bench.HandlePreview(mux, "DELETE /items/{id}", mark("delete"))
+	// override imitates a method-override middleware inside the application, and
+	// rewrite a middleware that changes the method on its own.
+	override := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if method := r.Header.Get("X-HTTP-Method-Override"); method != "" {
+			r.Method = method
+		}
+		if method := r.Header.Get("X-Rewrite"); method != "" {
+			r.Method = method
+		}
+		mux.ServeHTTP(w, r)
+	})
+	handler := bench.Middleware(override)
+
+	if response := previewRequest(handler, "POST", "/items/a", map[string]string{"X-HTTP-Method-Override": "DELETE"}); response.Code != 200 {
+		t.Fatalf("override header: status %d: %s", response.Code, response.Body)
+	}
+	if response := previewRequest(handler, "POST", "/items/a?_method=DELETE", nil); response.Code != 400 {
+		t.Errorf("_method query: status %d", response.Code)
+	}
+	if response := previewRequest(handler, "POST", "/items/a", map[string]string{"X-Rewrite": "DELETE"}); response.Code != 409 {
+		t.Errorf("rewritten method: status %d: %s", response.Code, response.Body)
+	}
+	if ran["delete"] != 0 || ran["post"] != 1 || provider.begun != 1 {
+		t.Errorf("ran=%v begun=%d: only the checked POST may run", ran, provider.begun)
+	}
+}
+
+func TestPreviewSuppressesEffectsOutsideTheMarkedHandler(t *testing.T) {
+	bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(&fakeProvider{}))
+	// The template is marked, but the router sends this path to an unmarked handler.
+	_ = bench.Operation("POST", "/shadow/{id}")
+	var suppressed, preview bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /shadow/x", func(w http.ResponseWriter, r *http.Request) {
+		suppressed = testbench.RecordEmail(r.Context(), "Reset", "a@example.test", []string{"b@example.test"}, "Hi", "Body")
+		preview = testbench.IsPreview(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	response := previewRequest(bench.Middleware(mux), "POST", "/shadow/x", nil)
+	if response.Code == 200 || strings.Contains(response.Body.String(), "rolledBack") {
+		t.Errorf("an unmarked handler was confirmed: %d %s", response.Code, response.Body)
+	}
+	if !suppressed || !preview {
+		t.Errorf("an effect outside the marked handler must be suppressed: suppressed=%v preview=%v", suppressed, preview)
+	}
+}
+
+func TestSecretColumnsAndLogAttributesAreRedacted(t *testing.T) {
+	h := newHarness(t, "")
+	h.provider.changes = []testbench.Change{{
+		Operation: "update", Table: "users", Key: map[string]any{"id": 7, "reset_token": "key-token-value"},
+		Before: map[string]any{"id": 7, "name": "Ada", "password_hash": "old-hash-value"},
+		After:  map[string]any{"id": 7, "name": "Ada", "password_hash": "new-hash-value", "apiKey": "key-value"},
+	}}
+	mux := http.NewServeMux()
+	logger := slog.New(testbench.SlogHandler(nil))
+	h.bench.HandlePreview(mux, "POST /users/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.InfoContext(r.Context(), "signed in", "user", "ada", "password", "hunter2-value", slog.Group("auth", "access_token", "token-value"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := previewRequest(h.bench.Middleware(mux), "POST", "/users/7", nil)
+	if response.Code != 200 {
+		t.Fatalf("status %d: %s", response.Code, response.Body)
+	}
+	text := response.Body.String()
+	for _, leaked := range []string{"old-hash-value", "new-hash-value", "key-value", "hunter2-value", "token-value", "key-token-value"} {
+		if strings.Contains(text, leaked) {
+			t.Errorf("the envelope leaked %q: %s", leaked, text)
+		}
+	}
+	if !strings.Contains(text, `"name":"Ada"`) || !strings.Contains(text, `"user":"ada"`) || !strings.Contains(text, "[REDACTED]") {
+		t.Errorf("non-secret values must stay visible and secrets redacted: %s", text)
+	}
+}
+
+func TestDiscoveryWithholdsConnectionDetails(t *testing.T) {
+	for _, label := range []string{"postgres://app:pw@db.internal/app", "Server=db;Password=pw", "/var/lib/app.db", `C:\data\app.db`, "app@db.internal"} {
+		provider := &fakeProvider{label: label}
+		bench, _ := testbench.New(testbench.WithEnvironment("Development"), testbench.WithProvider(provider))
+		response := httptest.NewRecorder()
+		bench.Middleware(http.NotFoundHandler()).ServeHTTP(response, httptest.NewRequest("GET", "/bench/_api/capabilities", nil))
+		var capabilities map[string]any
+		_ = json.Unmarshal(response.Body.Bytes(), &capabilities)
+		if capabilities["database"] != nil {
+			t.Errorf("discovery published %q", capabilities["database"])
+		}
+	}
+	if !testbench.IsDisplayLabel("Inventory (SQLite)") {
+		t.Error("a plain label must be accepted")
 	}
 }

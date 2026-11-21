@@ -35,6 +35,9 @@ type dml struct {
 
 	// returning reports a RETURNING or OUTPUT clause already in the statement.
 	returning bool
+	// end is the byte offset just past the statement's last token, before any
+	// trailing comment or semicolon, where an added RETURNING clause goes.
+	end int
 }
 
 // valueExpr is one element of a VALUES row: a placeholder or a literal can be
@@ -51,19 +54,25 @@ func parseDML(text string, statement []token, dialect Dialect) (*dml, bool) {
 		return nil, false
 	}
 	p := &parser{text: text, tokens: statement, dialect: dialect, at: 1}
+	var plan *dml
+	ok := false
 	switch words[0] {
 	case "UPDATE":
-		return p.update()
+		plan, ok = p.update()
 	case "DELETE":
-		return p.delete()
+		plan, ok = p.delete()
 	case "INSERT":
-		return p.insert("insert")
+		plan, ok = p.insert("insert")
 	case "REPLACE":
 		if dialect == DialectMySQL {
-			return p.insert("replace")
+			plan, ok = p.insert("replace")
 		}
 	}
-	return nil, false
+	if !ok {
+		return nil, false
+	}
+	plan.end = statement[len(statement)-1].end
+	return plan, true
 }
 
 type parser struct {

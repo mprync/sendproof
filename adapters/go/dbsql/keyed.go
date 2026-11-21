@@ -302,7 +302,8 @@ func (k *keyedStatement) generatedSQL(dialect Dialect) string {
 		for index, column := range k.meta.key {
 			columns[index] = dialect.quoteIdent(column)
 		}
-		return strings.TrimRight(strings.TrimSpace(k.source), ";") + " RETURNING " + strings.Join(columns, ", ")
+		// Appending at the last token keeps a trailing -- comment from swallowing the clause.
+		return k.source[:k.plan.end] + " RETURNING " + strings.Join(columns, ", ")
 	case "output":
 		for index, column := range k.meta.key {
 			columns[index] = "INSERTED." + dialect.quoteIdent(column)
