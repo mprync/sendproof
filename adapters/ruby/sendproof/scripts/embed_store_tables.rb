@@ -12,7 +12,9 @@ require "json"
 
 SPEC = File.expand_path("../../../../spec/data-stores", __dir__)
 OUTPUT = File.expand_path("../lib/sendproof/stores/tables.rb", __dir__)
-STORES = %w[redis mongodb dynamodb].freeze
+# Batch two embeds only the tables of the stores this binding can guard: Cassandra and Cosmos DB have
+# no maintained Ruby client (see adapters/ruby/data-stores.md), so their tables are not embedded.
+STORES = %w[redis mongodb dynamodb elasticsearch firestore].freeze
 
 lines = [
   "# frozen_string_literal: true",

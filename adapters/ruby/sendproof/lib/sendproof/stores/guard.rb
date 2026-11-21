@@ -31,7 +31,8 @@ module Sendproof
     # Outside a Preview the guard does nothing, so Send and observed Send are never blocked.
     module Guard
       # Display names used in "Preview unavailable: this operation writes to <Store>".
-      NAMES = { "mongodb" => "MongoDB", "redis" => "Redis", "dynamodb" => "DynamoDB" }.freeze
+      NAMES = { "mongodb" => "MongoDB", "redis" => "Redis", "dynamodb" => "DynamoDB", "elasticsearch" => "Elasticsearch",
+                "opensearch" => "OpenSearch", "firestore" => "Firestore" }.freeze
 
       module_function
 
@@ -106,12 +107,15 @@ module Sendproof
       # Normalizes host-declared reads ("TreatAsRead") into an exact-match set, after +transform+.
       #
       # @param names [Array<String>, nil]
+      # @param spaces [Boolean] allow a space inside a name, for an Elasticsearch operation such as
+      #   +POST /{}/_my_read+; a wildcard is never allowed
       # @return [Set<String>, nil]
       # @raise [ArgumentError] for a wildcard or blank name
-      def read_set(names, &transform)
+      def read_set(names, spaces: false, &transform)
         return nil if names.nil?
 
-        unless names.is_a?(Array) && names.all? { |name| name.is_a?(String) && !name.empty? && !name.match?(/[*?\s]/) }
+        forbidden = spaces ? /[*?\t\r\n]/ : /[*?\s]/
+        unless names.is_a?(Array) && names.all? { |name| name.is_a?(String) && !name.strip.empty? && !name.match?(forbidden) }
           raise ArgumentError, "treat_as_read takes exact command names, without wildcards."
         end
 

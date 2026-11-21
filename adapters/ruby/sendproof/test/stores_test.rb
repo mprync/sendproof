@@ -124,7 +124,8 @@ class StoresTest < Minitest::Test
 
   def test_embedded_data_store_tables_match_spec_data_stores
     { "redis" => Sendproof::Stores::Tables::REDIS, "mongodb" => Sendproof::Stores::Tables::MONGODB,
-      "dynamodb" => Sendproof::Stores::Tables::DYNAMODB }.each do |store, embedded|
+      "dynamodb" => Sendproof::Stores::Tables::DYNAMODB, "elasticsearch" => Sendproof::Stores::Tables::ELASTICSEARCH,
+      "firestore" => Sendproof::Stores::Tables::FIRESTORE }.each do |store, embedded|
       assert_equal JSON.parse(File.read(File.join(SPEC, "#{store}.json"))), embedded,
                    "lib/sendproof/stores/tables.rb is out of date: run `rake stores:embed`"
     end
@@ -147,6 +148,44 @@ class StoresTest < Minitest::Test
       assert_equal vector["expect"].to_sym, Classify.dynamodb(vector["operation"], vector["input"]),
                    "DynamoDB #{vector['operation']} #{vector['input'].inspect}"
     end
+  end
+
+  # Batch two: Cassandra and Cosmos DB vectors are not run here, because this binding has no hook for them.
+  def test_the_classifiers_pass_every_shared_batch_two_vector
+    cases = JSON.parse(File.read(File.join(SPEC, "classification-cases.json")))
+    refute_empty cases["elasticsearch"]
+    cases["elasticsearch"].each do |vector|
+      result = Classify.elasticsearch(vector["method"], vector["path"], vector["body"])
+      label = "#{vector['method']} #{vector['path']} #{vector['body'].inspect}"
+      assert_equal vector["expect"].to_sym, result.kind, "Elasticsearch #{label}"
+      assert_equal vector["operation"], result.operation, "Elasticsearch operation for #{label}"
+    end
+    refute_empty cases["firestore"]
+    cases["firestore"].each do |vector|
+      if vector["rest"]
+        rpc = Classify.firestore_rest(vector["rest"]["method"], vector["rest"]["path"])
+        result = Classify.firestore(rpc, vector["rest"]["body"])
+      else
+        result = Classify.firestore(vector["rpc"], vector["message"])
+      end
+      assert_equal vector["expect"].to_sym, result.kind, "Firestore #{vector.inspect}"
+      assert_equal vector["operation"], result.operation, "Firestore operation for #{vector.inspect}"
+    end
+  end
+
+  def test_firestore_fails_closed_on_an_unreadable_commit_and_unknown_methods
+    assert_equal :write, Classify.firestore("/google.firestore.v1.Firestore/Commit").kind
+    assert_equal :write, Classify.firestore("/google.firestore.v1.Firestore/FutureMethod").kind
+    assert_equal :write, Classify.firestore("/google.firestore.v2.Firestore/GetDocument").kind
+    assert_equal :read, Classify.firestore("/google.firestore.admin.v1.FirestoreAdmin/ListIndexes").kind
+    assert_equal :write, Classify.firestore("/google.firestore.admin.v1.FirestoreAdmin/CreateIndex").kind
+    assert_equal :write, Classify.firestore("/google.firestore.v1.Firestore/Write").kind
+  end
+
+  def test_search_host_declared_reads_match_the_operation_name_exactly
+    reads = Sendproof::Stores::Guard.read_set(["POST /{}/_my_plugin_read"], spaces: true)
+    assert_equal :read, Classify.elasticsearch("POST", "/articles/_my_plugin_read", nil, reads).kind
+    assert_equal :write, Classify.elasticsearch("POST", "/articles/_my_plugin_write", nil, reads).kind
   end
 
   def test_host_declared_reads_match_exact_names_only

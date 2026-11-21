@@ -330,6 +330,999 @@ module Sendproof
           }
         }
       JSON
+
+      # The elasticsearch table (spec/data-stores/elasticsearch.json).
+      ELASTICSEARCH = JSON.parse(<<~'JSON').freeze
+        {
+          "$comment": "Write-guard classification for Elasticsearch and OpenSearch, shared by every binding. Sourced from the Elasticsearch 8 REST API reference and its machine-readable specification (elastic/elasticsearch-specification, whose endpoint ids are the operation names here) and the OpenSearch 2.x REST API reference (opensearch.org/docs/latest/api-reference/, including the SQL, PPL, point-in-time and asynchronous-search plugins). The unit is the HTTP method and path the client's transport sends. Anything not listed is a write, except GET and HEAD, which only read. See spec/data-stores.md.",
+          "store": "elasticsearch",
+          "stores": [
+            "elasticsearch",
+            "opensearch"
+          ],
+          "version": 1,
+          "source": "Elasticsearch 8 REST API specification; OpenSearch 2.19 REST API reference",
+          "default": "write",
+          "methodDefault": {
+            "GET": "read",
+            "HEAD": "read"
+          },
+          "keyFormat": "Match the upper-case HTTP method and the path without its query string, after removing any path prefix the client is configured with, collapsing repeated slashes and dropping a trailing slash. Compare each segment after percent-decoding it.",
+          "segments": {
+            "{index}": "One segment naming indices, aliases or data streams: it doesn't start with an underscore, and it may hold commas and wildcards (logs-*,metrics).",
+            "{id}": "Any one non-empty segment.",
+            "literal": "Any other segment must be equal, case-sensitively."
+          },
+          "matching": "Entries are tried in order and the first entry whose methods and one of whose paths match decides. When none matches, methodDefault decides, and otherwise default. db.operation.name is the entry's name. Without an entry, the name is the method and the path with every segment that doesn't start with an underscore replaced by {}, as in \"PUT /{}\".",
+          "endpoints": [
+            {
+              "kind": "read",
+              "name": "search",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_search",
+                "/{index}/_search"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "search_template",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_search/template",
+                "/{index}/_search/template"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "msearch",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_msearch",
+                "/{index}/_msearch"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "msearch_template",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_msearch/template",
+                "/{index}/_msearch/template"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "render_search_template",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_render/template",
+                "/_render/template/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "scroll",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_search/scroll",
+                "/_search/scroll/{id}"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "clear_scroll",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_search/scroll",
+                "/_search/scroll/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "count",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_count",
+                "/{index}/_count"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "mget",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_mget",
+                "/{index}/_mget"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "field_caps",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_field_caps",
+                "/{index}/_field_caps"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "explain",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_explain/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "indices.validate_query",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_validate/query",
+                "/{index}/_validate/query"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "indices.analyze",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_analyze",
+                "/{index}/_analyze"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "termvectors",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_termvectors",
+                "/{index}/_termvectors/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "mtermvectors",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_mtermvectors",
+                "/{index}/_mtermvectors"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "rank_eval",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_rank_eval",
+                "/{index}/_rank_eval"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "knn_search",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_knn_search"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "terms_enum",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_terms_enum"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "search_shards",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_search_shards",
+                "/{index}/_search_shards"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "open_point_in_time",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_pit"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "close_point_in_time",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_pit"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "create_pit",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_search/point_in_time"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "delete_pit",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_search/point_in_time",
+                "/_search/point_in_time/_all"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "async_search.submit",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_async_search",
+                "/{index}/_async_search"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "async_search.delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_async_search/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "asynchronous_search.search",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_asynchronous_search"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "asynchronous_search.delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_plugins/_asynchronous_search/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "eql.search",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_eql/search"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "eql.delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_eql/search/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "esql.query",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_query"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "esql.async_query",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_query/async"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "esql.async_query_delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_query/async/{id}"
+              ]
+            },
+            {
+              "kind": "sql",
+              "name": "sql.query",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_sql"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "sql.translate",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_sql/translate"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "sql.clear_cursor",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_sql/close"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "sql.delete_async",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_sql/async/delete/{id}"
+              ]
+            },
+            {
+              "kind": "sql",
+              "name": "sql.query",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_sql",
+                "/_opendistro/_sql"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "sql.explain",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_sql/_explain",
+                "/_opendistro/_sql/_explain"
+              ]
+            },
+            {
+              "kind": "session",
+              "name": "sql.close",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_sql/close",
+                "/_opendistro/_sql/close"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "ppl.query",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_ppl",
+                "/_opendistro/_ppl"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "ppl.explain",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_plugins/_ppl/_explain",
+                "/_opendistro/_ppl/_explain"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "scripts_painless_execute",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_scripts/painless/_execute"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "ingest.simulate",
+              "methods": [
+                "GET",
+                "POST"
+              ],
+              "paths": [
+                "/_ingest/pipeline/_simulate",
+                "/_ingest/pipeline/{id}/_simulate",
+                "/_ingest/_simulate",
+                "/_ingest/{index}/_simulate"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "indices.simulate_template",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_index_template/_simulate",
+                "/_index_template/_simulate/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "indices.simulate_index_template",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_index_template/_simulate_index/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "get",
+              "methods": [
+                "GET"
+              ],
+              "paths": [
+                "/{index}/_doc/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "exists",
+              "methods": [
+                "HEAD"
+              ],
+              "paths": [
+                "/{index}/_doc/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "get_source",
+              "methods": [
+                "GET"
+              ],
+              "paths": [
+                "/{index}/_source/{id}"
+              ]
+            },
+            {
+              "kind": "read",
+              "name": "exists_source",
+              "methods": [
+                "HEAD"
+              ],
+              "paths": [
+                "/{index}/_source/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "bulk",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/_bulk",
+                "/{index}/_bulk"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "index",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/{index}/_doc",
+                "/{index}/_doc/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "create",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/{index}/_create/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "update",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_update/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/{index}/_doc/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "update_by_query",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_update_by_query"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "delete_by_query",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_delete_by_query"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "reindex",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_reindex"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "put_script",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/_scripts/{id}",
+                "/_scripts/{id}/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "delete_script",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_scripts/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.create",
+              "methods": [
+                "PUT"
+              ],
+              "paths": [
+                "/{index}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.delete",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/{index}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.put_mapping",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/{index}/_mapping"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.put_settings",
+              "methods": [
+                "PUT"
+              ],
+              "paths": [
+                "/_settings",
+                "/{index}/_settings"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.put_alias",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/{index}/_alias/{id}",
+                "/{index}/_aliases/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.delete_alias",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/{index}/_alias/{id}",
+                "/{index}/_aliases/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.update_aliases",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/_aliases"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.put_index_template",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/_index_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.delete_index_template",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_index_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.put_template",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.delete_template",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "cluster.put_component_template",
+              "methods": [
+                "POST",
+                "PUT"
+              ],
+              "paths": [
+                "/_component_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "cluster.delete_component_template",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_component_template/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.open",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_open"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.close",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_close"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "indices.rollover",
+              "methods": [
+                "POST"
+              ],
+              "paths": [
+                "/{index}/_rollover",
+                "/{index}/_rollover/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "ingest.put_pipeline",
+              "methods": [
+                "PUT"
+              ],
+              "paths": [
+                "/_ingest/pipeline/{id}"
+              ]
+            },
+            {
+              "kind": "write",
+              "name": "ingest.delete_pipeline",
+              "methods": [
+                "DELETE"
+              ],
+              "paths": [
+                "/_ingest/pipeline/{id}"
+              ]
+            }
+          ],
+          "sql": {
+            "rule": "A sql endpoint is a read only when the JSON body's query field holds one statement whose first word, after whitespace and -- and /* */ comments, is SELECT, SHOW, DESCRIBE or DESC (case-insensitive), with nothing but whitespace, comments and one optional semicolon after it outside quotes; or when the body has a cursor and no query (the next page of an earlier read). Anything else, including a query passed only in the URL, is a write. OpenSearch's legacy SQL engine can run DELETE statements, which is why this is not a plain read.",
+            "readWords": [
+              "SELECT",
+              "SHOW",
+              "DESCRIBE",
+              "DESC"
+            ]
+          },
+          "rules": [
+            "GET and HEAD are reads on every path, because neither engine changes data on them.",
+            "POST is not a write by itself: _search, _msearch, _count, _mget, _field_caps and the other read entries take their query in a POST body.",
+            "_bulk is always a write, even when every action in it would fail. So are _update_by_query, _delete_by_query and _reindex, including requests whose query matches nothing, and every PUT.",
+            "Search requests that carry scripts (script_fields, script queries, runtime_mappings) are still reads: search scripts can't write. Storing a script (PUT or POST _scripts/{id}) is a write.",
+            "Point-in-time, scroll, async-search and SQL cursor handles are session state, not data: opening and closing them is allowed."
+          ],
+          "notes": {
+            "Preview": "Neither engine has a rollback, so both run in guard mode only.",
+            "Index, alias and template management": "Creating, deleting, opening, closing, rolling over and remapping indices, aliases, index templates, component templates, ingest pipelines and cluster settings are writes."
+          }
+        }
+      JSON
+
+      # The firestore table (spec/data-stores/firestore.json).
+      FIRESTORE = JSON.parse(<<~'JSON').freeze
+        {
+          "$comment": "Write-guard classification for Google Cloud Firestore (native mode), shared by every binding. Sourced from the Firestore RPC reference for google.firestore.v1.Firestore and google.firestore.admin.v1.FirestoreAdmin (cloud.google.com/firestore/docs/reference/rpc, firestore.proto and its google.api.http REST bindings). The unit is the RPC method name; a hook on the REST transport derives it with the rules under fromRest. Anything not listed is a write. See spec/data-stores.md.",
+          "store": "firestore",
+          "version": 1,
+          "source": "google.firestore.v1 and google.firestore.admin.v1 RPC reference",
+          "default": "write",
+          "keyFormat": "The RPC method name, case-sensitive, from the gRPC path /google.firestore.v1.Firestore/<Method>. A method of any other service is a write unless listed under services.",
+          "services": {
+            "google.firestore.v1.Firestore": {
+              "read": [
+                "GetDocument",
+                "ListDocuments",
+                "BatchGetDocuments",
+                "RunQuery",
+                "RunAggregationQuery",
+                "PartitionQuery",
+                "Listen",
+                "ListCollectionIds"
+              ],
+              "session": [
+                "BeginTransaction",
+                "Rollback"
+              ],
+              "write": [
+                "CreateDocument",
+                "UpdateDocument",
+                "DeleteDocument",
+                "Commit",
+                "BatchWrite",
+                "Write"
+              ]
+            },
+            "google.firestore.admin.v1.FirestoreAdmin": {
+              "readPrefixes": [
+                "Get",
+                "List"
+              ],
+              "rule": "A method whose name starts with Get or List is a read; every other admin method (CreateIndex, DeleteIndex, UpdateField, ExportDocuments, ImportDocuments, CreateDatabase, DeleteDatabase, RestoreDatabase, BulkDeleteDocuments and the rest) is a write."
+            }
+          },
+          "conditional": {
+            "Commit": "A write when its writes list has at least one entry. A Commit with no writes only ends a transaction that read and wrote nothing, so it is session. A hook that can't read the request message treats every Commit as a write."
+          },
+          "rules": [
+            "Listen and RunQuery are reads even when they stream for a long time, and RunQuery, BatchGetDocuments and RunAggregationQuery stay reads when they begin a transaction (new_transaction).",
+            "BeginTransaction and Rollback are allowed: they hold or release a transaction but change no data. Writes reach the database only through Commit, BatchWrite, Write and the document RPCs.",
+            "Write is a bidirectional stream. Opening it is a write, so the guard refuses the stream before its first message.",
+            "BatchWrite is a write even when every write in it would fail its precondition."
+          ],
+          "fromRest": {
+            "$comment": "For hooks on the REST transport (an SDK's REST fallback, or plain HTTP). Paths start /v1/projects/{project}/databases/{database}/documents.",
+            "verbs": {
+              "batchGet": "BatchGetDocuments",
+              "beginTransaction": "BeginTransaction",
+              "commit": "Commit",
+              "rollback": "Rollback",
+              "runQuery": "RunQuery",
+              "runAggregationQuery": "RunAggregationQuery",
+              "partitionQuery": "PartitionQuery",
+              "write": "Write",
+              "listen": "Listen",
+              "listCollectionIds": "ListCollectionIds",
+              "batchWrite": "BatchWrite"
+            },
+            "order": [
+              {
+                "when": "the last path segment ends in :<verb>",
+                "rpc": "the verbs entry for <verb>; an unknown verb is a write"
+              },
+              {
+                "when": "method GET on a document (an even number of segments after documents)",
+                "rpc": "GetDocument"
+              },
+              {
+                "when": "method GET on a collection (an odd number of segments after documents)",
+                "rpc": "ListDocuments"
+              },
+              {
+                "when": "method PATCH",
+                "rpc": "UpdateDocument"
+              },
+              {
+                "when": "method DELETE",
+                "rpc": "DeleteDocument"
+              },
+              {
+                "when": "method POST on a collection",
+                "rpc": "CreateDocument"
+              },
+              {
+                "when": "anything else",
+                "rpc": "the method name, which is a write"
+              }
+            ],
+            "target": "db.collection.name is the collection id: the segment before the document id, or the last segment of a collection path. For a batch or query RPC it is the collection the request names (structuredQuery.from[0].collectionId), when there is one."
+          },
+          "notes": {
+            "Preview": "A Firestore transaction can be rolled back, but it must do every read before its first write and its reads don't see its own buffered writes. Arbitrary handlers break both rules, so Firestore runs in guard mode only.",
+            "Credentials": "OAuth access tokens, the authorization metadata and service-account keys are never captured."
+          }
+        }
+      JSON
     end
   end
 end
