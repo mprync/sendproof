@@ -61,13 +61,7 @@ mod axum_extractor;
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use mongodb::{
-    Client,
-    bson::Bson,
-    error::Error,
-    event::EventHandler,
-    options::ClientOptions,
-};
+use mongodb::{Client, bson::Bson, error::Error, event::EventHandler, options::ClientOptions};
 use sendproof_core::{
     BoxError, BoxFuture, ConfigError, DataStore, Enrollment, NotEnrolled, PreviewSession, StoreDescription, StoreMode, StoreScope,
     capture::Recorder,
@@ -145,7 +139,9 @@ impl MongoStoreBuilder {
     /// want their own can read the same events from the tracing output instead.
     pub fn build(mut self) -> Result<MongoStore, Error> {
         if self.options.command_event_handler.is_some() {
-            return Err(Error::custom(ConfigError("the client options already have a command_event_handler; the Preview tripwire needs it".into())));
+            return Err(Error::custom(ConfigError(
+                "the client options already have a command_event_handler; the Preview tripwire needs it".into(),
+            )));
         }
         if self.timeout.is_zero() {
             return Err(Error::custom(ConfigError("the Preview timeout must be positive".into())));
@@ -213,9 +209,13 @@ impl DataStore for MongoStore {
 
     /// Detects the topology and, on a replica set or mongos, starts the Preview's session and
     /// transaction. The Preview keeps the mode it starts in.
-    fn begin_preview<'a>(&'a self, extensions: &'a mut http::Extensions) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
+    fn begin_preview<'a>(
+        &'a self,
+        extensions: &'a mut http::Extensions,
+    ) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
         Box::pin(async move {
-            let recorder: Arc<Recorder> = extensions.get::<CaptureScope>().map(|scope| scope.0.clone()).ok_or("the Preview has no capture scope")?;
+            let recorder: Arc<Recorder> =
+                extensions.get::<CaptureScope>().map(|scope| scope.0.clone()).ok_or("the Preview has no capture scope")?;
             let state = self.engine.begin(&recorder).await?;
             let id = Arc::as_ptr(&self.engine) as usize;
             match extensions.get_mut::<States>() {
@@ -225,7 +225,8 @@ impl DataStore for MongoStore {
                 }
             }
             // A `guard`-mode Preview also gets a session object, so its registration is released on close.
-            Ok(Some(Box::new(MongoSession { engine: self.engine.clone(), state, recorder, changes: Default::default() }) as Box<dyn PreviewSession>))
+            Ok(Some(Box::new(MongoSession { engine: self.engine.clone(), state, recorder, changes: Default::default() })
+                as Box<dyn PreviewSession>))
         })
     }
 }

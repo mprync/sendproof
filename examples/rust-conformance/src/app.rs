@@ -97,7 +97,7 @@ fn with_cookie(mut response: Response, cookie: &str) -> Response {
     response
 }
 
-pub fn build<B: Backend>(
+pub fn build<B: Backend + RawCommit>(
     pool: Pool<B>,
     label: &str,
     base: &str,
@@ -105,7 +105,6 @@ pub fn build<B: Backend>(
     stores: Stores,
 ) -> Result<Router, Box<dyn std::error::Error>>
 where
-    B: RawCommit,
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
 {

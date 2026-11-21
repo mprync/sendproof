@@ -14,5 +14,7 @@ mod store;
 pub mod tables;
 
 pub use classify::{CommandKind, classify_dynamo, classify_redis, partiql_verb};
-pub use guard::{CaptureScope, NotEnrolled, PreviewFault, PreviewWriteBlocked, StoreScope, exact_names, store_label, store_name, write_reason};
+pub use guard::{
+    CaptureScope, NotEnrolled, PreviewFault, PreviewWriteBlocked, StoreScope, exact_names, store_label, store_name, write_reason,
+};
 pub use store::{DataStore, StoreDescription, StoreMode};

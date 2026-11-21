@@ -118,7 +118,8 @@ pub fn classify_dynamo(operation: &str, statements: &[&str], treat_as_read: Opti
     if table.read.contains(operation) || treat_as_read.is_some_and(|reads| reads.contains(operation)) {
         return CommandKind::Read;
     }
-    if table.partiql.contains(operation) && !statements.is_empty() && statements.iter().all(|statement| partiql_verb(statement) == "SELECT") {
+    if table.partiql.contains(operation) && !statements.is_empty() && statements.iter().all(|statement| partiql_verb(statement) == "SELECT")
+    {
         return CommandKind::Read;
     }
     CommandKind::Write
@@ -156,11 +157,12 @@ mod tests {
     fn dynamodb_passes_every_shared_vector() {
         for case in cases()["dynamodb"].as_array().unwrap() {
             let input = &case["input"];
-            let statements: Vec<&str> = match (input["Statement"].as_str(), input["Statements"].as_array().or(input["TransactStatements"].as_array())) {
-                (Some(statement), _) => vec![statement],
-                (None, Some(list)) => list.iter().map(|item| item["Statement"].as_str().unwrap_or("")).collect(),
-                (None, None) => Vec::new(),
-            };
+            let statements: Vec<&str> =
+                match (input["Statement"].as_str(), input["Statements"].as_array().or(input["TransactStatements"].as_array())) {
+                    (Some(statement), _) => vec![statement],
+                    (None, Some(list)) => list.iter().map(|item| item["Statement"].as_str().unwrap_or("")).collect(),
+                    (None, None) => Vec::new(),
+                };
             let operation = case["operation"].as_str().unwrap();
             assert_eq!(classify_dynamo(operation, &statements, None), expected(case), "{operation} {input}");
         }

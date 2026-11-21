@@ -38,11 +38,11 @@
 //! blocked nor rolled back. Anything a Lua script or function writes is guarded as a write (`EVAL`,
 //! `EVALSHA` and `FCALL` are writes; their `_RO` forms are reads).
 
-mod describe;
 #[cfg(feature = "actix")]
 mod actix_extractor;
 #[cfg(feature = "axum")]
 mod axum_extractor;
+mod describe;
 
 #[cfg(feature = "actix")]
 pub use actix_extractor::RedisRejection;
@@ -55,10 +55,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use redis::{
-    Arg, Cmd, ErrorKind, Pipeline, RedisError, RedisFuture, Value,
-    aio::ConnectionLike,
-};
+use redis::{Arg, Cmd, ErrorKind, Pipeline, RedisError, RedisFuture, Value, aio::ConnectionLike};
 use sendproof_core::{
     BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, Enrollment, NotEnrolled, StoreDescription, StoreMode, StoreScope,
     stores::{classify_redis, exact_names, store_label},

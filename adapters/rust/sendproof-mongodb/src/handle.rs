@@ -60,7 +60,8 @@ impl Access {
             return Ok(());
         }
         if ends_transaction(&operation.to_lowercase()) {
-            let fault = self.scope.refuse(format!("Preview owns the MongoDB transaction, so the handler's {operation} cannot run during Preview."));
+            let fault =
+                self.scope.refuse(format!("Preview owns the MongoDB transaction, so the handler's {operation} cannot run during Preview."));
             return Err(Error::custom(fault));
         }
         let class = classify_mongo(command, Some(&self.engine.shared.reads));
@@ -78,7 +79,9 @@ impl Access {
     /// completes, or `None` outside a Preview, in `guard` mode and on system databases.
     async fn session(&self, command: Document, operation: &str, database: &str) -> Result<Session, Error> {
         self.check(&command, operation, database)?;
-        let Some(state) = self.state.as_ref().filter(|state| state.mode == Mode::Preview && self.scope.in_preview()) else { return Ok(None) };
+        let Some(state) = self.state.as_ref().filter(|state| state.mode == Mode::Preview && self.scope.in_preview()) else {
+            return Ok(None);
+        };
         if system_database(database) {
             return Ok(None);
         }
@@ -126,7 +129,8 @@ impl MongoDatabase {
     /// Runs a database-level aggregation (`aggregate: 1`) and collects the results.
     pub async fn aggregate(&self, pipeline: impl IntoIterator<Item = Document>) -> Result<Vec<Document>, Error> {
         let pipeline: Vec<Document> = pipeline.into_iter().collect();
-        let mut session = self.access.session(doc! { "aggregate": 1, "pipeline": pipeline.clone() }, "aggregate", self.inner.name()).await?;
+        let mut session =
+            self.access.session(doc! { "aggregate": 1, "pipeline": pipeline.clone() }, "aggregate", self.inner.name()).await?;
         match session.as_deref_mut() {
             Some(session) => {
                 let mut cursor = self.inner.aggregate(pipeline).session(&mut *session).await?;
@@ -279,7 +283,12 @@ impl<T: Send + Sync> MongoCollection<T> {
     }
 
     /// [`update_one`](Self::update_one) with options (`upsert`).
-    pub async fn update_one_with(&self, filter: Document, update: impl Into<UpdateModifications>, options: impl Into<Option<UpdateOptions>>) -> Result<UpdateResult, Error> {
+    pub async fn update_one_with(
+        &self,
+        filter: Document,
+        update: impl Into<UpdateModifications>,
+        options: impl Into<Option<UpdateOptions>>,
+    ) -> Result<UpdateResult, Error> {
         let mut session = self.open(doc! { "update": self.name() }, "update").await?;
         match session.as_deref_mut() {
             Some(session) => self.inner.update_one(filter, update).with_options(options).session(session).await,
@@ -293,7 +302,12 @@ impl<T: Send + Sync> MongoCollection<T> {
     }
 
     /// [`update_many`](Self::update_many) with options (`upsert`).
-    pub async fn update_many_with(&self, filter: Document, update: impl Into<UpdateModifications>, options: impl Into<Option<UpdateOptions>>) -> Result<UpdateResult, Error> {
+    pub async fn update_many_with(
+        &self,
+        filter: Document,
+        update: impl Into<UpdateModifications>,
+        options: impl Into<Option<UpdateOptions>>,
+    ) -> Result<UpdateResult, Error> {
         let mut session = self.open(doc! { "update": self.name() }, "update").await?;
         match session.as_deref_mut() {
             Some(session) => self.inner.update_many(filter, update).with_options(options).session(session).await,
@@ -310,7 +324,12 @@ impl<T: Send + Sync> MongoCollection<T> {
     }
 
     /// [`replace_one`](Self::replace_one) with options (`upsert`).
-    pub async fn replace_one_with(&self, filter: Document, replacement: impl Borrow<T>, options: impl Into<Option<ReplaceOptions>>) -> Result<UpdateResult, Error>
+    pub async fn replace_one_with(
+        &self,
+        filter: Document,
+        replacement: impl Borrow<T>,
+        options: impl Into<Option<ReplaceOptions>>,
+    ) -> Result<UpdateResult, Error>
     where
         T: Serialize,
     {
@@ -348,7 +367,12 @@ impl<T: Send + Sync> MongoCollection<T> {
     }
 
     /// [`find_one_and_update`](Self::find_one_and_update) with options (`upsert`, `return_document`).
-    pub async fn find_one_and_update_with(&self, filter: Document, update: impl Into<UpdateModifications>, options: impl Into<Option<FindOneAndUpdateOptions>>) -> Result<Option<T>, Error>
+    pub async fn find_one_and_update_with(
+        &self,
+        filter: Document,
+        update: impl Into<UpdateModifications>,
+        options: impl Into<Option<FindOneAndUpdateOptions>>,
+    ) -> Result<Option<T>, Error>
     where
         T: DeserializeOwned,
     {
@@ -368,7 +392,12 @@ impl<T: Send + Sync> MongoCollection<T> {
     }
 
     /// [`find_one_and_replace`](Self::find_one_and_replace) with options.
-    pub async fn find_one_and_replace_with(&self, filter: Document, replacement: impl Borrow<T>, options: impl Into<Option<FindOneAndReplaceOptions>>) -> Result<Option<T>, Error>
+    pub async fn find_one_and_replace_with(
+        &self,
+        filter: Document,
+        replacement: impl Borrow<T>,
+        options: impl Into<Option<FindOneAndReplaceOptions>>,
+    ) -> Result<Option<T>, Error>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -398,7 +427,10 @@ impl<T: Send + Sync> MongoCollection<T> {
         if self.access.scope.in_preview() {
             // `createIndexes` is refused inside a transaction only on an existing collection, and this
             // call doesn't carry the session: never send it during a Preview.
-            self.access.scope.guard(crate::SYSTEM, "createIndexes", CommandKind::Write, Some(&refused_reason("createIndexes"))).map_err(Error::custom)?;
+            self.access
+                .scope
+                .guard(crate::SYSTEM, "createIndexes", CommandKind::Write, Some(&refused_reason("createIndexes")))
+                .map_err(Error::custom)?;
         }
         self.inner.create_index(index).await
     }

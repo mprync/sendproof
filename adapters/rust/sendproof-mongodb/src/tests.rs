@@ -2,7 +2,11 @@
 //! up -d --wait mongodb`). Each test gets its own database, reads back through an independent client
 //! (which shares nothing with the binding), and skips, saying why, when the service doesn't answer.
 
-use std::{future::Future, sync::Arc, time::{Duration, Instant}};
+use std::{
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use mongodb::{
     Client,
@@ -116,8 +120,14 @@ async fn a_preview_reports_nested_changes_and_leaves_nothing_behind() {
     let reply = fixture
         .preview(|mongo| async move {
             let documents = mongo.collection::<Document>("documents");
-            documents.insert_one(doc! { "_id": "new", "name": "Draft", "profile": { "city": "York" }, "password_hash": "hashed:secret" }).await.unwrap();
-            let updated = documents.update_one(doc! { "_id": "seeded" }, doc! { "$set": { "name": "Renamed", "profile.city": "Hull" } }).await.unwrap();
+            documents
+                .insert_one(doc! { "_id": "new", "name": "Draft", "profile": { "city": "York" }, "password_hash": "hashed:secret" })
+                .await
+                .unwrap();
+            let updated = documents
+                .update_one(doc! { "_id": "seeded" }, doc! { "$set": { "name": "Renamed", "profile.city": "Hull" } })
+                .await
+                .unwrap();
             assert_eq!(updated.modified_count, 1);
             // Reads inside the Preview see its own writes.
             assert!(documents.find_one(doc! { "_id": "new" }).await.unwrap().is_some());
@@ -129,7 +139,10 @@ async fn a_preview_reports_nested_changes_and_leaves_nothing_behind() {
     let envelope = json(&reply);
     let changes = envelope["changes"].as_array().unwrap();
     let insert = changes.iter().find(|change| change["operation"] == "insert").expect("an insert");
-    assert_eq!((insert["store"].as_str(), insert["table"].as_str(), insert["namespace"].as_str()), (Some("mongodb"), Some("documents"), Some(fixture.database.as_str())));
+    assert_eq!(
+        (insert["store"].as_str(), insert["table"].as_str(), insert["namespace"].as_str()),
+        (Some("mongodb"), Some("documents"), Some(fixture.database.as_str()))
+    );
     assert_eq!(insert["key"], serde_json::json!({"_id": "new"}));
     assert_eq!(insert["before"], Value::Null);
     assert_eq!(insert["after"]["profile"], serde_json::json!({"city": "York"}), "nesting is kept");
@@ -152,7 +165,14 @@ async fn upserts_and_replacements_say_how() {
     let reply = fixture
         .preview(|mongo| async move {
             let documents = mongo.collection::<Document>("documents");
-            documents.update_one_with(doc! { "_id": "made" }, doc! { "$set": { "name": "Upserted" } }, UpdateOptions::builder().upsert(true).build()).await.unwrap();
+            documents
+                .update_one_with(
+                    doc! { "_id": "made" },
+                    doc! { "$set": { "name": "Upserted" } },
+                    UpdateOptions::builder().upsert(true).build(),
+                )
+                .await
+                .unwrap();
             documents.replace_one(doc! { "_id": "seeded" }, doc! { "_id": "seeded", "name": "Replaced" }).await.unwrap();
             200
         })
@@ -206,7 +226,12 @@ async fn an_explicit_create_and_count_are_blocked_before_sending() {
         .await;
     assert_eq!(reply.status, 409);
     assert_eq!(json(&reply)["operation"], "create");
-    let reply = fixture.preview(|mongo| async move { let _ = mongo.collection::<Document>("documents").estimated_document_count().await; 200 }).await;
+    let reply = fixture
+        .preview(|mongo| async move {
+            let _ = mongo.collection::<Document>("documents").estimated_document_count().await;
+            200
+        })
+        .await;
     assert_eq!((reply.status, json(&reply)["operation"].as_str().map(str::to_owned)), (409, Some("count".into())));
     fixture.cleanup().await;
 }
@@ -273,7 +298,12 @@ async fn before_images_come_from_the_transaction_start_not_from_later_commits_by
             // The first command pins the transaction's snapshot.
             documents.find_one(doc! { "_id": "seeded" }).await.unwrap();
             // Another request commits an insert after the snapshot.
-            reader.database(&database).collection::<Document>("documents").insert_one(doc! { "_id": "concurrent", "name": "Not mine" }).await.unwrap();
+            reader
+                .database(&database)
+                .collection::<Document>("documents")
+                .insert_one(doc! { "_id": "concurrent", "name": "Not mine" })
+                .await
+                .unwrap();
             // The Preview's filter matches every document it can see: the majority-committed view would
             // also list the concurrent insert, and report it as a deletion.
             documents.update_many(doc! {}, doc! { "$set": { "touched": true } }).await.unwrap();
@@ -372,7 +402,10 @@ async fn a_write_conflict_between_two_previews_reaches_the_handler() {
                 Ok(_) => 200,
                 Err(error) => {
                     // The WriteConflict is the handler's to handle; MongoDB Previews don't queue.
-                    assert!(error.to_string().to_lowercase().contains("conflict") || error.contains_label("TransientTransactionError"), "{error}");
+                    assert!(
+                        error.to_string().to_lowercase().contains("conflict") || error.contains_label("TransientTransactionError"),
+                        "{error}"
+                    );
                     409
                 }
             }
@@ -390,11 +423,18 @@ async fn observed_send_commits_once_and_traces_the_command() {
     let recorder = Recorder::new(Instant::now(), true);
     recorder.begin(false);
     let mongo = fixture.store.detached();
-    capture::scope(recorder.clone(), async { mongo.collection::<Document>("documents").insert_one(doc! { "_id": "sent", "password_hash": "hashed:secret" }).await.unwrap() }).await;
+    capture::scope(recorder.clone(), async {
+        mongo.collection::<Document>("documents").insert_one(doc! { "_id": "sent", "password_hash": "hashed:secret" }).await.unwrap()
+    })
+    .await;
     let logs = recorder.finish().logs;
     let inserts: Vec<_> = logs.iter().filter_map(|log| log.db.as_ref()).filter(|db| db.operation == "insert").collect();
     assert_eq!(inserts.len(), 1);
-    assert_eq!(inserts[0].statement.as_deref().map(|statement| statement.contains("hashed:secret")), Some(false), "values never appear in a statement");
+    assert_eq!(
+        inserts[0].statement.as_deref().map(|statement| statement.contains("hashed:secret")),
+        Some(false),
+        "values never appear in a statement"
+    );
     assert_eq!(fixture.find(doc! { "_id": "sent" }).await.len(), 1, "an observed send commits");
     fixture.cleanup().await;
 }
@@ -407,7 +447,15 @@ async fn a_standalone_or_unreachable_server_runs_in_guard_mode_and_blocks_writes
     let store = MongoStore::builder(options, "catalog").build().unwrap();
     let description = store.describe().await;
     assert_eq!((description.mode, description.reason.as_deref()), (StoreMode::Guard, Some(STANDALONE_REASON)));
-    let core = Core::new(Config::builder("T").environment("Development").enable_in(["Development"]).preview_operation("POST", "/things").data_store(store.clone()).build().unwrap());
+    let core = Core::new(
+        Config::builder("T")
+            .environment("Development")
+            .enable_in(["Development"])
+            .preview_operation("POST", "/things")
+            .data_store(store.clone())
+            .build()
+            .unwrap(),
+    );
     let state = PreviewState::new(&core, Instant::now());
     let enrollment = state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.unwrap();
     let mongo = store.from_enrollment(Some(&enrollment), true).unwrap();

@@ -42,7 +42,8 @@ pub(crate) fn internal() -> bool {
 }
 
 /// Commands the monitoring specification marks security-sensitive: never logged.
-const SENSITIVE: &[&str] = &["authenticate", "saslstart", "saslcontinue", "getnonce", "createuser", "updateuser", "copydbgetnonce", "copydbsaslstart", "copydb"];
+const SENSITIVE: &[&str] =
+    &["authenticate", "saslstart", "saslcontinue", "getnonce", "createuser", "updateuser", "copydbgetnonce", "copydbsaslstart", "copydb"];
 
 /// Fields the driver adds to every command; they carry no meaning for the log and are dropped.
 const ENVELOPE: &[&str] = &[
@@ -59,6 +60,9 @@ const ENVELOPE: &[&str] = &[
     "apiStrict",
     "apiDeprecationErrors",
 ];
+
+/// Most commands waiting for their reply at once, across every request.
+const MAX_PENDING: usize = 4096;
 
 /// Commands that end a transaction. In a Preview only the engine may send them.
 pub(crate) fn ends_transaction(lower: &str) -> bool {
@@ -120,7 +124,11 @@ impl Shared {
         if kind == CommandKind::Session || SENSITIVE.contains(&lower.as_str()) {
             return;
         }
-        let body: Document = command.iter().filter(|(field, _)| !ENVELOPE.contains(&field.as_str())).map(|(field, value)| (field.clone(), value.clone())).collect();
+        let body: Document = command
+            .iter()
+            .filter(|(field, _)| !ENVELOPE.contains(&field.as_str()))
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect();
         let mut sanitized = sanitize_document(&body);
         // The command's own collection name is a name, not a value: `{"update":"documents", ...}`.
         if let Some((first, Bson::String(collection))) = command.iter().next() {
@@ -137,7 +145,12 @@ impl Shared {
             statement,
             lsid: command.get_document("lsid").ok().cloned(),
         };
-        self.pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(request_id, pending);
+        let mut waiting = self.pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // A command whose reply never arrives (its future was dropped) leaves an entry behind; bound them.
+        if waiting.len() >= MAX_PENDING {
+            waiting.clear();
+        }
+        waiting.insert(request_id, pending);
     }
 
     /// A write seen during a Preview: collect change candidates, or trip if it escaped the session.
@@ -145,7 +158,10 @@ impl Shared {
         let state = self.state_of(preview);
         // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
         let inside = state.as_ref().is_some_and(|state| {
-            !state.data().finished && state.lsid.is_some() && state.lsid.as_ref() == command.get_document("lsid").ok() && command.get("autocommit") == Some(&Bson::Boolean(false))
+            !state.data().finished
+                && state.lsid.is_some()
+                && state.lsid.as_ref() == command.get_document("lsid").ok()
+                && command.get("autocommit") == Some(&Bson::Boolean(false))
         });
         let Some(state) = state.filter(|_| inside) else {
             // The hook couldn't stop it and nothing can undo it: never claim a rollback.
@@ -196,13 +212,21 @@ impl Shared {
         let namespaces: Vec<(String, String)> = info
             .iter()
             .filter_map(|entry| entry.as_document()?.get_str("ns").ok())
-            .map(|ns| ns.split_once('.').map_or((ns.to_owned(), String::new()), |(database, collection)| (database.to_owned(), collection.to_owned())))
+            .map(|ns| {
+                ns.split_once('.')
+                    .map_or((ns.to_owned(), String::new()), |(database, collection)| (database.to_owned(), collection.to_owned()))
+            })
             .collect();
         for op in ops.iter().filter_map(Bson::as_document) {
             let index = ["insert", "update", "delete"].iter().find_map(|key| op.get_i32(key).ok()).unwrap_or(0) as usize;
             let (database, collection) = namespaces.get(index).cloned().unwrap_or_else(|| (namespace.to_owned(), String::new()));
             if let Ok(document) = op.get_document("document") {
-                state.candidate(Candidate { namespace: database, collection, id: document.get("_id").cloned().unwrap_or(Bson::Null), via: None });
+                state.candidate(Candidate {
+                    namespace: database,
+                    collection,
+                    id: document.get("_id").cloned().unwrap_or(Bson::Null),
+                    via: None,
+                });
             } else {
                 let filter = op.get_document("filter").cloned().unwrap_or_default();
                 state.data().filters.push(Filter { namespace: database, collection, filter, via: flag(op, "upsert").then_some("upsert") });

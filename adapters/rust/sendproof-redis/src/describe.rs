@@ -7,16 +7,17 @@
 /// argument is a value, and the entry has no target. That fails safe: it hides, never leaks.
 fn key_positions(command: &str, args: &[Option<&[u8]>]) -> Vec<usize> {
     let count = args.len();
-    let number = |index: usize| args.get(index).and_then(|arg| *arg).and_then(|arg| std::str::from_utf8(arg).ok()).and_then(|text| text.parse::<usize>().ok());
+    let number = |index: usize| {
+        args.get(index).and_then(|arg| *arg).and_then(|arg| std::str::from_utf8(arg).ok()).and_then(|text| text.parse::<usize>().ok())
+    };
     match command {
         // Every argument is a key.
-        "DEL" | "UNLINK" | "EXISTS" | "MGET" | "TOUCH" | "WATCH" | "SDIFF" | "SINTER" | "SUNION" | "SDIFFSTORE" | "SINTERSTORE" | "SUNIONSTORE"
-        | "PFCOUNT" | "PFMERGE" => (0..count).collect(),
+        "DEL" | "UNLINK" | "EXISTS" | "MGET" | "TOUCH" | "WATCH" | "SDIFF" | "SINTER" | "SUNION" | "SDIFFSTORE" | "SINTERSTORE"
+        | "SUNIONSTORE" | "PFCOUNT" | "PFMERGE" => (0..count).collect(),
         // The last argument is a timeout.
         "BLPOP" | "BRPOP" => (0..count.saturating_sub(1)).collect(),
-        "RENAME" | "RENAMENX" | "COPY" | "LMOVE" | "BLMOVE" | "RPOPLPUSH" | "BRPOPLPUSH" | "SMOVE" | "LCS" | "ZRANGESTORE" | "GEOSEARCHSTORE" => {
-            (0..count.min(2)).collect()
-        }
+        "RENAME" | "RENAMENX" | "COPY" | "LMOVE" | "BLMOVE" | "RPOPLPUSH" | "BRPOPLPUSH" | "SMOVE" | "LCS" | "ZRANGESTORE"
+        | "GEOSEARCHSTORE" => (0..count.min(2)).collect(),
         "MSET" | "MSETNX" => (0..count).step_by(2).collect(),
         // `script numkeys key... arg...`
         "EVAL" | "EVALSHA" | "EVAL_RO" | "EVALSHA_RO" | "FCALL" | "FCALL_RO" => match number(1) {
@@ -32,9 +33,19 @@ fn key_positions(command: &str, args: &[Option<&[u8]>]) -> Vec<usize> {
             positions
         }
         // Container commands: `OBJECT ENCODING key`.
-        "OBJECT" | "MEMORY" | "XGROUP" | "XINFO" => if count > 1 { vec![1] } else { Vec::new() },
+        "OBJECT" | "MEMORY" | "XGROUP" | "XINFO" => {
+            if count > 1 {
+                vec![1]
+            } else {
+                Vec::new()
+            }
+        }
         _ if FIRST_KEY.binary_search(&command).is_ok() || command.starts_with("JSON.") || command.starts_with("TS.") => {
-            if count > 0 { vec![0] } else { Vec::new() }
+            if count > 0 {
+                vec![0]
+            } else {
+                Vec::new()
+            }
         }
         _ => Vec::new(),
     }
@@ -42,16 +53,135 @@ fn key_positions(command: &str, args: &[Option<&[u8]>]) -> Vec<usize> {
 
 /// Commands whose first argument is a key, sorted for binary search.
 const FIRST_KEY: &[&str] = &[
-    "APPEND", "BITCOUNT", "BITFIELD", "BITFIELD_RO", "BITPOS", "DECR", "DECRBY", "DUMP", "EXPIRE", "EXPIREAT", "EXPIRETIME", "GEOADD", "GEODIST",
-    "GEOHASH", "GEOPOS", "GEORADIUS", "GEORADIUSBYMEMBER", "GEORADIUSBYMEMBER_RO", "GEORADIUS_RO", "GEOSEARCH", "GET", "GETBIT", "GETDEL", "GETEX",
-    "GETRANGE", "GETSET", "HDEL", "HEXISTS", "HEXPIRE", "HEXPIRETIME", "HGET", "HGETALL", "HGETDEL", "HGETEX", "HINCRBY", "HINCRBYFLOAT", "HKEYS",
-    "HLEN", "HMGET", "HMSET", "HPERSIST", "HPEXPIRE", "HPEXPIRETIME", "HPTTL", "HRANDFIELD", "HSCAN", "HSET", "HSETEX", "HSETNX", "HSTRLEN", "HTTL",
-    "HVALS", "INCR", "INCRBY", "INCRBYFLOAT", "LINDEX", "LINSERT", "LLEN", "LPOP", "LPOS", "LPUSH", "LPUSHX", "LRANGE", "LREM", "LSET", "LTRIM",
-    "PERSIST", "PEXPIRE", "PEXPIREAT", "PEXPIRETIME", "PFADD", "PSETEX", "PTTL", "RESTORE", "RPOP", "RPUSH", "RPUSHX", "SADD", "SCARD", "SET",
-    "SETBIT", "SETEX", "SETNX", "SETRANGE", "SISMEMBER", "SMEMBERS", "SMISMEMBER", "SORT", "SORT_RO", "SPOP", "SRANDMEMBER", "SREM", "SSCAN",
-    "STRLEN", "SUBSTR", "TTL", "TYPE", "XACK", "XADD", "XAUTOCLAIM", "XCLAIM", "XDEL", "XLEN", "XPENDING", "XRANGE", "XREVRANGE", "XTRIM", "ZADD",
-    "ZCARD", "ZCOUNT", "ZINCRBY", "ZLEXCOUNT", "ZMSCORE", "ZPOPMAX", "ZPOPMIN", "ZRANGE", "ZRANGEBYLEX", "ZRANGEBYSCORE", "ZRANK", "ZREM",
-    "ZREMRANGEBYLEX", "ZREMRANGEBYRANK", "ZREMRANGEBYSCORE", "ZREVRANGE", "ZREVRANGEBYLEX", "ZREVRANGEBYSCORE", "ZREVRANK", "ZSCAN", "ZSCORE",
+    "APPEND",
+    "BITCOUNT",
+    "BITFIELD",
+    "BITFIELD_RO",
+    "BITPOS",
+    "DECR",
+    "DECRBY",
+    "DUMP",
+    "EXPIRE",
+    "EXPIREAT",
+    "EXPIRETIME",
+    "GEOADD",
+    "GEODIST",
+    "GEOHASH",
+    "GEOPOS",
+    "GEORADIUS",
+    "GEORADIUSBYMEMBER",
+    "GEORADIUSBYMEMBER_RO",
+    "GEORADIUS_RO",
+    "GEOSEARCH",
+    "GET",
+    "GETBIT",
+    "GETDEL",
+    "GETEX",
+    "GETRANGE",
+    "GETSET",
+    "HDEL",
+    "HEXISTS",
+    "HEXPIRE",
+    "HEXPIRETIME",
+    "HGET",
+    "HGETALL",
+    "HGETDEL",
+    "HGETEX",
+    "HINCRBY",
+    "HINCRBYFLOAT",
+    "HKEYS",
+    "HLEN",
+    "HMGET",
+    "HMSET",
+    "HPERSIST",
+    "HPEXPIRE",
+    "HPEXPIRETIME",
+    "HPTTL",
+    "HRANDFIELD",
+    "HSCAN",
+    "HSET",
+    "HSETEX",
+    "HSETNX",
+    "HSTRLEN",
+    "HTTL",
+    "HVALS",
+    "INCR",
+    "INCRBY",
+    "INCRBYFLOAT",
+    "LINDEX",
+    "LINSERT",
+    "LLEN",
+    "LPOP",
+    "LPOS",
+    "LPUSH",
+    "LPUSHX",
+    "LRANGE",
+    "LREM",
+    "LSET",
+    "LTRIM",
+    "PERSIST",
+    "PEXPIRE",
+    "PEXPIREAT",
+    "PEXPIRETIME",
+    "PFADD",
+    "PSETEX",
+    "PTTL",
+    "RESTORE",
+    "RPOP",
+    "RPUSH",
+    "RPUSHX",
+    "SADD",
+    "SCARD",
+    "SET",
+    "SETBIT",
+    "SETEX",
+    "SETNX",
+    "SETRANGE",
+    "SISMEMBER",
+    "SMEMBERS",
+    "SMISMEMBER",
+    "SORT",
+    "SORT_RO",
+    "SPOP",
+    "SRANDMEMBER",
+    "SREM",
+    "SSCAN",
+    "STRLEN",
+    "SUBSTR",
+    "TTL",
+    "TYPE",
+    "XACK",
+    "XADD",
+    "XAUTOCLAIM",
+    "XCLAIM",
+    "XDEL",
+    "XLEN",
+    "XPENDING",
+    "XRANGE",
+    "XREVRANGE",
+    "XTRIM",
+    "ZADD",
+    "ZCARD",
+    "ZCOUNT",
+    "ZINCRBY",
+    "ZLEXCOUNT",
+    "ZMSCORE",
+    "ZPOPMAX",
+    "ZPOPMIN",
+    "ZRANGE",
+    "ZRANGEBYLEX",
+    "ZRANGEBYSCORE",
+    "ZRANK",
+    "ZREM",
+    "ZREMRANGEBYLEX",
+    "ZREMRANGEBYRANK",
+    "ZREMRANGEBYSCORE",
+    "ZREVRANGE",
+    "ZREVRANGEBYLEX",
+    "ZREVRANGEBYSCORE",
+    "ZREVRANK",
+    "ZSCAN",
+    "ZSCORE",
 ];
 
 /// The `Db` statement and target of a command. `args` excludes the command name, and a `None` is a
@@ -86,7 +216,10 @@ mod tests {
 
     #[test]
     fn a_value_never_appears() {
-        assert_eq!(describe("SET", &args(&["session:42", "secret-token", "EX", "60"])), ("SET session:42 ? ? ?".into(), Some("session:42".into())));
+        assert_eq!(
+            describe("SET", &args(&["session:42", "secret-token", "EX", "60"])),
+            ("SET session:42 ? ? ?".into(), Some("session:42".into()))
+        );
         assert_eq!(describe("INCR", &args(&["counter:a"])), ("INCR counter:a".into(), Some("counter:a".into())));
     }
 

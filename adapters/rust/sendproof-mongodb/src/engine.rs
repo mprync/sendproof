@@ -17,11 +17,7 @@ use mongodb::{
     error::{Error, ErrorKind},
     options::{ReadConcern, WriteConcern},
 };
-use sendproof_core::{
-    BoxError, BoxFuture, Changes, PreviewSession,
-    capture::Recorder,
-    model::Change,
-};
+use sendproof_core::{BoxError, BoxFuture, Changes, PreviewSession, capture::Recorder, model::Change};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{
@@ -150,7 +146,14 @@ impl Engine {
     /// start time, outside the transaction, as a raw `find` command. Without a start time (no reply
     /// carried one) it reads the majority-committed view, which the spec allows: nothing the Preview
     /// wrote is committed, so the only difference is a concurrent commit by another request.
-    async fn at_start(&self, state: &PreviewState, namespace: &str, collection: &str, filter: &Document, projection: Option<&Document>) -> Result<Vec<Document>, Error> {
+    async fn at_start(
+        &self,
+        state: &PreviewState,
+        namespace: &str,
+        collection: &str,
+        filter: &Document,
+        projection: Option<&Document>,
+    ) -> Result<Vec<Document>, Error> {
         let read_concern = match state.data().start_time {
             Some(time) => doc! { "level": "snapshot", "atClusterTime": time },
             None => doc! { "level": "majority" },
@@ -167,7 +170,12 @@ impl Engine {
             command.insert("projection", projection.clone());
         }
         match self.client.database(namespace).run_command(command).await {
-            Ok(reply) => Ok(reply.get_document("cursor").ok().and_then(|cursor| cursor.get_array("firstBatch").ok()).map(|batch| batch.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default()),
+            Ok(reply) => Ok(reply
+                .get_document("cursor")
+                .ok()
+                .and_then(|cursor| cursor.get_array("firstBatch").ok())
+                .map(|batch| batch.iter().filter_map(Bson::as_document).cloned().collect())
+                .unwrap_or_default()),
             // The collection was created after the start time: nothing in it existed then.
             Err(error) if matches!(code_of(&error), NAMESPACE_NOT_FOUND | SNAPSHOT_UNAVAILABLE) => Ok(Vec::new()),
             Err(error) => Err(error),
@@ -206,9 +214,14 @@ impl Engine {
                 break;
             }
             let target = self.client.database(&candidate.namespace).collection::<Document>(&candidate.collection);
-            let before = self.at_start(state, &candidate.namespace, &candidate.collection, &doc! { "_id": candidate.id.clone() }, None).await?.into_iter().next();
+            let before = self
+                .at_start(state, &candidate.namespace, &candidate.collection, &doc! { "_id": candidate.id.clone() }, None)
+                .await?
+                .into_iter()
+                .next();
             let after = target.find_one(doc! { "_id": candidate.id.clone() }).session(&mut *session).await?;
-            let (was, now) = (before.map(|document| plain(&Bson::Document(document))), after.map(|document| plain(&Bson::Document(document))));
+            let (was, now) =
+                (before.map(|document| plain(&Bson::Document(document))), after.map(|document| plain(&Bson::Document(document))));
             if was == now {
                 continue;
             }

@@ -347,7 +347,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Serves the fixture over `pool` until the server stops.
-async fn serve<B: Backend>(
+async fn serve<B: Backend + RawCommit>(
     pool: Pool<B>,
     label: &str,
     port: u16,
@@ -356,7 +356,6 @@ async fn serve<B: Backend>(
     stores: Stores,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    B: RawCommit,
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
 {

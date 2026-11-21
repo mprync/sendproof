@@ -39,7 +39,10 @@ mod sanitize;
 use std::{collections::HashSet, sync::Arc, time::Instant};
 
 use aws_sdk_dynamodb::{
-    config::{ConfigBag, Intercept, RuntimeComponents, interceptors::{BeforeTransmitInterceptorContextRef, FinalizerInterceptorContextRef}},
+    config::{
+        ConfigBag, Intercept, RuntimeComponents,
+        interceptors::{BeforeTransmitInterceptorContextRef, FinalizerInterceptorContextRef},
+    },
     operation::{
         delete_item::DeleteItemOutput, execute_statement::ExecuteStatementOutput, get_item::GetItemOutput, put_item::PutItemOutput,
         query::QueryOutput, scan::ScanOutput, update_item::UpdateItemOutput,
@@ -234,7 +237,8 @@ impl Intercept for DynamoGuard {
         let borrowed: Vec<&str> = statements.iter().map(String::as_str).collect();
         let kind: CommandKind = classify_dynamo(&operation, &borrowed, Some(&self.settings.reads));
 
-        let statement = (!statements.is_empty()).then(|| statements.iter().map(|text| sanitize_partiql(text)).collect::<Vec<_>>().join("; "));
+        let statement =
+            (!statements.is_empty()).then(|| statements.iter().map(|text| sanitize_partiql(text)).collect::<Vec<_>>().join("; "));
         let target = target_of(&body, statement.as_deref());
         let mut pending = Pending { operation: operation.clone(), target, statement, started: Instant::now(), refused: false };
         if let Err(blocked) = StoreScope::current().guard(SYSTEM, &operation, kind, None) {
@@ -247,7 +251,12 @@ impl Intercept for DynamoGuard {
     }
 
     /// Logs the operation once it finished, successfully or not.
-    fn read_after_execution(&self, context: &FinalizerInterceptorContextRef<'_>, _: &RuntimeComponents, cfg: &mut ConfigBag) -> Result<(), BoxError> {
+    fn read_after_execution(
+        &self,
+        context: &FinalizerInterceptorContextRef<'_>,
+        _: &RuntimeComponents,
+        cfg: &mut ConfigBag,
+    ) -> Result<(), BoxError> {
         let Some(pending) = cfg.load::<Pending>() else { return Ok(()) };
         if pending.refused {
             return Ok(());

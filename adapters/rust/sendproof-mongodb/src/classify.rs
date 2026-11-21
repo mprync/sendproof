@@ -40,7 +40,13 @@ fn table() -> &'static Table {
             read: lower(&table["read"]),
             session: lower(&table["session"]),
             not_in_transaction: lower(&table["notInTransaction"]["commands"]),
-            stages: table["notInTransaction"]["stages"].as_array().into_iter().flatten().filter_map(|stage| stage.as_str()).map(str::to_owned).collect(),
+            stages: table["notInTransaction"]["stages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|stage| stage.as_str())
+                .map(str::to_owned)
+                .collect(),
         }
     })
 }
@@ -66,13 +72,17 @@ pub fn command_name(command: &Document) -> &str {
 pub fn classify_mongo(command: &Document, treat_as_read: Option<&HashSet<String>>) -> Classification {
     let name = command_name(command);
     let lower = name.to_lowercase();
-    if lower == "explain" && let Some(Bson::Document(inner)) = command.get(name) {
+    if lower == "explain"
+        && let Some(Bson::Document(inner)) = command.get(name)
+    {
         return classify_mongo(inner, treat_as_read);
     }
     let table = table();
     let mut refused = table.not_in_transaction.contains(&lower).then(|| name.to_owned());
     let pipeline = command.get("pipeline");
-    if lower == "aggregate" && let Some(pipeline) = pipeline {
+    if lower == "aggregate"
+        && let Some(pipeline) = pipeline
+    {
         let found = table.stages.iter().find(|stage| pipeline_uses(pipeline, &[stage.as_str()]));
         refused = found.cloned().or(refused);
     }

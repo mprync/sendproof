@@ -11,8 +11,8 @@ use std::{
 
 use http::Extensions;
 use sendproof_core::{
-    BoxError, BoxFuture, Changes, CommandKind, Config, Core, DataStore, Failure, Headers, Inner, PreviewProvider, PreviewSession, PreviewState,
-    StoreDescription, StoreMode, StoreScope, capture, model::Change, protocol, stores::tables,
+    BoxError, BoxFuture, Changes, CommandKind, Config, Core, DataStore, Failure, Headers, Inner, PreviewProvider, PreviewSession,
+    PreviewState, StoreDescription, StoreMode, StoreScope, capture, model::Change, protocol, stores::tables,
 };
 use serde_json::{Value, json};
 
@@ -76,7 +76,9 @@ struct FakeStore {
 
 impl DataStore for FakeStore {
     fn describe(&self) -> BoxFuture<'_, StoreDescription> {
-        Box::pin(async { StoreDescription { system: "mongodb".into(), name: Some("catalog".into()), mode: StoreMode::Preview, reason: None } })
+        Box::pin(async {
+            StoreDescription { system: "mongodb".into(), name: Some("catalog".into()), mode: StoreMode::Preview, reason: None }
+        })
     }
 
     fn begin_preview<'a>(&'a self, _: &'a mut Extensions) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
@@ -91,7 +93,12 @@ struct GuardStore;
 impl DataStore for GuardStore {
     fn describe(&self) -> BoxFuture<'_, StoreDescription> {
         Box::pin(async {
-            StoreDescription { system: "redis".into(), name: None, mode: StoreMode::Guard, reason: Some("Preview unavailable: test".into()) }
+            StoreDescription {
+                system: "redis".into(),
+                name: None,
+                mode: StoreMode::Guard,
+                reason: Some("Preview unavailable: test".into()),
+            }
         })
     }
 }
@@ -173,7 +180,10 @@ async fn a_handler_that_panics_after_a_block_still_gets_409() {
     let core = Core::new(config(GuardStore));
     let state = PreviewState::new(&core, Instant::now());
     state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.unwrap();
-    capture::scope(state.recorder(), async { let _ = StoreScope::current().guard("redis", "SET", CommandKind::Write, None); }).await;
+    capture::scope(state.recorder(), async {
+        let _ = StoreScope::current().guard("redis", "SET", CommandKind::Write, None);
+    })
+    .await;
     let reply = state.finish(Err(Failure::Error("the handler panicked".into()))).await;
     assert_eq!(reply.status, 409);
 }

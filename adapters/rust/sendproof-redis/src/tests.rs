@@ -33,7 +33,8 @@ impl ConnectionLike for Wire {
         let names: Vec<String> = pipeline.cmd_iter().map(|cmd| Command::of(cmd).name).collect();
         self.0.lock().unwrap().extend(names.iter().cloned());
         // An atomic pipeline answers with the single reply of EXEC: an array of the queued replies.
-        let replies = if pipeline.is_transaction() { vec![Value::Array(vec![Value::Okay; names.len()])] } else { vec![Value::Okay; names.len()] };
+        let replies =
+            if pipeline.is_transaction() { vec![Value::Array(vec![Value::Okay; names.len()])] } else { vec![Value::Okay; names.len()] };
         Box::pin(async move { Ok(replies) })
     }
 

@@ -10,11 +10,7 @@ use std::{
 };
 
 use aws_credential_types::Credentials;
-use aws_sdk_dynamodb::{
-    Client, Config,
-    config::Region,
-    types::AttributeValue,
-};
+use aws_sdk_dynamodb::{Client, Config, config::Region, types::AttributeValue};
 use aws_smithy_runtime::client::http::test_util::infallible_client_fn;
 use aws_smithy_types::body::SdkBody;
 use sendproof_core::capture::{self, Recorder};
@@ -53,7 +49,8 @@ fn id(value: &str) -> AttributeValue {
 async fn a_read_runs_and_is_logged() {
     let (client, sent) = client(&DynamoStore::new(), r#"{"Item":{"id":{"S":"seeded"}}}"#);
     let recorder = preview();
-    let output = capture::scope(recorder.clone(), async { client.get_item().table_name("orders").key("id", id("seeded")).send().await }).await;
+    let output =
+        capture::scope(recorder.clone(), async { client.get_item().table_name("orders").key("id", id("seeded")).send().await }).await;
     assert!(output.unwrap().item().is_some());
     assert_eq!(sent.load(Ordering::SeqCst), 1);
     assert!(recorder.blocked().is_none());
@@ -106,7 +103,12 @@ async fn partiql_is_a_read_only_when_every_statement_selects() {
     let recorder = preview();
     capture::scope(recorder.clone(), async {
         client.execute_statement().statement(r#"SELECT * FROM "orders" WHERE id = ?"#).parameters(id("a")).send().await.unwrap();
-        let update = client.execute_statement().statement(r#"UPDATE "orders" SET status = 'cancelled' WHERE id = ?"#).parameters(id("a")).send().await;
+        let update = client
+            .execute_statement()
+            .statement(r#"UPDATE "orders" SET status = 'cancelled' WHERE id = ?"#)
+            .parameters(id("a"))
+            .send()
+            .await;
         assert!(update.is_err());
     })
     .await;
@@ -119,7 +121,12 @@ async fn inline_partiql_literals_never_reach_the_log() {
     let (client, _) = client(&DynamoStore::new(), r#"{"Items":[]}"#);
     let recorder = preview();
     capture::scope(recorder.clone(), async {
-        client.execute_statement().statement(r#"SELECT * FROM "orders" WHERE email = 'ann@example.test' AND id = 42"#).send().await.unwrap();
+        client
+            .execute_statement()
+            .statement(r#"SELECT * FROM "orders" WHERE email = 'ann@example.test' AND id = 42"#)
+            .send()
+            .await
+            .unwrap();
     })
     .await;
     let logs = recorder.finish().logs;
@@ -170,7 +177,10 @@ async fn the_checks_fail_when_the_interceptor_is_missing() {
         }))
         .build();
     let recorder = preview();
-    capture::scope(recorder.clone(), async { Client::from_conf(config).put_item().table_name("orders").item("id", id("a")).send().await.unwrap() }).await;
+    capture::scope(recorder.clone(), async {
+        Client::from_conf(config).put_item().table_name("orders").item("id", id("a")).send().await.unwrap()
+    })
+    .await;
     assert_eq!(sent.load(Ordering::SeqCst), 1, "an unhooked client writes during a Preview");
     assert!(recorder.blocked().is_none());
 }

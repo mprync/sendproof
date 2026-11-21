@@ -78,7 +78,12 @@ pub(crate) struct PreviewState {
 impl PreviewState {
     pub fn new(session: ClientSession) -> Arc<Self> {
         let lsid = session.id().clone();
-        Arc::new(Self { mode: Mode::Preview, session: Some(Arc::new(tokio::sync::Mutex::new(session))), lsid: Some(lsid), data: Mutex::default() })
+        Arc::new(Self {
+            mode: Mode::Preview,
+            session: Some(Arc::new(tokio::sync::Mutex::new(session))),
+            lsid: Some(lsid),
+            data: Mutex::default(),
+        })
     }
 
     /// A Preview of a store that can't join one: reads run, the first write blocks.

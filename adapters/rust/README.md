@@ -8,6 +8,7 @@ Sendproof adds an API workbench to your service and lets you run any *declared* 
 | [`sendproof-axum`](sendproof-axum) | Axum integration: workbench mount, in-process preview dispatch, gate, observed send. |
 | [`sendproof-actix`](sendproof-actix) | Actix Web integration: the same transport on Actix middleware, plus the gate. |
 | [`sendproof-sqlx`](sendproof-sqlx) | SQLx data layer for SQLite, PostgreSQL and MySQL: transaction rollback, ordered row capture, statement capture with redaction. |
+| [`sendproof-redis`](sendproof-redis), [`sendproof-dynamodb`](sendproof-dynamodb), [`sendproof-mongodb`](sendproof-mongodb) | Data stores: a Redis write guard, a DynamoDB write guard (AWS SDK interceptor) and MongoDB Preview (a transaction that is aborted) with a write guard. See [data-stores.md](data-stores.md). |
 | [`../../examples/rust-conformance`](../../examples/rust-conformance), [`-actix`](../../examples/rust-conformance-actix), [`-common`](../../examples/rust-conformance-common) | The shared conformance fixtures (Axum and Actix + SQLx on SQLite, PostgreSQL or MySQL, chosen by `BENCH_DATABASE`). |
 
 Status: `0.1.0-alpha.1`. Tested: Axum 0.8 and Actix Web 4.20 with SQLx 0.9 on SQLite, PostgreSQL 17 and MySQL 8. Each backend captures rows differently, and MySQL captures less; see [`sendproof-sqlx`](sendproof-sqlx/README.md). Not implemented: Diesel and SeaORM.
@@ -60,15 +61,18 @@ BENCH_POSTGRES_URL=postgresql://… BENCH_MYSQL_URL=mysql://… \
   node tests/conformance/run.mjs rust-axum-postgresql rust-actix-postgresql rust-axum-mysql rust-actix-mysql
 ```
 
-With `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` set to a disposable server, the workspace runs 82 tests:
+With `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` set to a disposable server, and the compose MongoDB replica set running (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`), the workspace runs 177 tests:
 
 | Crate | Tests |
 | --- | --- |
-| `sendproof-core` | 21 unit, 1 doc |
-| `sendproof-sqlx` | 22 unit, 8 SQLite, 10 PostgreSQL, 11 MySQL |
+| `sendproof-core` | 40 unit, 10 data-store rules (tables parity, guard, 409 and 500 pipeline, discovery), 1 doc |
+| `sendproof-sqlx` | 26 unit, 14 SQLite, 25 PostgreSQL and MySQL |
+| `sendproof-redis` | 14 (a recording fake connection), 1 doc |
+| `sendproof-dynamodb` | 13 (a recording HTTP client), 1 doc |
+| `sendproof-mongodb` | 22 (the compose replica set), 1 doc |
 | `sendproof-actix` | 7, 1 doc |
 | `sendproof-axum` | 1 doc |
 
-Without the server variables, the 21 server tests are skipped and pass anyway. Build the fixtures before running the HTTP conformance suite (`cargo build -p rust-conformance -p rust-conformance-actix`), because the runner starts the binaries as they are.
+Without the server variables, the PostgreSQL and MySQL tests are skipped and pass anyway; without the MongoDB service, the MongoDB tests that need it skip with the compose command in the message. Build the fixtures before running the HTTP conformance suite (`cargo build -p rust-conformance -p rust-conformance-actix`), because the runner starts the binaries as they are.
 
 `build.rs` embeds the packed UI. Without it the crate still builds and the workbench answers `503`. The UI source is never copied into this tree. Requires Rust 1.94+.

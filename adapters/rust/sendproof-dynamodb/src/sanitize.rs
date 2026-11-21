@@ -33,7 +33,12 @@ pub fn sanitize_partiql(text: &str) -> String {
                 out.push('?');
                 index = end + 1;
             }
-            digit if digit.is_ascii_digit() && !index.checked_sub(1).is_some_and(|before| chars[before].is_alphanumeric() || chars[before] == '_' || chars[before] == '.') => {
+            digit
+                if digit.is_ascii_digit()
+                    && !index
+                        .checked_sub(1)
+                        .is_some_and(|before| chars[before].is_alphanumeric() || chars[before] == '_' || chars[before] == '.') =>
+            {
                 let mut end = index;
                 let numeric = |c: char| c.is_ascii_digit();
                 while end < chars.len() && numeric(chars[end]) {
@@ -75,7 +80,10 @@ mod tests {
 
     #[test]
     fn replaces_strings_and_numbers_and_keeps_identifiers() {
-        assert_eq!(sanitize_partiql(r#"UPDATE "orders" SET status = 'cancelled', hits = 3 WHERE id = ?"#), r#"UPDATE "orders" SET status = ?, hits = ? WHERE id = ?"#);
+        assert_eq!(
+            sanitize_partiql(r#"UPDATE "orders" SET status = 'cancelled', hits = 3 WHERE id = ?"#),
+            r#"UPDATE "orders" SET status = ?, hits = ? WHERE id = ?"#
+        );
         assert_eq!(sanitize_partiql("INSERT INTO \"t\" VALUE {'id': 'it''s', 'n': 1.5e3}"), "INSERT INTO \"t\" VALUE {?: ?, ?: ?}");
     }
 
