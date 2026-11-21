@@ -165,12 +165,49 @@ class DynamoDbStoreTest {
     }
 
     @Test
+    void aClientBuiltLaterWithoutTheInterceptorIsStillGuarded() throws Exception {
+        PreviewOutcome outcome = Harness.preview(() -> {
+            // Built inside the handler, with no Sendproof interceptor of its own, sync and async.
+            try (DynamoDbClient later = builder().build()) {
+                assertThat(later.getItem(GetItemRequest.builder().tableName(table).key(Map.of("id", s("seeded"))).build())
+                        .item().get("status").s()).isEqualTo("open");
+                assertThatThrownBy(() -> later.updateItem(touch("later"))).satisfiesAnyOf(
+                        error -> assertThat(error).isInstanceOf(PreviewWriteBlockedException.class),
+                        error -> assertThat(error).hasCauseInstanceOf(PreviewWriteBlockedException.class));
+            }
+            try (var async = software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient.builder()
+                    .endpointOverride(URI.create(ENDPOINT)).region(Region.US_EAST_1)
+                    .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("benchlocal", SECRET))).build()) {
+                assertThatThrownBy(() -> async.updateItem(touch("later-async")).join()).hasRootCauseInstanceOf(PreviewWriteBlockedException.class);
+            }
+        });
+        assertThat(outcome.blocked()).isTrue();
+        assertThat(statusOf("later")).isNull();
+        assertThat(statusOf("later-async")).isNull();
+    }
+
+    @Test
+    void theStoresOwnHostDeclaredReadsStillPassOnItsClient() throws Exception {
+        var lenient = DynamoDbStore.interceptor().treatAsRead("UpdateItem").build();
+        try (DynamoDbClient hooked = builder().overrideConfiguration(config -> config.addExecutionInterceptor(lenient)).build()) {
+            PreviewOutcome outcome = Harness.preview(() -> hooked.updateItem(touch("declared")));
+            assertThat(outcome.confirmed()).isTrue();
+        }
+        raw.deleteItem(request -> request.tableName(table).key(Map.of("id", s("declared"))));
+    }
+
+    @Test
     void theChecksFailWhenTheHookIsRemoved() throws Exception {
-        // The raw client has no interceptor: its write is not blocked and the Preview confirms. This is the unhooked case
-        // the conformance checks catch, and why the documentation says unhooked clients are not covered.
-        PreviewOutcome outcome = Harness.preview(() -> raw.updateItem(touch("unhooked")));
-        assertThat(outcome.blocked()).isFalse();
-        assertThat(statusOf("unhooked")).isEqualTo("new");
+        // With the hook removed (the raw client has no store, and the SDK-wide guard is off) the write is not blocked and
+        // the Preview confirms. This is the unhooked case the conformance checks catch.
+        UnhookedClientGuard.ENABLED.set(false);
+        try {
+            PreviewOutcome outcome = Harness.preview(() -> raw.updateItem(touch("unhooked")));
+            assertThat(outcome.blocked()).isFalse();
+            assertThat(statusOf("unhooked")).isEqualTo("new");
+        } finally {
+            UnhookedClientGuard.ENABLED.set(true);
+        }
     }
 
     @Test

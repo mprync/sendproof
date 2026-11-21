@@ -39,10 +39,16 @@ import software.amazon.awssdk.core.interceptor.SdkExecutionAttribute;
  * <p>{@code beforeExecution} runs before the request is serialized and signed, so a refused command never becomes an HTTP
  * request, and credentials, the {@code Authorization} header and signatures never reach the hook. The operation is the
  * SDK's operation name ({@code UpdateItem}). The Enhanced Client calls the same low-level client, so hooking that client
- * covers both. A client built without the interceptor is not covered: its writes are not blocked.
+ * covers both.
+ *
+ * <p>A client built without the interceptor, for example inside a handler, is still guarded: this module registers
+ * {@link UnhookedClientGuard} with the SDK for every DynamoDB client, and it refuses writes during a Preview (without the
+ * store's {@code treatAsRead} or {@code Db} log entries). Only an SDK the module isn't on the classpath of is uncovered.
  */
 public final class DynamoDbStore implements DataStore, ExecutionInterceptor {
     private static final ExecutionAttribute<Call> CALL = new ExecutionAttribute<>("SendproofDynamoDbCall");
+    /** Set by every {@code DynamoDbStore} on its calls, so {@link UnhookedClientGuard} knows a store already decided. */
+    static final ExecutionAttribute<Boolean> HOOKED = new ExecutionAttribute<>("SendproofDynamoDbHooked");
     private static final Pattern QUOTED = Pattern.compile("\"([^\"]+)\"");
 
     private final String name;
@@ -103,10 +109,8 @@ public final class DynamoDbStore implements DataStore, ExecutionInterceptor {
 
     @Override
     public void beforeExecution(Context.BeforeExecution context, ExecutionAttributes attributes) {
-        String operation = attributes.getAttribute(SdkExecutionAttribute.OPERATION_NAME);
-        if (operation == null) {
-            operation = context.request().getClass().getSimpleName().replaceFirst("Request$", "");
-        }
+        attributes.putAttribute(HOOKED, Boolean.TRUE);
+        String operation = operation(context.request(), attributes);
         SdkRequest request = context.request();
         List<String> statements = statements(request);
         CommandKind kind = StoreClassifier.dynamo(operation, statements, reads);
@@ -147,8 +151,14 @@ public final class DynamoDbStore implements DataStore, ExecutionInterceptor {
         call.capture().db(entry);
     }
 
+    /** The SDK's operation name for a call, such as {@code UpdateItem}. */
+    static String operation(SdkRequest request, ExecutionAttributes attributes) {
+        String operation = attributes.getAttribute(SdkExecutionAttribute.OPERATION_NAME);
+        return operation != null ? operation : request.getClass().getSimpleName().replaceFirst("Request$", "");
+    }
+
     /** The PartiQL statements a request carries; empty for any other action. */
-    private static List<String> statements(SdkRequest request) {
+    static List<String> statements(SdkRequest request) {
         var statements = new ArrayList<String>();
         Optional<String> single = request.getValueForField("Statement", String.class);
         single.ifPresent(statements::add);

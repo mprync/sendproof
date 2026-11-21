@@ -10,6 +10,7 @@ dependencies {
     testImplementation(platform(rootProject.libs.spring.boot.bom))
     testImplementation("software.amazon.awssdk:dynamodb")
     testImplementation("software.amazon.awssdk:url-connection-client")
+    testImplementation("software.amazon.awssdk:netty-nio-client")
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.assertj:assertj-core")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
