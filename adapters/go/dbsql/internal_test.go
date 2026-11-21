@@ -231,16 +231,21 @@ func TestPreviewGuardSeesThroughQuotingAndComments(t *testing.T) {
 		DialectMySQL: {"/*! COMMIT */", "SELECT 1; /*!50000 COMMIT */", "/*M!100000 DROP TABLE t */", "SELECT 1 --1; COMMIT",
 			"SET PASSWORD = 'x'", "SET DEFAULT ROLE r TO u", "LOAD INDEX INTO CACHE t",
 			// Under NO_BACKSLASH_ESCAPES or ANSI_QUOTES the quote ends at the backslash.
-			`SELECT 'a\'; COMMIT; SELECT '`, `SELECT "a\"; COMMIT; -- "`},
-		// With standard_conforming_strings off a backslash escapes the quote.
-		DialectPostgres:  {`SELECT 'x\''; COMMIT; SELECT '`},
+			`SELECT 'a\'; COMMIT; SELECT '`, `SELECT "a\"; COMMIT; -- "`,
+			// # comments end at the line; $$ is no quote on MySQL; EXECUTE IMMEDIATE runs text.
+			"# note\nCOMMIT", "SELECT 1; # x\nCOMMIT", "SELECT $$; COMMIT; $$", "EXECUTE IMMEDIATE 'COMMIT'"},
+		// With standard_conforming_strings off a backslash escapes the quote; E'' always
+		// takes escapes; block comments nest.
+		DialectPostgres: {`SELECT 'x\''; COMMIT; SELECT '`, `SELECT E'x\\'; COMMIT; SELECT 'y'`, `SELECT 'x\'; COMMIT; SELECT '`,
+			"/* outer /* inner */ still a comment */ COMMIT", `SELECT "a\"; COMMIT; --"`},
 		DialectSQLite:    {"ATTACH DATABASE 'copy.db' AS copy", "DETACH copy", "VACUUM INTO 'copy.db'"},
 		DialectSQLServer: {"sp_executesql N'COMMIT TRANSACTION'", "dbo.archive_items", "[dbo].[archive_items] 1"},
 	}
 	allowed := map[Dialect][]string{
 		DialectMySQL: {"SELECT 1 -- COMMIT", "SELECT 1 /* COMMIT */", "SELECT /*+ BKA(t) */ * FROM t", "SELECT 2--1",
-			`INSERT INTO t VALUES ('it\'s')`, "/*!40101 SET NAMES utf8mb4 */"},
-		DialectPostgres:  {`SELECT E'it\'s'`, "SELECT 'a''b'"},
+			`INSERT INTO t VALUES ('it\'s')`, "/*!40101 SET NAMES utf8mb4 */", "SELECT 1 # COMMIT", "SELECT `a;COMMIT` FROM t"},
+		DialectPostgres: {`SELECT E'it\'s'`, "SELECT 'a''b'", "DO $$ BEGIN COMMIT; END $$", "SELECT $body$; COMMIT; $body$",
+			"/* a /* b */ COMMIT */ SELECT 1", "SELECT E'it\\'s; COMMIT'"},
 		DialectSQLServer: {"SELECT 1", "(SELECT 1)", "WITH x AS (SELECT 1) SELECT * FROM x", "SAVE TRANSACTION a", "INSERT INTO t VALUES (1)", "SET NOCOUNT ON"},
 	}
 	for dialect, statements := range refused {
