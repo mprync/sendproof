@@ -356,6 +356,29 @@ button.link { border: 0; background: none; padding: 0; font: inherit; color: var
    stretching the page (the mocks' styles.css is kept byte for byte, so the rule lives here). */
 .nav { position: relative; }
 
+/* ---------- Layout fix: the sidebar's controls at any text size and in any language ---------- */
+/* The signed-out notice is a one-column grid whose track may not outgrow the sidebar. Without this
+   the track took the width of the longest nowrap button label (Greek "Προκαθορισμένος λογαριασμός")
+   and pushed Sign in and the seeded-account button past the sidebar's edge, where they were clipped.
+   A label that is still longer than the notice wraps inside its button instead of leaving it. In
+   English every label fits on one line, so nothing changes there. */
+.auth-notice { grid-template-columns: minmax(0, 1fr); }
+.auth-notice .an-actions .btn { min-inline-size: 0; max-inline-size: 100%; white-space: normal; text-align: center; overflow-wrap: anywhere; }
+/* The Operations | Models tabs. At the default sidebar width English keeps the geometry the mocks draw.
+   Every other language gets room for a longer label: the tab's side padding (empty space; the
+   underline has its own inset) is 0, so each tab is only as wide as its label and count badge, which
+   never shrink. Below 13rem of tab row (a phone's drawer at large text) every language drops that
+   padding, and the others, whose labels can still be too long for two tabs, end a label in an
+   ellipsis with its full text in the tab's title (view.js) as the last resort. */
+.sidebar .tabs { container: side-tabs / inline-size; }
+.sidebar .tab .n { flex: none; }
+:root:not(:lang(en)) .sidebar .tab { min-inline-size: max-content; padding-inline: 0; }
+@container side-tabs (max-width: 13rem) {
+  .sidebar .tab { padding-inline: 0; }
+  :root:not(:lang(en)) .sidebar .tab { min-inline-size: 0; }
+  :root:not(:lang(en)) .sidebar .tab > span:not(.n):not(.flag):not(.sr-only) { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+
 /* ---------- Code samples and viewers ---------- */
 /* Syntax colours for request samples. k, s, n, b and p come from views.css. Every colour here is
    at least 4.5:1 on the lightest and darkest code backgrounds (ui/token-contrast.test.mjs checks it). */

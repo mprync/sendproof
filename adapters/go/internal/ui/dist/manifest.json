@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "585dddeb0173c1db0037d7786f595537dd85ae3f8c8513c956e2ccbb69a9c310",
+  "bundleHash": "c0460a9b1ff480dafbad36355c29842cda8041103e5ef5da28907c3126d78c0a",
   "files": {
     "action-bar.js": {
       "sha256": "81262c5e592cc69a1d98310591b8f0372b1bfe8176d9175b6dd1257037b75757",
@@ -13,8 +13,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "app.css": {
-      "sha256": "95a5bbccf77acffdddc8fbf8cba6d1a09521df23bef1de3bb57d50b85e89f1b3",
-      "bytes": 31573,
+      "sha256": "12bd01afdfac2f4ab50fabe515a61e62ebfd3f98057591eca14e6dffb4c980ef",
+      "bytes": 33413,
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
@@ -658,8 +658,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "view.js": {
-      "sha256": "7e41463faf7de5fa3b08cbf9a6d829ab53d0d84353d944d5f5a82886c93bc788",
-      "bytes": 7102,
+      "sha256": "8764b4cc9a7c7921ca98fe30f5849bb6e6ff53f424f3ee5aab29429a760fdb49",
+      "bytes": 7172,
       "contentType": "text/javascript; charset=utf-8"
     },
     "views.css": {

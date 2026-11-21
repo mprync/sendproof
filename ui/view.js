@@ -46,8 +46,8 @@ function topbar(cap, info) {
 function sidebar() {
   return `<nav class="sidebar" id="operations" aria-label="${esc(t('side.operations'))}">
     <div class="tabs" role="tablist" aria-label="${esc(t('side.browse'))}">
-      ${tab(t('side.operations'), { selected: true, count: '–', id: 'side-tab-operations', controls: 'nav', shortcut: 'sidebar-operations', data: 'data-side-tab="operations"' })}
-      ${tab(t('side.models'), { count: '–', id: 'side-tab-models', controls: 'nav', shortcut: 'sidebar-models', data: 'data-side-tab="models"' })}
+      ${tab(t('side.operations'), { selected: true, count: '–', id: 'side-tab-operations', controls: 'nav', shortcut: 'sidebar-operations', data: `data-side-tab="operations" title="${esc(t('side.operations'))}"` })}
+      ${tab(t('side.models'), { count: '–', id: 'side-tab-models', controls: 'nav', shortcut: 'sidebar-models', data: `data-side-tab="models" title="${esc(t('side.models'))}"` })}
     </div>
     <div data-auth-notice hidden></div>
     <div class="sidebar-search">
