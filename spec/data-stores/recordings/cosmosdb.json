@@ -1,0 +1,70 @@
+{
+  "$comment": "Recorded Cosmos DB requests for guard unit tests (format: README.md beside this file). Captured on 2026-11-22 from @azure/cosmos 4.10.2 on Node 24, pointed at a local fake gateway; each sdk field is what an @azure/cosmos request plugin saw for that request. Headers that carry credentials, dates, activity ids, user agents or SDK capability flags were dropped. Expectations follow spec/data-stores/cosmosdb.json and were reviewed by hand.",
+  "store": "cosmosdb",
+  "version": 1,
+  "recordedWith": { "sdk": "@azure/cosmos 4.10.2", "runtime": "Node 24.5.0", "date": "2026-11-22" },
+  "recordings": [
+    { "name": "read a document", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"docs"},"http":{"method":"GET","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"Read"}}}
+    ] },
+    { "name": "query documents", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/query+json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-cosmos-is-query-plan-request":"True","x-ms-cosmos-query-version":"1.4","x-ms-version":"2020-07-15"},"body":{"query":"SELECT * FROM c WHERE c.status = @status","parameters":[{"name":"@status","value":"open"}]}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"QueryPlan"}}},
+      {"sdk":{"operationType":"query","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/query+json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-isquery":"true","x-ms-version":"2020-07-15"},"body":{"query":"SELECT * FROM c WHERE c.status = @status","parameters":[{"name":"@status","value":"open"}]}},"expect":{"sdk":{"kind":"read","operation":"Query"},"http":{"kind":"read","operation":"Query"}}}
+    ] },
+    { "name": "read all documents", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/query+json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-cosmos-is-query-plan-request":"True","x-ms-cosmos-query-version":"1.4","x-ms-version":"2020-07-15"},"body":{"query":"SELECT * from c"}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"QueryPlan"}}},
+      {"sdk":{"operationType":"query","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/query+json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-isquery":"true","x-ms-version":"2020-07-15"},"body":{"query":"SELECT * from c"}},"expect":{"sdk":{"kind":"read","operation":"Query"},"http":{"kind":"read","operation":"Query"}}}
+    ] },
+    { "name": "read the change feed", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"colls"},"http":{"method":"GET","path":"/dbs/shop/colls/orders","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"Read"}}},
+      {"sdk":{"operationType":"read","resourceType":"colls"},"http":{"method":"GET","path":"/dbs/shop/colls/orders","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"Read"}}},
+      {"sdk":{"operationType":"query","resourceType":"docs"},"http":{"method":"GET","path":"/dbs/shop/colls/orders/docs","headers":{"a-im":"Incremental Feed","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Query"},"http":{"kind":"read","operation":"ReadFeed"}}}
+    ] },
+    { "name": "read the container", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"colls"},"http":{"method":"GET","path":"/dbs/shop/colls/orders","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Read"},"http":{"kind":"read","operation":"Read"}}}
+    ] },
+    { "name": "create a document", "requests": [
+      {"sdk":{"operationType":"create","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":{"id":"o-2","pk":"p1","status":"new"}},"expect":{"sdk":{"kind":"write","operation":"Create"},"http":{"kind":"write","operation":"Create"}}}
+    ] },
+    { "name": "upsert a document", "requests": [
+      {"sdk":{"operationType":"upsert","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-is-upsert":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":{"id":"o-1","pk":"p1","status":"open"}},"expect":{"sdk":{"kind":"write","operation":"Upsert"},"http":{"kind":"write","operation":"Upsert"}}}
+    ] },
+    { "name": "replace a document", "requests": [
+      {"sdk":{"operationType":"replace","resourceType":"docs"},"http":{"method":"PUT","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":{"id":"o-1","pk":"p1","status":"closed"}},"expect":{"sdk":{"kind":"write","operation":"Replace"},"http":{"kind":"write","operation":"Replace"}}}
+    ] },
+    { "name": "patch a document", "requests": [
+      {"sdk":{"operationType":"patch","resourceType":"docs"},"http":{"method":"PATCH","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":[{"op":"replace","path":"/status","value":"closed"}]},"expect":{"sdk":{"kind":"write","operation":"Patch"},"http":{"kind":"write","operation":"Patch"}}}
+    ] },
+    { "name": "patch a document with a filter predicate", "requests": [
+      {"sdk":{"operationType":"patch","resourceType":"docs"},"http":{"method":"PATCH","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":{"condition":"from c where c.status = 'never'","operations":[{"op":"incr","path":"/hits","value":1}]}},"expect":{"sdk":{"kind":"write","operation":"Patch"},"http":{"kind":"write","operation":"Patch"}}}
+    ] },
+    { "name": "delete a document", "requests": [
+      {"sdk":{"operationType":"delete","resourceType":"docs"},"http":{"method":"DELETE","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"write","operation":"Delete"},"http":{"kind":"write","operation":"Delete"}}}
+    ] },
+    { "name": "run a transactional batch", "requests": [
+      {"sdk":{"operationType":"batch","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-cosmos-batch-atomic":"true","x-ms-cosmos-is-batch-request":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":[{"operationType":"Read","id":"o-1"},{"operationType":"Create","resourceBody":{"id":"o-3","pk":"p1"}}]},"expect":{"sdk":{"kind":"write","operation":"Batch"},"http":{"kind":"write","operation":"Batch"}}}
+    ] },
+    { "name": "run a read-only transactional batch", "requests": [
+      {"sdk":{"operationType":"batch","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-cosmos-batch-atomic":"true","x-ms-cosmos-is-batch-request":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":[{"operationType":"Read","id":"o-1"}]},"expect":{"sdk":{"kind":"write","operation":"Batch"},"http":{"kind":"write","operation":"Batch"}}}
+    ] },
+    { "name": "run bulk operations", "requests": [
+      {"sdk":{"operationType":"query","resourceType":"pkranges"},"http":{"method":"GET","path":"/dbs/shop/colls/orders/pkranges","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"read","operation":"Query"},"http":{"kind":"read","operation":"ReadFeed"}}},
+      {"sdk":{"operationType":"batch","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-cosmos-batch-atomic":"false","x-ms-cosmos-batch-continue-on-error":"true","x-ms-cosmos-is-batch-request":"true","x-ms-documentdb-partitionkeyrangeid":"0","x-ms-version":"2020-07-15"},"body":[{"operationType":"Upsert","resourceBody":{"id":"o-4","pk":"p1"},"partitionKey":"[\"p1\"]"}]},"expect":{"sdk":{"kind":"write","operation":"Batch"},"http":{"kind":"write","operation":"Batch"}}}
+    ] },
+    { "name": "execute a stored procedure", "requests": [
+      {"sdk":{"operationType":"execute","resourceType":"sprocs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/sprocs/readOnly","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-version":"2020-07-15"},"body":[]},"expect":{"sdk":{"kind":"write","operation":"Execute"},"http":{"kind":"write","operation":"ExecuteJavaScript"}}}
+    ] },
+    { "name": "create a document with a pre-trigger", "requests": [
+      {"sdk":{"operationType":"create","resourceType":"docs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/docs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-documentdb-pre-trigger-include":"stamp","x-ms-version":"2020-07-15"},"body":{"id":"o-5","pk":"p1"}},"expect":{"sdk":{"kind":"write","operation":"Create"},"http":{"kind":"write","operation":"Create"}}}
+    ] },
+    { "name": "read a document with a post-trigger header", "requests": [
+      {"sdk":{"operationType":"read","resourceType":"docs"},"http":{"method":"GET","path":"/dbs/shop/colls/orders/docs/o-1","headers":{"x-ms-cosmos-allow-tentative-writes":"true","x-ms-documentdb-partitionkey":"[\"p1\"]","x-ms-documentdb-post-trigger-include":"audit","x-ms-version":"2020-07-15"}},"expect":{"sdk":{"kind":"write","operation":"Read"},"http":{"kind":"write","operation":"Read"}}}
+    ] },
+    { "name": "create a trigger", "requests": [
+      {"sdk":{"operationType":"create","resourceType":"triggers"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/triggers","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"},"body":{"id":"stamp","body":"function stamp() {}","triggerOperation":"Create","triggerType":"Pre"}},"expect":{"sdk":{"kind":"write","operation":"Create"},"http":{"kind":"write","operation":"Create"}}}
+    ] },
+    { "name": "create a stored procedure", "requests": [
+      {"sdk":{"operationType":"create","resourceType":"sprocs"},"http":{"method":"POST","path":"/dbs/shop/colls/orders/sprocs","headers":{"content-type":"application/json","x-ms-cosmos-allow-tentative-writes":"true","x-ms-version":"2020-07-15"},"body":{"id":"readOnly","body":"function readOnly() {}"}},"expect":{"sdk":{"kind":"write","operation":"Create"},"http":{"kind":"write","operation":"Create"}}}
+    ] }
+  ]
+}

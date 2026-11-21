@@ -1,0 +1,55 @@
+{
+  "$comment": "Recorded Firestore requests for guard unit tests (format: README.md beside this file). Captured on 2026-11-22 from @google-cloud/firestore 7.11.6 on Node 24 with preferRest, pointed at a local fake server; rest is the REST request the SDK sent and rpc the gRPC method it stands for. The REST body is the proto3 JSON of the gRPC request message, so gRPC-hook tests parse it into their message type. Expectations follow spec/data-stores/firestore.json and were reviewed by hand.",
+  "store": "firestore",
+  "version": 1,
+  "recordedWith": { "sdk": "@google-cloud/firestore 7.11.6 (preferRest)", "runtime": "Node 24.5.0", "date": "2026-11-22" },
+  "recordings": [
+    { "name": "get a document", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchGet","body":{"documents":["projects/bench/databases/(default)/documents/orders/o-1"]}},"rpc":"/google.firestore.v1.Firestore/BatchGetDocuments","expect":{"kind":"read","operation":"BatchGetDocuments"}}
+    ] },
+    { "name": "query a collection", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:runQuery","body":{"structuredQuery":{"from":[{"collectionId":"orders"}],"where":{"fieldFilter":{"field":{"fieldPath":"status"},"op":5,"value":{"stringValue":"open"}}},"limit":10}}},"rpc":"/google.firestore.v1.Firestore/RunQuery","expect":{"kind":"read","operation":"RunQuery"}}
+    ] },
+    { "name": "count a query", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:runAggregationQuery","body":{"structuredAggregationQuery":{"aggregations":[{"count":{},"alias":"aggregate_0"}],"structuredQuery":{"from":[{"collectionId":"orders"}],"where":{"fieldFilter":{"field":{"fieldPath":"status"},"op":5,"value":{"stringValue":"open"}}}}}}},"rpc":"/google.firestore.v1.Firestore/RunAggregationQuery","expect":{"kind":"read","operation":"RunAggregationQuery"}}
+    ] },
+    { "name": "get several documents", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchGet","body":{"documents":["projects/bench/databases/(default)/documents/orders/o-1","projects/bench/databases/(default)/documents/orders/o-2"]}},"rpc":"/google.firestore.v1.Firestore/BatchGetDocuments","expect":{"kind":"read","operation":"BatchGetDocuments"}}
+    ] },
+    { "name": "list collections", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:listCollectionIds","body":{}},"rpc":"/google.firestore.v1.Firestore/ListCollectionIds","expect":{"kind":"read","operation":"ListCollectionIds"}}
+    ] },
+    { "name": "list documents", "requests": [
+      {"rest":{"method":"GET","path":"/v1/projects/bench/databases/(default)/documents/orders"},"rpc":"/google.firestore.v1.Firestore/ListDocuments","expect":{"kind":"read","operation":"ListDocuments"}}
+    ] },
+    { "name": "create a document", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"update":{"fields":{"status":{"stringValue":"new"}},"name":"projects/bench/databases/(default)/documents/orders/o-3"},"currentDocument":{"exists":false}}]}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "set a document", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"update":{"fields":{"status":{"stringValue":"open"}},"name":"projects/bench/databases/(default)/documents/orders/o-1"}}]}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "update a document", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"updateTransforms":[{"fieldPath":"hits","increment":{"integerValue":"1"}}],"update":{"fields":{},"name":"projects/bench/databases/(default)/documents/orders/o-1"},"updateMask":{},"currentDocument":{"exists":true}}]}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "delete a document", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"delete":"projects/bench/databases/(default)/documents/orders/o-1"}]}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "commit a write batch", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"update":{"fields":{"status":{"stringValue":"new"}},"name":"projects/bench/databases/(default)/documents/orders/o-4"}},{"delete":"projects/bench/databases/(default)/documents/orders/o-5"}]}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "run a bulk writer", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchWrite","body":{"writes":[{"update":{"fields":{"status":{"stringValue":"new"}},"name":"projects/bench/databases/(default)/documents/orders/o-6"}}],"labels":{}}},"rpc":"/google.firestore.v1.Firestore/BatchWrite","expect":{"kind":"write","operation":"BatchWrite"}}
+    ] },
+    { "name": "run a read-write transaction that writes", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchGet","body":{"documents":["projects/bench/databases/(default)/documents/orders/o-1"],"newTransaction":{"readWrite":{}}}},"rpc":"/google.firestore.v1.Firestore/BatchGetDocuments","expect":{"kind":"read","operation":"BatchGetDocuments"}},
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"writes":[{"update":{"fields":{"status":{"stringValue":"closed"}},"name":"projects/bench/databases/(default)/documents/orders/o-1"},"updateMask":{"fieldPaths":["status"]},"currentDocument":{"exists":true}}],"transaction":"dHgtMQ=="}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"write","operation":"Commit"}}
+    ] },
+    { "name": "run a read-write transaction that only reads", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchGet","body":{"documents":["projects/bench/databases/(default)/documents/orders/o-1"],"newTransaction":{"readWrite":{}}}},"rpc":"/google.firestore.v1.Firestore/BatchGetDocuments","expect":{"kind":"read","operation":"BatchGetDocuments"}},
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:commit","body":{"transaction":"dHgtMQ=="}},"rpc":"/google.firestore.v1.Firestore/Commit","expect":{"kind":"session","operation":"Commit"}}
+    ] },
+    { "name": "run a read-only transaction", "requests": [
+      {"rest":{"method":"POST","path":"/v1/projects/bench/databases/(default)/documents:batchGet","body":{"documents":["projects/bench/databases/(default)/documents/orders/o-1"],"newTransaction":{"readOnly":{}}}},"rpc":"/google.firestore.v1.Firestore/BatchGetDocuments","expect":{"kind":"read","operation":"BatchGetDocuments"}}
+    ] }
+  ]
+}
