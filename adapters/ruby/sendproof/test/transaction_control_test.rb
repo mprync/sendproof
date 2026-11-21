@@ -13,7 +13,8 @@ class TransactionControlTest < Minitest::Test
       "/*M!100100 CREATE TABLE t (n INT) */", "SET @@session.autocommit = 1", "SET sql_mode = '', autocommit = 1",
       "CREATE TABLE sendproof_escape_1 (n INT)", "TRUNCATE t", "LOCK TABLES t WRITE", "CHECK TABLE t",
       "STOP SLAVE", "CHANGE MASTER TO MASTER_HOST='h'", "CLONE LOCAL DATA DIRECTORY = '/x'", "IMPORT TABLE FROM '/x.sdi'",
-      "SET DEFAULT ROLE ALL TO u", "EXECUTE stmt", "XA START 'x'",
+      "SET DEFAULT ROLE ALL TO u", "EXECUTE stmt", "XA START 'x'", "PREPARE s FROM 'COMMIT'", "PREPARE s FROM @sql",
+      "EXECUTE IMMEDIATE 'COMMIT'", "SELECT 1 /*! ; COMMIT */",
       # A quote inside a comment, a "#" comment, or a backslash-escaped quote never hides what follows.
       "SELECT 1 # it's\n; COMMIT; SELECT 'x'", 'SELECT "a\\" "; COMMIT; SELECT "b"', "SELECT 1--1; COMMIT",
       "SELECT $a$; COMMIT; SELECT $a$"
@@ -53,6 +54,11 @@ class TransactionControlTest < Minitest::Test
     assert TC.ends_transaction?("SELECT 'a\\'; COMMIT; --'")
     refute TC.ends_transaction?("SELECT E'a\\'; COMMIT; --'")
     refute TC.ends_transaction?("SELECT $$ COMMIT $$")
+    refute TC.ends_transaction?("SELECT $$ ; COMMIT $$")
+    assert TC.ends_transaction?("SELECT $body$ ; COMMIT $body$; COMMIT")
+    assert TC.ends_transaction?("SELECT E'a\\''; COMMIT"), "the escaped quote ends nothing; the next one does"
+    assert TC.ends_transaction?("SELECT 2 #- '{a}'; COMMIT"), "# is an operator outside MySQL"
+    assert TC.ends_transaction?('SELECT "a\\"; COMMIT'), "a PostgreSQL identifier has no backslash escapes"
     refute TC.ends_transaction?("CALL p()"), "CALL is refused on MySQL and MariaDB only"
     assert TC.ends_transaction?("/*! COMMIT */"), "executable comments are read as SQL everywhere, to stay strict"
   end

@@ -25,7 +25,7 @@ Tested with ActiveRecord 8.0.5.2 on SQLite and, through Trilogy, MySQL 8.4. `row
 
 ## Transaction control and MySQL
 
-- A handler statement that would end or escape the Preview transaction (`COMMIT`, `END`, `ROLLBACK` without `TO`, `BEGIN`, `SET autocommit` anywhere in a `SET`, the provider's `sendproof_preview` savepoint, and on MySQL and MariaDB the statements that commit implicitly, SQL-level `EXECUTE`, executable comments containing any of these, and `CALL`) is refused before it reaches the database, and the Preview answers 500 without confirmation. `SAVEPOINT` stays allowed. Statements sent on `connection.raw_connection` are not covered.
+- A handler statement that would end or escape the Preview transaction (`COMMIT`, `END`, `ROLLBACK` without `TO`, `BEGIN`, `SET autocommit` anywhere in a `SET`, the provider's `sendproof_preview` savepoint, and on MySQL and MariaDB the statements that commit implicitly, SQL-level `PREPARE` and `EXECUTE` (and MariaDB's `EXECUTE IMMEDIATE`), executable comments containing any of these, and `CALL`) is refused before it reaches the database, and the Preview answers 500 without confirmation. `SAVEPOINT` stays allowed. Statements sent on `connection.raw_connection` are not covered.
 - **Stored procedures (MySQL and MariaDB).** A procedure can `COMMIT`, so `CALL` is refused unless you declare the procedure safe by exact name (optionally `schema.name`; case-insensitive like MySQL; no wildcards). The binding trusts the list: a listed procedure that commits makes the Preview's writes durable, and the backstop below then answers 500.
 
   ```ruby

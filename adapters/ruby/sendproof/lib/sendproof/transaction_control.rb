@@ -10,8 +10,8 @@ module Sendproof
   # because ORMs use them for nested transactions, except on the savepoint the provider reserves.
   #
   # On MySQL and MariaDB +CALL+ is refused too, because a stored procedure can commit, unless the
-  # host declared that procedure safe by exact name; so is SQL-level +EXECUTE+, which runs a
-  # statement prepared from text the guard never saw.
+  # host declared that procedure safe by exact name; so are SQL-level +PREPARE+ and +EXECUTE+, which
+  # run statement text the guard never saw.
   #
   # Quotes and comments are read the way each server reads them by default: on MySQL backslashes
   # escape inside every string, +#+ starts a comment and +--+ does only when a space follows; elsewhere
@@ -31,8 +31,9 @@ module Sendproof
     MYSQL_IMPLICIT_COMMIT = /\A(?:ALTER|CREATE|DROP|RENAME|TRUNCATE|GRANT|REVOKE|LOCK\s+TABLES?|UNLOCK\s+TABLES?|ANALYZE|OPTIMIZE|REPAIR|CHECK\s+TABLES?|FLUSH|INSTALL|UNINSTALL|LOAD\s+(?:INDEX|DATA|XML)|CACHE\s+INDEX|RESET|SET\s+PASSWORD|SET\s+DEFAULT\s+ROLE|START\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|STOP\s+(?:REPLICA|SLAVE|GROUP_REPLICATION)|CHANGE\s+(?:REPLICATION|MASTER)|IMPORT\s+TABLE|CLONE)\b/i
     MYSQL_TEMPORARY_TABLE = /\A(?:CREATE|DROP)\s+TEMPORARY\s+TABLE\b/i
 
-    # The SQL-level +EXECUTE+ of a prepared statement (also MariaDB's +EXECUTE IMMEDIATE+).
-    MYSQL_EXECUTE = /\AEXECUTE\b/i
+    # SQL-level +PREPARE ... FROM+ and +EXECUTE+ (also MariaDB's +EXECUTE IMMEDIATE+): they run statement
+    # text the guard never sees.
+    MYSQL_EXECUTE = /\A(?:PREPARE|EXECUTE)\b/i
 
     # +CALL name+, +CALL schema.name+, with or without backticks; the name is captured.
     MYSQL_CALL = /\ACALL\s+((?:`(?:[^`]|``)+`|[\w$]+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|[\w$]+))?)/i
@@ -144,7 +145,7 @@ module Sendproof
 
           return "a CALL can commit the Preview transaction inside the procedure; declare the procedure safe by exact name if it never commits"
         end
-        return "an EXECUTE runs a prepared statement the Preview can't check" if statement.match?(MYSQL_EXECUTE)
+        return "the handler's #{verb} runs a statement the Preview can't check" if statement.match?(MYSQL_EXECUTE)
         return "the handler's #{verb} commits implicitly on MySQL" if statement.match?(MYSQL_IMPLICIT_COMMIT) && !statement.match?(MYSQL_TEMPORARY_TABLE)
       end
       nil
