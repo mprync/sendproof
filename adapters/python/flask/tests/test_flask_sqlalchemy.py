@@ -342,7 +342,9 @@ def test_capabilities_follow_the_signed_in_identity(make):
     bench = make()
     assert bench.client().get("/sendproof/_api/capabilities").get_json()["identity"] is None
     caps = bench.client("admin").get("/sendproof/_api/capabilities").get_json()
-    system = os.environ.get("BENCH_DATABASE", "sqlite").lower()  # the same suite runs on PostgreSQL and MySQL
+    # The same suite runs on PostgreSQL, MySQL and MariaDB, which reaches it as `mysql` and says which server it is.
+    system = os.environ.get("BENCH_DATABASE_SERVER") or os.environ.get("BENCH_DATABASE", "sqlite")
+    system = system.lower()
     assert caps["identity"] == {"name": "Admin", "role": "admin"} and caps["database"] == {"name": "db", "system": system}
     assert caps["binding"] == {"language": "python", "framework": "Flask"}
     assert bench.client("viewer").get("/sendproof/_api/capabilities").get_json()["identity"]["role"] == "viewer"

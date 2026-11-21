@@ -36,7 +36,8 @@ public class FixtureApplication {
             URI url = URI.create(System.getenv("BENCH_DATABASE_URL"));
             String[] user = url.getUserInfo() == null ? new String[] {"", ""} : (url.getUserInfo() + ":").split(":", 3);
             var database = new MapPropertySource("benchDatabase", Map.of(
-                    "spring.datasource.url", "jdbc:mysql://" + url.getHost() + ":" + url.getPort() + url.getPath(),
+                    // The MariaDB entry runs as `mysql` with BENCH_DATABASE_SERVER=mariadb, on MariaDB's own driver.
+                    "spring.datasource.url", ("mariadb".equals(System.getenv("BENCH_DATABASE_SERVER")) ? "jdbc:mariadb://" : "jdbc:mysql://") + url.getHost() + ":" + url.getPort() + url.getPath(),
                     "spring.datasource.username", java.net.URLDecoder.decode(user[0], java.nio.charset.StandardCharsets.UTF_8),
                     "spring.datasource.password", java.net.URLDecoder.decode(user[1], java.nio.charset.StandardCharsets.UTF_8)));
             application.addListeners((ApplicationListener<ApplicationEnvironmentPreparedEvent>) event ->

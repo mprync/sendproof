@@ -106,7 +106,8 @@ jobs:
       matrix: ${{ fromJSON(needs.conformance-matrix.outputs.bindings) }}
     # Each service and BENCH_*_URL is keyed on the entry's `database`, so every MySQL entry (including
     # ruby-rails-mysql, php-laravel-mysql, java-spring-mysql and dotnet-aspnetcore-mysql) gets the MySQL
-    # service and BENCH_MYSQL_URL; the runner creates a fresh database on it per fixture process. The
+    # service and BENCH_MYSQL_URL, and every MariaDB entry the MariaDB service and BENCH_MARIADB_URL; the
+    # runner creates a fresh database on it per fixture process. The
     # "Check the database service URL" step fails early if an entry's database has no URL.
     services:
       postgres:
@@ -132,6 +133,14 @@ jobs:
           ACCEPT_EULA: 'Y'
           MSSQL_PID: Developer
           MSSQL_SA_PASSWORD: 'BenchLocal_2026!'
+      mariadb:
+        image: ${{ matrix.database == 'mariadb' && 'mariadb:12.3@sha256:4aaf88b3106382c8c18e49f0cec60267be618fc22f858c4503afb2a2555afed3' || '' }}
+        env:
+          MARIADB_ROOT_PASSWORD: bench_local
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: --health-cmd "mariadb-admin ping -h 127.0.0.1 -pbench_local --silent" --health-interval 3s --health-timeout 3s --health-retries 30
         ports:
           - 1433:1433
         options: >-
@@ -146,6 +155,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      BENCH_MARIADB_URL: ${{ matrix.database == 'mariadb' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
         with:
           node-version: '22'
       - if: matrix.toolchain == 'dotnet'
@@ -207,6 +217,7 @@ jobs:
       # data stores come from compose.yml. Only the stores this entry lists are started.
       - name: Start data stores
         if: matrix.stores != ''
+            mariadb) test -n "$BENCH_MARIADB_URL" ;;
         env:
           STORES: ${{ matrix.stores }}
         run: docker compose -f tests/conformance/compose.yml up -d --wait ${STORES//,/ }

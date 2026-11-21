@@ -5,12 +5,15 @@ import { once } from 'node:events';
 const serverVariables = {
   postgresql: 'BENCH_POSTGRES_URL',
   mysql: 'BENCH_MYSQL_URL',
+  mariadb: 'BENCH_MARIADB_URL',
   sqlserver: 'BENCH_SQLSERVER_URL',
 };
 
 export const engines = new Set(['sqlite', 'h2', ...Object.keys(serverVariables)]);
 
 async function connect(engine, url) {
+  // MariaDB speaks the MySQL protocol, so the runner reaches it with the same client.
+  if (engine === 'mariadb') engine = 'mysql';
   if (engine === 'postgresql') {
     const { Client } = await import('pg');
     const client = new Client({ connectionString: url.href, connectionTimeoutMillis: 5000 });
@@ -90,7 +93,7 @@ export async function withFixtureDatabase(engine, run) {
   if (!variable) return run({ env: { BENCH_DATABASE: engine } });
   assert(process.env[variable], `Set ${variable} to the local conformance service for ${engine}.`);
   const server = new URL(process.env[variable]);
-  const protocols = { postgresql: ['postgresql:', 'postgres:'], mysql: ['mysql:'], sqlserver: ['mssql:', 'sqlserver:'] };
+  const protocols = { postgresql: ['postgresql:', 'postgres:'], mysql: ['mysql:'], mariadb: ['mysql:', 'mariadb:'], sqlserver: ['mssql:', 'sqlserver:'] };
   assert(protocols[engine].includes(server.protocol), `Invalid database URL protocol for ${engine}`);
   const name = 'tb_' + randomBytes(10).toString('hex');
   const target = new URL(server);
@@ -98,7 +101,9 @@ export async function withFixtureDatabase(engine, run) {
   await useConnection(engine, server, client => client.query('CREATE DATABASE ' + name));
   try {
     return await run({
-      env: { BENCH_DATABASE: engine, BENCH_DATABASE_URL: target.href },
+      // A MariaDB entry reaches fixtures as `mysql`, since they all use their MySQL driver on the wire-compatible
+      // server. `BENCH_DATABASE_SERVER` names the server for a fixture that has to tell the two apart.
+      env: { BENCH_DATABASE: engine === 'mariadb' ? 'mysql' : engine, BENCH_DATABASE_SERVER: engine, BENCH_DATABASE_URL: target.href },
       async verify() {
         const rows = await useConnection(engine, target, client =>
           client.query("SELECT id, name FROM items WHERE id IN ('traced', 'preview-create', 'failed', 'oversized')"));

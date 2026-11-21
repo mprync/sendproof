@@ -14,8 +14,8 @@ import assert from 'node:assert/strict';
 const base = '/tenant';
 const rollback = { Prefer: 'tx=rollback' };
 export const ruleIds = ['secret-columns', 'raw-commit', 'mysql-escape'];
-/** The manifest `database` values each database-specific rule applies to. MariaDB entries use `mysql`. */
-const appliesTo = { 'mysql-escape': { databases: ['mysql'], label: 'MySQL and MariaDB' } };
+/** The manifest `database` values each database-specific rule applies to. */
+const appliesTo = { 'mysql-escape': { databases: ['mysql', 'mariadb'], label: 'MySQL and MariaDB' } };
 
 async function status(response, expected) {
   const allowed = [expected].flat();

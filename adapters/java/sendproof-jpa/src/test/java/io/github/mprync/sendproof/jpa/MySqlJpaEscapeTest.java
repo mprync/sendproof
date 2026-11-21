@@ -27,15 +27,18 @@ import org.springframework.test.context.DynamicPropertySource;
 /**
  * The MySQL transaction escapes of spec/data-stores.md "Transaction-control statements from the handler" through the
  * Spring-managed provider, against the compose MySQL ({@code docker compose -f tests/conformance/compose.yml up -d
- * --wait mysql}, or {@code BENCH_MYSQL_URL}). The class is skipped when MySQL doesn't answer.
+ * --wait mysql}, or {@code BENCH_MYSQL_URL}). With {@code BENCH_DATABASE_SERVER=mariadb} it runs against the compose
+ * MariaDB ({@code BENCH_MARIADB_URL}) on MariaDB's own driver. The class is skipped when the server doesn't answer.
  */
 @SpringBootTest(classes = JpaTestApp.class, properties = {
         "spring.jpa.hibernate.ddl-auto=create-drop", "sendproof.enabled=true", "sendproof.environment=Development",
         "sendproof.sql.safe-procedures=audit_touch"})
 @EnabledIf("mysqlAvailable")
 class MySqlJpaEscapeTest {
-    private static final URI URL = URI.create(System.getenv().getOrDefault("BENCH_MYSQL_URL",
-            "mysql://root:bench_local@127.0.0.1:53306/mysql"));
+    private static final boolean MARIADB = "mariadb".equals(System.getenv("BENCH_DATABASE_SERVER"));
+    private static final URI URL = URI.create(MARIADB
+            ? System.getenv().getOrDefault("BENCH_MARIADB_URL", "mysql://root:bench_local@127.0.0.1:53307/mysql")
+            : System.getenv().getOrDefault("BENCH_MYSQL_URL", "mysql://root:bench_local@127.0.0.1:53306/mysql"));
     private static final String DATABASE = "sp_jpa_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
     @Autowired
@@ -267,7 +270,7 @@ class MySqlJpaEscapeTest {
     }
 
     private static String base() {
-        return "jdbc:mysql://" + URL.getHost() + ":" + URL.getPort() + "/";
+        return (MARIADB ? "jdbc:mariadb://" : "jdbc:mysql://") + URL.getHost() + ":" + URL.getPort() + "/";
     }
 
     private static String user() {

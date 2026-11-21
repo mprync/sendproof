@@ -757,5 +757,170 @@
       "traceTtlMs": 5000,
       "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q"
     }
+    },
+    {
+      "id": "dotnet-aspnetcore-mariadb",
+      "database": "mariadb",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "dotnet",
+      "port": 5450,
+      "readiness": "/ready",
+      "prepare": "dotnet build examples/DotnetConformance/DotnetConformance.csproj -c Release",
+      "start": [
+        "dotnet",
+        "examples/DotnetConformance/bin/Release/net10.0/DotnetConformance.dll"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-drizzle-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" node --experimental-strip-types --test adapters/node/tests/drizzle.test.mts",
+      "toolchain": "node",
+      "port": 5451,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "drizzle"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-prisma-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" npm test --prefix adapters/node",
+      "toolchain": "node",
+      "port": 5452,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "prisma"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-knex-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" npm test --prefix adapters/node",
+      "toolchain": "node",
+      "port": 5453,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "knex"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "node-express-typeorm-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" npm test --prefix adapters/node",
+      "toolchain": "node",
+      "port": 5454,
+      "readiness": "/ready",
+      "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
+      "start": ["node", "adapters/node/examples/fixture.mjs", "typeorm"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "java-spring-mariadb",
+      "database": "mariadb",
+      "test": "sh adapters/java/scripts/gradle.sh test",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "java",
+      "port": 5455,
+      "readiness": "/ready",
+      "prepare": "sh adapters/java/scripts/gradle.sh :spring-fixture:bootJar",
+      "start": ["sh", "adapters/java/scripts/run-fixture.sh"],
+      "traceTtlMs": 5000,
+      "startupMs": 60000
+    },
+    {
+      "id": "php-laravel-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" sh adapters/php/scripts/test.sh",
+      "toolchain": "php",
+      "port": 5456,
+      "readiness": "/ready",
+      "prepare": "sh adapters/php/scripts/prepare.sh",
+      "start": [
+        "php",
+        "adapters/php/examples/laravel-fixture/serve.php"
+      ],
+      "traceTtlMs": 5000,
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"]
+    },
+    {
+      "id": "ruby-rails-mariadb",
+      "database": "mariadb",
+      "test": "bash adapters/ruby/bin/test-mysql",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "ruby",
+      "port": 5457,
+      "readiness": "/ready",
+      "prepare": "bash adapters/ruby/bin/prepare",
+      "start": ["bash", "adapters/ruby/bin/fixture"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "python-flask-sqlalchemy-mariadb",
+      "database": "mariadb",
+      "test": "adapters/python/.venv/bin/python -m pytest adapters/python/flask/tests/test_flask_sqlalchemy.py -q",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "python",
+      "port": 5458,
+      "readiness": "/ready",
+      "prepare": "python3 adapters/python/scripts/prepare.py",
+      "start": [
+        "adapters/python/.venv/bin/python",
+        "adapters/python/conformance/fixture_flask_sqlalchemy.py"
+      ],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-net-http-mariadb",
+      "database": "mariadb",
+      "test": "BENCH_MYSQL_URL=\"$BENCH_MARIADB_URL\" adapters/go/scripts/test.sh",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5459,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gorm-mariadb",
+      "database": "mariadb",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5460,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "nethttp", "gorm"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "rust-axum-mariadb",
+      "database": "mariadb",
+      "toolchain": "rust",
+      "port": 5461,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance",
+      "start": ["adapters/rust/target/debug/rust-conformance"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
+    },
+    {
+      "id": "rust-actix-mariadb",
+      "database": "mariadb",
+      "toolchain": "rust",
+      "port": 5462,
+      "readiness": "/ready",
+      "prepare": "adapters/rust/scripts/pack-assets.sh && CARGO_BUILD_BUILD_DIR=\"$PWD/adapters/rust/target\" cargo build --locked --target-dir adapters/rust/target --manifest-path adapters/rust/Cargo.toml -p rust-conformance-actix",
+      "start": ["adapters/rust/target/debug/rust-conformance-actix"],
+      "sharedRules": ["mysql-escape"],
+      "traceTtlMs": 5000,
+      "startupMs": 120000
   ]
 }

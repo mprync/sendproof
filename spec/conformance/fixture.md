@@ -9,7 +9,8 @@ Implement a disposable HTTP app backed by one real relational table, `items`, wi
 | `BENCH_SCENARIO` | `standard`, `disabled`, `no-provider`, or `rollback-failure` |
 | `BENCH_TMP_DIR` | Disposable directory for fixture keys, storage and logs |
 | `BENCH_DATABASE` | Database selected by the manifest entry. Values are `sqlite`, `h2`, `postgresql`, `mysql` and `sqlserver`. |
-| `BENCH_DATABASE_URL` | Connection URL for a fresh database on a local service. Set for PostgreSQL, MySQL and SQL Server. |
+| `BENCH_DATABASE_URL` | Connection URL for a fresh database on a local service. Set for PostgreSQL, MySQL (and MariaDB) and SQL Server. |
+| `BENCH_DATABASE_SERVER` | The manifest `database`, which differs from `BENCH_DATABASE` only for MariaDB: a `mariadb` entry runs with `BENCH_DATABASE=mysql` (the MySQL wire protocol, the same fixture and driver) and `BENCH_DATABASE_SERVER=mariadb`. A fixture that has to tell the servers apart (Laravel's `mariadb` driver, the MariaDB JDBC driver) reads it. |
 
 `GET /ready` returns HTTP 200 after startup in all scenarios. Paths in this document are relative to the mount. Mount the real workbench at `/sendproof`. Publish the fixture's OpenAPI document at the framework's normal path, with `info.title` set to `Sendproof Conformance` and paths for the operations below. Its schemas must describe the request and response shapes used by this fixture. The runner discovers the actual document URL from capabilities.
 

@@ -27,6 +27,22 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+  # MariaDB 12.3 (the current long-term-support series). The MariaDB entries in bindings.json use the
+  # same drivers as the MySQL ones, against this server.
+  mariadb:
+    image: mariadb:12.3@sha256:4aaf88b3106382c8c18e49f0cec60267be618fc22f858c4503afb2a2555afed3
+    # Many bindings' fixtures and the load tests share this server; the default 151 connections ran out.
+    command: ['--max-connections=1000']
+    environment:
+      MARIADB_ROOT_PASSWORD: bench_local
+      MARIADB_ROOT_HOST: '%'
+    ports:
+      - '127.0.0.1:53307:3306'
+    healthcheck:
+      test: ['CMD', 'mariadb-admin', 'ping', '-h', '127.0.0.1', '-pbench_local', '--silent']
+      interval: 3s
+      timeout: 3s
+      retries: 30
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     platform: linux/amd64

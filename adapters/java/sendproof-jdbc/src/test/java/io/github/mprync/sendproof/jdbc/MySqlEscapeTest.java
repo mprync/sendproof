@@ -28,11 +28,14 @@ import org.junit.jupiter.api.Test;
 /**
  * The MySQL transaction escapes of spec/data-stores.md "Transaction-control statements from the handler", against the
  * compose MySQL ({@code docker compose -f tests/conformance/compose.yml up -d --wait mysql}, or {@code BENCH_MYSQL_URL}).
- * Tests skip, saying so, when it doesn't answer.
+ * With {@code BENCH_DATABASE_SERVER=mariadb} they run against the compose MariaDB ({@code BENCH_MARIADB_URL}) on MariaDB's
+ * own driver, and expect the provider to say {@code mariadb}. Tests skip, saying so, when the server doesn't answer.
  */
 class MySqlEscapeTest {
-    private static final String URL = System.getenv().getOrDefault("BENCH_MYSQL_URL",
-            "mysql://root:bench_local@127.0.0.1:53306/mysql");
+    private static final boolean MARIADB = "mariadb".equals(System.getenv("BENCH_DATABASE_SERVER"));
+    private static final String URL = MARIADB
+            ? System.getenv().getOrDefault("BENCH_MARIADB_URL", "mysql://root:bench_local@127.0.0.1:53307/mysql")
+            : System.getenv().getOrDefault("BENCH_MYSQL_URL", "mysql://root:bench_local@127.0.0.1:53306/mysql");
     private static String jdbcBase;
     private static String user;
     private static String password;
@@ -50,7 +53,7 @@ class MySqlEscapeTest {
         String[] credentials = uri.getUserInfo().split(":", 2);
         user = credentials[0];
         password = credentials.length > 1 ? credentials[1] : "";
-        jdbcBase = "jdbc:mysql://" + uri.getHost() + ":" + uri.getPort() + "/";
+        jdbcBase = (MARIADB ? "jdbc:mariadb://" : "jdbc:mysql://") + uri.getHost() + ":" + uri.getPort() + "/";
         try (Connection probe = DriverManager.getConnection(jdbcBase + "?connectTimeout=2000", user, password)) {
             available = probe.isValid(2);
         } catch (SQLException unreachable) {
@@ -62,10 +65,20 @@ class MySqlEscapeTest {
     void create() throws SQLException {
         assumeTrue(available, "MySQL isn't running: docker compose -f tests/conformance/compose.yml up -d --wait mysql");
         admin("CREATE DATABASE " + database);
-        var mysql = new MysqlDataSource();
-        mysql.setUrl(jdbcBase + database + "?allowMultiQueries=true");
-        mysql.setUser(user);
-        mysql.setPassword(password);
+        DataSource mysql;
+        if (MARIADB) {
+            var mariadb = new org.mariadb.jdbc.MariaDbDataSource();
+            mariadb.setUrl(jdbcBase + database + "?allowMultiQueries=true");
+            mariadb.setUser(user);
+            mariadb.setPassword(password);
+            mysql = mariadb;
+        } else {
+            var connector = new MysqlDataSource();
+            connector.setUrl(jdbcBase + database + "?allowMultiQueries=true");
+            connector.setUser(user);
+            connector.setPassword(password);
+            mysql = connector;
+        }
         raw = recording(mysql);
         try (Connection connection = mysql.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE items (id VARCHAR(40) PRIMARY KEY, name VARCHAR(100))");
@@ -85,7 +98,7 @@ class MySqlEscapeTest {
 
     @Test
     void theProviderKnowsItIsMySql() {
-        assertThat(provider.databaseSystem()).isEqualTo("mysql");
+        assertThat(provider.databaseSystem()).isEqualTo(MARIADB ? "mariadb" : "mysql");
     }
 
     @Test
@@ -300,7 +313,7 @@ class MySqlEscapeTest {
     }
 
     /** Hands out the driver's connections and remembers the last one, so a test can commit past every wrapper. */
-    private DataSource recording(MysqlDataSource target) {
+    private DataSource recording(DataSource target) {
         return new DataSource() {
             @Override
             public Connection getConnection() throws SQLException {

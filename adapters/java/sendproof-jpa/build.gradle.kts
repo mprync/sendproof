@@ -26,6 +26,7 @@ dependencies {
     testImplementation("com.h2database:h2")
     // MySqlJpaEscapeTest runs against the compose MySQL when it answers, and is skipped otherwise.
     testImplementation("com.mysql:mysql-connector-j")
+    testImplementation("org.mariadb.jdbc:mariadb-java-client")
     // SqlServerJpaTest runs against the compose SQL Server when it answers, and is skipped otherwise.
     testImplementation("com.microsoft.sqlserver:mssql-jdbc")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

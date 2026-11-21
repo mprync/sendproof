@@ -20,6 +20,8 @@ dependencies {
     runtimeOnly("com.h2database:h2")
     // The MySQL conformance entry (BENCH_DATABASE=mysql).
     runtimeOnly("com.mysql:mysql-connector-j")
+    // The MariaDB conformance entry (BENCH_DATABASE_SERVER=mariadb) uses MariaDB's own driver.
+    runtimeOnly("org.mariadb.jdbc:mariadb-java-client")
 }
 
 tasks.bootJar {

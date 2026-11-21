@@ -40,7 +40,7 @@ Route::get('/openapi/v1.json', function () {
             '/items/{id}/capture' => $action('Exceed capture limits'),
             '/items/{id}/ordinary' => $action('Send only'),
             '/items/{id}/commit' => $action('Insert then COMMIT'),
-            ...(config('database.default') === 'mysql' ? ['/items/{id}/escape' => $action('Insert, then commit implicitly (DDL or CALL)')] : []),
+            ...(in_array(config('database.default'), ['mysql', 'mariadb'], true) ? ['/items/{id}/escape' => $action('Insert, then commit implicitly (DDL or CALL)')] : []),
             '/accounts' =>['post' => $operation('Create account')],
             '/accounts/{id}' => ['get' => $operation('Read account', ['parameters' => [$id]])],
             '/items/{id}/remember' => $action('Insert, then write a guarded store'),
@@ -206,9 +206,9 @@ Route::middleware(['fixture.user', 'fixture.admin'])->group(function (): void {
         return response()->json(['id' => $id, 'name' => $data['name']], 201);
     })->sendproofPreview();
 
-    // MySQL only (the shared mysql-escape rule): inserts, then on the same connection runs a statement that
+    // MySQL and MariaDB only (the shared mysql-escape rule): inserts, then on the same connection runs a statement that
     // commits without saying COMMIT. Preview must refuse it before it is sent.
-    if (config('database.default') === 'mysql') {
+    if (in_array(config('database.default'), ['mysql', 'mariadb'], true)) {
         Route::post('/items/{id}/escape', function (Request $request, string $id) {
             $data = $request->validate(['name' => 'required|string|max:200', 'via' => 'required|in:ddl,call']);
             abort_unless(preg_match('/^\w+$/', $id) === 1, 400); // the id names a table below
