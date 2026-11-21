@@ -232,6 +232,10 @@ Each language's work, in order:
 
 MySQL deadlocks (error 1213) when three or more Previews insert the same new key at once and the first rolls back, at every isolation level. The Go, Rust, Python and Node MySQL providers now run one Preview at a time per process (see [verified databases](../bindings/databases.md)). Java, .NET, PHP and Ruby have no MySQL conformance entry yet: each of those helpers adds one for its main framework, applies the same per-process turn-taking to its MySQL provider with a regression test, and adds the new tests to the counts in `docs/bindings/databases.md`.
 
+### Also in each language's batch-one work: capabilities the UI needs
+
+Each binding fills two capabilities fields defined in `spec/capabilities.schema.json`: `binding` (its language and framework, so the workbench shows the `preview: false` snippet in the host's own language) and `database.system` (the SQL provider id, such as `sqlite` or `postgresql`, so the workbench shows the right store mark instead of guessing from the database name).
+
 ### Acceptance checks for each language
 
 - `node tests/conformance/run.mjs <binding-id>` passes with the compose services up, with no data-store or shared-rule check reported as not implemented, and the binding's other profiles still pass.
