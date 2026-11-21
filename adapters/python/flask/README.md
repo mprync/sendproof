@@ -38,8 +38,11 @@ Open `/bench/`. The workbench needs an OpenAPI document; Flask has none built in
 ## How it works
 
 `TestBench` wraps `app.wsgi_app`. A request to `/bench/_preview/<path>` with exactly
-`Prefer: tx=rollback` is matched against the app's own URL map, executed in-process by the same
-application, buffered (1 MiB cap), rolled back, and only then answered with the confirmed envelope.
+`Prefer: tx=rollback` is matched against the app's own URL map, executed in-process through the
+current `app.wsgi_app` chain (so WSGI middleware wrapped around Test Bench later also sees the
+target path), buffered (1 MiB cap), rolled back, and only then answered with the confirmed envelope.
+A `before_request` hook that runs first checks again that the request still reaches the marked view
+and method; a middleware that changed either gets a 409 and no view runs.
 `Prefer: trace` on the original URL commits normally and adds `X-TestBench-Trace` for a caller with
 a stable `Identity.subject`; fetch it from `/bench/_api/traces/{id}` as the same caller within
 `trace_ttl` seconds.

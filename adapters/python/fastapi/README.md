@@ -52,6 +52,11 @@ Open `/bench/`. Create the `TestBench` before the application starts serving req
   only the owner can, for five minutes by default (`trace_ttl`, 8 per owner, 32 in total).
 - **Middleware order.** `TestBench` appends its middleware as the innermost user middleware, so
   your session and authentication middleware have already run when it asks for an identity.
+- **Dispatch.** A preview is re-dispatched in-process through the whole application, so every
+  middleware (including path-based policies) sees the target path, with its own copy of the
+  session and state. Just before the router, Test Bench checks again that the request still
+  routes to the marked operation it checked first; a middleware that changed the method or path
+  gets a 409 and nothing runs.
 
 ## Options
 

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -9,13 +9,21 @@ description = "Test Bench workbench, rollback previews and observed sends for Fl
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Test Bench contributors" }]
-keywords = ["flask", "wsgi", "openapi", "testing", "rollback"]
+keywords = ["swagger", "api-testing", "flask", "wsgi", "openapi", "testing", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Framework :: Flask",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
@@ -23,3 +31,6 @@ dependencies = ["testbench-core==0.1.0a1", "flask>=2.3"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/testbench_flask"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/testbench_flask", "README.md", "LICENSE"]

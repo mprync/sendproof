@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -9,13 +9,21 @@ description = "Test Bench workbench, rollback previews and observed sends for Dj
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Test Bench contributors" }]
-keywords = ["django", "django-ninja", "djangorestframework", "openapi", "testing", "rollback"]
+keywords = ["swagger", "api-testing", "django", "django-ninja", "djangorestframework", "openapi", "testing", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Framework :: Django",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
@@ -23,3 +31,6 @@ dependencies = ["testbench-core==0.1.0a1", "django>=4.2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/testbench_django"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/testbench_django", "README.md", "LICENSE"]

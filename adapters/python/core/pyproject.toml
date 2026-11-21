@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -9,12 +9,20 @@ description = "Framework-neutral core of the Test Bench Python adapters: protoco
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Test Bench contributors" }]
-keywords = ["openapi", "testing", "api", "workbench", "rollback"]
+keywords = ["swagger", "api-testing", "openapi", "testing", "api", "workbench", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
@@ -26,5 +34,5 @@ packages = ["src/testbench_core"]
 artifacts = ["src/testbench_core/ui/**"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/testbench_core", "README.md"]
+include = ["src/testbench_core", "README.md", "LICENSE"]
 artifacts = ["src/testbench_core/ui/**"]

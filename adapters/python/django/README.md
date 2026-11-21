@@ -64,8 +64,11 @@ Unknown keys raise `ValueError` so typos are not silently ignored.
 ## How it works
 
 A request to `/bench/_preview/<path>` with exactly `Prefer: tx=rollback` is resolved with your
-URLconf, then sent through the remaining middleware and the real view, in-process, with
-`transaction.atomic()` open on every enrolled database. The response is buffered (1 MiB cap),
+URLconf, then a copy of the request is sent through the complete `MIDDLEWARE` chain and the real
+view, in-process, with `transaction.atomic()` open on every enrolled database. Every middleware,
+including path-based ones, sees the target path, and session changes stay on the copy, so they are
+neither saved by the outer `SessionMiddleware` nor sent as a cookie. Test Bench checks again, last
+in the chain, that the request still resolves to the marked view and method. The response is buffered (1 MiB cap),
 the atomic blocks are rolled back and confirmed, and only then does the middleware answer with the
 envelope. `Prefer: trace` on the original URL commits normally and adds `X-TestBench-Trace`; the
 same caller can fetch it from `/bench/_api/traces/{id}` until it expires.

@@ -31,6 +31,25 @@ dropped and flagged with `logsTruncated`, `effectsTruncated` or `changesTruncate
 effect data is replaced by `null` and flagged. SQL parameters named like secrets show `[REDACTED]`,
 and parameter values are hidden outside Development unless you opt in.
 
+## Redaction
+
+A name is secret when one of its words is `password`, `passwd`, `pwd`, `secret`, `token`, `hash`,
+`salt`, `credential(s)` or `apikey`, when `key` follows `api`, `private`, `secret`, `access`,
+`signing`, `encryption` or `client`, or when `key`, `data`, `id` or `token` follows `session`.
+Secret-named SQL parameters, every value of a statement that names a secret (for example any
+statement on Django's `django_session` table), and secret-named columns in change snapshots
+(`key`, `before`, `after`) always show `[REDACTED]`. Records from the `sqlalchemy.engine` and
+`django.db.backends` loggers are not captured, because they print bound values; the providers
+record each statement themselves with redaction applied.
+
+## Commit guard
+
+While a preview runs, providers refuse SQL that would end its transaction (`COMMIT`, `END`,
+`ROLLBACK` without `TO`, `SET autocommit`, the provider's own savepoint, and DDL that MySQL,
+MariaDB and Oracle commit implicitly) and refuse switching the connection to autocommit. The
+statement raises `PreviewRollbackError` before it reaches the database and the preview answers an
+unconfirmed 500 (`testbench_core.txguard`).
+
 ## Writing a data-layer provider
 
 Subclass `PreviewProvider`. `begin(scope)` must be cheap and synchronous, store its state in
