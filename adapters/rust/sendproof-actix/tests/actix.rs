@@ -10,13 +10,13 @@ use actix_web::{
     middleware::from_fn,
     test, web,
 };
+use sendproof_actix::{Config, Identity, Sendproof, SendproofLayer};
+use sendproof_sqlx::{Db, DbError, SqliteProvider};
 use serde_json::{Value, json};
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use sendproof_actix::{Config, Identity, Sendproof, SendproofLayer};
-use sendproof_sqlx::{Db, DbError, SqliteProvider};
 use tracing_subscriber::layer::SubscriberExt;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -241,9 +241,10 @@ async fn an_ordinary_request_is_attributed_for_the_store_hooks() {
     let pool = pool().await;
     let bench = bench(&pool, true);
     let app = test::init_service(
-        App::new()
-            .wrap(bench.middleware())
-            .service(web::resource("/attributed").route(web::get().to(|| async { HttpResponse::Ok().body(sendproof_core::stores::is_attributed().to_string()) }))),
+        App::new().wrap(bench.middleware()).service(
+            web::resource("/attributed")
+                .route(web::get().to(|| async { HttpResponse::Ok().body(sendproof_core::stores::is_attributed().to_string()) })),
+        ),
     )
     .await;
     let response = test::call_service(&app, test::TestRequest::get().uri("/attributed").to_request()).await;
