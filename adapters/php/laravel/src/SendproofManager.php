@@ -10,11 +10,15 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Contracts\PreviewProvider;
+use Sendproof\Core\Preview\NoSqlProvider;
+use Sendproof\Core\Stores\DataStore;
+use Sendproof\Core\Stores\Guard;
 use Sendproof\Core\Trace\FileTraceStore;
 use Sendproof\Core\Trace\TraceOwner;
 use Sendproof\Core\Trace\TraceStore;
 use Sendproof\Core\Ui\UiBundle;
 use Sendproof\Laravel\Eloquent\EloquentPreviewProvider;
+use Sendproof\Laravel\Stores\DataStores;
 
 /**
  * Application-level services for Sendproof: opt-in, identity, authorization, provider and effects.
@@ -29,6 +33,10 @@ final class SendproofManager
     private ?PreviewProvider $provider = null;
     private bool $providerResolved = false;
     private ?TraceStore $store = null;
+    private ?Guard $guard = null;
+    /** @var list<DataStore> */
+    private array $stores = [];
+    private bool $storesHooked = false;
 
     public function __construct(private readonly Application $app)
     {
@@ -100,6 +108,60 @@ final class SendproofManager
         }
 
         return $this->provider;
+    }
+
+    /**
+     * The provider a Preview runs on: the SQL provider, or when the application has none but hooked
+     * data stores, a stand-in that rolls nothing back, so a MongoDB-only or guard-only application
+     * can still Preview. A configured provider that can't enroll stays unavailable.
+     */
+    public function previewProvider(): ?PreviewProvider
+    {
+        $provider = $this->provider();
+
+        return $provider ?? ($this->stores !== [] ? new NoSqlProvider() : null);
+    }
+
+    /** The write guard every store hook calls; it resolves the current request's recorder on each call. */
+    public function guard(): Guard
+    {
+        return $this->guard ??= new Guard(fn (): Recorder => $this->app->make(Recorder::class));
+    }
+
+    /**
+     * Hooks the stores named in `sendproof.data_stores`, once. Called at boot when Sendproof is
+     * enabled, so applications that turn it off pay nothing and no client is touched.
+     */
+    public function hookDataStores(): void
+    {
+        if ($this->storesHooked) {
+            return;
+        }
+        $this->storesHooked = true;
+        $config = (array) $this->config('data_stores', []);
+        if ($config !== []) {
+            $this->stores = DataStores::hook($this->app, $config, $this->guard());
+        }
+    }
+
+    /** @return list<DataStore> The hooked data stores, in configuration order */
+    public function dataStores(): array
+    {
+        return $this->stores;
+    }
+
+    /**
+     * Hooks a DynamoDB client at runtime, for clients the container doesn't hold (a client built
+     * inside a service, or one per tenant). The client is guarded in place.
+     */
+    public function hookDynamoDb(\Aws\DynamoDb\DynamoDbClient $client, ?string $name = null): \Aws\DynamoDb\DynamoDbClient
+    {
+        \Sendproof\Core\Stores\DynamoDb\DynamoGuard::install($client, $this->guard());
+        if (!array_filter($this->stores, static fn (DataStore $store): bool => $store->system() === 'dynamodb')) {
+            $this->stores[] = new \Sendproof\Core\Stores\GuardOnlyStore('dynamodb', Guard::storeLabel($name));
+        }
+
+        return $client;
     }
 
     public function traces(): TraceStore

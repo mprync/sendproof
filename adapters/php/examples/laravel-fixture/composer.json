@@ -5,8 +5,12 @@
   "license": "MIT",
   "require": {
     "php": "^8.2",
+    "ext-mongodb": "*",
     "ext-pdo_sqlite": "*",
+    "aws/aws-sdk-php": "^3.300",
     "laravel/framework": "^11.0|^12.0|^13.0",
+    "mongodb/laravel-mongodb": "^5.0",
+    "predis/predis": "^2.2 || ^3.0",
     "sendproof/core": "*@dev",
     "sendproof/laravel": "*@dev"
   },

@@ -204,6 +204,8 @@
     {
       "id": "python-fastapi",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5361,
       "readiness": "/ready",
@@ -218,6 +220,8 @@
     {
       "id": "python-django",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5362,
       "readiness": "/ready",
@@ -228,6 +232,8 @@
     {
       "id": "python-flask",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5363,
       "readiness": "/ready",
@@ -273,7 +279,9 @@
         "php",
         "adapters/php/examples/laravel-fixture/serve.php"
       ],
-      "traceTtlMs": 5000
+      "traceTtlMs": 5000,
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"]
     },
     {
       "id": "php-symfony",
@@ -613,6 +621,8 @@
     {
       "id": "python-flask-sqlalchemy",
       "database": "sqlite",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5390,
       "readiness": "/ready",
@@ -627,6 +637,8 @@
     {
       "id": "python-flask-sqlalchemy-postgresql",
       "database": "postgresql",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5391,
       "readiness": "/ready",
@@ -641,6 +653,8 @@
     {
       "id": "python-flask-sqlalchemy-mysql",
       "database": "mysql",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "python",
       "port": 5392,
       "readiness": "/ready",

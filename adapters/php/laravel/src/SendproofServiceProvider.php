@@ -17,6 +17,7 @@ use Sendproof\Laravel\Eloquent\EloquentPreviewProvider;
 use Sendproof\Laravel\Http\AllowPreview;
 use Sendproof\Laravel\Http\AuthorizeWorkbench;
 use Sendproof\Laravel\Http\PreviewMiddleware;
+use Sendproof\Laravel\Http\PreviewUnavailable;
 use Sendproof\Laravel\Http\WorkbenchController;
 
 /**
@@ -36,6 +37,7 @@ final class SendproofServiceProvider extends ServiceProvider
             $app->make(ChangeCollector::class),
             (array) $app['config']->get('sendproof.connections', [null]),
             $app['config']->get('sendproof.database_label'),
+            fn (): Recorder => $app->make(Recorder::class),
         ));
     }
 
@@ -52,21 +54,31 @@ final class SendproofServiceProvider extends ServiceProvider
             $kernel->prependMiddleware(PreviewMiddleware::class);
         }
 
-        if ($this->app->make(SendproofManager::class)->enabled() && !$this->app->routesAreCached()) {
-            $this->mountRoutes();
+        $manager = $this->app->make(SendproofManager::class);
+        if ($manager->enabled()) {
+            // Only an enabled environment touches a data store client.
+            $manager->hookDataStores();
+            if (!$this->app->routesAreCached()) {
+                $this->mountRoutes();
+            }
         }
     }
 
-    /** Adds `->sendproofPreview()` to routes and route groups. */
+    /**
+     * Adds `->sendproofPreview()` to routes and route groups. `->sendproofPreview(false, 'Clears the
+     * Redis session')` marks the operation `preview: false` instead: the workbench shows the reason
+     * before anyone tries and a Preview of it is refused without running the handler. Give a
+     * reason, the `stores` it writes, or both.
+     */
     private function registerMacros(): void
     {
-        RouteDefinition::macro('sendproofPreview', function () {
+        RouteDefinition::macro('sendproofPreview', function (bool $enabled = true, ?string $reason = null, array $stores = []) {
             /** @var RouteDefinition $this */
-            return $this->middleware(AllowPreview::class);
+            return $this->middleware($enabled ? AllowPreview::class : PreviewUnavailable::using($reason, $stores));
         });
-        RouteRegistrar::macro('sendproofPreview', function () {
+        RouteRegistrar::macro('sendproofPreview', function (bool $enabled = true, ?string $reason = null, array $stores = []) {
             /** @var RouteRegistrar $this */
-            return $this->middleware(AllowPreview::class);
+            return $this->middleware($enabled ? AllowPreview::class : PreviewUnavailable::using($reason, $stores));
         });
     }
 

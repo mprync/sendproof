@@ -6,6 +6,7 @@ namespace Sendproof\Laravel\Eloquent;
 
 use Illuminate\Database\Connection;
 use Sendproof\Core\Contracts\PreviewSession;
+use Sendproof\Core\Preview\PreviewTurn;
 
 /**
  * A rollback-only transaction on one or more connections.
@@ -18,8 +19,11 @@ final class EloquentSession implements PreviewSession
 {
     private bool $disposed = false;
 
-    /** @param list<array{0:Connection,1:int}> $enrolled Connection and its level before the preview */
-    public function __construct(private readonly array $enrolled, private readonly ChangeCollector $collector)
+    /**
+     * @param list<array{0:Connection,1:int}> $enrolled Connection and its level before the preview
+     * @param list<PreviewTurn> $turns The MySQL turns this Preview holds, handed back once its transactions have ended
+     */
+    public function __construct(private readonly array $enrolled, private readonly ChangeCollector $collector, private readonly array $turns = [])
     {
     }
 
@@ -52,6 +56,8 @@ final class EloquentSession implements PreviewSession
             }
         }
 
+        // The transaction has ended, so the next Preview may start.
+        $this->releaseTurns();
         if ($failure !== null) {
             throw $failure;
         }
@@ -72,6 +78,14 @@ final class EloquentSession implements PreviewSession
             } catch (\Throwable) {
                 // Best effort. The preview was already withheld when rollback failed earlier.
             }
+        }
+        $this->releaseTurns();
+    }
+
+    private function releaseTurns(): void
+    {
+        foreach ($this->turns as $turn) {
+            $turn->release();
         }
     }
 

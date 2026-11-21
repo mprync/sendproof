@@ -23,7 +23,10 @@ final class WorkbenchTest extends TestCase
         $this->assertContains(['method' => 'POST', 'path' => '/widgets'], $capabilities['previewOperations']);
         $this->assertContains(['method' => 'PATCH', 'path' => '/widgets/{id}'], $capabilities['previewOperations']);
         $this->assertNotContains(['method' => 'POST', 'path' => '/widgets/{id}/ordinary'], $capabilities['previewOperations']);
-        $this->assertSame(':memory:', $capabilities['database']);
+        $this->assertSame(['name' => ':memory:', 'system' => 'sqlite'], $capabilities['database']);
+        $this->assertSame(['language' => 'php', 'framework' => 'Laravel'], $capabilities['binding']);
+        $this->assertArrayNotHasKey('dataStores', $capabilities);
+        $this->assertArrayNotHasKey('previewUnavailable', $capabilities);
     }
 
     public function testAnonymousDiscoveryHasNoIdentity(): void

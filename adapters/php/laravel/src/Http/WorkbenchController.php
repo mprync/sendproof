@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Symfony\Component\HttpFoundation\Response;
 use Sendproof\Core\Capabilities;
+use Sendproof\Core\Contracts\DescribesDatabaseSystem;
 use Sendproof\Core\Protocol;
 use Sendproof\Laravel\SendproofManager;
 
@@ -56,7 +57,7 @@ final class WorkbenchController
     {
         $base = $request->getBaseUrl();
         $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         $available = $provider !== null && $provider->isAvailable();
         $openApi = $withBase((string) $this->manager->config('openapi_url', '/openapi/v1.json'));
         $apiName = $this->manager->config('api_name') ?? $this->app->make('config')->get('app.name', 'API');
@@ -73,6 +74,10 @@ final class WorkbenchController
                 'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => isset($entry['url']) ? $withBase((string) $entry['url']) : null,
             ], (array) $this->manager->config('auth_providers', [])),
             $available ? $this->operations() : [],
+            ['language' => 'php', 'framework' => 'Laravel'],
+            array_map(static fn (\Sendproof\Core\Stores\DataStore $store): array => $store->describe(), $this->manager->dataStores()),
+            $available ? $this->unavailable() : [],
+            $provider instanceof DescribesDatabaseSystem ? $provider->databaseSystem() : null,
         );
 
         return $this->json($capabilities);
@@ -102,6 +107,34 @@ final class WorkbenchController
             foreach ($route->methods() as $method) {
                 if ($method !== 'HEAD') {
                     $operations[$method . ' ' . $path] = ['method' => $method, 'path' => $path];
+                }
+            }
+        }
+        uasort($operations, static fn (array $a, array $b): int => [$a['path'], $a['method']] <=> [$b['path'], $b['method']]);
+
+        return array_values($operations);
+    }
+
+    /**
+     * Operations marked `preview: false` (`->sendproofPreview(false, 'reason')`), with the reason the UI shows.
+     *
+     * @return list<array{method:string,path:string,reason:string,stores?:list<string>}>
+     */
+    private function unavailable(): array
+    {
+        $operations = [];
+        foreach ($this->router->getRoutes()->getRoutes() as $route) {
+            $mark = null;
+            foreach ($this->router->gatherRouteMiddleware($route) as $middleware) {
+                $mark ??= PreviewUnavailable::decode($middleware);
+            }
+            if ($mark === null || PreviewMiddleware::isMarked($this->router, $route)) {
+                continue;
+            }
+            $path = '/' . ltrim(preg_replace('/\{(\w+)\?\}/', '{$1}', $route->uri()), '/');
+            foreach ($route->methods() as $method) {
+                if ($method !== 'HEAD') {
+                    $operations[$method . ' ' . $path] = ['method' => $method, 'path' => $path, 'reason' => $mark['reason']] + (isset($mark['stores']) ? ['stores' => $mark['stores']] : []);
                 }
             }
         }

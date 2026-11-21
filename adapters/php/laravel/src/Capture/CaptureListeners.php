@@ -10,10 +10,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Database\Events\TransactionCommitting;
 use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Log\Events\MessageLogged;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Capture\SqlRedactor;
+use Sendproof\Core\Stores\PreviewTransactionControlException;
 use Sendproof\Laravel\Eloquent\ChangeCollector;
 
 /**
@@ -46,6 +48,7 @@ final class CaptureListeners
                 }
             });
         }
+        $events->listen(TransactionCommitting::class, fn (TransactionCommitting $event) => $this->committing($event));
         $events->listen(TransactionBeginning::class, fn () => $this->app->make(ChangeCollector::class)->transactionBegan());
         $events->listen(TransactionCommitted::class, fn () => $this->app->make(ChangeCollector::class)->transactionCommitted());
         $events->listen(TransactionRolledBack::class, fn () => $this->app->make(ChangeCollector::class)->transactionRolledBack());
@@ -54,10 +57,29 @@ final class CaptureListeners
         }
     }
 
+    /**
+     * Refuses a handler's `DB::commit()` that would commit the Preview transaction itself: Laravel
+     * fires this event just before the real commit, so throwing keeps the commit from happening.
+     * A commit at a deeper level only releases a nested transaction and is allowed.
+     */
+    private function committing(TransactionCommitting $event): void
+    {
+        $recorder = $this->app->make(Recorder::class);
+        if (!$recorder->isPreview() || $event->connection->transactionLevel() !== 1 || $event->connection->getDriverName() === 'mongodb') {
+            return;
+        }
+        $error = new PreviewTransactionControlException('A commit that would end the Preview transaction was refused during Preview.');
+        $recorder->refuse($error);
+
+        throw $error;
+    }
+
     private function query(QueryExecuted $event): void
     {
         $recorder = $this->app->make(Recorder::class);
-        if (!$recorder->isCapturing() || preg_match('/^\s*(?:release\s+|rollback\s+to\s+)?savepoint\b/i', $event->sql)) {
+        // MongoDB commands arrive as query events too, but they are logged as `Db` entries by the
+        // store hook, and their text carries the command's values.
+        if (!$recorder->isCapturing() || $event->connection->getDriverName() === 'mongodb' || preg_match('/^\s*(?:release\s+|rollback\s+to\s+)?savepoint\b/i', $event->sql)) {
             return;
         }
 

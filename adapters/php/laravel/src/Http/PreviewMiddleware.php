@@ -104,7 +104,7 @@ final class PreviewMiddleware
         if (!$this->sameOrigin($request)) {
             return $this->problem(403, 'This preview is forbidden.');
         }
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         if ($provider === null || !$provider->isAvailable()) {
             return $this->problem(503, 'Preview requires one available preview provider.');
         }
@@ -113,7 +113,7 @@ final class PreviewMiddleware
         $inner->attributes->set(AllowPreview::STATE, $state);
         $inner->attributes->set(AllowPreview::MODE, 'preview');
         $runner = new PreviewRunner($this->manager->recorder(), $this->reporter());
-        $result = $runner->run($provider, $state, fn (): CapturedResponse => $this->dispatch($request, $inner, $next), $inner);
+        $result = $runner->run($provider, $state, fn (): CapturedResponse => $this->dispatch($request, $inner, $next), $inner, $this->manager->dataStores());
 
         return $this->respond($result);
     }
@@ -138,7 +138,7 @@ final class PreviewMiddleware
         } catch (Throwable) {
             return null;
         }
-        $provider = $this->manager->provider();
+        $provider = $this->manager->previewProvider();
         if (!self::isMarked($this->router, $route) || !in_array($request->getMethod(), $route->methods(), true)
             || $provider === null || !$provider->isAvailable()) {
             return null;
@@ -219,6 +219,13 @@ final class PreviewMiddleware
 
     private function respond(PreviewResult $result): Response
     {
+        if ($result->blocked !== null) {
+            // The write guard stopped the Preview: 409 problem+json, never a confirmation.
+            $response = new JsonResponse($result->problem(), 409, ['Cache-Control' => 'no-store']);
+            $response->headers->set('Content-Type', 'application/problem+json');
+
+            return $response;
+        }
         if (!$result->isConfirmed()) {
             return $this->problem($result->status, $result->title, $result->headers);
         }
