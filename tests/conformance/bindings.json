@@ -244,6 +244,8 @@
     {
       "id": "java-spring",
       "database": "h2",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "java",
       "port": 5364,
       "readiness": "/ready",
@@ -257,8 +259,23 @@
       "startupMs": 60000
     },
     {
+      "id": "java-spring-mysql",
+      "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "java",
+      "port": 5440,
+      "readiness": "/ready",
+      "prepare": "sh adapters/java/scripts/gradle.sh :spring-fixture:bootJar",
+      "test": "sh adapters/java/scripts/gradle.sh test",
+      "start": ["sh", "adapters/java/scripts/run-fixture.sh"],
+      "traceTtlMs": 5000,
+      "startupMs": 60000
+    },
+    {
       "id": "kotlin-ktor",
       "database": "h2",
+      "stores": ["mongodb", "redis", "dynamodb"],
+      "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "java",
       "port": 5376,
       "readiness": "/ready",
@@ -284,10 +301,6 @@
       "sharedRules": ["secret-columns", "raw-commit"]
     },
     {
-      "id": "php-symfony",
-      "database": "sqlite",
-      "toolchain": "php",
-    {
       "id": "php-laravel-mysql",
       "database": "mysql",
       "toolchain": "php",
@@ -302,6 +315,10 @@
       "traceTtlMs": 5000,
       "sharedRules": ["secret-columns", "raw-commit"]
     },
+    {
+      "id": "php-symfony",
+      "database": "sqlite",
+      "toolchain": "php",
       "port": 5374,
       "readiness": "/ready",
       "prepare": "sh adapters/php/scripts/prepare.sh",
