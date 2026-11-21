@@ -1,0 +1,33 @@
+{
+  "$comment": "Write-guard classification for Apache Cassandra (and ScyllaDB, which speaks the same CQL and native protocol), shared by every binding. Sourced from the Apache Cassandra 5.0 CQL reference (cassandra.apache.org/doc/5.0/cassandra/developing/cql/, statement grammar in Cql.g) and the CQL native protocol v4 and v5 specifications (native_protocol_v4.spec, native_protocol_v5.spec). The unit is a CQL statement's first keyword; protocol messages that carry no statement are listed separately. Anything not listed is a write. See spec/data-stores.md.",
+  "store": "cassandra",
+  "version": 1,
+  "source": "Apache Cassandra 5.0 CQL reference and CQL native protocol v4/v5",
+  "default": "write",
+  "keyFormat": "The statement's first keyword in upper case, after skipping whitespace, -- and // line comments and /* */ block comments. LIST takes its next word too (LIST ROLES, LIST ALL). The write list is for reference only: anything that is not a read is a write.",
+  "read": ["SELECT", "USE", "DESCRIBE", "DESC", "LIST ROLES", "LIST USERS", "LIST PERMISSIONS", "LIST ALL", "LIST SUPERUSERS"],
+  "write": ["INSERT", "UPDATE", "DELETE", "BATCH", "TRUNCATE", "CREATE", "ALTER", "DROP", "GRANT", "REVOKE", "ADD"],
+  "operationName": {
+    "rule": "db.operation.name is the key above; a statement that starts with BEGIN (BEGIN BATCH, BEGIN UNLOGGED BATCH, BEGIN COUNTER BATCH) is named BATCH, and the BATCH protocol message is named BATCH. Text the binding can't read is named by its first word, or UNKNOWN when there is none."
+  },
+  "protocol": {
+    "$comment": "Native protocol messages. A hook below the statement API (a driver request handler or a wire wrapper) classifies the message first.",
+    "session": ["STARTUP", "OPTIONS", "REGISTER", "AUTH_RESPONSE", "PREPARE"],
+    "statement": {
+      "QUERY": "Classify the statement text.",
+      "EXECUTE": "Classify the text the binding saw when the id was prepared. An id the binding never saw prepared is a write."
+    },
+    "write": ["BATCH"]
+  },
+  "rules": [
+    "A read only when the whole text is one statement whose key is listed under read. A second statement after a semicolon (outside quotes, comments and $$ strings) makes the text a write.",
+    "Every BATCH is a write: a batch can only hold INSERT, UPDATE and DELETE, and an empty batch is still refused. This covers BEGIN BATCH text sent as a QUERY and the BATCH protocol message, whose inner statements may be prepared ids the hook can't read.",
+    "A lightweight transaction (INSERT ... IF NOT EXISTS, UPDATE ... IF, DELETE ... IF) is a write even when its condition fails and nothing is applied.",
+    "USE only changes the connection's keyspace, so it is allowed and logged like a read.",
+    "SELECT ... JSON and SELECT with user-defined functions or aggregates are reads: CQL functions can't write."
+  ],
+  "notes": {
+    "Preview": "Cassandra has no rollback, so it runs in guard mode only. A logged batch makes its statements all-or-nothing; it can't be held back and discarded.",
+    "DDL": "CREATE, ALTER and DROP of keyspaces, tables, indexes, materialized views, types, functions, aggregates, triggers, roles and users are writes, as are GRANT, REVOKE and Cassandra 5's ADD IDENTITY and DROP IDENTITY."
+  }
+}
