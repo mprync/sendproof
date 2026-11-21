@@ -623,3 +623,25 @@ async def test_a_preview_in_a_worker_thread_with_a_sync_client_crosses_the_conte
     result, error = await arun_preview([store], handler)
     assert error is None and [c.key["_id"] for c in result.store_changes] == ["thread"]
     assert reader["documents"].find_one({"_id": "thread"}) is None
+
+
+async def test_an_async_preview_that_outlives_its_time_limit_is_aborted_and_never_confirmed(database, reader):
+    from pymongo import AsyncMongoClient
+
+    from store_support import MONGODB_URL
+
+    client = AsyncMongoClient(MONGODB_URL)
+    store = mongo_store(client, preview_timeout=0.3)
+    documents = store.client[database]["documents"]
+
+    async def handler(scope):
+        await documents.insert_one({"_id": "first"})
+        await asyncio.sleep(0.8)  # a handler stuck past the limit
+        with pytest.raises(PreviewTransactionControl):
+            await documents.insert_one({"_id": "second"})
+
+    scope, error = await arun_preview([store], handler)
+    assert error is None and scope.capture.fault is not None and "longer than" in str(scope.capture.fault)
+    assert scope.store_changes == []  # the transaction was aborted: nothing to report, nothing to confirm
+    assert reader["documents"].count_documents({}) == 0
+    await client.close()

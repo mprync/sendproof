@@ -232,7 +232,9 @@ class MongoMonitor(monitoring.CommandListener):
         state = _state_of(lsid)
         context = current_scope()
         scope = context if context is not None else (state.scope if state is not None else None)
-        preview = scope if scope is not None and scope.rollback else None
+        if scope is None:  # nothing to guard or log: the common case for an application's ordinary traffic
+            return
+        preview = scope if scope.rollback else None
         kind, _ = classify_mongo(command if command else {name: 1}, frozenset(_extra_reads) or None)
         if preview is not None:
             if _ends_transaction(lower):
@@ -243,7 +245,7 @@ class MongoMonitor(monitoring.CommandListener):
                         f"A MongoDB {name} reached the server during a Preview; the Preview can't be confirmed."))
             elif kind == WRITE:
                 self._watch_write(preview, state, command, event.database_name, lower)
-        if kind == SESSION or lower in _SENSITIVE or _ends_transaction(lower) or scope is None:
+        if kind == SESSION or lower in _SENSITIVE or _ends_transaction(lower):
             return
         target = command.get(name) if isinstance(command.get(name), str) else None
         body = {key: value for key, value in command.items() if key not in _ENVELOPE}
