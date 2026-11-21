@@ -47,6 +47,7 @@ import io.ktor.util.pipeline.PipelineContext
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -158,13 +159,21 @@ internal class SendproofRuntime(private val application: Application, private va
                 io.github.mprync.sendproof.jdbc.JdbcScope.holder().asContextElement(scope),
         ) {
             try {
-                application.execute(inner, Unit)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                failure = error
+                try {
+                    application.execute(inner, Unit)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    failure = error
+                }
+                inner.response.await()
+            } catch (cancelled: CancellationException) {
+                // A client that went away, a timeout or a cancelled parent job: the Preview is never confirmed, but every
+                // store is still aborted, SQL rolled back and the MySQL Preview turn handed on before the cancellation
+                // continues. NonCancellable lets the cleanup run in a coroutine that is already cancelled.
+                withContext(NonCancellable + Dispatchers.IO) { execution.finish(inner.response.captured(), cancelled) }
+                throw cancelled
             }
-            inner.response.await()
             // Rolling back and capturing store changes block on I/O, so they run off the request's event loop.
             withContext(Dispatchers.IO) { execution.finish(inner.response.captured(), failure) }
         }

@@ -67,6 +67,39 @@ private class FakeTransactional : DataStore {
     }
 }
 
+/** Counts what the plugin does to a store and a SQL provider, so a cleanup step that is skipped shows up. */
+private class Cleanup : DataStore, io.github.mprync.sendproof.core.PreviewProvider {
+    val steps = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+    override fun system() = "mongodb"
+
+    override fun describe() = DataStore.Description("mongodb", "catalog", "preview", null)
+
+    override fun begin(capture: RequestCapture) = object : io.github.mprync.sendproof.core.DataStoreSession {
+        override fun finish(capture: RequestCapture) {
+            steps += "store finish"
+        }
+
+        override fun close() {
+            steps += "store close"
+        }
+    }
+
+    override fun isAvailable() = true
+
+    override fun begin() = object : io.github.mprync.sendproof.core.PreviewSession {
+        override fun changes() = emptyList<PreviewChange>()
+
+        override fun rollback() {
+            steps += "sql rollback"
+        }
+
+        override fun close() {
+            steps += "sql close"
+        }
+    }
+}
+
 class StoresTest {
     private fun Application.app(vararg stores: DataStore, swallow: Boolean = false, withProvider: Boolean = false) {
         install(Sendproof) {
@@ -116,6 +149,34 @@ class StoresTest {
     private val rollback = "Prefer" to "tx=rollback"
 
     private suspend fun HttpResponse.json(): JsonNode = Json.MAPPER.readTree(bodyAsText())
+
+    @Test
+    fun aCancelledHandlerStillAbortsEveryStoreAndRollsBackSql() = testApplication {
+        val cleanup = Cleanup()
+        application {
+            install(Sendproof) {
+                enabled = true
+                provider = cleanup
+                dataStores += cleanup
+            }
+            routing {
+                route("/slow") {
+                    sendproofPreview {
+                        // A client that went away, a timeout or a cancelled parent job ends the handler like this.
+                        post { throw kotlinx.coroutines.CancellationException("The client went away.") }
+                    }
+                }
+            }
+        }
+        val response = runCatching { send(HttpMethod.Post, "/sendproof/_preview/slow", rollback) }.getOrNull()
+        assertTrue(response == null || response.status != HttpStatusCode.OK, "A cancelled Preview is never confirmed")
+        // Cleanup may finish just after the call unwinds.
+        val deadline = System.nanoTime() + 5_000_000_000
+        while (cleanup.steps.size < 4 && System.nanoTime() < deadline) {
+            Thread.sleep(10)
+        }
+        assertEquals(listOf("store finish", "sql rollback", "store close", "sql close"), cleanup.steps.toList())
+    }
 
     @Test
     fun aPreviewRunsWithoutASqlProviderWhenOnlyStoresAreHooked() = testApplication {
