@@ -3,6 +3,7 @@
 // Terms: request = अनुरोध, response = प्रतिक्रिया, operation = ऑपरेशन, model = मॉडल,
 // property = प्रॉपर्टी, attribute = एट्रिब्यूट, parameter = पैरामीटर, field = फ़ील्ड.
 import capture from './hi-capture.js';
+import stores from './hi-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'दिन', month: 'माह', year: 'वर्ष' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'फिर',
     'unit.bytes': '{n} B',

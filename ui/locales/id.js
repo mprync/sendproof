@@ -1,6 +1,7 @@
 // Indonesian UI strings. Missing keys fall back to English (en.js).
 // Indonesian has no grammatical plural, so every plural entry carries only the `other` form.
 import capture from './id-capture.js';
+import stores from './id-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'hh', month: 'bb', year: 'tttt' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'lalu',
     'unit.bytes': '{n} B',

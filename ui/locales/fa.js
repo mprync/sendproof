@@ -1,6 +1,7 @@
 // Persian (Farsi) UI strings (right to left). Missing keys fall back to English (en.js).
 // Persian has two plural categories (one, other); Intl.PluralRules picks the right one.
 import capture from './fa-capture.js';
+import stores from './fa-stores.js';
 
 export default {
   dir: 'rtl',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'روز', month: 'ماه', year: 'سال' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'سپس',
     'unit.bytes': '{n} B',

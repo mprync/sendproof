@@ -3,6 +3,7 @@
 // esikatselu (preview), lähetä (send), operaatio (operation), malli (model), ominaisuus (property),
 // attribuutti (attribute), parametri (parameter).
 import capture from './fi-capture.js';
+import stores from './fi-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'pp', month: 'kk', year: 'vvvv' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'sitten',
     'unit.bytes': '{n} t',

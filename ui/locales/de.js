@@ -1,5 +1,6 @@
 // German UI strings. Missing keys fall back to English (en.js).
 import capture from './de-capture.js';
+import stores from './de-stores.js';
 
 export default {
   dir: 'ltr',
@@ -7,6 +8,7 @@ export default {
   dateLetters: { day: 'TT', month: 'MM', year: 'JJJJ' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'dann',
     'unit.bytes': '{n} B',

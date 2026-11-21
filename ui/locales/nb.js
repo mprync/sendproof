@@ -1,6 +1,7 @@
 // Norske (bokmål) UI-strenger. Manglende nøkler faller tilbake til engelsk (en.js).
 // Terminologi: forespørsel, svar, felt, skjema, logg inn, forhåndsvisning, send, operasjon, modell, egenskap, attributt, parameter.
 import capture from './nb-capture.js';
+import stores from './nb-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'åååå' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'deretter',
     'unit.bytes': '{n} B',

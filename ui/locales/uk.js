@@ -1,6 +1,7 @@
 // Ukrainian UI strings. Missing keys fall back to English (en.js).
 // Plural entries use Intl.PluralRules('uk') categories: one, few, many, other (other is for fractions).
 import capture from './uk-capture.js';
+import stores from './uk-stores.js';
 
 export default {
   dir: 'ltr',
@@ -9,6 +10,7 @@ export default {
   dateLetters: { day: 'дд', month: 'мм', year: 'рррр' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'потім',
     'unit.bytes': '{n} Б',

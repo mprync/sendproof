@@ -3,6 +3,7 @@
 // 发送 Send, 操作 operation, 模型 model, 属性 property/attribute, 参数 parameter, 标头 header.
 // Chinese has a single plural category, so every plural entry carries only `other`.
 import capture from './zh-Hans-capture.js';
+import stores from './zh-Hans-stores.js';
 
 export default {
   dir: 'ltr',
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: '日', month: '月', year: '年' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': '然后',
     'unit.bytes': '{n} B',

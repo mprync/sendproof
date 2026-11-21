@@ -2,6 +2,7 @@
 // Terms: request 요청, response 응답, field 필드, schema 스키마, sign in 로그인, preview 미리보기,
 // send 전송, operation 작업, model 모델, property 속성, attribute 속성, parameter 매개변수.
 import capture from './ko-capture.js';
+import stores from './ko-stores.js';
 
 export default {
   dir: 'ltr',
@@ -10,6 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'yyyy' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': '그다음',
     'unit.bytes': '{n} B',

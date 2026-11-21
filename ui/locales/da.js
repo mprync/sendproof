@@ -2,6 +2,7 @@
 // Terminology: anmodning (request), svar (response), felt (field), skema (schema), log ind (sign in),
 // forhåndsvisning (preview), operation, model, egenskab (property), attribut (attribute), parameter.
 import capture from './da-capture.js';
+import stores from './da-stores.js';
 
 export default {
   dir: 'ltr',
@@ -10,6 +11,7 @@ export default {
   dateLetters: { day: 'dd', month: 'mm', year: 'åååå' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'derefter',
     'unit.bytes': '{n} B',

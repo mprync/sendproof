@@ -2,6 +2,7 @@
 // Hebrew has three plural forms (one, two, other); Intl.PluralRules picks the right one.
 // Actions are gender-neutral: buttons and menu items use nouns, instructions use the plural imperative.
 import capture from './he-capture.js';
+import stores from './he-stores.js';
 
 /** A plural entry from the three Hebrew forms, in the order one, two, other. */
 const p = (one, two, other) => ({ one, two, other });
@@ -13,6 +14,7 @@ export default {
   dateLetters: { day: 'יום', month: 'חודש', year: 'שנה' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'ואז',
     'unit.bytes': '{n} B',

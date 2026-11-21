@@ -1,6 +1,7 @@
 // Arabic UI strings (right to left). Missing keys fall back to English (en.js).
 // Arabic has six plural forms; Intl.PluralRules picks the right one.
 import capture from './ar-capture.js';
+import stores from './ar-stores.js';
 
 /** A plural entry from the six Arabic forms, in the order zero, one, two, few, many, other. */
 const p = (zero, one, two, few, many, other) => ({ zero, one, two, few, many, other });
@@ -11,6 +12,7 @@ export default {
   dateLetters: { day: 'يوم', month: 'شهر', year: 'سنة' },
   strings: {
     ...capture,
+    ...stores,
     'app.name': 'Sendproof',
     'kbd.then': 'ثم',
     'unit.bytes': '{n} B',
