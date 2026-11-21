@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
 };
 
 use mongodb::{
@@ -14,6 +14,10 @@ use tokio::task::JoinHandle;
 
 /// The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode.
 pub const STANDALONE_REASON: &str = "Preview unavailable: this MongoDB server doesn't support transactions";
+
+/// The reason a client whose command monitoring never saw its own `hello` can't Preview: the tripwire
+/// isn't on it, so an escaped write would go unseen.
+pub const UNMONITORED_REASON: &str = "Preview unavailable: command monitoring isn't installed on this MongoDB client";
 
 /// The reason for a command MongoDB refuses inside a transaction.
 pub fn refused_reason(operation: &str) -> String {
@@ -156,6 +160,9 @@ pub(crate) struct Shared {
     /// task, with the request's task-local capture) finds the Preview a command belongs to.
     pub previews: Mutex<HashMap<usize, Arc<PreviewState>>>,
     pub pending: Mutex<HashMap<i32, Pending>>,
+    /// Set when monitoring saw this client's own detection `hello`: proof the tripwire is installed on
+    /// the guarded client itself.
+    pub monitored: AtomicBool,
 }
 
 /// The registry key of a Preview's recorder.
@@ -165,7 +172,7 @@ pub(crate) fn key(recorder: &Arc<Recorder>) -> usize {
 
 impl Shared {
     pub fn new(reads: HashSet<String>) -> Arc<Self> {
-        Arc::new(Self { reads, previews: Mutex::default(), pending: Mutex::default() })
+        Arc::new(Self { reads, previews: Mutex::default(), pending: Mutex::default(), monitored: AtomicBool::new(false) })
     }
 
     fn registry(&self) -> MutexGuard<'_, HashMap<usize, Arc<PreviewState>>> {

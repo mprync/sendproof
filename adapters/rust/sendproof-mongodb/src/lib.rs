@@ -77,7 +77,7 @@ use sendproof_core::{
 pub use classify::{Classification, classify_mongo};
 pub use engine::DEFAULT_PREVIEW_TIMEOUT;
 pub use handle::{MongoCollection, MongoDatabase};
-pub use preview::{STANDALONE_REASON, refused_reason};
+pub use preview::{STANDALONE_REASON, UNMONITORED_REASON, refused_reason};
 pub use sanitize::sanitize_document;
 
 #[cfg(feature = "actix")]

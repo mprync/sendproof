@@ -36,6 +36,8 @@ use crate::{
 tokio::task_local! {
     /// Set while the engine itself talks to the server, so monitoring ignores those commands.
     pub(crate) static INTERNAL: ();
+    /// Set while the engine sends its detection `hello`, which monitoring must see.
+    pub(crate) static DETECTING: ();
 }
 
 /// Whether the current task is running an engine-internal command.
@@ -108,10 +110,13 @@ impl Shared {
     }
 
     fn started(&self, command: &Document, name: &str, database: &str, request_id: i32) {
+        let lower = name.to_lowercase();
         if internal() {
+            if lower == "hello" && DETECTING.try_with(|()| ()).is_ok() {
+                self.monitored.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
             return;
         }
-        let lower = name.to_lowercase();
         let kind = classify_mongo(command, Some(&self.reads)).kind;
         // A command carrying a Preview's session belongs to that Preview even when it was sent from a task
         // the handler spawned, which has no task-local capture.

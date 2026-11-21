@@ -21,9 +21,9 @@ use sendproof_core::{BoxError, BoxFuture, Changes, PreviewSession, capture::Reco
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{
-    monitor::INTERNAL,
+    monitor::{DETECTING, INTERNAL},
     plain,
-    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared},
+    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared, UNMONITORED_REASON},
 };
 
 /// The default Preview time limit: below the server's 60-second `transactionLifetimeLimitSeconds`, so
@@ -44,6 +44,10 @@ const NO_SUCH_TRANSACTION: i32 = 251;
 pub(crate) struct Detected {
     pub mode: Mode,
     pub reason: Option<&'static str>,
+    /// `false` when the client's own `hello` came back without reaching its command monitor: the
+    /// tripwire isn't on this client, so it never begins a Preview. (An unreachable server proves
+    /// nothing either way, and a write can't reach it.)
+    pub monitored: bool,
 }
 
 /// One engine per hooked client.
@@ -80,12 +84,18 @@ impl Engine {
         if let Some(known) = detected.as_ref() {
             return known.clone();
         }
-        let hello = INTERNAL.scope((), async { self.client.database("admin").run_command(doc! { "hello": 1 }).await }).await;
-        let guard = Detected { mode: Mode::Guard, reason: Some(STANDALONE_REASON) };
-        let Ok(hello) = hello else { return guard };
-        let sessions = !matches!(hello.get("logicalSessionTimeoutMinutes"), None | Some(Bson::Null));
-        let clustered = hello.get_str("setName").is_ok() || hello.get_str("msg") == Ok("isdbgrid");
-        let result = if clustered && sessions { Detected { mode: Mode::Preview, reason: None } } else { guard };
+        let hello =
+            INTERNAL.scope((), DETECTING.scope((), async { self.client.database("admin").run_command(doc! { "hello": 1 }).await })).await;
+        // An unreachable server proves nothing either way: guard mode for now, asked again next time.
+        let Ok(hello) = hello else { return Detected { mode: Mode::Guard, reason: Some(STANDALONE_REASON), monitored: true } };
+        let result = if !self.shared.monitored.load(std::sync::atomic::Ordering::SeqCst) {
+            Detected { mode: Mode::Guard, reason: Some(UNMONITORED_REASON), monitored: false }
+        } else {
+            let sessions = !matches!(hello.get("logicalSessionTimeoutMinutes"), None | Some(Bson::Null));
+            let clustered = hello.get_str("setName").is_ok() || hello.get_str("msg") == Ok("isdbgrid");
+            let mode = if clustered && sessions { Mode::Preview } else { Mode::Guard };
+            Detected { mode, reason: (mode == Mode::Guard).then_some(STANDALONE_REASON), monitored: true }
+        };
         *detected = Some(result.clone());
         result
     }
@@ -94,7 +104,11 @@ impl Engine {
     /// transaction and its time limit. The state is registered under the Preview's recorder so the
     /// command monitor finds it.
     pub async fn begin(self: &Arc<Self>, recorder: &Arc<Recorder>) -> Result<Arc<PreviewState>, Error> {
-        let state = match self.detect().await.mode {
+        let detected = self.detect().await;
+        if !detected.monitored {
+            return Err(Error::custom(sendproof_core::ConfigError(UNMONITORED_REASON.into())));
+        }
+        let state = match detected.mode {
             Mode::Preview => {
                 let mut session = self.client.start_session().await?;
                 session.start_transaction().read_concern(ReadConcern::snapshot()).write_concern(WriteConcern::majority()).await?;

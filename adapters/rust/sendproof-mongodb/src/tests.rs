@@ -326,12 +326,16 @@ async fn before_images_come_from_the_transaction_start_not_from_later_commits_by
 async fn a_preview_keeps_the_mode_it_began_in() {
     let fixture = fixture!();
     // Detection "fails" for the start of this Preview: it begins in guard mode.
-    fixture.store.engine.set_detected(engine::Detected { mode: preview::Mode::Guard, reason: Some(STANDALONE_REASON) }).await;
+    fixture
+        .store
+        .engine
+        .set_detected(engine::Detected { mode: preview::Mode::Guard, reason: Some(STANDALONE_REASON), monitored: true })
+        .await;
     let store = fixture.store.clone();
     let reply = fixture
         .preview(|mongo| async move {
             // Detection now succeeds, but this Preview has no transaction: its write must still block.
-            store.engine.set_detected(engine::Detected { mode: preview::Mode::Preview, reason: None }).await;
+            store.engine.set_detected(engine::Detected { mode: preview::Mode::Preview, reason: None, monitored: true }).await;
             let _ = mongo.collection::<Document>("documents").insert_one(doc! { "_id": "x" }).await;
             200
         })
@@ -578,4 +582,38 @@ fn a_label_that_looks_like_a_connection_string_is_refused() {
     let options = ClientOptions::default();
     assert!(MongoStore::builder(options.clone(), "d").name("catalog").is_ok());
     assert!(MongoStore::builder(options, "d").name("mongodb://user:pass@host/").is_err());
+}
+
+/// The tripwire must be installed on the guarded client itself: its own detection `hello` has to reach
+/// the monitor. A client without it can't see an escaped write, so it never begins a Preview.
+#[tokio::test]
+async fn a_client_whose_monitor_never_sees_its_own_hello_never_previews() {
+    let fixture = fixture!();
+    let mut options = ClientOptions::parse(server()).await.unwrap();
+    options.server_selection_timeout = Some(Duration::from_secs(2));
+    // The client of a store built around the builder: no command monitoring.
+    let engine = engine::Engine::new(
+        Client::with_options(options).unwrap(),
+        fixture.database.clone(),
+        preview::Shared::new(Default::default()),
+        engine::DEFAULT_PREVIEW_TIMEOUT,
+    );
+    let store = MongoStore { engine, name: None };
+    let description = store.describe().await;
+    assert_eq!(description.mode, StoreMode::Guard);
+    assert_eq!(description.reason.as_deref(), Some(UNMONITORED_REASON));
+    let core = Core::new(
+        Config::builder("T")
+            .environment("Development")
+            .enable_in(["Development"])
+            .preview_operation("POST", "/things")
+            .data_store(store)
+            .build()
+            .unwrap(),
+    );
+    let state = PreviewState::new(&core, Instant::now());
+    assert_eq!(state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.err(), Some(500));
+    // The fixture's own store proves its monitor and previews.
+    assert_eq!(fixture.store.describe().await.mode, StoreMode::Preview);
+    fixture.cleanup().await;
 }
