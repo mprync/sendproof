@@ -1,5 +1,6 @@
 import knex from 'knex';
 import { KnexPreview } from '@sendproof/knex';
+import { commitProbeProcedure } from './fixture-service.mjs';
 
 /** Conformance database families, as the runner names them in BENCH_DATABASE. */
 const labels = { sqlite: 'SQLite', postgresql: 'PostgreSQL', mysql: 'MySQL', sqlserver: 'SQL Server' };
@@ -54,9 +55,12 @@ export async function createKnexStore(env = process.env) {
     table.string('id', 150).primary();
     table.string('name', 150).notNullable();
   });
+  const mysql = knexDatabase(env) === 'mysql';
+  if (mysql) await database.raw(commitProbeProcedure);
   // The provider's client tracks inserts, updates and deletes from the builder itself.
   const provider = new KnexPreview(database);
   return () => ({
+    ...mysql && { escape: statement => provider.client.raw(statement) },
     provider,
     secret: () => provider.withParameterNames(['fixture_secret'], () =>
       provider.client.raw('SELECT :fixture_secret AS value', { fixture_secret: 'fixture-secret-value' })),

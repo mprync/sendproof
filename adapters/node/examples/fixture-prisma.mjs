@@ -9,6 +9,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaPreview } from '@sendproof/prisma';
+import { commitProbeProcedure } from './fixture-service.mjs';
 
 const dialects = {
   sqlite: {
@@ -56,9 +57,16 @@ export async function createPrismaStore(database = process.env.BENCH_DATABASE ??
   const provider = new PrismaPreview(await dialect.adapter(url), { models });
   provider.attach(new PrismaClient({ adapter: provider.adapter }));
   await provider.client.$executeRawUnsafe(dialect.schema);
+  if (database === 'mysql') {
+    // MySQL refuses CREATE PROCEDURE in the prepared-statement protocol Prisma's adapter uses, so it goes over text.
+    const { createConnection } = await import('mysql2/promise');
+    const connection = await createConnection(url);
+    try { await connection.query(commitProbeProcedure); } finally { await connection.end(); }
+  }
 
   return () => ({
     provider,
+    ...database === 'mysql' && { escape: statement => provider.run(client => client.$executeRawUnsafe(statement)) },
     secret: () => provider.withParameterNames(['fixture_secret'], () =>
       provider.run(client => client.$queryRawUnsafe(dialect.secret, 'fixture-secret-value'))),
     find: id => provider.run(client => client.item.findUnique({ where: { id }, select: { id: true, name: true } })),

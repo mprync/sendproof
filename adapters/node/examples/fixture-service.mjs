@@ -39,8 +39,19 @@ function sqliteStore(filename) {
   };
 }
 
+/**
+ * spec/conformance/fixture.md "MySQL and MariaDB: mysql-escape". MySQL stores create this procedure at startup, over a
+ * text-protocol connection, and declare no procedure safe.
+ */
+export const commitProbeProcedure = 'CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END';
+
+/** The statement `POST /items/{id}/escape` runs after its insert: implicitly committing DDL, or a CALL that commits. */
+export function escapeStatement(id, via) {
+  return via === 'ddl' ? `CREATE TABLE sendproof_escape_${id} (n INT)` : 'CALL sendproof_commit_probe()';
+}
+
 export function createFixture(filename, scenario, store = sqliteStore) {
-  const { provider, insert, find, update, remove, secret, insertAccount, findAccount, commit } = store(filename);
+  const { provider, insert, find, update, remove, secret, insertAccount, findAccount, commit, escape } = store(filename);
   const sessions = new Map();
   const previewProvider = scenario === 'no-provider' ? undefined : {
     async preview(dispatch) {
@@ -139,6 +150,16 @@ export function createFixture(filename, scenario, store = sqliteStore) {
         return reply(201, { id, name: body.name });
       }),
     );
+  }
+
+  if (escape) {
+    // MySQL stores only: the provider must refuse the statement before sending, so the Preview fails with nothing kept.
+    operations.push(operation('POST', '/items/{id}/escape', async ({ params: { id }, body }) => {
+      if (!valid(body?.name) || !['ddl', 'call'].includes(body?.via) || !/^\w{1,40}$/.test(id)) return reply(400);
+      await insert(id, body.name);
+      await escape(escapeStatement(id, body.via));
+      return reply(201, { id, name: body.name });
+    }));
   }
 
   const ordinary = [

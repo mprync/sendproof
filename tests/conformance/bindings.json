@@ -106,6 +106,7 @@
       "prepare": "npm ci --prefix adapters/node && npm run build:fixtures --prefix adapters/node",
       "test": "node --experimental-strip-types --test adapters/node/tests/drizzle.test.mts",
       "start": ["node", "adapters/node/examples/fixture.mjs", "drizzle"],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000
     },
     {
@@ -169,6 +170,7 @@
         "adapters/node/examples/fixture.mjs",
         "prisma"
       ],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000
     },
     {
@@ -625,6 +627,7 @@
         "adapters/node/examples/fixture.mjs",
         "knex"
       ],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000
     },
     {
@@ -670,6 +673,7 @@
         "adapters/node/examples/fixture.mjs",
         "typeorm"
       ],
+      "sharedRules": ["mysql-escape"],
       "traceTtlMs": 5000
     },
     {

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { DataSource, EntitySchema } from 'typeorm';
 import { TypeOrmPreview } from '@sendproof/typeorm';
+import { commitProbeProcedure } from './fixture-service.mjs';
 
 /**
  * The fixture's only table. The Entity declares its primary column, which is all Sendproof needs
@@ -30,9 +31,11 @@ export async function createTypeOrmStore(env = process.env) {
   const url = env.BENCH_DATABASE_URL;
   if (dialect !== 'sqlite' && !url) throw new Error('BENCH_DATABASE_URL is required for ' + dialect + '.');
   const source = await new DataSource({ ...connections[dialect](url), entities: [Item], synchronize: true }).initialize();
+  if (dialect === 'mysql') await source.query(commitProbeProcedure);
   const provider = new TypeOrmPreview(source);
   return () => ({
     provider,
+    ...dialect === 'mysql' && { escape: statement => provider.run(manager => manager.query(statement)) },
     secret: () => provider.withParameterNames(['fixture_secret'], () =>
       provider.run(manager => manager.query(`SELECT ${placeholders[dialect]} AS value`, ['fixture-secret-value']))),
     find: id => provider.run(manager => manager.getRepository(Item).findOneBy({ id })),

@@ -7,7 +7,7 @@ import { sqliteTable, text as sqliteText } from 'drizzle-orm/sqlite-core';
 import mysql from 'mysql2/promise';
 import pg from 'pg';
 import { drizzlePreview } from '@sendproof/drizzle';
-import { sqliteStorage } from './fixture-service.mjs';
+import { commitProbeProcedure, sqliteStorage } from './fixture-service.mjs';
 
 /**
  * Drizzle stores for the shared HTTP fixture on the Express run.
@@ -66,6 +66,7 @@ async function postgresStore(url) {
 async function mysqlStore(url) {
   const pool = mysql.createPool({ uri: url, connectionLimit: 8 });
   await pool.query('CREATE TABLE IF NOT EXISTS items (id VARCHAR(255) PRIMARY KEY, name VARCHAR(255) NOT NULL)');
+  await pool.query(commitProbeProcedure);
   // Pass the pool directly: drizzle-orm 0.45 does not recognise a mysql2 promise pool given as { client }.
   const provider = drizzlePreview(mysqlDrizzle(pool, { mode: 'default' }));
   const { client } = provider;
@@ -74,6 +75,7 @@ async function mysqlStore(url) {
     ...serverStore(provider, mysqlItems),
     update: async (id, name) => affected(await client.update(mysqlItems).set({ name }).where(eq(mysqlItems.id, id))),
     remove: async id => affected(await client.delete(mysqlItems).where(eq(mysqlItems.id, id))),
+    escape: statement => client.execute(sql.raw(statement)),
   };
   return () => store;
 }
