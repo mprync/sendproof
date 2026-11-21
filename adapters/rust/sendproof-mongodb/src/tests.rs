@@ -385,6 +385,52 @@ async fn concurrent_previews_never_share_a_session() {
 }
 
 #[tokio::test]
+async fn a_call_from_a_task_the_handler_spawns_is_still_captured() {
+    let fixture = fixture!();
+    let reply = fixture
+        .preview(|mongo| async move {
+            // A spawned task has no task-local capture; the handle still carries the Preview session.
+            tokio::spawn(async move { mongo.collection::<Document>("documents").insert_one(doc! { "_id": "spawned" }).await.unwrap() })
+                .await
+                .unwrap();
+            201
+        })
+        .await;
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    let envelope = json(&reply);
+    assert!(envelope["changes"].to_string().contains("\"_id\":\"spawned\""), "the insert must be reported: {envelope}");
+    assert!(envelope["logs"].as_array().unwrap().iter().any(|log| log["db"]["operation"] == "insert"), "and logged");
+    assert!(fixture.find(doc! {}).await.is_empty());
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_preview_dropped_before_it_finishes_aborts_its_transaction() {
+    // A client that disconnects drops the Preview future: `finish` never runs.
+    let fixture = fixture!(Some(Duration::from_secs(30)));
+    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
+    {
+        let state = PreviewState::new(&fixture.core, Instant::now());
+        let enrollment = state.enroll(&fixture.core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+        let mongo = fixture.store.from_enrollment(Some(&enrollment), true).unwrap();
+        capture::scope(state.recorder(), async {
+            mongo.collection::<Document>("documents").update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 1 } }).await.unwrap();
+        })
+        .await;
+    }
+    assert!(fixture.store.engine.shared.previews.lock().unwrap().is_empty(), "the Preview is no longer registered");
+    // The transaction's write lock is released promptly, not when the time limit fires.
+    let documents = fixture.reader.database(&fixture.database).collection::<Document>("documents");
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        documents.update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 10 } }).await
+    })
+    .await;
+    assert!(result.is_ok_and(|result| result.is_ok()), "the dropped Preview still holds its transaction");
+    assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
 async fn a_write_conflict_between_two_previews_reaches_the_handler() {
     let fixture = fixture!();
     fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;

@@ -42,8 +42,13 @@
 //!
 //! Only commands sent through the store's guarded handles, or its own client, are covered. A second
 //! `Client`, one created inside a handler, or a raw socket is invisible to the tripwire, and its writes
-//! are neither blocked nor rolled back. Commands sent from tasks the handler spawns reach the server
-//! without the Preview session and are not seen by the tripwire either: await every call in the handler.
+//! are neither blocked nor rolled back. A [`Mongo`] handle moved into a task the handler spawns keeps
+//! its Preview: its calls carry the Preview session and are captured. A write sent through
+//! [`MongoStore::client`] from such a task carries no request scope, so the tripwire can't attribute
+//! it to the Preview: use the handle in spawned tasks.
+//!
+//! A Preview whose request is dropped before it finishes (the client disconnected) aborts its
+//! transaction straight away.
 
 mod classify;
 mod engine;
@@ -225,8 +230,7 @@ impl DataStore for MongoStore {
                 }
             }
             // A `guard`-mode Preview also gets a session object, so its registration is released on close.
-            Ok(Some(Box::new(MongoSession { engine: self.engine.clone(), state, recorder, changes: Default::default() })
-                as Box<dyn PreviewSession>))
+            Ok(Some(Box::new(MongoSession { engine: self.engine.clone(), state, changes: Default::default() }) as Box<dyn PreviewSession>))
         })
     }
 }

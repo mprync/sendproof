@@ -24,4 +24,4 @@ Features: `axum` (`Mongo` extractor, `MongoStore: FromRef<State>`) and `actix` (
 * A Preview keeps the mode it started in. A handler that outlives `preview_timeout` (50 s by default, below the server's 60 s) has its transaction aborted and the Preview answers 500; nothing after the abort can reach the data.
 * Concurrent MongoDB Previews of one document don't queue: a `WriteConflict` reaches the handler.
 
-**Coverage:** only commands sent through the store's handles or its own client are covered. A second `Client`, one created inside a handler, or a call from a task the handler spawned is neither guarded nor rolled back. See [the data-stores page](../data-stores.md).
+**Coverage:** only commands sent through the store's handles or its own client are covered. A second `Client`, or one created inside a handler, is neither guarded nor rolled back. A `Mongo` handle moved into a spawned task keeps its Preview; a write through `MongoStore::client()` from a spawned task can't be attributed to the Preview, so use the handle there. See [the data-stores page](../data-stores.md).

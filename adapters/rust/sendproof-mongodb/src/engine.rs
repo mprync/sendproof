@@ -23,7 +23,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::{
     monitor::INTERNAL,
     plain,
-    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared, key},
+    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared},
 };
 
 /// The default Preview time limit: below the server's 60-second `transactionLifetimeLimitSeconds`, so
@@ -98,11 +98,11 @@ impl Engine {
             Mode::Preview => {
                 let mut session = self.client.start_session().await?;
                 session.start_transaction().read_concern(ReadConcern::snapshot()).write_concern(WriteConcern::majority()).await?;
-                PreviewState::new(session)
+                PreviewState::new(session, recorder.clone())
             }
-            Mode::Guard => PreviewState::guard(),
+            Mode::Guard => PreviewState::guard(recorder.clone()),
         };
-        self.shared.previews.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(key(recorder), state.clone());
+        self.shared.register(state.clone());
         if state.mode == Mode::Preview {
             // A handler still running at the limit loses its transaction: later operations fail, nothing
             // commits, and the Preview answers 500 when it ends.
@@ -250,7 +250,6 @@ impl Engine {
 pub(crate) struct MongoSession {
     pub engine: Arc<Engine>,
     pub state: Arc<PreviewState>,
-    pub recorder: Arc<Recorder>,
     pub changes: Changes,
 }
 
@@ -290,8 +289,24 @@ impl PreviewSession for MongoSession {
     fn close(self: Box<Self>) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
             self.engine.end(&self.state, false).await;
-            self.engine.shared.previews.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&key(&self.recorder));
+            self.engine.shared.forget(&self.state);
             Ok(())
         })
+    }
+}
+
+/// A Preview whose pipeline never finished (the client disconnected and the server dropped the request,
+/// or an outer timeout cancelled it) is forgotten and its transaction aborted now, rather than held,
+/// with its locks, until the time limit fires.
+impl Drop for MongoSession {
+    fn drop(&mut self) {
+        self.engine.shared.forget(&self.state);
+        if self.state.session.is_some()
+            && !self.state.data().finished
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            let (engine, state) = (self.engine.clone(), self.state.clone());
+            runtime.spawn(async move { engine.end(&state, false).await });
+        }
     }
 }

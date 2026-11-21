@@ -16,7 +16,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 > [!WARNING]
 > The binding covers a store only through the handles and interceptor below. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis pub/sub connection, a connection used without `Redis::guard`, a DynamoDB client built without the interceptor, and a raw socket. Hook every client your handlers use, at startup.
 >
-> The guard also finds the Preview through the request's task-local capture (DynamoDB and the MongoDB command monitor) or through the request's handle (Redis and MongoDB). A call made from a task your handler spawns with `tokio::spawn`, which does not inherit the capture, is not seen by the DynamoDB guard or the MongoDB tripwire: await every store call in the handler.
+> The guard also finds the Preview through the request's task-local capture (DynamoDB and the MongoDB command monitor) or through the request's handle (Redis and MongoDB). A handle moved into a task your handler spawns with `tokio::spawn` keeps its Preview (a guarded Redis connection, a `Mongo` handle). A call that relies on the task-local capture does not: a DynamoDB call, or a write through `MongoStore::client()`, made from a spawned task is not seen by the DynamoDB guard or the MongoDB tripwire. Await those calls in the handler.
 
 ## Register the stores
 

@@ -111,7 +111,10 @@ impl Shared {
         }
         let lower = name.to_lowercase();
         let kind = classify_mongo(command, Some(&self.reads)).kind;
-        let capture = capture::current();
+        // A command carrying a Preview's session belongs to that Preview even when it was sent from a task
+        // the handler spawned, which has no task-local capture.
+        let session = self.preview_of_session(command.get_document("lsid").ok());
+        let capture = capture::current().filter(|current| session.as_ref().is_none_or(|preview| Arc::ptr_eq(current, preview))).or(session);
         let preview = capture.clone().filter(|recorder| recorder.is_rollback_preview());
         if let Some(preview) = &preview {
             if ends_transaction(&lower) {

@@ -72,23 +72,27 @@ pub(crate) struct PreviewState {
     pub session: Option<Arc<tokio::sync::Mutex<ClientSession>>>,
     /// The session id (`lsid`) every command of the Preview carries.
     pub lsid: Option<Document>,
+    /// The Preview's recorder, so monitoring can attribute a command that carries the Preview's `lsid`
+    /// even when it was sent from a task without the request's task-local capture.
+    pub recorder: Arc<Recorder>,
     data: Mutex<Data>,
 }
 
 impl PreviewState {
-    pub fn new(session: ClientSession) -> Arc<Self> {
+    pub fn new(session: ClientSession, recorder: Arc<Recorder>) -> Arc<Self> {
         let lsid = session.id().clone();
         Arc::new(Self {
             mode: Mode::Preview,
             session: Some(Arc::new(tokio::sync::Mutex::new(session))),
             lsid: Some(lsid),
+            recorder,
             data: Mutex::default(),
         })
     }
 
     /// A Preview of a store that can't join one: reads run, the first write blocks.
-    pub fn guard() -> Arc<Self> {
-        Arc::new(Self { mode: Mode::Guard, session: None, lsid: None, data: Mutex::default() })
+    pub fn guard(recorder: Arc<Recorder>) -> Arc<Self> {
+        Arc::new(Self { mode: Mode::Guard, session: None, lsid: None, recorder, data: Mutex::default() })
     }
 
     pub fn data(&self) -> MutexGuard<'_, Data> {
@@ -164,7 +168,31 @@ impl Shared {
         Arc::new(Self { reads, previews: Mutex::default(), pending: Mutex::default() })
     }
 
+    fn registry(&self) -> MutexGuard<'_, HashMap<usize, Arc<PreviewState>>> {
+        self.previews.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn state_of(&self, recorder: &Arc<Recorder>) -> Option<Arc<PreviewState>> {
-        self.previews.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&key(recorder)).cloned()
+        self.registry().get(&key(recorder)).cloned()
+    }
+
+    /// The recorder of the `preview`-mode Preview whose session is `lsid`: a command carrying it belongs
+    /// to that Preview, whichever task sent it.
+    pub fn preview_of_session(&self, lsid: Option<&Document>) -> Option<Arc<Recorder>> {
+        let lsid = lsid?;
+        self.registry().values().find(|state| state.lsid.as_ref() == Some(lsid)).map(|state| state.recorder.clone())
+    }
+
+    /// Registers a Preview's state under its recorder.
+    pub fn register(&self, state: Arc<PreviewState>) {
+        self.registry().insert(key(&state.recorder), state);
+    }
+
+    /// Removes a Preview's state, if it is still the one registered under its recorder.
+    pub fn forget(&self, state: &Arc<PreviewState>) {
+        let mut registry = self.registry();
+        if registry.get(&key(&state.recorder)).is_some_and(|registered| Arc::ptr_eq(registered, state)) {
+            registry.remove(&key(&state.recorder));
+        }
     }
 }
