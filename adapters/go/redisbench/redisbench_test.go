@@ -62,7 +62,13 @@ type app struct {
 func newApp(t *testing.T, hook bool, options ...redisbench.Option) *app {
 	t.Helper()
 	plain := newClient(t)
-	hooked := newClient(t)
+	// The hooked client has not connected yet: its first command, sent inside a
+	// Preview, performs the connection handshake (AUTH, HELLO, CLIENT SETINFO and
+	// CLIENT MAINT_NOTIFICATIONS), which must never be mistaken for a write.
+	clientOptions, _ := redis.ParseURL(redisURL())
+	clientOptions.MaxRetries, clientOptions.DialTimeout, clientOptions.ReadTimeout = -1, 2*time.Second, 2*time.Second
+	hooked := redis.NewClient(clientOptions)
+	t.Cleanup(func() { _ = hooked.Close() })
 	if hook {
 		hooked.AddHook(redisbench.Hook(options...))
 	}

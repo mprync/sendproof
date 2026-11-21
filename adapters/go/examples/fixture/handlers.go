@@ -16,6 +16,8 @@ import (
 type handlers struct {
 	store  store
 	logger *slog.Logger
+	// stores holds the hooked data stores; it is nil without store variables.
+	stores *dataStores
 }
 
 // notifyCreated records the "created item" email and delivers it unless a preview
@@ -162,4 +164,50 @@ func (h *handlers) fail(w http.ResponseWriter, err error) {
 	}
 	h.logger.Error("fixture request failed", "error", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
+// createAccount inserts into the second table. password_hash holds hashed:<password>,
+// test data the runner can search captures for.
+func (h *handlers) createAccount(w http.ResponseWriter, r *http.Request) {
+	var body struct{ ID, Email, Password string }
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" || body.Email == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id, email and password are required"})
+		return
+	}
+	if err := h.store.insertAccount(r.Context(), body.ID, body.Email, "hashed:"+body.Password); err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, account{ID: body.ID, Email: body.Email})
+}
+
+func (h *handlers) readAccount(w http.ResponseWriter, r *http.Request) {
+	found, ok, err := h.store.account(r.Context(), r.PathValue("id"))
+	switch {
+	case err != nil:
+		h.fail(w, err)
+	case !ok:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	default:
+		writeJSON(w, http.StatusOK, found)
+	}
+}
+
+// commitRoute inserts the item, then executes a raw COMMIT and ignores its error, as
+// a careless handler would. A Preview must still answer 500 without confirmation.
+func (h *handlers) commitRoute(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	id := r.PathValue("id")
+	if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+	if err := h.store.insert(r.Context(), id, body.Name); err != nil {
+		h.fail(w, err)
+		return
+	}
+	_ = h.store.commit(r.Context())
+	writeJSON(w, http.StatusCreated, item{ID: id, Name: body.Name})
 }

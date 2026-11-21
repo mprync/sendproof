@@ -140,7 +140,14 @@ func (h *hook) describe(cmd redis.Cmder) command {
 	if len(text) > 0 {
 		name, text = text[0], text[1:]
 	}
-	return command{name: strings.ToUpper(name), args: text, kind: stores.ClassifyRedis(name, text, h.reads)}
+	kind := stores.ClassifyRedis(name, text, h.reads)
+	if kind == stores.Write && strings.EqualFold(name, "CLIENT") && len(text) > 0 && strings.EqualFold(text[0], "MAINT_NOTIFICATIONS") {
+		// go-redis 9.23 sends this on every new connection to subscribe to server
+		// maintenance push notifications. It is connection-level like CLIENT SETINFO,
+		// but the shared table predates it, so it would otherwise block every Preview.
+		kind = stores.Session
+	}
+	return command{name: strings.ToUpper(name), args: text, kind: kind}
 }
 
 // refuse asks the guard about one command and, for a write, returns its error.

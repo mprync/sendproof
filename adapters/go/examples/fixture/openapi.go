@@ -4,7 +4,7 @@ import "net/http"
 
 // openAPI returns the fixture's OpenAPI 3.1 document. Its schemas describe the
 // request and response shapes the handlers use.
-func openAPI() map[string]any {
+func openAPI(stores *dataStores) map[string]any {
 	itemSchema := map[string]any{"$ref": "#/components/schemas/Item"}
 	json := func(schema any) map[string]any {
 		return map[string]any{"application/json": map[string]any{"schema": schema}}
@@ -20,7 +20,51 @@ func openAPI() map[string]any {
 	action := func(summary string, responses map[string]any) map[string]any {
 		return map[string]any{"summary": summary, "parameters": idParam, "responses": responses}
 	}
-	return map[string]any{
+	pathParam := func(name string) []any {
+		return []any{map[string]any{"name": name, "in": "path", "required": true, "schema": map[string]any{"type": "string"}}}
+	}
+	operation := func(summary, param string, responses map[string]any) map[string]any {
+		entry := map[string]any{"summary": summary, "responses": responses}
+		if param != "" {
+			entry["parameters"] = pathParam(param)
+		}
+		return entry
+	}
+	ok := func(description string) map[string]any { return map[string]any{"200": response(description, nil)} }
+	paths := map[string]any{
+		"/accounts":          map[string]any{"post": operation("Create an account", "", map[string]any{"201": response("Created", nil)})},
+		"/accounts/{id}":     map[string]any{"get": operation("Read an account", "id", ok("The account"))},
+		"/items/{id}/commit": map[string]any{"post": operation("Insert, then execute a raw COMMIT", "id", map[string]any{"201": response("Created", nil)})},
+	}
+	if stores != nil && stores.mongo != nil {
+		paths["/documents"] = map[string]any{"post": operation("Create a document", "", map[string]any{"201": response("Created", nil)})}
+		paths["/documents/{id}"] = map[string]any{
+			"get":    operation("Read a document", "id", ok("The document")),
+			"patch":  operation("Update a document", "id", ok("Updated")),
+			"delete": operation("Delete a document (preview: false)", "id", map[string]any{"204": response("Deleted", nil)}),
+		}
+		paths["/documents/archive"] = map[string]any{"post": operation("Archive with $out", "", map[string]any{"204": response("Done", nil)})}
+	}
+	if stores != nil && stores.redis != nil {
+		paths["/counters/{key}"] = map[string]any{
+			"get":    operation("Read a counter", "key", ok("The counter")),
+			"post":   operation("Increment a counter", "key", ok("The counter")),
+			"delete": operation("Delete a counter (preview: false)", "key", map[string]any{"204": response("Deleted", nil)}),
+		}
+		paths["/counters/{key}/take"] = map[string]any{"post": operation("Take a counter with GETDEL", "key", ok("The counter"))}
+	}
+	if stores != nil && stores.dynamo != nil {
+		paths["/orders/{id}"] = map[string]any{
+			"get":    operation("Read an order", "id", ok("The order")),
+			"delete": operation("Delete an order (preview: false)", "id", map[string]any{"204": response("Deleted", nil)}),
+		}
+		paths["/orders/{id}/touch"] = map[string]any{"post": operation("Touch an order", "id", ok("The order"))}
+		paths["/orders/{id}/cancel"] = map[string]any{"post": operation("Cancel an order with PartiQL", "id", ok("The order"))}
+	}
+	if stores != nil && (stores.redis != nil || stores.dynamo != nil) {
+		paths["/items/{id}/remember"] = map[string]any{"post": operation("Insert an item and write a guarded store", "id", map[string]any{"201": response("Created", nil)})}
+	}
+	document := map[string]any{
 		"openapi": "3.1.0",
 		"info":    map[string]any{"title": "Sendproof Conformance", "version": "1.0.0"},
 		"paths": map[string]any{
@@ -56,6 +100,12 @@ func openAPI() map[string]any {
 			},
 		}},
 	}
+	for path, operations := range paths {
+		document["paths"].(map[string]any)[path] = operations
+	}
+	return document
 }
 
-func serveOpenAPI(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, openAPI()) }
+func serveOpenAPI(stores *dataStores) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, openAPI(stores)) }
+}

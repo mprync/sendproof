@@ -50,6 +50,8 @@ type Database struct {
 type engine struct {
 	driver      string
 	createTable string
+	// createAccounts creates the second table of the shared secret-columns rule.
+	createAccounts string
 	// placeholder returns the bind marker for the 1-based position.
 	placeholder func(int) string
 	// secretQuery selects a bound parameter named fixture_secret.
@@ -59,32 +61,36 @@ type engine struct {
 
 var engines = map[string]engine{
 	"sqlite": {
-		driver:      "sqlite",
-		createTable: `CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
-		placeholder: func(int) string { return "?" },
-		secretQuery: "SELECT @fixture_secret",
-		dialector:   func(pool gorm.ConnPool) gorm.Dialector { return gormsqlite.Dialector{DriverName: "sqlite", Conn: pool} },
+		driver:         "sqlite",
+		createTable:    `CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
+		createAccounts: `CREATE TABLE accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT NOT NULL)`,
+		placeholder:    func(int) string { return "?" },
+		secretQuery:    "SELECT @fixture_secret",
+		dialector:      func(pool gorm.ConnPool) gorm.Dialector { return gormsqlite.Dialector{DriverName: "sqlite", Conn: pool} },
 	},
 	"postgresql": {
-		driver:      "pgx",
-		createTable: `CREATE TABLE items (id text PRIMARY KEY, name text NOT NULL)`,
-		placeholder: func(position int) string { return fmt.Sprintf("$%d", position) },
-		secretQuery: "SELECT $1::text",
-		dialector:   func(pool gorm.ConnPool) gorm.Dialector { return gormpostgres.New(gormpostgres.Config{Conn: pool}) },
+		driver:         "pgx",
+		createTable:    `CREATE TABLE items (id text PRIMARY KEY, name text NOT NULL)`,
+		createAccounts: `CREATE TABLE accounts (id text PRIMARY KEY, email text NOT NULL, password_hash text NOT NULL)`,
+		placeholder:    func(position int) string { return fmt.Sprintf("$%d", position) },
+		secretQuery:    "SELECT $1::text",
+		dialector:      func(pool gorm.ConnPool) gorm.Dialector { return gormpostgres.New(gormpostgres.Config{Conn: pool}) },
 	},
 	"mysql": {
-		driver:      "mysql",
-		createTable: "CREATE TABLE items (id VARCHAR(191) PRIMARY KEY, name VARCHAR(500) NOT NULL) ENGINE=InnoDB",
-		placeholder: func(int) string { return "?" },
-		secretQuery: "SELECT ?",
-		dialector:   func(pool gorm.ConnPool) gorm.Dialector { return gormmysql.New(gormmysql.Config{Conn: pool}) },
+		driver:         "mysql",
+		createTable:    "CREATE TABLE items (id VARCHAR(191) PRIMARY KEY, name VARCHAR(500) NOT NULL) ENGINE=InnoDB",
+		createAccounts: "CREATE TABLE accounts (id VARCHAR(191) PRIMARY KEY, email VARCHAR(500) NOT NULL, password_hash VARCHAR(500) NOT NULL) ENGINE=InnoDB",
+		placeholder:    func(int) string { return "?" },
+		secretQuery:    "SELECT ?",
+		dialector:      func(pool gorm.ConnPool) gorm.Dialector { return gormmysql.New(gormmysql.Config{Conn: pool}) },
 	},
 	"sqlserver": {
-		driver:      "sqlserver",
-		createTable: `CREATE TABLE items (id NVARCHAR(191) PRIMARY KEY, name NVARCHAR(500) NOT NULL)`,
-		placeholder: func(position int) string { return fmt.Sprintf("@p%d", position) },
-		secretQuery: "SELECT @fixture_secret",
-		dialector:   func(pool gorm.ConnPool) gorm.Dialector { return gormsqlserver.New(gormsqlserver.Config{Conn: pool}) },
+		driver:         "sqlserver",
+		createTable:    `CREATE TABLE items (id NVARCHAR(191) PRIMARY KEY, name NVARCHAR(500) NOT NULL)`,
+		createAccounts: `CREATE TABLE accounts (id NVARCHAR(191) PRIMARY KEY, email NVARCHAR(500) NOT NULL, password_hash NVARCHAR(500) NOT NULL)`,
+		placeholder:    func(position int) string { return fmt.Sprintf("@p%d", position) },
+		secretQuery:    "SELECT @fixture_secret",
+		dialector:      func(pool gorm.ConnPool) gorm.Dialector { return gormsqlserver.New(gormsqlserver.Config{Conn: pool}) },
 	},
 }
 
@@ -96,6 +102,11 @@ type store interface {
 	remove(ctx context.Context, id string) error
 	// bindSecret executes a statement with a secret-named bound parameter.
 	bindSecret(ctx context.Context) error
+	// insertAccount and account use the second table of the secret-columns rule.
+	insertAccount(ctx context.Context, id, email, passwordHash string) error
+	account(ctx context.Context, id string) (account, bool, error)
+	// commit executes a raw COMMIT on the connection the handler uses.
+	commit(ctx context.Context) error
 	provider() sendproof.Provider
 	close() error
 }
@@ -124,8 +135,10 @@ func openStore(kind string, database Database) (store, error) {
 		pool.SetMaxOpenConns(24)
 		pool.SetMaxIdleConns(24)
 	}
-	if _, err := pool.Exec(spec.createTable); err != nil {
-		return nil, errors.Join(err, pool.Close())
+	for _, statement := range []string{spec.createTable, spec.createAccounts} {
+		if _, err := pool.Exec(statement); err != nil {
+			return nil, errors.Join(err, pool.Close())
+		}
 	}
 	db, err := dbsql.Wrap(pool, dbsql.WithDatabaseLabel("conformance"))
 	if err != nil {
@@ -263,6 +276,35 @@ func (s *sqlStore) bindSecret(ctx context.Context) error {
 		return err
 	}
 	return rows.Close()
+}
+
+// account is a row of the accounts table. The hash never leaves the fixture.
+type account struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+func (s *sqlStore) insertAccount(ctx context.Context, id, email, passwordHash string) error {
+	_, err := s.db.ExecContext(ctx, "INSERT INTO accounts (id, email, password_hash) VALUES ("+s.ph(1)+", "+s.ph(2)+", "+s.ph(3)+")", id, email, passwordHash)
+	if isConflict(err) {
+		return errDuplicate
+	}
+	return err
+}
+
+func (s *sqlStore) account(ctx context.Context, id string) (account, bool, error) {
+	var found account
+	err := s.db.QueryRowContext(ctx, "SELECT id, email FROM accounts WHERE id = "+s.ph(1), id).Scan(&found.ID, &found.Email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return account{}, false, nil
+	}
+	return found, err == nil, err
+}
+
+// commit ends the transaction the request runs in, which a Preview must refuse.
+func (s *sqlStore) commit(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "COMMIT")
+	return err
 }
 
 type gormStore struct {

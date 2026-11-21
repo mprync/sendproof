@@ -2,7 +2,7 @@ package fixture
 
 import (
 	"net/http"
-	"strings"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
@@ -16,7 +16,7 @@ import (
 
 // bindNetHTTP routes everything through one http.ServeMux.
 func bindNetHTTP(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
-	for _, r := range routes {
+	for _, r := range app.allRoutes() {
 		var handler http.Handler = r.handler(app)
 		if r.preview {
 			handler = bench.Operation(r.method, r.path).Wrap(handler)
@@ -29,10 +29,12 @@ func bindNetHTTP(bench *sendproof.Sendproof, people *sessions, app *handlers, sh
 // bindChi routes the item operations with chi and falls back to the shared mux.
 func bindChi(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	router := chi.NewRouter()
-	for _, r := range routes {
+	for _, r := range app.allRoutes() {
 		handler := r.handler(app)
 		bridge := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			req.SetPathValue("id", chi.URLParam(req, "id"))
+			for _, name := range pathParams(r.path) {
+				req.SetPathValue(name, chi.URLParam(req, name))
+			}
 			handler(w, req)
 		})
 		middlewares := []func(http.Handler) http.Handler{people.require(r.role())}
@@ -46,8 +48,20 @@ func bindChi(bench *sendproof.Sendproof, people *sessions, app *handlers, shared
 	return router
 }
 
-// ginPath and echoPath convert {id} templates to each framework's syntax.
-func colonPath(path string) string { return strings.ReplaceAll(path, "{id}", ":id") }
+// templateParam matches one {name} parameter of an OpenAPI path template.
+var templateParam = regexp.MustCompile(`\{([^}]+)\}`)
+
+// colonPath converts {name} templates to Gin's and Echo's :name syntax.
+func colonPath(path string) string { return templateParam.ReplaceAllString(path, ":$1") }
+
+// pathParams lists the parameter names of a path template.
+func pathParams(path string) []string {
+	var names []string
+	for _, match := range templateParam.FindAllStringSubmatch(path, -1) {
+		names = append(names, match[1])
+	}
+	return names
+}
 
 // adaptMiddleware turns net/http middleware into a function that reports whether
 // the request may continue, for routers with their own handler types.
@@ -61,7 +75,7 @@ func adaptMiddleware(mw func(http.Handler) http.Handler, w http.ResponseWriter, 
 func bindGin(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	for _, r := range routes {
+	for _, r := range app.allRoutes() {
 		handler := r.handler(app)
 		authorize := people.require(r.role())
 		chain := []gin.HandlerFunc{func(c *gin.Context) {
@@ -73,7 +87,9 @@ func bindGin(bench *sendproof.Sendproof, people *sessions, app *handlers, shared
 			chain = append(chain, ginsendproof.Preview(bench, r.method, colonPath(r.path)))
 		}
 		chain = append(chain, func(c *gin.Context) {
-			c.Request.SetPathValue("id", c.Param("id"))
+			for _, name := range pathParams(r.path) {
+				c.Request.SetPathValue(name, c.Param(name))
+			}
 			handler(c.Writer, c.Request)
 		})
 		engine.Handle(r.method, colonPath(r.path), chain...)
@@ -86,7 +102,7 @@ func bindGin(bench *sendproof.Sendproof, people *sessions, app *handlers, shared
 func bindEcho(bench *sendproof.Sendproof, people *sessions, app *handlers, shared *http.ServeMux) http.Handler {
 	e := echo.New()
 	e.HideBanner, e.HidePort = true, true
-	for _, r := range routes {
+	for _, r := range app.allRoutes() {
 		handler := r.handler(app)
 		authorize := people.require(r.role())
 		middlewares := []echo.MiddlewareFunc{func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -101,7 +117,9 @@ func bindEcho(bench *sendproof.Sendproof, people *sessions, app *handlers, share
 			middlewares = append(middlewares, echosendproof.Preview(bench, r.method, colonPath(r.path)))
 		}
 		e.Add(r.method, colonPath(r.path), func(c echo.Context) error {
-			c.Request().SetPathValue("id", c.Param("id"))
+			for _, name := range pathParams(r.path) {
+				c.Request().SetPathValue(name, c.Param(name))
+			}
 			handler(c.Response(), c.Request())
 			return nil
 		}, middlewares...)
