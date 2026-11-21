@@ -1,8 +1,8 @@
 # Acme Treasury API demo
 
-A believable corporate-treasury API for judging Test Bench with realistic data: 40 operations over accounts, balances, counterparties, payments with four-eyes approval, FX deals, bank statements and users.
+A believable corporate-treasury API for judging Sendproof with realistic data: 40 operations over accounts, balances, counterparties, payments with four-eyes approval, FX deals, bank statements and users.
 
-Run `dotnet run --project examples/TreasuryApi` from the repository root, then open <http://localhost:5080/bench>. The launch profile selects Development. The OpenAPI 3.1 document is generated at `/openapi/v1.json` from the actual endpoints, contracts and their XML comments.
+Run `dotnet run --project examples/TreasuryApi` from the repository root, then open <http://localhost:5080/sendproof>. The launch profile selects Development. The OpenAPI 3.1 document is generated at `/openapi/v1.json` from the actual endpoints, contracts and their XML comments.
 
 ## Sign in
 
@@ -38,7 +38,7 @@ Lists take `page` and `pageSize` (1 to 100, default 25), filters, a `q` search a
 
 ## Preview and Send
 
-Creating a payment reserves funds and inserts a draft and an audit event in SQLite. The writes that matter are Preview-enabled: create payment, update, submit, cancel, approve, reject, add counterparty, update and archive counterparty, register, update and close account, book and cancel FX deal, change a role. Preview runs the real handler inside the Test Bench EF transaction and rolls it back, and shows the changes, the SQL and the notifications that would be sent: emails, queued jobs and published messages. Send commits. Notifications go to an in-memory queue; nothing is ever delivered. An optional `Idempotency-Key` header on create payment replays a previously committed identical request and rejects a different request using that key.
+Creating a payment reserves funds and inserts a draft and an audit event in SQLite. The writes that matter are Preview-enabled: create payment, update, submit, cancel, approve, reject, add counterparty, update and archive counterparty, register, update and close account, book and cancel FX deal, change a role. Preview runs the real handler inside the Sendproof EF transaction and rolls it back, and shows the changes, the SQL and the notifications that would be sent: emails, queued jobs and published messages. Send commits. Notifications go to an in-memory queue; nothing is ever delivered. An optional `Idempotency-Key` header on create payment replays a previously committed identical request and rejects a different request using that key.
 
 ## Seed data
 

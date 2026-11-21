@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Http;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace DotnetConformance;
 

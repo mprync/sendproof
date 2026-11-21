@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -23,16 +23,16 @@ internal static class PaymentEndpoints
             .Produces<Payment>().ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/", Create).WithName("PaymentsController.Create").RequireAuthorization(Policies.Writers)
             .Produces<Payment>(StatusCodes.Status201Created).Produces<Payment>(StatusCodes.Status200OK)
-            .ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapPut("/{id:guid}", Update).WithName("PaymentsController.Update").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapPost("/{id:guid}/submit", Submit).WithName("PaymentsController.Submit").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
         group.MapPost("/{id:guid}/cancel", Cancel).WithName("PaymentsController.Cancel").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
     }
 
     /// <summary>List payments</summary>
@@ -132,7 +132,7 @@ internal static class PaymentEndpoints
     /// <response code="409">The idempotency key was already used for a different request.</response>
     internal static async Task<IResult> Create(CreatePaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
-        TreasuryDbContext db, System.Security.Claims.ClaimsPrincipal principal, DemoNotificationQueue notifications, TestBenchPreview preview)
+        TreasuryDbContext db, System.Security.Claims.ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var errors = EndpointSupport.Validate(request);
         if (idempotencyKey?.Length > 128)
@@ -243,7 +243,7 @@ internal static class PaymentEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">Only draft payments can be submitted.</response>
     internal static async Task<IResult> Submit(Guid id, TreasuryDbContext db, System.Security.Claims.ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview)
+        DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.Id == id);
         if (payment is null) return EndpointSupport.NotFound("payment", id);
@@ -274,7 +274,7 @@ internal static class PaymentEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">The payment is already with the bank or finished, so it cannot be cancelled.</response>
     internal static async Task<IResult> Cancel(Guid id, TreasuryDbContext db, System.Security.Claims.ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview, [FromBody] CancelPaymentRequest? request = null)
+        DemoNotificationQueue notifications, SendproofPreview preview, [FromBody] CancelPaymentRequest? request = null)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.Id == id);
         if (payment is null) return EndpointSupport.NotFound("payment", id);

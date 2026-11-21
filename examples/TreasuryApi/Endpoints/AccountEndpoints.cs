@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -28,13 +28,13 @@ internal static class AccountEndpoints
             .Produces<Account>().ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/", Create).WithName("AccountsController.Create").RequireAuthorization(Policies.Admins)
             .Produces<Account>(StatusCodes.Status201Created).ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
         group.MapPut("/{id:guid}", Update).WithName("AccountsController.Update").RequireAuthorization(Policies.Admins)
             .Produces<Account>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapPost("/{id:guid}/close", Close).WithName("AccountsController.Close").RequireAuthorization(Policies.Admins)
             .Produces<Account>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity).WithSendproofPreview();
     }
 
     /// <summary>List accounts</summary>
@@ -160,7 +160,7 @@ internal static class AccountEndpoints
     /// <response code="409">The account is already closed.</response>
     /// <response code="422">The account still holds money or has payments waiting.</response>
     internal static async Task<IResult> Close(Guid id, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview)
+        DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var account = await db.Accounts.SingleOrDefaultAsync(a => a.Id == id);
         if (account is null) return EndpointSupport.NotFound("account", id);

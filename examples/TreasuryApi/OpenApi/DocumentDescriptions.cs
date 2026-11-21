@@ -35,7 +35,7 @@ internal static class DocumentDescriptions
 
         ## About this example
 
-        This is a disposable example for Test Bench, with seeded data that resets when you delete its database. **Preview** runs an operation for real and rolls the database back, showing the changes, notifications and SQL it would cause; **Send** commits them. No email, payment or bank is ever contacted.
+        This is a disposable example for Sendproof, with seeded data that resets when you delete its database. **Preview** runs an operation for real and rolls the database back, showing the changes, notifications and SQL it would cause; **Send** commits them. No email, payment or bank is ever contacted.
         """;
 
     /// <summary>Descriptions of enums that only appear as optional properties, where the generator drops their XML comment.</summary>
@@ -65,7 +65,7 @@ internal static class DocumentDescriptions
         document.Info.Description = Overview;
         document.Info.Contact = new OpenApiContact { Name = "Acme Group Treasury", Email = "treasury-ops@acme.dev", Url = new Uri("https://example.com/treasury") };
         document.Info.License = new OpenApiLicense { Name = "MIT", Identifier = "MIT", Url = new Uri("https://opensource.org/licenses/MIT") };
-        document.ExternalDocs = new OpenApiExternalDocs { Description = "Test Bench, the workbench that serves this API", Url = new Uri("https://example.com/test-bench") };
+        document.ExternalDocs = new OpenApiExternalDocs { Description = "Sendproof, the workbench that serves this API", Url = new Uri("https://example.com/sendproof") };
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         document.Components.SecuritySchemes[OperationDescriptions.CookieScheme] = new OpenApiSecurityScheme

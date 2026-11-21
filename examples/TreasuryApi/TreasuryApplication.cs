@@ -4,14 +4,14 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
-using TestBench.AspNetCore;
-using TestBench.EntityFrameworkCore;
+using Sendproof.AspNetCore;
+using Sendproof.EntityFrameworkCore;
 
 namespace TreasuryApi;
 
 /// <summary>
 /// Configures the disposable Treasury example for a host or an in-process test: SQLite, cookie sign-in,
-/// the OpenAPI document, Test Bench with its Entity Framework Core preview, and every endpoint group.
+/// the OpenAPI document, Sendproof with its Entity Framework Core preview, and every endpoint group.
 /// </summary>
 public static class TreasuryApplication
 {
@@ -55,11 +55,11 @@ public static class TreasuryApplication
         });
         // A lambda (not a method group) lets the OpenAPI source generator hook in the XML comments.
         builder.Services.AddOpenApi(options => TreasuryOpenApi.Configure(options));
-        var testBench = builder.Services.AddTestBench().WithApiName("Acme Treasury API")
+        var sendproof = builder.Services.AddSendproof().WithApiName("Acme Treasury API")
             .WithAuthProvider("Treasury session", "cookie", "/auth/login");
         if (builder.Environment.IsDevelopment())
-            testBench.WithAuthProvider("Seeded accounts", "personas", "/auth/personas");
-        testBench.AddEntityFrameworkCore<TreasuryDbContext>();
+            sendproof.WithAuthProvider("Seeded accounts", "personas", "/auth/personas");
+        sendproof.AddEntityFrameworkCore<TreasuryDbContext>();
 
         var app = builder.Build();
         if (isNewDatabase)
@@ -81,7 +81,7 @@ public static class TreasuryApplication
         app.MapFxEndpoints();
         app.MapStatementEndpoints();
         app.MapUserEndpoints();
-        app.MapTestBench();
+        app.MapSendproof();
         return app;
     }
 

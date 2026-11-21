@@ -2,8 +2,8 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
-using TestBench.EntityFrameworkCore;
+using Sendproof.AspNetCore;
+using Sendproof.EntityFrameworkCore;
 
 namespace DotnetConformance;
 
@@ -35,7 +35,7 @@ public static class FixtureApplication
         builder.Services.AddAuthorization();
         builder.Services.AddOpenApi(openApi => openApi.AddDocumentTransformer((document, _, _) =>
         {
-            document.Info.Title = "Test Bench Conformance";
+            document.Info.Title = "Sendproof Conformance";
             return Task.CompletedTask;
         }));
 
@@ -43,13 +43,13 @@ public static class FixtureApplication
         // runner a short real-time retention without any adapter change or test-only endpoint.
         builder.Services.AddSingleton<TimeProvider>(new ScaledTimeProvider(
             FixtureOptions.AdapterTraceLifetime / options.TraceTtl));
-        var testBench = builder.Services.AddTestBench()
-            .WithApiName("Test Bench Conformance")
+        var sendproof = builder.Services.AddSendproof()
+            .WithApiName("Sendproof Conformance")
             .WithAuthProvider("Password", "cookie", "/auth/sign-in")
             .WithAuthProvider("Personas", "personas", "/auth/personas");
         if (options.Scenario != FixtureScenario.NoProvider)
         {
-            testBench.AddEntityFrameworkCore<FixtureDbContext>();
+            sendproof.AddEntityFrameworkCore<FixtureDbContext>();
         }
 
         if (options.Scenario == FixtureScenario.RollbackFailure)
@@ -95,7 +95,7 @@ public static class FixtureApplication
         app.MapOpenApi();
         app.MapAuthEndpoints();
         app.MapItemEndpoints();
-        app.MapTestBench();
+        app.MapSendproof();
         return app;
     }
 

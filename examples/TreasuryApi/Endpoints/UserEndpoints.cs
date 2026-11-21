@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -23,7 +23,7 @@ internal static class UserEndpoints
             .Produces<User>().ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPut("/{id:int}/role", ChangeRole).WithName("UsersController.ChangeRole").RequireAuthorization(Policies.Admins)
             .Produces<User>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity).WithSendproofPreview();
         app.MapGet("/api/v2/roles", Roles).WithTags("Users and roles").WithName("UsersController.Roles").RequireAuthorization()
             .Produces<IReadOnlyList<Role>>();
     }
@@ -99,7 +99,7 @@ internal static class UserEndpoints
     /// <response code="404">No user has this ID.</response>
     /// <response code="422">You tried to change your own role or demote the last admin.</response>
     internal static async Task<IResult> ChangeRole(int id, ChangeRoleRequest request, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview)
+        DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var user = await db.Users.SingleOrDefaultAsync(u => u.Id == id);
         if (user is null) return EndpointSupport.NotFound("user", id);

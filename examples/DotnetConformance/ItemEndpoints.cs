@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace DotnetConformance;
 
@@ -51,12 +51,12 @@ internal static class ItemEndpoints
             .Produces<ItemResponse>().Produces(StatusCodes.Status404NotFound);
 
         items.MapPost("", CreateAsync)
-            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Create an item").Produces<ItemResponse>(StatusCodes.Status201Created)
             .ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict);
 
         items.MapPatch("/{id}", UpdateAsync)
-            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Rename an item").Produces<ItemResponse>().Produces(StatusCodes.Status404NotFound)
             .ProducesValidationProblem();
 
@@ -66,16 +66,16 @@ internal static class ItemEndpoints
             db.Items.Remove(item);
             await db.SaveChangesAsync();
             return Results.NoContent();
-        }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+        }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Delete an item").Produces(StatusCodes.Status204NoContent).Produces(StatusCodes.Status404NotFound);
 
         items.MapPost("/{id}/fail", FailAsync)
-            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Insert an item, then fail (409, or an exception with ?mode=exception)")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         items.MapPost("/{id}/large", LargeAsync)
-            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Insert an item and return a body above the preview response cap")
             .Produces<LargeResponse>().ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -84,11 +84,11 @@ internal static class ItemEndpoints
             // Both the redirect and the cookie belong to the inner response and must never reach the client in a preview.
             response.Headers.SetCookie = "fixture-inner=1; Path=/; HttpOnly";
             return Results.Redirect($"{request.PathBase}/items/{Uri.EscapeDataString(id)}");
-        }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+        }).RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Redirect to the item with an inner Set-Cookie").Produces(StatusCodes.Status302Found);
 
         items.MapPost("/{id}/capture", CaptureAsync)
-            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithTestBenchPreview()
+            .RequireAuthorization(policy => policy.RequireRole(AdminRole)).WithSendproofPreview()
             .WithSummary("Exceed every capture limit in one request").Produces<ItemResponse>(StatusCodes.Status201Created);
 
         // Deliberately not marked for preview: ordinary Send only.
@@ -102,7 +102,7 @@ internal static class ItemEndpoints
     }
 
     private static async Task<IResult> CreateAsync(CreateItemRequest body, FixtureDbContext db, HttpRequest request,
-        TestBenchPreview preview, FixtureOutbox outbox, ILogger<CreateItemRequest> logger)
+        SendproofPreview preview, FixtureOutbox outbox, ILogger<CreateItemRequest> logger)
     {
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(body.Id)) errors["id"] = ["An id is required."];
@@ -144,7 +144,7 @@ internal static class ItemEndpoints
     }
 
     private static async Task<IResult> CaptureAsync(string id, FixtureDbContext db, HttpRequest request,
-        TestBenchPreview preview, FixtureOutbox outbox, ILogger<CreateItemRequest> logger)
+        SendproofPreview preview, FixtureOutbox outbox, ILogger<CreateItemRequest> logger)
     {
         for (var n = 0; n < CaptureItems; n++)
             db.Items.Add(new Item { Id = $"{id}-{n}", Name = $"item {id}-{n}" });
@@ -165,7 +165,7 @@ internal static class ItemEndpoints
     }
 
     /// <summary>Records an email effect. Ordinary Send and observed Send deliver it; Preview suppresses it.</summary>
-    private static void Notify(TestBenchPreview preview, FixtureOutbox outbox, string description, string text)
+    private static void Notify(SendproofPreview preview, FixtureOutbox outbox, string description, string text)
     {
         if (!preview.TryRecordEmail(description, "bench@example.test", ["ops@example.test"], [], description, text))
             outbox.Deliver(description);

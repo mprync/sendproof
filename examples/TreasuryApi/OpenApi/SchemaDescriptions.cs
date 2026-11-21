@@ -100,12 +100,12 @@ internal static class SchemaDescriptions
                 break;
             case nameof(CreatePaymentRequest.Amount):
                 SetExtension(schema, "x-currency-field", JsonValue.Create("currency")!);
-                SetExtension(schema, "x-testbench-row", JsonValue.Create("payment-details")!);
-                SetExtension(schema, "x-testbench-type-label", JsonValue.Create("decimal · ≥ 0.01")!);
+                SetExtension(schema, "x-sendproof-row", JsonValue.Create("payment-details")!);
+                SetExtension(schema, "x-sendproof-type-label", JsonValue.Create("decimal · ≥ 0.01")!);
                 break;
             case nameof(CreatePaymentRequest.ValueDate):
                 schema.Title = "Value date";
-                SetExtension(schema, "x-testbench-row", JsonValue.Create("payment-details")!);
+                SetExtension(schema, "x-sendproof-row", JsonValue.Create("payment-details")!);
                 break;
             case nameof(CreatePaymentRequest.Currency):
                 schema.Enum = Enum.GetNames<Currency>().Select(name => (JsonNode)JsonValue.Create(name)!).ToList();
@@ -114,17 +114,17 @@ internal static class SchemaDescriptions
             case nameof(CreatePaymentRequest.Priority):
                 schema.Enum = [JsonValue.Create("Normal")!, JsonValue.Create("Urgent")!, JsonValue.Create("Same day")!];
                 SetExtension(schema, EnumDescriptions.Extension, EnumDescriptions.For(typeof(Priority))!);
-                SetExtension(schema, "x-testbench-visible", JsonValue.Create(true)!);
+                SetExtension(schema, "x-sendproof-visible", JsonValue.Create(true)!);
                 break;
             case nameof(CreatePaymentRequest.ChargeBearer):
                 schema.Enum = [JsonValue.Create("SHA")!, JsonValue.Create("OUR")!, JsonValue.Create("BEN")!];
                 break;
             case nameof(CreatePaymentRequest.Reference):
-                SetExtension(schema, "x-testbench-visible", JsonValue.Create(true)!);
+                SetExtension(schema, "x-sendproof-visible", JsonValue.Create(true)!);
                 break;
             case nameof(CreatePaymentRequest.RemittanceLines):
                 schema.Items = new OpenApiSchema { Type = JsonSchemaType.String, MaxLength = 140, Description = "One line of free text for the beneficiary." };
-                SetExtension(schema, "x-testbench-visible", JsonValue.Create(true)!);
+                SetExtension(schema, "x-sendproof-visible", JsonValue.Create(true)!);
                 break;
         }
     }

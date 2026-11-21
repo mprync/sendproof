@@ -1,6 +1,6 @@
 # .NET conformance fixture
 
-A disposable ASP.NET Core minimal API that implements the shared [conformance fixture contract](../../spec/conformance/fixture.md) with the `TestBench.AspNetCore` and `TestBench.EntityFrameworkCore` packages. The shared runner drives it over real HTTP; it is not a sample application (see `examples/TreasuryApi` for that).
+A disposable ASP.NET Core minimal API that implements the shared [conformance fixture contract](../../spec/conformance/fixture.md) with the `Sendproof.AspNetCore` and `Sendproof.EntityFrameworkCore` packages. The shared runner drives it over real HTTP; it is not a sample application (see `examples/TreasuryApi` for that).
 
 Requirements: .NET SDK 10 (`net10.0`), NuGet access for the first restore, and a loopback port.
 
@@ -24,11 +24,11 @@ Invalid values stop the process at startup with a descriptive error. Each proces
 
 ## How it uses the adapter
 
-- **Standard** runs in the `Development` environment, the only one the workbench enables by default. **Disabled** runs in `Production`, so `/bench` and previews are absent while the ordinary routes still work.
+- **Standard** runs in the `Development` environment, the only one the workbench enables by default. **Disabled** runs in `Production`, so `/sendproof` and previews are absent while the ordinary routes still work.
 - **Preview provider**: `AddEntityFrameworkCore<FixtureDbContext>()`. **No-provider** omits it. **Rollback-failure** decorates the registered provider (`RollbackFailureProvider`): capture is real, but `RollbackAsync` throws. The transaction is never committed and disposal rolls it back.
 - **Trace lifetime**: the adapter keeps traces for a fixed five minutes and takes its clock from dependency injection. The fixture registers a `TimeProvider` that runs 60 times faster by default (`ScaledTimeProvider`), so a trace expires after five real seconds. No adapter change or clock endpoint is needed; the manifest uses `traceTtlMs: 5000`.
 - **Authentication**: cookie authentication. `admin@example.test` / `bench-fixture` signs in at `POST /auth/sign-in` (advertised as kind `cookie`). `/auth/personas` lists `admin` and `viewer` and switches to either for any signed-in user, which is acceptable only because this fixture holds no real data. The email is the stable subject that owns traces.
-- **Effects and logs**: `POST /items` records an `email` effect through `TestBenchPreview` (suppressed in Preview, delivered to an in-memory outbox otherwise) and logs `created:<id>` through `ILogger`. It also runs `SELECT @fixture_secret` so the adapter's secret-name redaction is visible in captured SQL.
+- **Effects and logs**: `POST /items` records an `email` effect through `SendproofPreview` (suppressed in Preview, delivered to an in-memory outbox otherwise) and logs `created:<id>` through `ILogger`. It also runs `SELECT @fixture_secret` so the adapter's secret-name redaction is visible in captured SQL.
 
 ## Choices the contract leaves open
 

@@ -21,11 +21,11 @@ public sealed class TreasuryFlowTests
     {
         await using var host = await TreasuryHost.StartAsync();
         var (app, client) = (host.App, host.Client);
-        Assert.Contains("app.js", await client.GetStringAsync("/bench/"));
-        Assert.Contains("--accent", await client.GetStringAsync("/bench/styles.css"));
-        Assert.Contains("flask", await client.GetStringAsync("/bench/icons.js"));
-        Assert.Contains("export", await client.GetStringAsync("/bench/fields/render.js"));
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/bench/package.json")).StatusCode);
+        Assert.Contains("app.js", await client.GetStringAsync("/sendproof/"));
+        Assert.Contains("--accent", await client.GetStringAsync("/sendproof/styles.css"));
+        Assert.Contains("flask", await client.GetStringAsync("/sendproof/icons.js"));
+        Assert.Contains("export", await client.GetStringAsync("/sendproof/fields/render.js"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/sendproof/package.json")).StatusCode);
         var request = new CreatePaymentRequest
         {
             DebitAccountId = Guid.Parse(OperatingEur),
@@ -65,8 +65,8 @@ public sealed class TreasuryFlowTests
             Assert.DoesNotContain("priority", required);
             var properties = paymentSchema.GetProperty("properties");
             Assert.Equal("Debit account", properties.GetProperty("debitAccountId").GetProperty("title").GetString());
-            Assert.Equal("payment-details", properties.GetProperty("amount").GetProperty("x-testbench-row").GetString());
-            Assert.True(properties.GetProperty("priority").GetProperty("x-testbench-visible").GetBoolean());
+            Assert.Equal("payment-details", properties.GetProperty("amount").GetProperty("x-sendproof-row").GetString());
+            Assert.True(properties.GetProperty("priority").GetProperty("x-sendproof-visible").GetBoolean());
             var examplePreview = await Preview(client, example);
             var exampleResponse = await examplePreview.Content.ReadAsStringAsync();
             Assert.True(examplePreview.IsSuccessStatusCode, exampleResponse);
@@ -104,7 +104,7 @@ public sealed class TreasuryFlowTests
         Assert.Equal(HttpStatusCode.Created, sent.StatusCode);
         Assert.Contains("db;dur=", Assert.Single(sent.Headers.GetValues("Server-Timing")));
         Assert.True(sent.Headers.Location is not null);
-        var traceUrl = "/bench/_api/traces/" + Assert.Single(sent.Headers.GetValues("X-TestBench-Trace"));
+        var traceUrl = "/sendproof/_api/traces/" + Assert.Single(sent.Headers.GetValues("X-Sendproof-Trace"));
         var trace = await client.GetFromJsonAsync<JsonElement>(traceUrl);
         Assert.Contains(trace.GetProperty("changes").EnumerateArray(), change => change.GetProperty("operation").GetString() == "insert");
         Assert.True(Assert.Single(trace.GetProperty("effects").EnumerateArray()).GetProperty("delivered").GetBoolean());
@@ -511,7 +511,7 @@ public sealed class TreasuryFlowTests
 
     private static async Task<HttpResponseMessage> PreviewResponse<T>(HttpClient client, string path, T? body, HttpMethod method)
     {
-        using var message = new HttpRequestMessage(method, "/bench/_preview" + path);
+        using var message = new HttpRequestMessage(method, "/sendproof/_preview" + path);
         if (body is not null) message.Content = JsonContent.Create(body);
         message.Headers.Add("Prefer", "tx=rollback");
         return await client.SendAsync(message);

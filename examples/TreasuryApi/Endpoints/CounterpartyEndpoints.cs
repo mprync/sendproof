@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -16,13 +16,13 @@ internal static class CounterpartyEndpoints
             .Produces<Counterparty>().ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/", Create).WithName("CounterpartiesController.Create").RequireAuthorization(Policies.Writers)
             .Produces<Counterparty>(StatusCodes.Status201Created).ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
         group.MapPut("/{id:guid}", Update).WithName("CounterpartiesController.Update").RequireAuthorization(Policies.Writers)
             .Produces<Counterparty>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapDelete("/{id:guid}", Archive).WithName("CounterpartiesController.Archive").RequireAuthorization(Policies.Writers)
             .Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
     }
 
     /// <summary>List counterparties</summary>
@@ -94,7 +94,7 @@ internal static class CounterpartyEndpoints
     /// <response code="400">A field was missing or invalid.</response>
     /// <response code="409">An active counterparty with this name already exists.</response>
     internal static async Task<IResult> Create(CreateCounterpartyRequest request, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview)
+        DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var errors = EndpointSupport.Validate(request);
         CheckBankDetails(request.BankDetails, errors);

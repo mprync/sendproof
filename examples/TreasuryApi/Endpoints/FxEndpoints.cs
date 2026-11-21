@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -17,14 +17,14 @@ internal static class FxEndpoints
             .Produces<FxQuote>().ProducesValidationProblem();
         group.MapPost("/deals", Book).WithName("FxController.Book").RequireAuthorization(Policies.Writers)
             .Produces<FxDeal>(StatusCodes.Status201Created).ProducesValidationProblem().ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
         group.MapGet("/deals", List).WithName("FxController.List").RequireAuthorization()
             .WithMetadata(new SortKeysMetadata(SortKeys.FxDeals)).Produces<PagedList<FxDeal>>().ProducesValidationProblem();
         group.MapGet("/deals/{id:guid}", Get).WithName("FxController.Get").RequireAuthorization()
             .Produces<FxDeal>().ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/deals/{id:guid}/cancel", Cancel).WithName("FxController.Cancel").RequireAuthorization(Policies.Writers)
             .Produces<FxDeal>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
-            .WithTestBenchPreview();
+            .WithSendproofPreview();
     }
 
     /// <summary>Quote FX rate</summary>
@@ -63,7 +63,7 @@ internal static class FxEndpoints
     /// <response code="400">A field was invalid.</response>
     /// <response code="409">The market has moved since the quote; ask for a new quote.</response>
     internal static async Task<IResult> Book(BookFxDealRequest request, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview)
+        DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var errors = Check(request.Type, request.BaseAmount, request.ValueDate, request.Pair);
         errors = EndpointSupport.Validate(request).Concat(errors).GroupBy(e => e.Key).ToDictionary(g => g.Key, g => g.SelectMany(e => e.Value).ToArray());
@@ -157,7 +157,7 @@ internal static class FxEndpoints
     /// <response code="404">No deal has this ID.</response>
     /// <response code="409">The deal is settled, already cancelled or past its value date.</response>
     internal static async Task<IResult> Cancel(Guid id, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview, CancelFxDealRequest? request = null)
+        DemoNotificationQueue notifications, SendproofPreview preview, CancelFxDealRequest? request = null)
     {
         var deal = await db.FxDeals.SingleOrDefaultAsync(d => d.Id == id);
         if (deal is null) return EndpointSupport.NotFound("FX deal", id);

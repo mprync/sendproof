@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using TestBench.AspNetCore;
+using Sendproof.AspNetCore;
 
 namespace TreasuryApi;
 
@@ -14,10 +14,10 @@ internal static class ApprovalEndpoints
             .WithMetadata(new SortKeysMetadata(SortKeys.Approvals)).Produces<PagedList<ApprovalRequest>>().ProducesValidationProblem();
         group.MapPost("/{paymentId:guid}/approve", Approve).WithName("ApprovalsController.Approve").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesProblem(StatusCodes.Status403Forbidden).ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapPost("/{paymentId:guid}/reject", Reject).WithName("ApprovalsController.Reject").RequireAuthorization(Policies.Writers)
             .Produces<Payment>().ProducesValidationProblem().ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithTestBenchPreview();
+            .ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
     }
 
     /// <summary>List approval queue</summary>
@@ -94,7 +94,7 @@ internal static class ApprovalEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">The payment is not waiting for approval.</response>
     internal static Task<IResult> Approve(Guid paymentId, TreasuryDbContext db, ClaimsPrincipal principal,
-        DemoNotificationQueue notifications, TestBenchPreview preview, ApprovePaymentRequest? request = null) =>
+        DemoNotificationQueue notifications, SendproofPreview preview, ApprovePaymentRequest? request = null) =>
         Decide(paymentId, ApprovalDecision.Approved, request?.Comment, db, principal, notifications, preview);
 
     /// <summary>Reject payment</summary>
@@ -111,7 +111,7 @@ internal static class ApprovalEndpoints
     /// <response code="404">No payment has this ID.</response>
     /// <response code="409">The payment is not waiting for approval.</response>
     internal static async Task<IResult> Reject(Guid paymentId, RejectPaymentRequest request, TreasuryDbContext db,
-        ClaimsPrincipal principal, DemoNotificationQueue notifications, TestBenchPreview preview)
+        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var errors = EndpointSupport.Validate(request);
         if (errors.Count > 0) return Results.ValidationProblem(errors);
@@ -119,7 +119,7 @@ internal static class ApprovalEndpoints
     }
 
     internal static async Task<IResult> Decide(Guid paymentId, ApprovalDecision decision, string? comment, TreasuryDbContext db,
-        ClaimsPrincipal principal, DemoNotificationQueue notifications, TestBenchPreview preview)
+        ClaimsPrincipal principal, DemoNotificationQueue notifications, SendproofPreview preview)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.Id == paymentId);
         if (payment is null) return EndpointSupport.NotFound("payment", paymentId);
