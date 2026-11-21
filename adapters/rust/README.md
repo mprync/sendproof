@@ -61,18 +61,18 @@ BENCH_POSTGRES_URL=postgresql://… BENCH_MYSQL_URL=mysql://… \
   node tests/conformance/run.mjs rust-axum-postgresql rust-actix-postgresql rust-axum-mysql rust-actix-mysql
 ```
 
-With `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` set to a disposable server, and the compose MongoDB replica set running (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`), the workspace runs 177 tests:
+With `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` set to a disposable server, and the compose MongoDB replica set running (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`), the workspace runs 193 tests:
 
 | Crate | Tests |
 | --- | --- |
-| `sendproof-core` | 40 unit, 10 data-store rules (tables parity, guard, 409 and 500 pipeline, discovery), 1 doc |
+| `sendproof-core` | 41 unit, 11 data-store rules (tables parity, guard, 409 and 500 pipeline, cleanup, discovery), 1 doc |
 | `sendproof-sqlx` | 26 unit, 14 SQLite, 25 PostgreSQL and MySQL |
-| `sendproof-redis` | 14 (a recording fake connection), 1 doc |
-| `sendproof-dynamodb` | 13 (a recording HTTP client), 1 doc |
-| `sendproof-mongodb` | 22 (the compose replica set), 1 doc |
-| `sendproof-actix` | 7, 1 doc |
-| `sendproof-axum` | 1 doc |
+| `sendproof-redis` | 17 (a recording fake connection), 1 against the compose Redis, 1 doc |
+| `sendproof-dynamodb` | 15 (a recording HTTP client), 1 against the compose DynamoDB Local, 1 doc |
+| `sendproof-mongodb` | 27 (the compose replica set), 1 doc |
+| `sendproof-actix` | 8, 1 doc |
+| `sendproof-axum` | 1, 1 doc |
 
-Without the server variables, the PostgreSQL and MySQL tests are skipped and pass anyway; without the MongoDB service, the MongoDB tests that need it skip with the compose command in the message. Build the fixtures before running the HTTP conformance suite (`cargo build -p rust-conformance -p rust-conformance-actix`), because the runner starts the binaries as they are.
+Without the server variables, the PostgreSQL and MySQL tests are skipped and pass anyway; without the MongoDB, Redis or DynamoDB service, the tests that need it skip with the compose command in the message. Build the fixtures before running the HTTP conformance suite (`cargo build -p rust-conformance -p rust-conformance-actix`), because the runner starts the binaries as they are.
 
 `build.rs` embeds the packed UI. Without it the crate still builds and the workbench answers `503`. The UI source is never copied into this tree. Requires Rust 1.94+.
