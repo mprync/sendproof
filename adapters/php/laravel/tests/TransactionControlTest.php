@@ -96,19 +96,22 @@ final class TransactionControlTest extends TestCase
         };
 
         $session = $provider->begin(null);
-        try {
-            PreviewTurns::take('||:memory:', 0.05);
-            $this->fail('A second Preview must wait for the first one to end its transaction.');
-        } catch (\RuntimeException $error) {
-            $this->assertStringContainsString('did not run', $error->getMessage());
-        }
+        $this->assertStringContainsString('did not run', $this->takeElsewhere(0.05), 'A second Preview, in another worker process, must wait for the first one to end its transaction.');
         $session->rollback();
-        PreviewTurns::take('||:memory:', 1)->release();
+        $this->assertSame('took', $this->takeElsewhere(1));
 
         // A Preview that is disposed without rolling back still hands the turn on.
         $second = $provider->begin(null);
         $second->dispose();
-        PreviewTurns::take('||:memory:', 1)->release();
+        $this->assertSame('took', $this->takeElsewhere(1));
+    }
+
+    /** Takes the in-memory database's turn from another process, as another worker would; returns what it printed. */
+    private function takeElsewhere(float $timeoutSeconds): string
+    {
+        $code = sprintf('require %s; try { Sendproof\Core\Preview\PreviewTurns::take("||:memory:", %F)->release(); echo "took"; } catch (RuntimeException $e) { echo $e->getMessage(); }', var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true), $timeoutSeconds);
+
+        return (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($code));
     }
 
     public function testAnApplicationWithNoMysqlTakesNoTurn(): void
