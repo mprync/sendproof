@@ -28,9 +28,10 @@ from .provider import (
     PreviewSession,
     PreviewUnavailable,
 )
-from .scope import RequestScope, current_scope
+from .scope import RequestScope, current_scope, detached
 
 __all__ = [
+    "detached",
     "AuthProvider",
     "BenchOptions",
     "Identity",

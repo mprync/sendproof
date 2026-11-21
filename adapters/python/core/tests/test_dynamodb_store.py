@@ -68,6 +68,30 @@ def test_reads_run_and_writes_are_refused_before_any_request_is_built(table):
     assert store.describe() == {"system": "dynamodb", "name": "orders", "mode": "guard"}
 
 
+def test_a_write_no_request_accounts_for_fails_every_open_preview(table):
+    """A thread a handler started without its context: its write ran unguarded, so no open Preview is confirmed."""
+    import threading
+
+    from sendproof_core import detached
+
+    client, _ = hooked_client()
+
+    def in_thread(body):
+        thread = threading.Thread(target=body)
+        thread.start()
+        thread.join()
+
+    def worker():
+        with detached():
+            client.put_item(TableName=table, Item={"id": {"S": "worker"}})
+
+    with active(preview_scope()) as scope:
+        in_thread(worker)
+        assert scope.capture.fault is None
+        in_thread(lambda: client.put_item(TableName=table, Item={"id": {"S": "stray"}}))
+    assert scope.capture.fault is not None and "DynamoDB PutItem" in str(scope.capture.fault)
+
+
 def test_partiql_select_runs_but_update_insert_and_unparseable_text_are_writes(table):
     client, _ = hooked_client()
     with active(preview_scope()):

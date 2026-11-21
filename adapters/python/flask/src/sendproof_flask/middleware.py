@@ -12,6 +12,7 @@ from werkzeug.routing import RequestRedirect
 
 from sendproof_core import Identity, limits, protocol
 from sendproof_core.marker import is_marked, is_previewable, marked_methods
+from sendproof_core.scope import enter_request, leave_request
 from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_response
 from sendproof_core.workbench import Response, problem_response
 
@@ -32,6 +33,18 @@ class SendproofWsgi:
         self.app, self.bench = app, bench
 
     def __call__(self, environ: dict, start_response: StartResponse) -> Iterable[bytes]:
+        # Every request is attributed, so a store write that no request accounts for (a thread a
+        # Preview handler started without its context) can fail the open Previews. The mark lasts
+        # until the server closes the body, so a streamed body is covered too.
+        token = enter_request()
+        try:
+            body = self._handle(environ, start_response)
+        except BaseException:
+            leave_request(token)
+            raise
+        return _RequestBody(body, token)
+
+    def _handle(self, environ: dict, start_response: StartResponse) -> Iterable[bytes]:
         bench = self.bench
         if not bench.options.enabled or PREVIEW_VIEW in environ:
             # A re-dispatched preview passes straight through; Flask checks it in before_request.
@@ -206,6 +219,32 @@ class SendproofWsgi:
             observed.finish(False)
             raise
         return _ObservedBody(body, observed, state)
+
+
+class _RequestBody:
+    """Keeps the request mark until the body is consumed or closed, whichever comes first."""
+
+    def __init__(self, body: Iterable[bytes], token: Any) -> None:
+        self._body, self._token = body, token
+
+    def __iter__(self):
+        try:
+            yield from self._body
+        finally:
+            self._leave()
+
+    def close(self) -> None:
+        try:
+            close = getattr(self._body, "close", None)
+            if close:
+                close()
+        finally:
+            self._leave()
+
+    def _leave(self) -> None:
+        token, self._token = self._token, None
+        if token is not None:
+            leave_request(token)
 
 
 class _ObservedBody:

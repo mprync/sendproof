@@ -17,7 +17,7 @@ from django.http import HttpRequest, HttpResponse
 from django.urls import Resolver404, get_script_prefix, get_urlconf, get_resolver, resolve
 
 from sendproof_core import limits, protocol
-from sendproof_core.scope import install_logging_capture
+from sendproof_core.scope import install_logging_capture, request_context
 from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_response
 from sendproof_core.workbench import Response, problem_response
 
@@ -77,6 +77,13 @@ class SendproofMiddleware:
             install_logging_capture()
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Every request is attributed, so a store write that no request accounts for (a thread a
+        # Preview handler started without its context) can fail the open Previews. The body of a
+        # streaming response is produced after this returns and is not covered.
+        with request_context():
+            return self._handle(request)
+
+    def _handle(self, request: HttpRequest) -> HttpResponse:
         bench = conf.get_bench()
         if not bench.options.enabled:
             return self.get_response(request)

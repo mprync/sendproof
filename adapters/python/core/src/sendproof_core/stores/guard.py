@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping, Optional
 
-from ..scope import RequestScope, current_scope
+from ..scope import RequestScope, attributed, current_scope, open_previews
 from .classify import WRITE
 
 #: Display names used in ``Preview unavailable: this operation writes to <Store>``.
@@ -75,6 +75,26 @@ def guard(store: str, operation: str, kind: str, detail: Optional[str] = None) -
     scope.capture.block(store, operation, reason)
     scope.capture.record_db(store, operation, blocked=True)
     raise PreviewWriteBlocked(store, operation, reason)
+
+
+def unattributed_write(store: str, operation: str) -> None:
+    """A write that no request and no :func:`~sendproof_core.detached` block accounts for.
+
+    Call it for a write seen with no current scope. While any Preview is open, such a write may
+    come from a Preview handler's own thread, started without its context: it was neither blocked
+    nor rolled back, so every open Preview fails with 500 rather than claim a rollback. With no
+    Preview open, or inside an ordinary request or a ``detached()`` block, it does nothing.
+    """
+    if attributed():
+        return
+    previews = open_previews()
+    if not previews:
+        return
+    for scope in previews:
+        scope.capture.refuse(PreviewTransactionControl(
+            f"A {store_name(store)} {operation} ran outside any request while this Preview was open, so it may "
+            "have come from the Preview's own thread; the Preview can't be confirmed. Wrap background work "
+            "in sendproof_core.detached()."))
 
 
 def refuse_in_preview(message: str) -> Optional[PreviewTransactionControl]:

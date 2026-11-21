@@ -26,8 +26,8 @@ from typing import Any, Iterable, Mapping, Optional
 
 from ..scope import current_scope
 from .base import DataStore
-from .classify import classify_dynamo
-from .guard import guard, read_set, store_label
+from .classify import WRITE, classify_dynamo
+from .guard import guard, read_set, store_label, unattributed_write
 
 _UNIQUE_ID = "sendproof-dynamodb-guard"
 _STARTED = "sendproof_started"
@@ -120,7 +120,10 @@ class DynamoDBStore(DataStore):
         """Classify the operation before anything is built, signed or sent; refuse a write in a Preview."""
         operation = str(getattr(model, "name", "") or "")
         params = params if isinstance(params, Mapping) else {}
-        guard("dynamodb", operation, classify_dynamo(operation, params, self._reads))
+        kind = classify_dynamo(operation, params, self._reads)
+        guard("dynamodb", operation, kind)
+        if kind == WRITE and current_scope() is None:
+            unattributed_write("dynamodb", operation)
         if context is not None:
             statement = _statement(params)
             context[_STARTED] = (time.perf_counter(), operation, _target(params, statement), statement)
