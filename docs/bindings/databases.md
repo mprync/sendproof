@@ -44,7 +44,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 | Prisma | 11 | 11 | 12 | — | 15 |
 | Flask-SQLAlchemy | 14 | 14 | 14 | — | — |
 | Go database/sql and GORM | 27 | 27 | 27 | 26, 1 skipped | 2 |
-| Rails ActiveRecord | 35, 1 skipped | — | 35, 1 skipped | — | — |
+| Rails ActiveRecord | 42, 4 skipped | 42, 4 skipped | 45, 1 skipped | — | — |
 | SQLx | 8 | 10 | 11 | — | 22 unit |
 
 Other local suites passed as follows:
@@ -53,9 +53,9 @@ Other local suites passed as follows:
 - **Python, 306:** core 207 (69 of them data-store tests for MongoDB, Redis and DynamoDB, which need the compose services and skip without them, and 100 classifier, guard and pipeline tests), FastAPI 24 (9 data-store), Django 21 (7 data-store), Flask 39 (13 data-store, and 14 extension tests on SQLite) and SQLAlchemy 15. The PostgreSQL and MySQL extension runs are listed separately above.
 - **JVM, 196:** core 56, Spring Boot 46, JPA 13, Ktor 17, JDBC 12, MongoDB 30, Redis 12 and DynamoDB 10. The MongoDB, Redis, DynamoDB and Spring Data tests need the `mongodb`, `redis` and `dynamodb` Compose services and skip when they are down. The Spring MySQL run uses the same fixture with `BENCH_DATABASE=mysql`.
 - **PHP, 266:** core 146 (39 of them data-store tests for MongoDB, Redis and DynamoDB, which need the compose services and skip without them), Laravel 79 (38 data-store tests that need the services, an emulated-prepares check on MySQL, the MySQL turn and the transaction-control checks) and Symfony 41. The Laravel MySQL conformance entry runs the fixture with eight workers, so its concurrent-Preview check exercises the turn.
-- **Ruby, 235:** core 165 (97 of them data-store tests: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 36 (listed above for SQLite and MySQL), Rails 26 and the Rails fixture 8.
+- **Ruby, 270:** core 190 (data-store tests among them: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 46 (listed above for SQLite, PostgreSQL and MySQL), Rails 26 and the Rails fixture 8.
 
-The Rails ActiveRecord suite skips one test on each database: the MySQL-only regression test for concurrent Previews on SQLite, and the bound-parameter test on MySQL, which has no prepared statements through Trilogy. The Go counts exclude parent tests that group subtests. The SQL Server case for a single-statement upsert is skipped because SQL Server uses `MERGE`, which is outside keyed capture. The Go packages also pass vet, race checks and the 15 module-path rewrite tests. The Rust workspace includes 82 local tests in total.
+The Rails ActiveRecord suite skips the four MySQL-only tests (concurrent-insert deadlock, `CALL` and implicit commits, deadlock refusal, committed-anyway) on SQLite and PostgreSQL, and on MySQL the bound-parameter test, which has no prepared statements through Trilogy. The Go counts exclude parent tests that group subtests. The SQL Server case for a single-statement upsert is skipped because SQL Server uses `MERGE`, which is outside keyed capture. The Go packages also pass vet, race checks and the 15 module-path rewrite tests. The Rust workspace includes 82 local tests in total.
 
 ## Run database conformance
 
