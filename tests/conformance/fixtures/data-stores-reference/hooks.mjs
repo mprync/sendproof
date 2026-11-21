@@ -9,9 +9,11 @@ import { randomBytes } from 'node:crypto';
 import { connectMongo, Long } from '../../stores/mongodb.mjs';
 import { connectRedis } from '../../stores/redis.mjs';
 import { dynamoClient } from '../../stores/dynamodb.mjs';
+import { connectCassandra } from '../../stores/cassandra.mjs';
+import { openSearchClient } from '../../stores/opensearch.mjs';
 import {
-  captureScope, classifyDynamo, classifyMongo, classifyRedis, dbLog, guard, guardEnabled, previewScope, record,
-  redactDeep, sanitizeDocument,
+  captureScope, classifyCassandraMessage, classifyCosmos, classifyDynamo, classifyElasticsearch, classifyFirestore, classifyMongo,
+  classifyRedis, dbLog, elasticsearchTarget, guard, guardEnabled, previewScope, record, redactDeep, sanitizeDocument, sanitizeStatement,
 } from './guard.mjs';
 
 /** Converts BSON values to plain JSON (Extended JSON for types JSON lacks). */
@@ -205,6 +207,131 @@ export async function hookedMongo(url) {
   }
 
   return { mode, namespace, command, finishPreview, close: client.close };
+}
+
+/** The table a CQL statement names, for db.collection.name, without its keyspace. */
+const cqlTarget = statement => /\b(?:FROM|INTO|UPDATE|TRUNCATE|TABLE)\s+(?:"?\w+"?\.)?"?(\w+)"?/i.exec(String(statement))?.[1];
+
+/**
+ * Cassandra: the hook sits where a driver sends protocol messages (Node `cassandra-driver`'s
+ * `execute`, `batch`, `eachRow` and `stream` all end there). It classifies each QUERY by its text,
+ * each EXECUTE by the text it saw prepared (an id it never saw is a write), and refuses every BATCH.
+ * PREPARE only parses a statement, so it runs and is remembered, not logged.
+ */
+export async function hookedCassandra(contactPoint, keyspace) {
+  const client = await connectCassandra(contactPoint);
+  const prepared = new Map();
+
+  async function run(message, { statement, text, target, send }) {
+    const { kind, operation } = classifyCassandraMessage(message, { statement, prepared: text });
+    if (kind === 'session') return send();
+    guard('cassandra', operation, kind);
+    const started = performance.now();
+    const logged = { system: 'cassandra', operation, target: target ?? cqlTarget(statement ?? text), namespace: keyspace };
+    const sanitized = statement ?? text;
+    try {
+      const reply = await send();
+      record(dbLog({ ...logged, statement: sanitized && sanitizeStatement(sanitized), rowsAffected: reply.rows?.length, elapsedMs: performance.now() - started }));
+      return reply;
+    } catch (error) {
+      record(dbLog({ ...logged, statement: sanitized && sanitizeStatement(sanitized), error: String(error.code ?? 'error'), elapsedMs: performance.now() - started }));
+      throw error;
+    }
+  }
+
+  const hooked = {
+    query: (statement, values = []) => run('QUERY', { statement, send: () => client.query(statement, values) }),
+    async prepare(statement) {
+      const id = await client.prepare(statement);
+      prepared.set(id.toString('hex'), statement);
+      return id;
+    },
+    execute: (id, values = []) => run('EXECUTE', { text: prepared.get(Buffer.from(id).toString('hex')), send: () => client.execute(id, values) }),
+    /** `statements` are `{ query, values }` or `{ id, values }`, as in the driver's `batch`. */
+    batch(statements, options) {
+      const texts = statements.map(item => item.query ?? prepared.get(Buffer.from(item.id).toString('hex')) ?? '?');
+      return run('BATCH', {
+        text: `BEGIN BATCH ${texts.join('; ')}; APPLY BATCH`, target: cqlTarget(texts[0]), send: () => client.batch(statements, options),
+      });
+    },
+    close: client.close,
+    mode: 'guard',
+  };
+  await hooked.query(`USE "${keyspace}"`);
+  return hooked;
+}
+
+/** A request body as the Db entry's statement: every literal replaced by "?", one line per NDJSON line. */
+const searchStatement = body => body === undefined ? undefined
+  : Array.isArray(body) ? body.map(line => JSON.stringify(sanitizeDocument(line))).join('\n') : JSON.stringify(sanitizeDocument(body));
+
+/**
+ * OpenSearch and Elasticsearch: the hook wraps the client's transport (Node `Transport` subclass,
+ * Python `Transport`, .NET `ITransport` and so on), which every API call goes through, and classifies
+ * each request by method and path. Point-in-time and scroll handles are session state: they run and
+ * aren't logged. `system` is `opensearch` or `elasticsearch`.
+ */
+export function hookedSearch(url, system = 'opensearch') {
+  const client = openSearchClient(url);
+  async function request(method, path, body) {
+    const { kind, operation } = classifyElasticsearch(method, path, body);
+    if (kind === 'session') return client.request(method, path, body);
+    guard(system, operation, kind);
+    const started = performance.now();
+    const logged = { system, operation, target: elasticsearchTarget(path), statement: searchStatement(body) };
+    const reply = await client.request(method, path, body);
+    const rows = reply.body?.hits?.hits?.length ?? reply.body?.updated ?? reply.body?.deleted ?? (reply.body?.result ? 1 : undefined);
+    const error = reply.status >= 400 ? reply.body?.error?.type ?? String(reply.status) : undefined;
+    record(dbLog({ ...logged, rowsAffected: error ? undefined : rows, error, elapsedMs: performance.now() - started }));
+    return reply;
+  }
+  return { request, mode: 'guard' };
+}
+
+/**
+ * Cosmos DB: the hook sits on the SDK's request pipeline (a Node request plugin, a Python or Go
+ * pipeline policy, a .NET `RequestHandler`) in front of `transport`, which sends one recorded-style
+ * entry `{ http, sdk? }`. `level: 'sdk'` classifies the SDK's operation type, `'http'` the request.
+ * Every request carries its trigger headers, so both levels see them.
+ */
+export function hookedCosmos(transport, { level = 'http' } = {}) {
+  return async function send(entry) {
+    const { kind, operation } = classifyCosmos(level === 'sdk' ? { operationType: entry.sdk.operationType, request: entry.http } : { request: entry.http });
+    guard('cosmosdb', operation, kind);
+    const segments = entry.http.path.split('/').filter(Boolean);
+    const after = name => (segments.includes(name) ? segments[segments.indexOf(name) + 1] : undefined);
+    const query = typeof entry.http.body?.query === 'string' ? sanitizeStatement(entry.http.body.query) : undefined;
+    const started = performance.now();
+    const reply = await transport(entry);
+    record(dbLog({ system: 'cosmosdb', operation, target: after('colls'), namespace: after('dbs'), statement: query, elapsedMs: performance.now() - started }));
+    return reply;
+  };
+}
+
+/** The collection a Firestore request names, for db.collection.name. */
+function firestoreCollection(message = {}) {
+  const from = message.structuredQuery?.from?.[0]?.collectionId ?? message.structuredAggregationQuery?.structuredQuery?.from?.[0]?.collectionId;
+  const name = from ? undefined : message.documents?.[0] ?? message.writes?.[0]?.update?.name ?? message.writes?.[0]?.delete;
+  return from ?? name?.split('/documents/')[1]?.split('/').at(-2);
+}
+
+/**
+ * Firestore: the hook is a gRPC client interceptor (or a REST-transport wrapper) in front of
+ * `transport(rpc, message)`. BeginTransaction, Rollback and an empty Commit run unlogged.
+ */
+export function hookedFirestore(transport) {
+  return async function send(rpc, message) {
+    const { kind, operation } = classifyFirestore(rpc, message);
+    if (kind === 'session') return transport(rpc, message);
+    guard('firestore', operation, kind);
+    const started = performance.now();
+    const reply = await transport(rpc, message);
+    record(dbLog({
+      system: 'firestore', operation, target: firestoreCollection(message),
+      statement: message === undefined ? undefined : JSON.stringify(sanitizeDocument(message)), elapsedMs: performance.now() - started,
+    }));
+    return reply;
+  };
 }
 
 /** A trace or session token: 32 random bytes, base64url. */

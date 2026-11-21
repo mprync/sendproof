@@ -83,6 +83,12 @@ A manifest entry that lists `"stores"` (any of `mongodb`, `redis` and `dynamodb`
 | `BENCH_DYNAMODB_URL` | DynamoDB endpoint URL. |
 | `BENCH_DYNAMODB_TABLE` | A fresh table with string partition key `id`, created by the runner. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Local-only credentials for DynamoDB Local. The secret key must never appear in a capture. |
+| `BENCH_CASSANDRA_CONTACT_POINT` | Cassandra `host:port` (no authentication). |
+| `BENCH_CASSANDRA_KEYSPACE` | A fresh keyspace holding table `tickets (id text PRIMARY KEY, status text, hits int)`, created by the runner. |
+| `BENCH_OPENSEARCH_URL` | OpenSearch base URL (security plugin off). |
+| `BENCH_OPENSEARCH_INDEX` | A fresh index with `title` (keyword), `views` (integer) and `hidden` (boolean), created by the runner. |
+
+Cassandra and OpenSearch come from the compose `heavy-stores` profile (`docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch`).
 
 ### MongoDB routes (`preview` mode)
 
@@ -118,10 +124,32 @@ Items in `BENCH_DYNAMODB_TABLE` have the shape `{id, status, hits}`.
 | `POST /orders/{id}/cancel` | `ExecuteStatement` with `UPDATE "<table>" SET status = 'cancelled' WHERE id = ?`, and return 200 and `{id,status}`. |
 | `DELETE /orders/{id}` | `DeleteItem` and return 204. Marked `preview: false`. |
 
+### Cassandra routes (`guard` mode)
+
+Rows in `tickets` have the shape `{id, status, hits}`.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `GET /tickets/{id}` | Run the prepared statement `SELECT id, status, hits FROM tickets WHERE id = ?` (prepare once, then execute) and return 200 and `{id,status,hits}`, or 404. The hook must classify the execution by the text it saw prepared. |
+| `POST /tickets/{id}/touch` | Run `INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)` with the id bound, and return 200 and `{id,status: "new",hits: 1}`. The `Db` entry's statement replaces the literals with `?`. |
+| `POST /tickets/{id}/close` | Send one logged batch holding `UPDATE tickets SET status = 'closed' WHERE id = ? IF EXISTS`, and return 200 and `{id,status: "closed"}`. |
+| `DELETE /tickets/{id}` | `DELETE FROM tickets WHERE id = ?` and return 204. Marked `preview: false`. |
+
+### OpenSearch routes (`guard` mode)
+
+Documents in `BENCH_OPENSEARCH_INDEX` have the shape `{title, views}`, keyed by `_id`.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `GET /articles/{id}` | `POST /<index>/_search` with `{"query": {"ids": {"values": [id]}}, "size": 1}` and return 200 and `{id,title,views}`, or 404. A read sent as a `POST`. |
+| `POST /articles/{id}/touch` | `POST /<index>/_update/<id>?refresh=true` with the script `ctx._source.views += params.step` (`step` 1), the upsert `{"title": "Untitled", "views": 1}` and `"_source": true`, and return 200 and `{id,title,views}` from the reply's `get._source`. |
+| `POST /articles/{id}/hide` | `POST /<index>/_update_by_query?refresh=true` with the `ids` query for the id and the script `ctx._source.hidden = true`. Catch any error from the store and return 404; otherwise return 200 and `{id,hidden: true}`, or 404 when nothing was updated. |
+| `DELETE /articles/{id}` | `DELETE /<index>/_doc/<id>?refresh=true` and return 204. Marked `preview: false`. |
+
 ### Mixed SQL and store route
 
 | Method and path | Handler behavior |
 | --- | --- |
-| `POST /items/{id}/remember?store=<store>` | Accept `{name}`, insert the item into `items`, then write the named guarded store: `INCR <prefix>counter:item-<id>` for `redis`, or the `touch` update on item `item-<id>` for `dynamodb`. Return 201 and `{id,name}`. |
+| `POST /items/{id}/remember?store=<store>` | Accept `{name}`, insert the item into `items`, then write the named guarded store: `INCR <prefix>counter:item-<id>` for `redis`, the `touch` update on item `item-<id>` for `dynamodb`, the `touch` insert of ticket `item-<id>` for `cassandra`, or the `touch` update of article `item-<id>` for `opensearch`. Return 201 and `{id,name}`. |
 
 Enable Preview for every route in these tables except the ones marked `preview: false`. Report each marked route in capabilities `previewUnavailable` with the reason `Preview unavailable: this operation writes to <Store>` and `stores: ["<store>"]`. Log every store command as a `Db` entry in Previews and observed-Send traces.

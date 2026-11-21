@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   captureScope, guardSql, looksSecret, record, redacted, redactDeep, storeNames, withScope,
 } from './guard.mjs';
-import { hookedDynamo, hookedMongo, hookedRedis, token } from './hooks.mjs';
+import { hookedCassandra, hookedDynamo, hookedMongo, hookedRedis, hookedSearch, token } from './hooks.mjs';
 
 const base = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT);
@@ -60,8 +60,13 @@ if (process.env.BENCH_DYNAMODB_URL) {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   });
 }
+if (process.env.BENCH_CASSANDRA_CONTACT_POINT) {
+  stores.cassandra = await hookedCassandra(process.env.BENCH_CASSANDRA_CONTACT_POINT, process.env.BENCH_CASSANDRA_KEYSPACE);
+}
+if (process.env.BENCH_OPENSEARCH_URL) stores.opensearch = hookedSearch(process.env.BENCH_OPENSEARCH_URL, 'opensearch');
 const prefix = process.env.BENCH_REDIS_PREFIX ?? '';
 const ordersTable = process.env.BENCH_DYNAMODB_TABLE;
+const articles = process.env.BENCH_OPENSEARCH_INDEX;
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -82,6 +87,20 @@ const touch = id => need('dynamodb').call('UpdateItem', {
   ExpressionAttributeValues: { ':one': { N: '1' }, ':new': { S: 'new' } },
   ReturnValues: 'ALL_NEW',
 });
+/** Cassandra's touch: one INSERT with inline literals, which the Db entry must replace with ?. */
+const touchTicket = id => need('cassandra').query("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)", [id]);
+let selectTicket;
+const articleOf = (id, source) => ({ id, title: source.title, views: source.views });
+/** OpenSearch's touch: a scripted update with an upsert, refreshed so searches see it. */
+const touchArticle = id => need('opensearch').request('POST', `/${articles}/_update/${encodeURIComponent(id)}?refresh=true`, {
+  script: { source: 'ctx._source.views += params.step', lang: 'painless', params: { step: 1 } },
+  upsert: { title: 'Untitled', views: 1 }, _source: true,
+});
+/** Turns a store reply with an HTTP error status into an exception, as official clients do. */
+const searchOk = reply => {
+  if (reply.status >= 400) throw Object.assign(new Error(`OpenSearch answered ${reply.status}`), { reply });
+  return reply.body;
+};
 
 const routes = [
   // Shared security rules.
@@ -109,6 +128,8 @@ const routes = [
     const store = query.get('store');
     if (store === 'redis') await need('redis').send('INCR', counterKey('item-' + params.id));
     else if (store === 'dynamodb') await touch('item-' + params.id);
+    else if (store === 'cassandra') await touchTicket('item-' + params.id);
+    else if (store === 'opensearch') searchOk(await touchArticle('item-' + params.id));
     else throw new HttpError(400, 'Unknown store');
     return json(201, { id: params.id, name: body.name });
   } },
@@ -179,6 +200,52 @@ const routes = [
   } },
   { method: 'DELETE', path: '/orders/{id}', preview: false, stores: ['dynamodb'], async run({ params }) {
     await need('dynamodb').call('DeleteItem', { TableName: ordersTable, Key: { id: { S: params.id } } });
+    return { status: 204 };
+  } },
+
+  // Cassandra (guard mode). Reads go through PREPARE and EXECUTE, so the hook must remember prepared text.
+  { method: 'GET', path: '/tickets/{id}', preview: true, async run({ params }) {
+    const cassandra = need('cassandra');
+    selectTicket ??= await cassandra.prepare('SELECT id, status, hits FROM tickets WHERE id = ?');
+    const [row] = (await cassandra.execute(selectTicket, [params.id])).rows;
+    return row ? json(200, { id: row.id, status: row.status, hits: row.hits }) : json(404, { error: 'Not found' });
+  } },
+  { method: 'POST', path: '/tickets/{id}/touch', preview: true, async run({ params }) {
+    await touchTicket(params.id);
+    return json(200, { id: params.id, status: 'new', hits: 1 });
+  } },
+  { method: 'POST', path: '/tickets/{id}/close', preview: true, async run({ params }) {
+    // A logged batch holding a lightweight transaction: a write even if the condition fails.
+    await need('cassandra').batch([{ query: "UPDATE tickets SET status = 'closed' WHERE id = ? IF EXISTS", values: [params.id] }]);
+    return json(200, { id: params.id, status: 'closed' });
+  } },
+  { method: 'DELETE', path: '/tickets/{id}', preview: false, stores: ['cassandra'], async run({ params }) {
+    await need('cassandra').query('DELETE FROM tickets WHERE id = ?', [params.id]);
+    return { status: 204 };
+  } },
+
+  // OpenSearch (guard mode). The read is a POST _search, so the method alone can't decide.
+  { method: 'GET', path: '/articles/{id}', preview: true, async run({ params }) {
+    const reply = searchOk(await need('opensearch').request('POST', `/${articles}/_search`, { query: { ids: { values: [params.id] } }, size: 1 }));
+    const [hit] = reply.hits.hits;
+    return hit ? json(200, articleOf(hit._id, hit._source)) : json(404, { error: 'Not found' });
+  } },
+  { method: 'POST', path: '/articles/{id}/touch', preview: true, async run({ params }) {
+    const reply = searchOk(await touchArticle(params.id));
+    return json(200, articleOf(params.id, reply.get._source));
+  } },
+  { method: 'POST', path: '/articles/{id}/hide', preview: true, async run({ params }) {
+    // This handler swallows store errors on purpose: the blocked mark, not the response, decides a Preview.
+    let updated = 0;
+    try {
+      updated = searchOk(await need('opensearch').request('POST', `/${articles}/_update_by_query?refresh=true`, {
+        query: { ids: { values: [params.id] } }, script: { source: 'ctx._source.hidden = true', lang: 'painless' },
+      })).updated;
+    } catch { /* reported as not found */ }
+    return updated ? json(200, { id: params.id, hidden: true }) : json(404, { error: 'Not found' });
+  } },
+  { method: 'DELETE', path: '/articles/{id}', preview: false, stores: ['opensearch'], async run({ params }) {
+    searchOk(await need('opensearch').request('DELETE', `/${articles}/_doc/${encodeURIComponent(params.id)}?refresh=true`));
     return { status: 204 };
   } },
 ].map(route => ({

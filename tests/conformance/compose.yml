@@ -107,6 +107,8 @@ services:
       MAX_HEAP_SIZE: 1G
       HEAP_NEWSIZE: 200M
       CASSANDRA_CLUSTER_NAME: bench
+      # A single node has no gossip peers to wait for; skipping the wait saves about 30 seconds.
+      JVM_EXTRA_OPTS: -Dcassandra.skip_wait_for_gossip_to_settle=0
     ports:
       - '127.0.0.1:59042:9042'
     healthcheck:
@@ -123,10 +125,14 @@ services:
       DISABLE_SECURITY_PLUGIN: 'true'
       DISABLE_INSTALL_DEMO_CONFIG: 'true'
       OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      # Test indices are tiny; without this a nearly full Docker disk (over 90%) leaves new shards
+      # unassigned, and over 95% makes every index read-only.
+      cluster.routing.allocation.disk.threshold_enabled: 'false'
     ports:
       - '127.0.0.1:59200:9200'
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fs http://127.0.0.1:9200/_cluster/health > /dev/null']
+      # The cluster API answers before the node can hold a shard; wait for yellow (green needs replicas).
+      test: ['CMD-SHELL', "curl -fs 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s' > /dev/null"]
       interval: 5s
       timeout: 5s
       retries: 40
