@@ -131,7 +131,7 @@ export async function runAccessibility(page) {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.toggletip').count(), 0, 'Escape closes the toggletip');
   for (const language of ['ar', 'de-DE']) {
-    await page.evaluate(id => localStorage.setItem('testbench-settings', JSON.stringify({ language: id })), language);
+    await page.evaluate(id => localStorage.setItem('sendproof-settings', JSON.stringify({ language: id })), language);
     await page.reload();
     await page.locator('#request .op-title').waitFor();
     assert.equal(await page.locator('html').getAttribute('lang'), language);
@@ -160,7 +160,7 @@ export async function runAccessibility(page) {
     await page.evaluate(() => { location.hash = '#op/PaymentsController.Create'; });
     await page.locator('#request:not([hidden]) .op-title').waitFor();
   }
-  await page.evaluate(() => localStorage.removeItem('testbench-settings'));
+  await page.evaluate(() => localStorage.removeItem('sendproof-settings'));
   await page.reload();
   await page.locator('#request .op-title').waitFor();
 
@@ -214,7 +214,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
     await serveUiFromDirectory(context);
     const page = await context.newPage();
-    await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
     await page.locator('.sidebar .nav-heading').first().waitFor();
     await runAccessibility(page);
     console.log('PASS: axe in every view, both themes, Arabic and German; keyboard navigation, focus and large text');

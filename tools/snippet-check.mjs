@@ -16,15 +16,15 @@ import { formatRequest, pickerFormats } from '../ui/snippets.js';
 
 /** Requests chosen to stress each language's string escaping. */
 export const fixtures = {
-  get: { method: 'get', url: 'https://api.test/bench/payments?page=1&token=private', headers: { Authorization: 'Bearer private', Accept: 'application/json' } },
-  bare: { method: 'delete', url: 'https://api.test/bench/payments/7', headers: {} },
-  json: { method: 'post', url: 'https://api.test/bench/payments', headers: { 'Content-Type': 'application/json', 'X-Note': "it's \"quoted\"" },
+  get: { method: 'get', url: 'https://api.test/sendproof/payments?page=1&token=private', headers: { Authorization: 'Bearer private', Accept: 'application/json' } },
+  bare: { method: 'delete', url: 'https://api.test/sendproof/payments/7', headers: {} },
+  json: { method: 'post', url: 'https://api.test/sendproof/payments', headers: { 'Content-Type': 'application/json', 'X-Note': "it's \"quoted\"" },
     body: JSON.stringify({ note: 'Alice\'s "quoted" invoice\nline 2 \\ back é 😀   $schema #{x} `tick` """ \'@', items: [1, 2.5, null, true], nested: { password: 'p' } }) },
-  tricky: { method: 'put', url: 'https://api.test/bench/x', headers: { 'Content-Type': 'application/json' },
+  tricky: { method: 'put', url: 'https://api.test/sendproof/x', headers: { 'Content-Type': 'application/json' },
     body: '{"a":"\\\\","b":"\\u0001","c":"\\"","d":"line\\nbreak","e":"\'\'\'","f":"$"}' },
-  text: { method: 'post', url: 'https://api.test/bench/text', headers: { 'Content-Type': 'text/plain' }, body: 'one "two" \'three\'\n  four \\ $five #{six} `seven`\n\'@\nJSON\nBODY\n"""' },
-  form: { method: 'post', url: 'https://api.test/bench/form', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Zo%C3%AB&note=a%26b&password=secret' },
-  custom: { method: 'query', url: 'https://api.test/bench/search', headers: { 'Content-Type': 'application/json' }, body: '[]' },
+  text: { method: 'post', url: 'https://api.test/sendproof/text', headers: { 'Content-Type': 'text/plain' }, body: 'one "two" \'three\'\n  four \\ $five #{six} `seven`\n\'@\nJSON\nBODY\n"""' },
+  form: { method: 'post', url: 'https://api.test/sendproof/form', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Zo%C3%AB&note=a%26b&password=secret' },
+  custom: { method: 'query', url: 'https://api.test/sendproof/search', headers: { 'Content-Type': 'application/json' }, body: '[]' },
 };
 
 const run = (command, args) => spawnSync(command, args, { encoding: 'utf8' });

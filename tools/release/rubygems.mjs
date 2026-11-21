@@ -1,10 +1,10 @@
-// RubyGems.org: builds testbench-core, testbench-activerecord and testbench-rails as .gem files and
+// RubyGems.org: builds sendproof-core, sendproof-activerecord and sendproof-rails as .gem files and
 // proves they install and serve the workbench in a fresh Rails application.
 //
 // pack:   stages adapters/ruby into ctx.work, stamps the version and repository URL into the staged
 //         copy only, packs the shared UI into the staged core gem, then runs `gem build` per gem.
 // verify: creates a Rails API app outside the repository whose Gemfile resolves the three gems from
-//         vendor/cache (the archives in ctx.out), installs with Bundler, and probes /bench/.
+//         vendor/cache (the archives in ctx.out), installs with Bundler, and probes /sendproof/.
 
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,11 +19,11 @@ const ruby = join(root, 'adapters', 'ruby');
 const consumerTemplates = join(root, 'tools', 'release', 'consumers', 'rubygems');
 const inspectScript = join(consumerTemplates, 'inspect_gem.rb');
 
-/** Build order matters only for readability: both adapters depend on testbench-core. */
+/** Build order matters only for readability: both adapters depend on sendproof-core. */
 const GEMS = [
-  { name: 'testbench-core', dir: 'testbench', requires: [] },
-  { name: 'testbench-activerecord', dir: 'testbench-activerecord', requires: ['testbench-core'] },
-  { name: 'testbench-rails', dir: 'testbench-rails', requires: ['testbench-core'] },
+  { name: 'sendproof-core', dir: 'sendproof', requires: [] },
+  { name: 'sendproof-activerecord', dir: 'sendproof-activerecord', requires: ['sendproof-core'] },
+  { name: 'sendproof-rails', dir: 'sendproof-rails', requires: ['sendproof-core'] },
 ];
 
 /** Oldest Ruby the gemspecs claim to support (`required_ruby_version`). */
@@ -49,14 +49,14 @@ export async function pack(ctx) {
   // Tests, examples and previously built output never belong in a gem; `ui` is regenerated below.
   await stage(ruby, staged, { exclude: ['pkg', '.bundle', 'examples', 'test', 'ui'] });
 
-  await stampVersion(join(staged, 'testbench', 'lib', 'testbench', 'version.rb'), versions);
+  await stampVersion(join(staged, 'sendproof', 'lib', 'sendproof', 'version.rb'), versions);
   for (const gem of GEMS) await stampReadme(join(staged, gem.dir, 'README.md'), repository.url);
 
-  const ui = join(staged, 'testbench', 'lib', 'testbench', 'ui');
+  const ui = join(staged, 'sendproof', 'lib', 'sendproof', 'ui');
   ctx.log(`packing the UI bundle ${versions.semver}`);
   await run(process.execPath, [join(root, 'tools', 'pack-ui.mjs'), '--version', versions.semver, '--out', ui], { label: ctx.id });
 
-  const env = { TESTBENCH_REPOSITORY_URL: repository.url };
+  const env = { SENDPROOF_REPOSITORY_URL: repository.url };
   // gem build is reproducible when SOURCE_DATE_EPOCH is fixed: use the commit time when there is one.
   if (ctx.commit) {
     try { env.SOURCE_DATE_EPOCH = await output('git', ['show', '-s', '--format=%ct', ctx.commit]); } catch { /* not a checkout */ }
@@ -115,16 +115,16 @@ async function checkGem(ctx, gem, path) {
   for (const [key, value] of Object.entries(expected)) {
     if (spec.metadata[key] !== value) fail(`metadata ${key} is ${JSON.stringify(spec.metadata[key])}, expected ${value}`);
   }
-  if (JSON.stringify(spec).includes('test-bench/test-bench') && repository.url !== 'https://github.com/test-bench/test-bench') {
+  if (JSON.stringify(spec).includes('github.com/mprync/sendproof') && repository.url !== 'https://github.com/mprync/sendproof') {
     fail('a hard-coded repository URL survived stamping');
   }
 
   const needed = ['LICENSE', 'README.md', `lib/${gem.name}.rb`];
-  if (gem.name === 'testbench-core') needed.push('lib/testbench.rb', 'lib/testbench/version.rb', 'lib/testbench/ui/manifest.json', 'lib/testbench/ui/index.html', 'lib/testbench/ui/app.js');
+  if (gem.name === 'sendproof-core') needed.push('lib/sendproof.rb', 'lib/sendproof/version.rb', 'lib/sendproof/ui/manifest.json', 'lib/sendproof/ui/index.html', 'lib/sendproof/ui/app.js');
   for (const file of needed) if (!spec.files.includes(file)) fail(`archive does not contain ${file}`);
   const stray = spec.files.filter(file => !/^(lib\/|LICENSE$|README\.md$)/.test(file));
   if (stray.length) fail(`unexpected files in the archive: ${stray.join(', ')}`);
-  if (gem.name !== 'testbench-core' && spec.files.some(file => file.startsWith('lib/testbench/ui/'))) fail('only testbench-core carries the UI');
+  if (gem.name !== 'sendproof-core' && spec.files.some(file => file.startsWith('lib/sendproof/ui/'))) fail('only sendproof-core carries the UI');
 
   // Sibling gems are pinned to exactly this release, so a mixed install can never resolve.
   for (const dependency of gem.requires) {
@@ -140,7 +140,7 @@ export async function verify(ctx) {
     const version = ctx.versions.rubygems;
     const gems = GEMS.map(gem => `${gem.name}-${version}.gem`);
 
-    // The gems live only in vendor/cache; the public index has no testbench-* gems to fall back on.
+    // The gems live only in vendor/cache; the public index has no sendproof-* gems to fall back on.
     await mkdir(join(project, 'vendor', 'cache'), { recursive: true });
     for (const file of gems) await cp(join(ctx.out, file), join(project, 'vendor', 'cache', file));
     const template = await readFile(join(consumerTemplates, 'Gemfile.template'), 'utf8');
@@ -169,7 +169,7 @@ export async function verify(ctx) {
       args: ['exec', 'puma', '--bind', `tcp://127.0.0.1:${port}`, '--threads', '1:4', '--quiet', 'config.ru'],
       cwd: project, env, port,
     });
-    ctx.log(`served /bench/ and ${result.capabilities.openApiUrl}`);
+    ctx.log(`served /sendproof/ and ${result.capabilities.openApiUrl}`);
   } finally {
     if (ctx.keep) ctx.log(`kept ${project}`);
     else await removeDir(project);
@@ -182,7 +182,7 @@ async function checkInstalled(ctx, project, gems) {
   for (const gem of GEMS) {
     require(lock.includes(`    ${gem.name} (${ctx.versions.rubygems})`), `Gemfile.lock does not resolve ${gem.name} ${ctx.versions.rubygems}`);
   }
-  const cached = (await listFiles(join(project, 'bundle'))).filter(file => /\/cache\/testbench-[^/]+\.gem$/.test(file));
+  const cached = (await listFiles(join(project, 'bundle'))).filter(file => /\/cache\/sendproof-[^/]+\.gem$/.test(file));
   for (const file of gems) {
     const installed = cached.find(entry => entry.endsWith(`/cache/${file}`));
     require(installed, `Bundler did not install ${file}`);

@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/bench$/, '');
+const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/sendproof$/, '');
 const out = process.env.OUT || join(root, 'artifacts', 'v5-live');
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
@@ -19,8 +19,8 @@ const browser = await chromium.launch();
 async function open({ theme, mobile = false }) {
   const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile });
   await context.addInitScript(({ theme }) => {
-    localStorage.setItem('testbench-settings', JSON.stringify({ theme, language: 'en-IE', density: 'default', tracedSend: true }));
-    localStorage.removeItem('testbench-code-language');
+    localStorage.setItem('sendproof-settings', JSON.stringify({ theme, language: 'en-IE', density: 'default', tracedSend: true }));
+    localStorage.removeItem('sendproof-code-language');
   }, { theme });
   await context.request.post(`${base}/auth/login`, { data: { email: 'ada.admin@acme.dev', password: 'Demo123!' } });
   const page = await context.newPage();
@@ -35,7 +35,7 @@ const choose = async (page, trigger, language) => {
 for (const theme of ['light', 'dark']) {
   const { context, page } = await open({ theme });
   const shot = name => page.screenshot({ path: join(out, `${name}-${theme}.png`) });
-  await page.goto(`${base}/bench/#docs/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
   await page.locator('#docs-code-picker').waitFor();
   await page.waitForTimeout(400);
   await page.locator('#docs-code-picker').click();
@@ -57,7 +57,7 @@ for (const theme of ['light', 'dark']) {
   await page.mouse.up();
   await shot('07-json-selection');
   // Try it: the Code panel shares the choice.
-  await page.goto(`${base}/bench/#op/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#op/PaymentsController.Create`);
   await page.locator('[data-request-tab="Code"]').click();
   await page.locator('#editor-code-picker').waitFor();
   await page.waitForTimeout(300);
@@ -69,12 +69,12 @@ for (const theme of ['light', 'dark']) {
 for (const language of ['de-DE', 'ar']) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
   await context.addInitScript(({ language }) => {
-    localStorage.setItem('testbench-settings', JSON.stringify({ theme: 'light', language, density: 'default', tracedSend: true }));
-    localStorage.removeItem('testbench-code-language');
+    localStorage.setItem('sendproof-settings', JSON.stringify({ theme: 'light', language, density: 'default', tracedSend: true }));
+    localStorage.removeItem('sendproof-code-language');
   }, { language });
   await context.request.post(`${base}/auth/login`, { data: { email: 'ada.admin@acme.dev', password: 'Demo123!' } });
   const page = await context.newPage();
-  await page.goto(`${base}/bench/#docs/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
   await page.locator('#docs-code-picker').waitFor();
   await page.waitForTimeout(400);
   await page.locator('#docs-code-picker').click();
@@ -85,7 +85,7 @@ for (const language of ['de-DE', 'ar']) {
 
 // One phone width.
 const phone = await open({ theme: 'light', mobile: true });
-await phone.page.goto(`${base}/bench/#docs/PaymentsController.Create`);
+await phone.page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
 await phone.page.locator('#docs-code-picker').waitFor({ state: 'attached' });
 await phone.page.locator('#docs-code-picker').scrollIntoViewIfNeeded();
 await phone.page.waitForTimeout(500);

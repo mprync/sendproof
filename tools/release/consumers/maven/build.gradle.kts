@@ -4,10 +4,10 @@ plugins {
 }
 
 repositories {
-    // Only the packed artifacts supply dev.testbench, so the source tree can never leak into the test.
+    // Only the packed artifacts supply io.github.mprync, so the source tree can never leak into the test.
     maven {
         url = uri("@REPOSITORY@")
-        content { includeGroup("dev.testbench") }
+        content { includeGroup("io.github.mprync") }
     }
     mavenCentral()
 }
@@ -26,9 +26,9 @@ val ktorCheck by configurations.creating {
 
 dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:@SPRING_BOOT@"))
-    implementation("dev.testbench:testbench-spring-boot:@VERSION@")
+    implementation("io.github.mprync:sendproof-spring-boot:@VERSION@")
     implementation("org.springframework.boot:spring-boot-starter-web")
-    ktorCheck("dev.testbench:testbench-ktor:@VERSION@")
+    ktorCheck("io.github.mprync:sendproof-ktor:@VERSION@")
 }
 
 // Tells the Node script which JVM Gradle used, so the app runs on the same JDK 17+ on every platform.

@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/bench$/, '');
+const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/sendproof$/, '');
 const set = process.env.SET || 'v4';
 const out = process.env.OUT ? process.env.OUT : join(root, 'artifacts', set === 'v5' ? 'v5-impl' : 'v4-live');
 const dsf = Number(process.env.DSF || 2);
@@ -110,8 +110,8 @@ for (const shot of list) {
   const [width, height] = shot.mobile ? [390, 844] : [1440, 900];
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dsf, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
   await context.addInitScript(({ theme, nav, lang }) => {
-    localStorage.setItem('testbench-settings', JSON.stringify({ theme: theme || 'light', language: lang || 'en-IE', density: 'default', tracedSend: true }));
-    if (nav) localStorage.setItem('testbench-nav:/openapi/v1.json', JSON.stringify({ ops: Object.fromEntries(nav.map(name => [name, true])), models: {} }));
+    localStorage.setItem('sendproof-settings', JSON.stringify({ theme: theme || 'light', language: lang || 'en-IE', density: 'default', tracedSend: true }));
+    if (nav) localStorage.setItem('sendproof-nav:/openapi/v1.json', JSON.stringify({ ops: Object.fromEntries(nav.map(name => [name, true])), models: {} }));
   }, { theme: shot.theme, nav: shot.nav, lang: shot.lang });
   if (!shot.out) await context.request.post(`${base}/auth/login`, { data: { email: 'ada.admin@acme.dev', password: 'Demo123!' } });
   const page = await context.newPage();
@@ -119,7 +119,7 @@ for (const shot of list) {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => message.type() === 'error' && !/40[134]|status of 4/.test(message.text()) && errors.push(message.text()));
   try {
-    await page.goto(`${base}/bench/${shot.hash}`);
+    await page.goto(`${base}/sendproof/${shot.hash}`);
     await page.waitForSelector('.app:not(.loading-shell) #context', { state: 'attached', timeout: 15000 });
     if (shot.text) await page.evaluate(percent => { document.documentElement.style.fontSize = percent + '%'; }, shot.text);
     await page.evaluate(() => document.fonts.ready);

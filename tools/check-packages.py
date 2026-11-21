@@ -11,8 +11,8 @@ from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HOST = "TestBench.AspNetCore"
-EF = "TestBench.EntityFrameworkCore"
+HOST = "Sendproof.AspNetCore"
+EF = "Sendproof.EntityFrameworkCore"
 
 
 def require(condition, message):
@@ -93,7 +93,7 @@ def check(packages, dependencies):
     versions = dict(inspect_package(path) for path in archives)
     require(set(versions) == {HOST, EF} and len(set(versions.values())) == 1,
             f"Expected a matching pair, got {versions}")
-    with tempfile.TemporaryDirectory(prefix="testbench-consumer-") as directory:
+    with tempfile.TemporaryDirectory(prefix="sendproof-consumer-") as directory:
         temp = Path(directory).resolve()
         app = temp / "TreasuryApi"
         copy_consumer(app, versions[HOST])

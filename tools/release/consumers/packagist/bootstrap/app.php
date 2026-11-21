@@ -6,9 +6,9 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
-// A bare Laravel application: one routes file, no sessions or views. testbench/laravel is
-// auto-discovered from vendor/ and mounts /bench/ because TESTBENCH_ENABLED=true and
-// APP_ENV is listed in TESTBENCH_ENVIRONMENTS (both set by the release smoke test).
+// A bare Laravel application: one routes file, no sessions or views. sendproof/laravel is
+// auto-discovered from vendor/ and mounts /sendproof/ because SENDPROOF_ENABLED=true and
+// APP_ENV is listed in SENDPROOF_ENVIRONMENTS (both set by the release smoke test).
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(api: __DIR__ . '/../routes/api.php', apiPrefix: '')
     ->withMiddleware(function (Middleware $middleware): void {})

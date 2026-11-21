@@ -51,8 +51,8 @@ export function registryVersion(versions) { return versions.pep440; } // optiona
   authors, README). The version and repository come from `ctx` only.
 - **Smoke-test the archive, not the source.** `verify` creates a throwaway project with `tempDir()` (outside
   the repository, so no workspace file applies), installs the archives from `ctx.out`, starts a minimal
-  application on `127.0.0.1:$PORT` and calls `smokeServe()`, which checks `/bench/`, `/bench/app.js`,
-  `/bench/_api/capabilities` and the OpenAPI document it names. Remove the project unless `ctx.keep`.
+  application on `127.0.0.1:$PORT` and calls `smokeServe()`, which checks `/sendproof/`, `/sendproof/app.js`,
+  `/sendproof/_api/capabilities` and the OpenAPI document it names. Remove the project unless `ctx.keep`.
 - **Stay portable.** Spawn tools with `run()`/`output()` and argument arrays, never through `bash -c`; use
   `isWindows`, `venvPython()` and `findPython()` for platform differences. The same module runs on Linux,
   macOS and Windows in CI.

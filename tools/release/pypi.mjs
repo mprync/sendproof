@@ -1,6 +1,6 @@
 // PyPI: a wheel and an sdist for each of the five Python packages (hatchling backend).
 //
-// pack   copies each package into ctx.work, stamps the release version, the pinned testbench-core
+// pack   copies each package into ctx.work, stamps the release version, the pinned sendproof-core
 //        dependency and the project URLs into the copy, embeds the UI bundle into the core copy,
 //        builds with `python -m build`, then inspects every archive (tools/release/consumers/pypi/check_dist.py).
 // verify installs the wheels from ctx.out into a fresh virtual environment and serves the workbench
@@ -18,11 +18,11 @@ export const title = 'PyPI';
 
 /** Dist name -> directory under adapters/python. Order matters: core is built and installed first. */
 const PACKAGES = [
-  ['testbench-core', 'core'],
-  ['testbench-sqlalchemy', 'sqlalchemy'],
-  ['testbench-fastapi', 'fastapi'],
-  ['testbench-flask', 'flask'],
-  ['testbench-django', 'django'],
+  ['sendproof-core', 'core'],
+  ['sendproof-sqlalchemy', 'sqlalchemy'],
+  ['sendproof-fastapi', 'fastapi'],
+  ['sendproof-flask', 'flask'],
+  ['sendproof-django', 'django'],
 ];
 
 const consumerFiles = join(root, 'tools', 'release', 'consumers', 'pypi');
@@ -50,11 +50,11 @@ async function can(python, code) {
 /**
  * Picks the interpreter that builds the packages: adapters/python/.venv when it already has build and
  * hatchling (the developer setup from scripts/prepare.py), otherwise a new environment in ctx.work.
- * TESTBENCH_PYPI_FRESH_ENV=1 forces the new environment, which is what CI uses.
+ * SENDPROOF_PYPI_FRESH_ENV=1 forces the new environment, which is what CI uses.
  */
 async function buildPython(ctx) {
   const existing = venvPython(adapterVenv);
-  if (!process.env.TESTBENCH_PYPI_FRESH_ENV && await exists(existing) && await can(existing, 'import build, hatchling')) {
+  if (!process.env.SENDPROOF_PYPI_FRESH_ENV && await exists(existing) && await can(existing, 'import build, hatchling')) {
     ctx.log(`building with ${existing}`);
     return existing;
   }
@@ -85,8 +85,8 @@ async function stagePackage(ctx, name, folder, repositoryUrl) {
   let text = await readFile(pyproject, 'utf8');
   require(!/\[project\.urls\]/.test(text), `${pyproject} must not hold project URLs; they are stamped from the repository`);
   text = replaceOnce(text, /^version = "[^"]+"$/m, `version = "${ctx.versions.pep440}"`, pyproject);
-  if (name !== 'testbench-core') {
-    text = replaceOnce(text, /"testbench-core==[^"]+"/, `"testbench-core==${ctx.versions.pep440}"`, pyproject);
+  if (name !== 'sendproof-core') {
+    text = replaceOnce(text, /"sendproof-core==[^"]+"/, `"sendproof-core==${ctx.versions.pep440}"`, pyproject);
   }
   text = `${text.trimEnd()}\n\n[project.urls]\n` + [
     ['Homepage', `${repositoryUrl}/tree/main/adapters/python/${folder}`],
@@ -100,7 +100,7 @@ async function stagePackage(ctx, name, folder, repositoryUrl) {
   const init = join(destination, 'src', module, '__init__.py');
   await writeFile(init, replaceOnce(await readFile(init, 'utf8'), /^__version__ = "[^"]+"$/m, `__version__ = "${ctx.versions.pep440}"`, init));
 
-  if (name === 'testbench-core') {
+  if (name === 'sendproof-core') {
     await run(process.execPath, [join(root, 'tools', 'pack-ui.mjs'), '--version', ctx.version, '--out', join(destination, 'src', module, 'ui')], { label: 'pypi' });
   }
   return destination;

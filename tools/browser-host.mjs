@@ -18,8 +18,8 @@ async function freePort() {
 }
 
 export async function startHost() {
-  if (process.env.TESTBENCH_URL) return process.env.TESTBENCH_URL.replace(/\/$/, '').replace(/\/bench$/, '');
-  temp = await mkdtemp(join(tmpdir(), 'testbench-browser-'));
+  if (process.env.SENDPROOF_URL) return process.env.SENDPROOF_URL.replace(/\/$/, '').replace(/\/sendproof$/, '');
+  temp = await mkdtemp(join(tmpdir(), 'sendproof-browser-'));
   const url = `http://127.0.0.1:${await freePort()}`;
   let output = '';
   const buildArgs = process.argv.includes('--no-build') ? ['--no-build', '--no-restore'] : [];
@@ -40,7 +40,7 @@ export async function startHost() {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (exit) throw new Error(`${exit}\n${output}`);
-    try { if ((await fetch(`${url}/bench`)).ok) return url; } catch { /* still starting */ }
+    try { if ((await fetch(`${url}/sendproof`)).ok) return url; } catch { /* still starting */ }
     await delay(300);
   }
   throw new Error(`Example host did not become ready at ${url}\n${output}`);
@@ -63,19 +63,19 @@ export async function stopHost() {
 
 
 /**
- * With TESTBENCH_UI_DIR set (for example `ui`), serves the workbench files from that directory
+ * With SENDPROOF_UI_DIR set (for example `ui`), serves the workbench files from that directory
  * instead of the host's embedded copy: UI edits can be checked against a host built earlier, and
- * against one that can't be rebuilt right now. The API under /bench/_api always comes from the host.
+ * against one that can't be rebuilt right now. The API under /sendproof/_api always comes from the host.
  */
 export async function serveUiFromDirectory(context) {
-  if (!process.env.TESTBENCH_UI_DIR) return;
-  const directory = resolve(root, process.env.TESTBENCH_UI_DIR);
+  if (!process.env.SENDPROOF_UI_DIR) return;
+  const directory = resolve(root, process.env.SENDPROOF_UI_DIR);
   const types = {
     '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
     '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
   };
-  await context.route(/\/bench\/(?!_api\/)[^?]*(\?.*)?$/, async route => {
-    const name = decodeURIComponent(new URL(route.request().url()).pathname.replace(/^\/bench\//, '')) || 'index.html';
+  await context.route(/\/sendproof\/(?!_api\/)[^?]*(\?.*)?$/, async route => {
+    const name = decodeURIComponent(new URL(route.request().url()).pathname.replace(/^\/sendproof\//, '')) || 'index.html';
     const file = resolve(directory, name);
     if (!types[extname(name)] || !file.startsWith(`${directory}/`)) return route.fallback();
     try { await route.fulfill({ body: await readFile(file), contentType: types[extname(name)] }); } catch { await route.fallback(); }

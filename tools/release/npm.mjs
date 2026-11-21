@@ -1,4 +1,4 @@
-// npm: the ten @test-bench/* workspaces in adapters/node, packed with `npm pack` from stamped copies.
+// npm: the ten @sendproof/* workspaces in adapters/node, packed with `npm pack` from stamped copies.
 //
 // pack    builds the workspaces (strict TypeScript to ESM + .d.ts, UI bundle into core/assets), copies
 //         each package's publishable files into ctx.work, stamps version, repository, homepage, bugs and
@@ -70,7 +70,7 @@ export async function pack(ctx) {
 /** Static metadata that must be committed in each workspace manifest. */
 function checkManifest(dir, manifest, manifests) {
   const name = `adapters/node/${dir}/package.json`;
-  require(manifest.name === `@test-bench/${dir}`, `${name}: unexpected name ${manifest.name}`);
+  require(manifest.name === `@sendproof/${dir}`, `${name}: unexpected name ${manifest.name}`);
   require(manifest.type === 'module', `${name}: packages are ESM and need "type": "module"`);
   require(typeof manifest.description === 'string' && manifest.description.length > 10, `${name}: missing description`);
   require(manifest.license === 'MIT', `${name}: license must be MIT`);
@@ -80,8 +80,8 @@ function checkManifest(dir, manifest, manifests) {
   require(manifest.types === manifest.exports['.'].types, `${name}: top-level "types" must match exports["."].types`);
   const floor = minimumNode(manifest.engines?.node);
   require(floor, `${name}: engines.node must set a minimum Node version`);
-  for (const dependency of Object.keys(manifest.dependencies ?? {}).filter(id => id.startsWith('@test-bench/'))) {
-    const needed = minimumNode(manifests.get(dependency.slice('@test-bench/'.length))?.engines?.node);
+  for (const dependency of Object.keys(manifest.dependencies ?? {}).filter(id => id.startsWith('@sendproof/'))) {
+    const needed = minimumNode(manifests.get(dependency.slice('@sendproof/'.length))?.engines?.node);
     require(needed && compare(floor, needed) >= 0,
       `${name}: engines.node (${manifest.engines.node}) admits Node versions ${dependency} (${needed.join('.')}+) does not support`);
   }
@@ -102,7 +102,7 @@ function compare([majorA, minorA], [majorB, minorB]) {
 function stamp(ctx, dir, manifest) {
   const { url } = ctx.repository;
   const pin = dependencies => dependencies && Object.fromEntries(Object.entries(dependencies)
-    .map(([id, range]) => [id, id.startsWith('@test-bench/') ? ctx.version : range]));
+    .map(([id, range]) => [id, id.startsWith('@sendproof/') ? ctx.version : range]));
   const { scripts, devDependencies, ...published } = manifest;
   return {
     ...published,
@@ -120,10 +120,10 @@ function stamp(ctx, dir, manifest) {
 async function checkExports(dir, staged, manifest) {
   for (const [subpath, target] of Object.entries(manifest.exports)) {
     for (const condition of ['types', 'default']) {
-      require(typeof target[condition] === 'string', `@test-bench/${dir} exports["${subpath}"] has no ${condition}`);
-      require(await exists(join(staged, target[condition])), `@test-bench/${dir} exports["${subpath}"].${condition} (${target[condition]}) is not built`);
+      require(typeof target[condition] === 'string', `@sendproof/${dir} exports["${subpath}"] has no ${condition}`);
+      require(await exists(join(staged, target[condition])), `@sendproof/${dir} exports["${subpath}"].${condition} (${target[condition]}) is not built`);
     }
-    require(target.types.endsWith('.d.ts'), `@test-bench/${dir} exports["${subpath}"].types must be a .d.ts file`);
+    require(target.types.endsWith('.d.ts'), `@sendproof/${dir} exports["${subpath}"].types must be a .d.ts file`);
   }
 }
 
@@ -138,21 +138,21 @@ export async function verify(ctx) {
   try {
     const tarballs = (await readdir(ctx.out)).filter(name => name.endsWith('.tgz')).map(name => join(ctx.out, name));
     require(tarballs.length === PACKAGES.length, `expected ${PACKAGES.length} tarballs in ${ctx.out}`);
-    await writeJson(join(consumer, 'package.json'), { name: 'test-bench-npm-consumer', private: true, type: 'module' });
+    await writeJson(join(consumer, 'package.json'), { name: 'sendproof-npm-consumer', private: true, type: 'module' });
     ctx.log(`installing ${tarballs.length} tarballs and their peers into ${consumer}`);
     // npm installs required peers (Express, Fastify, Nest, Prisma client, ...) automatically.
     await run('npm', ['install', '--no-package-lock', '--ignore-scripts', ...tarballs, 'express@5', 'typescript@5.9.3', '@types/node@22', '@types/express@5'],
       { cwd: consumer, env: npmEnv(), label: 'npm consumer' });
 
-    const installed = await readJson(join(consumer, 'node_modules', '@test-bench', 'core', 'package.json'));
-    require(installed.version === ctx.version, `consumer resolved @test-bench/core ${installed.version}, not ${ctx.version}`);
+    const installed = await readJson(join(consumer, 'node_modules', '@sendproof', 'core', 'package.json'));
+    require(installed.version === ctx.version, `consumer resolved @sendproof/core ${installed.version}, not ${ctx.version}`);
 
     // Type-check one import per public entry point the way an application compiles it.
     const imports = [];
     for (const dir of PACKAGES) {
-      const manifest = await readJson(join(consumer, 'node_modules', '@test-bench', dir, 'package.json'));
+      const manifest = await readJson(join(consumer, 'node_modules', '@sendproof', dir, 'package.json'));
       for (const subpath of Object.keys(manifest.exports)) {
-        const specifier = `@test-bench/${dir}${subpath === '.' ? '' : subpath.slice(1)}`;
+        const specifier = `@sendproof/${dir}${subpath === '.' ? '' : subpath.slice(1)}`;
         imports.push(`import * as m${imports.length} from '${specifier}';\nvoid m${imports.length};`);
       }
     }
@@ -165,15 +165,15 @@ export async function verify(ctx) {
 
     // Every runtime entry point loads, except those that need a generated Prisma client or Nest's reflection setup.
     await writeFile(join(consumer, 'load.mjs'), `${PACKAGES.filter(dir => !['prisma', 'nestjs'].includes(dir))
-      .map(dir => `await import('@test-bench/${dir}');`).join('\n')}\nconsole.log('entry points load');\n`);
+      .map(dir => `await import('@sendproof/${dir}');`).join('\n')}\nconsole.log('entry points load');\n`);
     await run(process.execPath, ['load.mjs'], { cwd: consumer, label: 'node consumer' });
 
     await writeFile(join(consumer, 'app.mjs'), `import express from 'express';
-import { testBench } from '@test-bench/express';
+import { sendproof } from '@sendproof/express';
 
 const app = express();
 app.use(express.json());
-app.use(testBench({ apiName: 'npm consumer', environment: 'development' }));
+app.use(sendproof({ apiName: 'npm consumer', environment: 'development' }));
 app.get('/openapi.json', (_request, response) => response.json({
   openapi: '3.1.0', info: { title: 'npm consumer', version: '1.0.0' },
   paths: { '/ping': { get: { responses: { 200: { description: 'pong' } } } } },

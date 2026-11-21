@@ -1,13 +1,13 @@
 // crates.io packaging: `cargo package` the four published Rust crates into .crate archives.
 //
 // pack   Stages adapters/rust into ctx.work, stamps the release version, repository and homepage into the
-//        staged manifests, generates the embedded UI into the staged testbench-core, then runs
+//        staged manifests, generates the embedded UI into the staged sendproof-core, then runs
 //        `cargo package --workspace` (with Cargo's own verification build) and copies the .crate files.
 // verify Extracts the .crate archives from ctx.out into a throwaway project outside the repository, points
 //        a minimal Axum application at them with path dependencies plus [patch.crates-io], builds it and
 //        checks that it serves the workbench.
 //
-// Tracked manifests carry no repository URL and no testbench-* dependency versions; both are stamped here.
+// Tracked manifests carry no repository URL and no sendproof-* dependency versions; both are stamped here.
 
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
@@ -18,8 +18,8 @@ import {
 
 export const title = 'crates.io';
 
-/** The published crates in dependency order: testbench-sqlx's dev-dependencies need axum, actix's need sqlx. */
-const CRATES = ['testbench-core', 'testbench-axum', 'testbench-sqlx', 'testbench-actix'];
+/** The published crates in dependency order: sendproof-sqlx's dev-dependencies need axum, actix's need sqlx. */
+const CRATES = ['sendproof-core', 'sendproof-axum', 'sendproof-sqlx', 'sendproof-actix'];
 const workspace = join(root, 'adapters/rust');
 
 /**
@@ -62,7 +62,7 @@ const cargoTarget = () => process.env.CARGO_TARGET_DIR ? resolve(process.env.CAR
 
 const quote = value => JSON.stringify(value);
 
-/** Rewrites the staged workspace manifest: members, release version, repository, homepage, testbench-* versions. */
+/** Rewrites the staged workspace manifest: members, release version, repository, homepage, sendproof-* versions. */
 export function stampWorkspaceManifest(text, ctx) {
   let result = text.replace(/members = \[[^\]]*\]/, `members = [${CRATES.map(quote).join(', ')}]`);
   const before = result;
@@ -73,11 +73,11 @@ export function stampWorkspaceManifest(text, ctx) {
   ].join('\n'));
   require(result !== before, 'adapters/rust/Cargo.toml has no [workspace.package] version to stamp');
   let stamped = 0;
-  result = result.replace(/^(testbench-[a-z]+ = \{ path = "[^"]+") \}$/gm, (_, head) => {
+  result = result.replace(/^(sendproof-[a-z]+ = \{ path = "[^"]+") \}$/gm, (_, head) => {
     stamped += 1;
     return `${head}, version = ${quote(ctx.version)} }`;
   });
-  require(stamped === CRATES.length, `Expected ${CRATES.length} testbench-* workspace dependencies, stamped ${stamped}`);
+  require(stamped === CRATES.length, `Expected ${CRATES.length} sendproof-* workspace dependencies, stamped ${stamped}`);
   return result;
 }
 
@@ -149,7 +149,7 @@ export function checkCrate(name, ctx, bytes) {
   require(field('repository') === quote(ctx.repository.url), `${label}: repository is ${field('repository')}, expected ${ctx.repository.url}`);
   require(field('homepage') === quote(ctx.metadata.homepage), `${label}: homepage is ${field('homepage')}`);
   require(field('readme') === quote('README.md'), `${label}: readme is missing`);
-  require(field('authors')?.includes('Test Bench contributors'), `${label}: authors must name "Test Bench contributors"`);
+  require(field('authors')?.includes('Sendproof contributors'), `${label}: authors must name "Sendproof contributors"`);
   require(field('description')?.length > 20, `${label}: description is missing`);
   const keywords = /^keywords = \[([^\]]*)\]/m.exec(manifest)?.[1].match(/"[^"]+"/g) ?? [];
   require(keywords.length > 0 && keywords.length <= 5, `${label}: needs 1 to 5 keywords, has ${keywords.length}`);
@@ -168,7 +168,7 @@ export function checkCrate(name, ctx, bytes) {
     require(section.includes(`version = ${quote(`^${ctx.version}`)}`) || section.includes(`version = ${quote(ctx.version)}`),
       `${label}: dependency ${dependency} is not pinned to ${ctx.version}\n${section}`);
   }
-  if (name === 'testbench-core') {
+  if (name === 'sendproof-core') {
     require(file('build.rs'), `${label} does not contain build.rs`);
     const ui = JSON.parse(file('ui-assets/manifest.json')?.toString('utf8') ?? 'null');
     require(ui, `${label} does not contain ui-assets/manifest.json: the workbench UI would not be embedded`);
@@ -191,8 +191,8 @@ export async function pack(ctx) {
     await writeFile(join(staged, name, 'LICENSE'), license);
   }
 
-  ctx.log(`packing the workbench UI into testbench-core (${ctx.version})`);
-  await run('node', [join(root, 'tools/pack-ui.mjs'), '--version', ctx.version, '--out', join(staged, 'testbench-core/ui-assets')], { label: 'crates' });
+  ctx.log(`packing the workbench UI into sendproof-core (${ctx.version})`);
+  await run('node', [join(root, 'tools/pack-ui.mjs'), '--version', ctx.version, '--out', join(staged, 'sendproof-core/ui-assets')], { label: 'crates' });
 
   // `cargo package` writes to <target>/package. Remove our own earlier archives first so a stale file is never collected.
   const target = cargoTarget();
@@ -201,12 +201,12 @@ export async function pack(ctx) {
   for (const file of files) await rm(join(packageDirectory, file), { force: true });
   await forgetUnpackedCrates(ctx);
 
-  // Cargo's verification build compiles every crate from its .crate contents. TESTBENCH_CARGO_NO_VERIFY=1 skips it
+  // Cargo's verification build compiles every crate from its .crate contents. SENDPROOF_CARGO_NO_VERIFY=1 skips it
   // for machines that cannot compile; CI never sets it.
-  const noVerify = process.env.TESTBENCH_CARGO_NO_VERIFY === '1';
+  const noVerify = process.env.SENDPROOF_CARGO_NO_VERIFY === '1';
   ctx.log(`cargo package --workspace (${noVerify ? 'WITHOUT' : 'with'} verification build; target ${target})`);
   // Cargo also reuses compiled registry crates by version alone, so the verification build gets its own build
-  // directory: a shared one would link the sibling crates against an earlier run's testbench-core.
+  // directory: a shared one would link the sibling crates against an earlier run's sendproof-core.
   await run('cargo', ['package', '--workspace', '--allow-dirty', ...(noVerify ? ['--no-verify'] : [])], {
     cwd: staged, env: { CARGO_TARGET_DIR: target, CARGO_BUILD_BUILD_DIR: join(ctx.work, 'cargo-build') }, label: 'crates',
   });
@@ -237,8 +237,8 @@ export async function verify(ctx) {
     await writeFile(join(project, 'Cargo.toml'), [
       '[package]', 'name = "bench-consumer"', 'version = "0.0.0"', 'edition = "2024"', 'publish = false', '',
       '[dependencies]',
-      `testbench-core = { path = ${quote(paths['testbench-core'])} }`,
-      `testbench-axum = { path = ${quote(paths['testbench-axum'])} }`,
+      `sendproof-core = { path = ${quote(paths['sendproof-core'])} }`,
+      `sendproof-axum = { path = ${quote(paths['sendproof-axum'])} }`,
       'axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }',
       'serde_json = "1"',
       'tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }', '',
@@ -260,8 +260,8 @@ export async function verify(ctx) {
 
     // The publish job re-packages each extracted crate with `cargo publish --no-verify`. Make sure Cargo accepts
     // the normalized manifest inside a .crate (no workspace, no path dependencies, no git).
-    const listing = await output('cargo', ['package', '--list', '--no-verify', '--allow-dirty'], { cwd: join(project, paths['testbench-core']) });
-    require(listing.split(/\r?\n/).includes('ui-assets/manifest.json'), 'Re-packaging the extracted testbench-core would drop ui-assets/manifest.json');
+    const listing = await output('cargo', ['package', '--list', '--no-verify', '--allow-dirty'], { cwd: join(project, paths['sendproof-core']) });
+    require(listing.split(/\r?\n/).includes('ui-assets/manifest.json'), 'Re-packaging the extracted sendproof-core would drop ui-assets/manifest.json');
   } finally {
     if (!ctx.keep) await removeDir(project);
     else ctx.log(`kept ${project}`);

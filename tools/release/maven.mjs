@@ -4,7 +4,7 @@
 //        the adapters/java/build/repo directory are never touched), validates the POM and archive contents,
 //        and copies the Maven tree into ctx.out without checksums or maven-metadata files.
 // verify builds a fresh Spring Boot project that resolves the artifacts from ctx.out only, runs it and
-//        checks /bench/ and /openapi.json. A second configuration resolves testbench-ktor.
+//        checks /sendproof/ and /openapi.json. A second configuration resolves sendproof-ktor.
 //
 // Signing is deliberately absent: the CI publish job signs and checksums the files with gpg, so no secret
 // ever reaches the Gradle build. Gradle itself is the repository's wrapper (adapters/java).
@@ -19,10 +19,10 @@ import {
 
 export const title = 'Maven Central';
 
-const GROUP = 'dev.testbench';
-const MODULES = ['testbench-core', 'testbench-ui', 'testbench-jdbc', 'testbench-logback', 'testbench-spring-boot', 'testbench-jpa', 'testbench-ktor'];
-/** Modules whose sources are not Java: Kotlin code, or (testbench-ui) JavaScript resources. Their Javadoc jar is a placeholder. */
-const SOURCE_EXTENSION = { 'testbench-ktor': '.kt', 'testbench-ui': '.js' };
+const GROUP = 'io.github.mprync';
+const MODULES = ['sendproof-core', 'sendproof-ui', 'sendproof-jdbc', 'sendproof-logback', 'sendproof-spring-boot', 'sendproof-jpa', 'sendproof-ktor'];
+/** Modules whose sources are not Java: Kotlin code, or (sendproof-ui) JavaScript resources. Their Javadoc jar is a placeholder. */
+const SOURCE_EXTENSION = { 'sendproof-ktor': '.kt', 'sendproof-ui': '.js' };
 /** Spring Boot version the consumer smoke test builds against; keep in step with adapters/java/gradle/libs.versions.toml. */
 const SPRING_BOOT = '3.5.16';
 
@@ -105,7 +105,7 @@ function checkPom(module, xml, ctx) {
   expect('license name', pomText(license, 'name'), ctx.metadata.license);
   expect('license url', pomText(license, 'url'), 'https://opensource.org/license/mit');
   const developer = pomBlock(xml, 'developer');
-  expect('developer id', pomText(developer, 'id'), 'testbench');
+  expect('developer id', pomText(developer, 'id'), 'sendproof');
   expect('developer name', pomText(developer, 'name'), ctx.metadata.authors[0]);
   const scm = pomBlock(xml, 'scm');
   expect('scm url', pomText(scm, 'url'), url);
@@ -137,15 +137,15 @@ async function checkModule(module, directory, ctx) {
   for (const [suffix, names] of Object.entries(jars)) {
     require(names.includes('META-INF/LICENSE'), `${module}: ${base}${suffix} has no META-INF/LICENSE`);
   }
-  require(jars['.jar'].some(name => name.endsWith('.class') || name.startsWith('testbench-ui/')), `${module}: ${base}.jar is empty`);
+  require(jars['.jar'].some(name => name.endsWith('.class') || name.startsWith('sendproof-ui/')), `${module}: ${base}.jar is empty`);
   const sourceExtension = SOURCE_EXTENSION[module] ?? '.java';
   require(jars['-sources.jar'].some(name => name.endsWith(sourceExtension)), `${module}: ${base}-sources.jar has no ${sourceExtension} files`);
   const docs = jars['-javadoc.jar'].filter(name => !name.endsWith('/') && !name.startsWith('META-INF/'));
   require(docs.length > 0, `${module}: ${base}-javadoc.jar is empty`);
   if (!SOURCE_EXTENSION[module]) require(docs.includes('index.html'), `${module}: ${base}-javadoc.jar has no index.html`);
-  if (module === 'testbench-ui') {
-    require(jars['.jar'].includes('testbench-ui/manifest.json'), 'testbench-ui jar must contain testbench-ui/manifest.json');
-    require(jars['.jar'].includes('testbench-ui/app.js'), 'testbench-ui jar must contain testbench-ui/app.js');
+  if (module === 'sendproof-ui') {
+    require(jars['.jar'].includes('sendproof-ui/manifest.json'), 'sendproof-ui jar must contain sendproof-ui/manifest.json');
+    require(jars['.jar'].includes('sendproof-ui/app.js'), 'sendproof-ui jar must contain sendproof-ui/app.js');
   }
 }
 
@@ -156,9 +156,9 @@ export async function pack(ctx) {
   const repo = join(ctx.work, 'repo');
   await mkdir(repo, { recursive: true });
   await gradle([
-    `-Ptestbench.version=${ctx.version}`,
-    `-Ptestbench.repositoryUrl=${ctx.repository.url}`,
-    `-Ptestbench.repoDir=${repo}`,
+    `-Psendproof.version=${ctx.version}`,
+    `-Psendproof.repositoryUrl=${ctx.repository.url}`,
+    `-Psendproof.repoDir=${repo}`,
     ...MODULES.map(module => `:${module}:publishMavenPublicationToLocalRepository`),
   ]);
 
@@ -199,9 +199,9 @@ export async function verify(ctx) {
 
     const javaHome = (await readFile(join(consumer, 'build', 'consumer', 'java-home.txt'), 'utf8')).trim();
     const ktor = (await readFile(join(consumer, 'build', 'consumer', 'ktor-classpath.txt'), 'utf8')).split('\n');
-    require(ktor.includes(`testbench-ktor-${ctx.version}.jar`), `testbench-ktor did not resolve (got ${ktor.join(', ')})`);
-    require(ktor.includes(`testbench-core-${ctx.version}.jar`) && ktor.some(name => name.startsWith('ktor-server-core')),
-      `testbench-ktor's transitive dependencies did not resolve (got ${ktor.join(', ')})`);
+    require(ktor.includes(`sendproof-ktor-${ctx.version}.jar`), `sendproof-ktor did not resolve (got ${ktor.join(', ')})`);
+    require(ktor.includes(`sendproof-core-${ctx.version}.jar`) && ktor.some(name => name.startsWith('ktor-server-core')),
+      `sendproof-ktor's transitive dependencies did not resolve (got ${ktor.join(', ')})`);
 
     await smokeServe({
       label: 'maven consumer',

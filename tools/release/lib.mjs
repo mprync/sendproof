@@ -235,7 +235,7 @@ export async function stage(source, destination, { exclude = [] } = {}) {
 
 /** Creates a throwaway directory outside the repository, so no workspace, go.work or Cargo workspace applies. */
 export async function tempDir(name) {
-  return mkdtemp(join(tmpdir(), `test-bench-${name}-`));
+  return mkdtemp(join(tmpdir(), `sendproof-${name}-`));
 }
 
 export async function removeDir(directory) {
@@ -270,9 +270,9 @@ export async function killTree(child) {
 /**
  * Starts a consumer application and proves it serves the workbench and its OpenAPI document:
  *
- *   GET {base}/bench/                  200, an HTML page
- *   GET {base}/bench/app.js            200, the embedded UI script (more than 1 KB)
- *   GET {base}/bench/_api/capabilities 200, discovery JSON naming openApiUrl
+ *   GET {base}/sendproof/                  200, an HTML page
+ *   GET {base}/sendproof/app.js            200, the embedded UI script (more than 1 KB)
+ *   GET {base}/sendproof/_api/capabilities 200, discovery JSON naming openApiUrl
  *   GET openApiUrl                     200, a JSON document with "openapi": "3.x"
  *
  * The application must listen on 127.0.0.1:$PORT (PORT is set in its environment).
@@ -300,7 +300,7 @@ export async function smokeServe({ label, command, args = [], cwd, env = {}, por
     let page;
     while (Date.now() < deadline && child.exitCode === null && !failed) {
       try {
-        page = await get(`${base}/bench/`);
+        page = await get(`${base}/sendproof/`);
         if (page.status === 200) break;
       } catch (error) {
         if (error.name !== 'TypeError' && error.name !== 'TimeoutError') throw error;
@@ -308,18 +308,18 @@ export async function smokeServe({ label, command, args = [], cwd, env = {}, por
       await delay(250);
     }
     if (page?.status !== 200) {
-      throw new Error(`${label}: consumer did not serve ${base}/bench/ (${failed?.message ?? (child.exitCode !== null ? `exit ${child.exitCode}` : page ? `status ${page.status}` : 'timed out')})\n${log}`);
+      throw new Error(`${label}: consumer did not serve ${base}/sendproof/ (${failed?.message ?? (child.exitCode !== null ? `exit ${child.exitCode}` : page ? `status ${page.status}` : 'timed out')})\n${log}`);
     }
-    if (!/<html/i.test(page.body)) throw new Error(`${label}: ${base}/bench/ is not the workbench page`);
-    const script = await get(`${base}/bench/app.js`);
+    if (!/<html/i.test(page.body)) throw new Error(`${label}: ${base}/sendproof/ is not the workbench page`);
+    const script = await get(`${base}/sendproof/app.js`);
     if (script.status !== 200 || script.body.length < 1000) {
-      throw new Error(`${label}: ${base}/bench/app.js returned ${script.status} with ${script.body.length} bytes; the embedded UI is missing`);
+      throw new Error(`${label}: ${base}/sendproof/app.js returned ${script.status} with ${script.body.length} bytes; the embedded UI is missing`);
     }
-    const discovery = await get(`${base}/bench/_api/capabilities`);
+    const discovery = await get(`${base}/sendproof/_api/capabilities`);
     if (discovery.status !== 200) throw new Error(`${label}: capabilities returned ${discovery.status}\n${discovery.body.slice(0, 400)}`);
     const capabilities = JSON.parse(discovery.body);
     if (typeof capabilities.openApiUrl !== 'string') throw new Error(`${label}: capabilities has no openApiUrl`);
-    const spec = await get(new URL(capabilities.openApiUrl, `${origin}${base}/bench/`).pathname);
+    const spec = await get(new URL(capabilities.openApiUrl, `${origin}${base}/sendproof/`).pathname);
     if (spec.status !== 200) throw new Error(`${label}: ${capabilities.openApiUrl} returned ${spec.status}`);
     if (!/^3\./.test(JSON.parse(spec.body).openapi ?? '')) throw new Error(`${label}: ${capabilities.openApiUrl} is not an OpenAPI 3 document`);
     return { port, capabilities };

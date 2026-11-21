@@ -21,20 +21,20 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/bench$/, '');
+const base = (process.env.BASE || 'http://127.0.0.1:5189').replace(/\/$/, '').replace(/\/sendproof$/, '');
 const write = process.argv.includes('--write');
 const check = process.argv.includes('--check');
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-await page.goto(`${base}/bench/`);
+await page.goto(`${base}/sendproof/`);
 await page.waitForSelector('.topbar');
 
 /** Natural widths in em, per catalogue and platform, at the widest density. */
 const measured = await page.evaluate(async () => {
-  const { LANGUAGES, CATALOGUES, configure, loadLanguage } = await import('/bench/i18n.js');
-  const { updateSettings } = await import('/bench/settings.js');
-  const { runButtons } = await import('/bench/action-bar.js');
+  const { LANGUAGES, CATALOGUES, configure, loadLanguage } = await import('/sendproof/i18n.js');
+  const { updateSettings } = await import('/sendproof/settings.js');
+  const { runButtons } = await import('/sendproof/action-bar.js');
   const result = {};
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset-block-start:0;inset-inline-start:0;display:flex;flex-direction:column;align-items:flex-start;visibility:hidden';

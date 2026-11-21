@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds every Test Bench binding into the package format its registry publishes, one directory per
+// Builds every Sendproof binding into the package format its registry publishes, one directory per
 // registry under artifacts/packages/, each with a SHA256SUMS file and a RELEASE.json description.
 //
 //   node tools/pack-all.mjs                      build every registry whose toolchain is installed
@@ -40,7 +40,7 @@ if (values.help) {
   console.log(`Usage: node tools/pack-all.mjs [--verify] [--only ${REGISTRIES.join(',')}] [--skip ...]
        [--version X.Y.Z[-alpha.N]] [--release] [--require-toolchains] [--keep] [--out dir]
 
-  --verify               install each built archive into a throwaway consumer app and probe /bench/
+  --verify               install each built archive into a throwaway consumer app and probe /sendproof/
   --release              tag build: needs --version or PACKAGE_VERSION, fails on any missing toolchain,
                          and requires GITHUB_REPOSITORY (when set) to match adapters/go/MODULE_PATH
   --require-toolchains   fail instead of skipping a registry whose toolchain is missing
@@ -73,7 +73,7 @@ let commit = null;
 try { commit = await output('git', ['rev-parse', 'HEAD']); } catch { /* not a git checkout */ }
 
 const metadata = {
-  authors: ['Test Bench contributors'],
+  authors: ['Sendproof contributors'],
   license: 'MIT',
   homepage: repository.url,
   issues: `${repository.url}/issues`,
@@ -82,7 +82,7 @@ const metadata = {
 
 const results = [];
 await mkdir(values.out, { recursive: true });
-console.log(`Packing Test Bench ${versions.semver} for ${selected.join(', ')} (repository ${repository.url})`);
+console.log(`Packing Sendproof ${versions.semver} for ${selected.join(', ')} (repository ${repository.url})`);
 
 for (const id of selected) {
   const module = await import(`./release/${id}.mjs`);
@@ -147,7 +147,7 @@ const table = [
   '| --- | --- | --- | --- |',
   ...results.map(entry => `| ${entry.title} | ${entry.pack} | ${entry.verify} | ${entry.note.replace(/\|/g, '\\|')} |`),
 ].join('\n');
-console.log(`\nTest Bench ${versions.semver} packages in ${values.out}\n\n${table}`);
+console.log(`\nSendproof ${versions.semver} packages in ${values.out}\n\n${table}`);
 if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Packages ${versions.semver}\n\n${table}\n`);
 if (results.some(entry => entry.pack === 'failed' || entry.verify === 'failed')) process.exitCode = 1;
 

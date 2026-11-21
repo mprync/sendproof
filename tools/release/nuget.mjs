@@ -1,4 +1,4 @@
-// NuGet: TestBench.AspNetCore and TestBench.EntityFrameworkCore, with symbol packages.
+// NuGet: Sendproof.AspNetCore and Sendproof.EntityFrameworkCore, with symbol packages.
 //
 // pack    `dotnet pack` with the release version and repository URL as MSBuild properties (the same
 //         properties CI always used), into ctx.out.
@@ -12,7 +12,7 @@ import { findPython, require, root, run, which } from './lib.mjs';
 
 export const title = 'NuGet';
 
-const PROJECTS = ['TestBench.AspNetCore', 'TestBench.EntityFrameworkCore'];
+const PROJECTS = ['Sendproof.AspNetCore', 'Sendproof.EntityFrameworkCore'];
 
 export async function available() {
   if (!which('dotnet')) return 'the .NET SDK (dotnet) is not on PATH';

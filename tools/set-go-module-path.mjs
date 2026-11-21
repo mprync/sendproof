@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Sets the Go module path of the Test Bench Go modules once the repository
+ * Sets the Go module path of the Sendproof Go modules once the repository
  * location is known.
  *
  *   node tools/set-go-module-path.mjs <repository path>        rewrite
@@ -8,7 +8,7 @@
  *   node tools/set-go-module-path.mjs --check                  verify only
  *
  * The repository path is the import path of the repository root, for example
- * `github.com/acme/test-bench`. The Go modules live under `adapters/go`, so the
+ * `github.com/mprync/sendproof`. The Go modules live under `adapters/go`, so the
  * module base becomes `<repository path>/adapters/go`.
  *
  * `adapters/go/MODULE_PATH` is the single authoritative record of the current
@@ -55,17 +55,17 @@ export class UsageError extends Error {}
  * paths a repository can have.
  */
 export function moduleBaseFor(repository) {
-  if (typeof repository !== 'string' || repository.length === 0) throw new UsageError('A repository path such as github.com/acme/test-bench is required.');
+  if (typeof repository !== 'string' || repository.length === 0) throw new UsageError('A repository path such as github.com/mprync/sendproof is required.');
   if (/\s/.test(repository)) throw new UsageError(`Repository path must not contain whitespace: ${JSON.stringify(repository)}`);
   if (repository.includes('://') || repository.includes('@') || repository.includes('?') || repository.includes('#')) {
-    throw new UsageError(`Give the import path without scheme, credentials or query, for example github.com/acme/test-bench: ${repository}`);
+    throw new UsageError(`Give the import path without scheme, credentials or query, for example github.com/mprync/sendproof: ${repository}`);
   }
   if (repository.startsWith('/') || repository.endsWith('/') || repository.includes('//')) {
     throw new UsageError(`Repository path must not start or end with "/" or contain "//": ${repository}`);
   }
   if (repository.endsWith('.git')) throw new UsageError(`Leave off the ".git" suffix: ${repository}`);
   const elements = repository.split('/');
-  if (elements.length < 2) throw new UsageError(`Repository path needs a host and a repository, for example github.com/acme/test-bench: ${repository}`);
+  if (elements.length < 2) throw new UsageError(`Repository path needs a host and a repository, for example github.com/mprync/sendproof: ${repository}`);
   if (!elements[0].includes('.')) throw new UsageError(`The first path element must be a domain name containing a dot: ${repository}`);
   for (const element of elements) {
     if (!new RegExp(`^${PATH_CHARACTER}+$`).test(element)) throw new UsageError(`Invalid character in path element ${JSON.stringify(element)}`);
@@ -223,7 +223,7 @@ export function main(argv, { root, out = process.stdout, err = process.stderr } 
       if (problems.length === 0) out.write(`Go module metadata is consistent with ${base}.\n`);
       return problems.length === 0 ? 0 : 1;
     }
-    if (positional.length !== 1) throw new UsageError('Give exactly one repository path, for example: node tools/set-go-module-path.mjs github.com/acme/test-bench');
+    if (positional.length !== 1) throw new UsageError('Give exactly one repository path, for example: node tools/set-go-module-path.mjs github.com/mprync/sendproof');
     const newBase = moduleBaseFor(positional[0]);
     const { base, changes, problems } = plan(goRoot, newBase);
     if (problems.length > 0) {

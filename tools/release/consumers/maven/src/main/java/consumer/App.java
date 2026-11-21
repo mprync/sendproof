@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The smallest Spring Boot application that mounts the Test Bench workbench at /bench/. */
+/** The smallest Spring Boot application that mounts the Sendproof workbench at /sendproof/. */
 @SpringBootApplication
 @RestController
 public class App {

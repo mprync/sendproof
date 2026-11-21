@@ -1,13 +1,13 @@
 // End-to-end test against the real Treasury example. Run after `npm ci --prefix tools`
 // and `npx --prefix tools playwright install chromium`. Run `node tools/browser-test.mjs`.
-// TESTBENCH_URL can be the root or /bench URL of an already-running Treasury example.
+// SENDPROOF_URL can be the root or /sendproof URL of an already-running Treasury example.
 // It MUST be disposable: this test commits one payment and reduces an account balance.
-// Without TESTBENCH_URL, a temporary host and new SQLite database are used and removed.
-// Local demo: TESTBENCH_URL=http://localhost:5080 node tools/browser-test.mjs
-// TESTBENCH_UI_DIR=ui serves the workbench from that directory (not the host's embedded copy), so
+// Without SENDPROOF_URL, a temporary host and new SQLite database are used and removed.
+// Local demo: SENDPROOF_URL=http://localhost:5080 node tools/browser-test.mjs
+// SENDPROOF_UI_DIR=ui serves the workbench from that directory (not the host's embedded copy), so
 // UI edits can be checked against a host built earlier.
 // Only point it at a disposable demo database. Evidence goes to artifacts/browser,
-// or TESTBENCH_ARTIFACTS when set; no approved mock is ever overwritten.
+// or SENDPROOF_ARTIFACTS when set; no approved mock is ever overwritten.
 import assert from 'node:assert/strict';
 import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -20,7 +20,7 @@ import { root, serveUiFromDirectory, startHost, stopHost } from './browser-host.
 const errors = [];
 const responses = [];
 const layoutFailures = [];
-const artifacts = resolve(root, process.env.TESTBENCH_ARTIFACTS || 'artifacts/browser');
+const artifacts = resolve(root, process.env.SENDPROOF_ARTIFACTS || 'artifacts/browser');
 let browser, page, mock;
 await mkdir(artifacts, { recursive: true });
 await Promise.all(['failure.txt', 'failure-actual.png', 'failure-reference.png', 'comparison.txt']
@@ -341,8 +341,8 @@ async function assertAligned(page, label, expectedColumns) {
  */
 async function verifyCodeSamples(page, url) {
   const LANGUAGES = ['cURL', 'JavaScript', 'Python', 'C#', 'Go', 'Java', 'Kotlin', 'PHP', 'Ruby', 'Rust', 'PowerShell'];
-  await page.evaluate(() => localStorage.removeItem('testbench-code-language'));
-  await page.goto(`${url}/bench/#docs/PaymentsController.Create`);
+  await page.evaluate(() => localStorage.removeItem('sendproof-code-language'));
+  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
   const trigger = page.locator('#docs-code-picker');
   const sample = page.locator('[data-sample]');
   await trigger.waitFor();
@@ -440,7 +440,7 @@ async function verifyCodeSamples(page, url) {
   // The choice is remembered and shared: Rust here is Rust in Try it, and a change there shows in Docs.
   await trigger.click();
   await page.getByRole('option', { name: /^Rust\b/ }).click();
-  await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
   await page.locator('[data-request-tab="Code"]').click();
   const editorTrigger = page.locator('#editor-code-picker');
   await editorTrigger.waitFor();
@@ -451,9 +451,9 @@ async function verifyCodeSamples(page, url) {
   await page.getByRole('option', { name: /^Python\b/ }).click();
   assert.equal(await editorTrigger.evaluate(node => node === document.activeElement), true, 'focus returns to the Try it trigger after the panel re-renders');
   for (const kind of ['kw', 'f', 's', 'k']) assert.ok(await page.locator(`#snippet .tok-${kind}`).count() > 0, `Python Code panel has .tok-${kind}`);
-  const stored = await page.evaluate(() => localStorage.getItem('testbench-code-language'));
+  const stored = await page.evaluate(() => localStorage.getItem('sendproof-code-language'));
   assert.equal(stored, 'python', 'the choice is stored');
-  await page.goto(`${url}/bench/#docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
   await trigger.waitFor();
   assert.match(await trigger.innerText(), /Python\s+requests/, 'Docs shows the language chosen in Try it');
   await page.reload();
@@ -499,7 +499,7 @@ async function verifyCodeSamples(page, url) {
   assert.ok(rows.every(row => !/^\d+$/.test(row.trim())), 'no copied line is only a number');
   await page.evaluate(() => getSelection().removeAllRanges());
   // Leave on Try it, where the rest of the run continues.
-  await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
   await page.locator('[data-body-mode="JSON"]').waitFor();
 }
 
@@ -521,7 +521,7 @@ async function verifyReference(page, mock, url) {
 
   // One stable shell: columns, head line and bottom line are identical in Try it, Docs and Models,
   // also after dragging the divider, resizing the window and switching views.
-  await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
   await page.locator('#request .op-title').waitFor();
   const columns = (await assertAligned(page, 'Try it')).columns;
   await page.keyboard.press('d');
@@ -554,7 +554,7 @@ async function verifyReference(page, mock, url) {
   await handle.dblclick({ position: { x: 4, y: 20 } });
 
   // A JSON response opens with every node expanded.
-  await page.goto(`${url}/bench/#op/PaymentsController.List`);
+  await page.goto(`${url}/sendproof/#op/PaymentsController.List`);
   await page.locator('.actionbar [data-action="send"]').click();
   await page.locator('.response:not([aria-busy="true"]) .resp-head .status-code').waitFor();
   assert.equal(await page.locator('#result .code-view .fold[aria-expanded="false"]').count(), 0, 'every JSON node opens expanded');
@@ -565,7 +565,7 @@ async function verifyReference(page, mock, url) {
   assert.equal(await page.locator('#result .code-view .fold[aria-expanded="false"]').count(), 0, 'Expand all opens everything again');
 
   // Docs → model → ⌥←: back on Docs, same scroll position; browser history and deep links work.
-  await page.goto(`${url}/bench/#docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
   await page.locator(reading).waitFor();
   await page.locator(scroller).evaluate(node => { node.scrollTop = 500; });
   const scrollBefore = await page.locator(scroller).evaluate(node => node.scrollTop);
@@ -589,7 +589,7 @@ async function verifyReference(page, mock, url) {
   await page.goBack();
   await page.locator('#doc-title').waitFor();
   assert.equal(await page.locator(scroller).evaluate(node => node.scrollTop), scrollBefore, 'browser Back restores it too');
-  await page.goto(`${url}/bench/#model/Payment?from=docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#model/Payment?from=docs/PaymentsController.Create`);
   await page.reload();
   await page.locator('#model-title').waitFor();
   assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Payments Create payment Payment', 'a deep link reload shows the breadcrumbs');
@@ -597,14 +597,14 @@ async function verifyReference(page, mock, url) {
   await page.locator('#doc-title').waitFor();
   assert.equal(await page.evaluate(() => location.hash), '#docs/PaymentsController.Create', 'Back works after a reload, with no earlier entry');
   // A $ref followed from a model extends the trail.
-  await page.goto(`${url}/bench/#model/Payment?from=docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#model/Payment?from=docs/PaymentsController.Create`);
   await page.locator('#model-title').waitFor();
   await page.locator('#doc-pane .attr-type.is-ref').first().click();
   assert.match(await page.evaluate(() => location.hash), /via=Payment$/, 'following a $ref adds the model to the trail');
   assert.match(await page.locator('[data-action="model-back"]').innerText(), /^Back to Payment/);
 
   // A model picked in the Models tab: Models › Group › Model and no Back.
-  await page.goto(`${url}/bench/#model/Payment`);
+  await page.goto(`${url}/sendproof/#model/Payment`);
   await page.locator('#model-title').waitFor();
   assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Models Resources Payment');
   assert.equal(await page.locator('#doc-pane [data-action="model-back"]').count(), 0, 'no Back for a model picked in the Models tab');
@@ -613,7 +613,7 @@ async function verifyReference(page, mock, url) {
   await audit(page, 'model page');
 
   // Sidebar groups start open, collapse, and stay collapsed after a reload.
-  await page.goto(`${url}/bench/#overview`);
+  await page.goto(`${url}/sendproof/#overview`);
   await page.locator('#side-tab-operations').click();
   await page.locator('.nav-heading').first().waitFor();
   const states = () => page.locator('.nav-heading').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-expanded')));
@@ -636,8 +636,8 @@ async function verifyReference(page, mock, url) {
 
 /** Puts the language (and theme) in local storage and reloads at a route. */
 async function withSettings(page, url, hash, { language = 'en-IE', theme = 'light' } = {}) {
-  await page.evaluate(([language, theme]) => localStorage.setItem('testbench-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('testbench-settings') || '{}'), language, theme })), [language, theme]);
-  await page.goto(`${url}/bench/${hash}`);
+  await page.evaluate(([language, theme]) => localStorage.setItem('sendproof-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('sendproof-settings') || '{}'), language, theme })), [language, theme]);
+  await page.goto(`${url}/sendproof/${hash}`);
   await page.locator('.sidebar .nav-heading').first().waitFor({ state: 'attached' });
   // A phone shows one pane at a time: start on the request.
   if (await page.locator('.mobile-switch [data-view="request"]').isVisible()) await page.locator('.mobile-switch [data-view="request"]').click();
@@ -864,8 +864,8 @@ const clipProblems = (checkPageScroll = true) => {
 
 /** Opens a route in one language and reloads, so the language really changes. */
 async function openIn(page, url, hash, language) {
-  await page.evaluate(language => localStorage.setItem('testbench-settings', JSON.stringify({ language, theme: 'light' })), language);
-  await page.goto(`${url}/bench/${hash}`);
+  await page.evaluate(language => localStorage.setItem('sendproof-settings', JSON.stringify({ language, theme: 'light' })), language);
+  await page.goto(`${url}/sendproof/${hash}`);
   await page.reload();
   await page.locator('.sidebar .nav-heading').first().waitFor({ state: 'attached' });
   if (await page.locator('.mobile-switch [data-view="request"]').isVisible()) await page.locator('.mobile-switch [data-view="request"]').click();
@@ -895,7 +895,7 @@ async function verifyPersonaRefusal(browser, url) {
         if (notice) { const box = notice.getBoundingClientRect(); window.__noticeRects.push([box.top, box.height]); }
       }).observe(document, { childList: true, subtree: true });
     });
-    await view.goto(`${url}/bench/#op/PaymentsController.Create`);
+    await view.goto(`${url}/sendproof/#op/PaymentsController.Create`);
     await view.locator('.sidebar .auth-notice').waitFor();
     await view.waitForTimeout(600);
     shifts.push(...await view.evaluate(() => [...new Set(window.__noticeRects.map(rect => rect.join(':')))]));
@@ -940,9 +940,9 @@ async function verifyLocaleLayouts(browser, url) {
   const sweep = await context.newPage();
   sweep.setDefaultTimeout(5000);
   try {
-    await sweep.goto(`${url}/bench/`);
+    await sweep.goto(`${url}/sendproof/`);
     const languages = await sweep.evaluate(async () => {
-      const { LANGUAGES, CATALOGUES } = await import('/bench/i18n.js');
+      const { LANGUAGES, CATALOGUES } = await import('/sendproof/i18n.js');
       return CATALOGUES.map(id => LANGUAGES.find(item => item.catalogue === id).id);
     });
     assert.ok(languages.length >= 25, 'every catalogue is swept');
@@ -990,7 +990,7 @@ async function verifyNoClipping(page, url) {
     await openIn(page, url, '#op/PaymentsController.Create', language);
     await page.evaluate(async () => {
       document.documentElement.style.fontSize = '130%';
-      const { confirmation } = await import('/bench/action-bar.js');
+      const { confirmation } = await import('/sendproof/action-bar.js');
       document.querySelector('.actionbar').innerHTML = confirmation('POST', '/api/v2/payments');
     });
     await page.waitForTimeout(150);
@@ -1011,9 +1011,9 @@ async function verifyNoClipping(page, url) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openIn(page, url, '#op/PaymentsController.Create', 'en-IE');
   const tooNarrow = await page.evaluate(async () => {
-    const { LANGUAGES, CATALOGUES, configure, loadLanguage, runButtonWidths } = await import('/bench/i18n.js');
-    const { updateSettings } = await import('/bench/settings.js');
-    const { runButtons } = await import('/bench/action-bar.js');
+    const { LANGUAGES, CATALOGUES, configure, loadLanguage, runButtonWidths } = await import('/sendproof/i18n.js');
+    const { updateSettings } = await import('/sendproof/settings.js');
+    const { runButtons } = await import('/sendproof/action-bar.js');
     const host = document.createElement('div');
     host.className = 'actionbar';
     host.style.cssText = 'position:fixed;inset-block-start:0;inset-inline-start:0;inline-size:max-content;block-size:auto;visibility:hidden';
@@ -1070,18 +1070,18 @@ try {
   page.setDefaultTimeout(5000);
   mock.setDefaultTimeout(5000);
   // Check the actual discovery contract, then follow its advertised OpenAPI URL.
-  const discovery = await context.request.get(`${url}/bench/_api/capabilities`);
+  const discovery = await context.request.get(`${url}/sendproof/_api/capabilities`);
   assert.equal(discovery.status(), 200, 'capabilities discovery');
   const capabilities = await discovery.json();
   assert.equal(capabilities.protocolVersion, 1, 'capabilities protocol');
   assert.ok(capabilities.openApiUrl, 'capabilities advertises an OpenAPI URL');
-  const documentUrl = new URL(capabilities.openApiUrl, `${url}/bench/`);
+  const documentUrl = new URL(capabilities.openApiUrl, `${url}/sendproof/`);
   const document = await context.request.get(documentUrl.href);
   assert.equal(document.status(), 200, `discovered OpenAPI document ${documentUrl.href}`);
   assert.ok((await document.json()).paths['/api/v2/payments'], 'discovered document contains payments');
   let releaseDiscovery;
   const pausedDiscovery = new Promise(resolve => { releaseDiscovery = resolve; });
-  await page.route('**/bench/_api/capabilities', async route => {
+  await page.route('**/sendproof/_api/capabilities', async route => {
     await pausedDiscovery;
     await route.continue();
   }, { times: 1 });
@@ -1092,7 +1092,7 @@ try {
     }));
   let loadingBounds;
   try {
-    await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
     assert.equal(await page.getByRole('status').textContent(), 'Loading API…');
     assert.equal(await page.getByRole('button').count(), 0, 'loading placeholders are non-interactive');
     loadingBounds = await shellBounds();
@@ -1104,7 +1104,7 @@ try {
   try { await runAccessibility(page); }
   catch (error) {
     layoutFailures.push(`accessibility: ${error.stack || error}`);
-    await page.goto(`${url}/bench/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
     await page.locator('.sidebar .nav-heading').first().waitFor();
   }
   await selectOperation(page, 'Sign in with a password');
@@ -1234,7 +1234,7 @@ try {
   };
   const before = await readPayments();
   const accountsBefore = await readAccounts();
-  const previewPattern = '**/bench/_preview/api/v2/payments';
+  const previewPattern = '**/sendproof/_preview/api/v2/payments';
   // Abort only the preview transport to exercise the real network-error renderer.
   await page.route(previewPattern, route => route.abort('failed'));
   await page.locator('.actionbar [data-action="preview"]').click();
@@ -1244,7 +1244,7 @@ try {
   const previewGate = new Promise(resolve => { releasePreview = resolve; });
   await page.route(previewPattern, async route => { await previewGate; await route.continue(); });
   await page.locator('[data-body-mode="Form"]').click();
-  const previewResponse = page.waitForResponse(response => response.url().includes('/bench/_preview/api/v2/payments') && response.request().method() === 'POST');
+  const previewResponse = page.waitForResponse(response => response.url().includes('/sendproof/_preview/api/v2/payments') && response.request().method() === 'POST');
   await page.locator('.actionbar [data-action="preview"]').click();
   await page.locator('.response[aria-busy="true"] .sk').first().waitFor();
   const separator = page.getByRole('separator', { name: 'Resize operations sidebar' });
@@ -1310,7 +1310,7 @@ try {
   await editor.fill(JSON.stringify(body));
   await page.locator('.actionbar [data-action="send"]').click();
   const sendResponse = page.waitForResponse(response => response.url().endsWith('/api/v2/payments') && response.request().method() === 'POST');
-  const traceResponse = page.waitForResponse(response => response.url().includes('/bench/_api/traces/'));
+  const traceResponse = page.waitForResponse(response => response.url().includes('/sendproof/_api/traces/'));
   await page.locator('.actionbar [data-action="confirm-send"]').click();
   const sent = await sendResponse;
   assert.equal(sent.status(), 201, 'explicit Send commits');
@@ -1404,7 +1404,7 @@ try {
   const mobileSignIn = await context.newPage();
   watchPage(mobileSignIn);
   await mobileSignIn.setViewportSize({ width: 390, height: 844 });
-  await mobileSignIn.goto(`${url}/bench/signin.html`);
+  await mobileSignIn.goto(`${url}/sendproof/signin.html`);
   await mobileSignIn.locator('#signin-form').waitFor();
   await mobileSignIn.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   assert.equal(await mobileSignIn.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,

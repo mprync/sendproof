@@ -171,7 +171,7 @@ async function publishMaven(source, release) {
     await writeFile(`${path}.md5`, createHash('md5').update(bytes).digest('hex'));
     await writeFile(`${path}.sha1`, createHash('sha1').update(bytes).digest('hex'));
   }
-  const bundle = join(work, `test-bench-${release.version}.zip`);
+  const bundle = join(work, `sendproof-${release.version}.zip`);
   await run('zip', ['-qr', bundle, 'dev'], { cwd: layout });
   console.log(`Bundle ${basename(bundle)}: ${artifacts.length} artifacts, sha256 ${sha256(await readFile(bundle))}`);
   if (dryRun) { console.log('would upload the bundle to https://central.sonatype.com/api/v1/publisher/upload'); return; }
@@ -179,7 +179,7 @@ async function publishMaven(source, release) {
   const authorization = `Bearer ${Buffer.from(`${requireEnv('MAVEN_CENTRAL_USERNAME')}:${requireEnv('MAVEN_CENTRAL_PASSWORD')}`).toString('base64')}`;
   const form = new FormData();
   form.append('bundle', new Blob([await readFile(bundle)]), basename(bundle));
-  const name = encodeURIComponent(`Test Bench ${release.version}`);
+  const name = encodeURIComponent(`Sendproof ${release.version}`);
   const upload = await fetch(`https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=${name}`,
     { method: 'POST', headers: { Authorization: authorization }, body: form });
   const deployment = (await upload.text()).trim();
@@ -203,14 +203,14 @@ async function publishMaven(source, release) {
  * mirror repository (as Symfony and Laravel do): the release tree from the verified ZIP becomes one
  * commit on the mirror's main branch, tagged with the version. Packagist's GitHub hook on each mirror
  * picks the tag up. Mirrors: <owner>/<repo>-php-<package>, overridable with PACKAGIST_SPLIT_PREFIX
- * (e.g. "acme/test-bench-php-"). Needs GH_SPLIT_TOKEN with contents:write on the mirrors.
+ * (e.g. "acme/sendproof-php-"). Needs GH_SPLIT_TOKEN with contents:write on the mirrors.
  */
 async function publishPackagist(zips) {
   const repository = parseRepository(`${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY ?? 'owner/repo'}`);
   const prefix = process.env.PACKAGIST_SPLIT_PREFIX || `${repository.owner}/${repository.name}-php-`;
   const token = dryRun ? 'TOKEN' : requireEnv('GH_SPLIT_TOKEN');
   for (const zip of zips.filter(path => path.endsWith('.zip'))) {
-    const pkg = /^testbench-(.+)-\d+\.\d+\.\d+.*\.zip$/.exec(basename(zip))?.[1];
+    const pkg = /^sendproof-(.+)-\d+\.\d+\.\d+.*\.zip$/.exec(basename(zip))?.[1];
     require(pkg, `Unexpected Packagist archive name ${basename(zip)}`);
     const mirror = `${prefix}${pkg}`;
     const work = await tempDir(`split-${pkg}`);

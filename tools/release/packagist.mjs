@@ -3,7 +3,7 @@
 // the publish job pushes the unzipped tree to the mirror, tags it, and Packagist picks it up.
 //
 // Output (artifacts/packages/packagist/):
-//   testbench-core-<semver>.zip, testbench-laravel-<semver>.zip, testbench-symfony-<semver>.zip
+//   sendproof-core-<semver>.zip, sendproof-laravel-<semver>.zip, sendproof-symfony-<semver>.zip
 //
 // The ZIPs deliberately carry no "version" in composer.json: Packagist takes versions from git tags
 // and `composer validate --strict` warns when the field is present. Composer's artifact repository,
@@ -23,11 +23,11 @@ export const title = 'Packagist';
 
 /** Packages in dependency order: core first, because laravel and symfony require it. */
 const PACKAGES = [
-  { dir: 'core', name: 'testbench/core' },
-  { dir: 'laravel', name: 'testbench/laravel' },
-  { dir: 'symfony', name: 'testbench/symfony' },
+  { dir: 'core', name: 'sendproof/core' },
+  { dir: 'laravel', name: 'sendproof/laravel' },
+  { dir: 'symfony', name: 'sendproof/symfony' },
 ];
-const SIBLING = 'testbench/core';
+const SIBLING = 'sendproof/core';
 const here = fileURLToPath(new URL('.', import.meta.url));
 
 export async function available() {
@@ -41,7 +41,7 @@ export async function available() {
 export const registryVersion = versions => versions.semver;
 
 export async function pack(ctx) {
-  const archiveName = pkg => `testbench-${pkg.dir}-${ctx.version}.zip`;
+  const archiveName = pkg => `sendproof-${pkg.dir}-${ctx.version}.zip`;
   const license = join(root, 'LICENSE');
   require(await exists(license), 'The repository LICENSE file is missing');
 
@@ -85,7 +85,7 @@ export async function verify(ctx) {
     const repository = await tempDir('packagist-repo');
     cleanup.push(repository);
     for (const pkg of PACKAGES) {
-      const name = `testbench-${pkg.dir}-${semver}`;
+      const name = `sendproof-${pkg.dir}-${semver}`;
       const extracted = await tempDir(`packagist-${pkg.dir}`);
       cleanup.push(extracted);
       for (const [entry, bytes] of readZip(await readFile(join(ctx.out, `${name}.zip`)))) {
@@ -99,7 +99,7 @@ export async function verify(ctx) {
       await run('composer', ['archive', '--working-dir', extracted, '--format=zip', `--dir=${repository}`, `--file=${name}`, '--no-interaction'], { label: ctx.id, quiet: true });
     }
 
-    // 2. A fresh Laravel application that depends on testbench/laravel only.
+    // 2. A fresh Laravel application that depends on sendproof/laravel only.
     const project = await tempDir('packagist-consumer');
     cleanup.push(project);
     await cp(join(here, 'consumers', 'packagist'), project, { recursive: true });
@@ -111,9 +111,9 @@ export async function verify(ctx) {
     const database = join(project, 'database.sqlite');
     await writeFile(database, '');
     await writeJson(join(project, 'composer.json'), {
-      name: 'test-bench/packagist-consumer',
+      name: 'sendproof/packagist-consumer',
       type: 'project',
-      require: { php: '>=8.2', 'laravel/framework': '^11.0 || ^12.0 || ^13.0', 'testbench/laravel': semver },
+      require: { php: '>=8.2', 'laravel/framework': '^11.0 || ^12.0 || ^13.0', 'sendproof/laravel': semver },
       repositories: [{ type: 'artifact', url: repository }],
       config: { 'sort-packages': true, audit: { 'block-insecure': false } },
       'minimum-stability': ctx.versions.prerelease ? 'alpha' : 'stable',
@@ -122,18 +122,18 @@ export async function verify(ctx) {
     ctx.log('composer install from the artifact repository');
     await run('composer', ['install', '--no-interaction', '--no-progress', '--prefer-dist', '--working-dir', project], { label: ctx.id });
 
-    // 3. The testbench packages must come from the local ZIPs, never from Packagist.
+    // 3. The sendproof packages must come from the local ZIPs, never from Packagist.
     const lock = await readJson(join(project, 'composer.lock'));
-    for (const pkg of PACKAGES.filter(entry => entry.name !== 'testbench/symfony')) {
+    for (const pkg of PACKAGES.filter(entry => entry.name !== 'sendproof/symfony')) {
       const locked = lock.packages.find(entry => entry.name === pkg.name);
       require(locked, `composer.lock has no ${pkg.name}`);
-      const archive = `testbench-${pkg.dir}-${semver}.zip`;
+      const archive = `sendproof-${pkg.dir}-${semver}.zip`;
       require(locked.version === semver, `${pkg.name} resolved to ${locked.version}, expected ${semver}`);
       require(locked.dist?.type === 'zip' && !/^[a-z]+:\/\//i.test(locked.dist.url) && locked.dist.url.replaceAll('\\', '/').endsWith(`/${archive}`),
         `${pkg.name} was not installed from ${archive} in the artifact repository (dist: ${JSON.stringify(locked.dist)})`);
       require(!locked.source, `${pkg.name} has a source reference; it was not installed from the artifact repository`);
     }
-    require(await exists(join(project, 'vendor', 'testbench', 'core', 'resources', 'ui', 'manifest.json')), 'The installed testbench/core has no embedded UI manifest');
+    require(await exists(join(project, 'vendor', 'sendproof', 'core', 'resources', 'ui', 'manifest.json')), 'The installed sendproof/core has no embedded UI manifest');
 
     // 4. Serve it.
     const port = await freePort();
@@ -148,8 +148,8 @@ export async function verify(ctx) {
         APP_ENV: 'development',
         APP_DEBUG: 'false',
         APP_KEY: `base64:${Buffer.alloc(32).toString('base64')}`,
-        TESTBENCH_ENABLED: 'true',
-        TESTBENCH_ENVIRONMENTS: 'development',
+        SENDPROOF_ENABLED: 'true',
+        SENDPROOF_ENVIRONMENTS: 'development',
         CONSUMER_STORAGE: storage,
         DB_CONNECTION: 'sqlite',
         DB_DATABASE: database,
@@ -175,7 +175,7 @@ function releaseManifest(source, pkg, ctx) {
   delete manifest['autoload-dev'];
   delete manifest.scripts;
   for (const [name, constraint] of Object.entries(manifest.require ?? {})) {
-    if (name.startsWith('testbench/')) manifest.require[name] = ctx.version;
+    if (name.startsWith('sendproof/')) manifest.require[name] = ctx.version;
     else require(!/dev-/.test(constraint), `${pkg.name} requires ${name} ${constraint}, which is not a release constraint`);
   }
   manifest.keywords = [...new Set([...(manifest.keywords ?? []), ...ctx.metadata.keywords])];
@@ -228,7 +228,7 @@ async function checkArchive(path, pkg, ctx) {
   if (pkg.name !== SIBLING) require(manifest.require?.[SIBLING] === ctx.version, `${label}: ${SIBLING} must be required at exactly ${ctx.version}`);
   require(!JSON.stringify(manifest).includes('dev-main'), `${label}: composer.json still mentions dev-main`);
   // Placeholder repository URLs that used to be hard-coded in manifests must never reappear.
-  const stale = /github\.com\/(test-bench|testbench)\/test-bench/;
+  const stale = /github\.com\/(sendproof|sendproof)\/sendproof/;
   if (!stale.test(ctx.repository.url)) {
     for (const [name, bytes] of entries) {
       if (/\.(json|md)$/.test(name)) require(!stale.test(bytes.toString('utf8')), `${label}: ${name} carries a placeholder repository URL`);

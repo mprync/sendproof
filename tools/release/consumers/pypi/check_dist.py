@@ -4,7 +4,7 @@ Usage: check_dist.py <dist-dir> <semver> <pep440> <repository-url>
 
 Fails (exit 1, one line per problem) unless every package has a wheel and an sdist whose metadata is
 complete: version, licence, README, authors, keywords, project URLs, classifiers and an exact pin on
-testbench-core, plus py.typed, the LICENSE file and, for testbench-core, the embedded UI bundle.
+sendproof-core, plus py.typed, the LICENSE file and, for sendproof-core, the embedded UI bundle.
 """
 
 from __future__ import annotations
@@ -17,11 +17,11 @@ from email import message_from_string
 from pathlib import Path
 
 PACKAGES = {
-    "testbench-core": "core",
-    "testbench-sqlalchemy": "sqlalchemy",
-    "testbench-fastapi": "fastapi",
-    "testbench-flask": "flask",
-    "testbench-django": "django",
+    "sendproof-core": "core",
+    "sendproof-sqlalchemy": "sqlalchemy",
+    "sendproof-fastapi": "fastapi",
+    "sendproof-flask": "flask",
+    "sendproof-django": "django",
 }
 UI_FILES = ("manifest.json", "index.html", "app.js", "styles.css")
 
@@ -53,7 +53,7 @@ def main(dist: Path, semver: str, version: str, repository: str) -> list[str]:
             check(f"{module}/__init__.py" in names, f"{label}: wheel has no {module}/__init__.py")
             check(any(n.startswith(f"{info}/licenses/") and n.endswith("LICENSE") for n in names), f"{label}: wheel has no LICENSE under {info}/licenses/")
             check(not any("__pycache__" in n or n.endswith(".pyc") or "/tests/" in n or n.startswith("tests/") for n in names), f"{label}: wheel contains caches or tests")
-            if name == "testbench-core":
+            if name == "sendproof-core":
                 for ui in UI_FILES:
                     check(f"{module}/ui/{ui}" in names, f"{label}: wheel has no {module}/ui/{ui}")
                 if f"{module}/ui/manifest.json" in names:
@@ -71,7 +71,7 @@ def main(dist: Path, semver: str, version: str, repository: str) -> list[str]:
         check(metadata["License-Expression"] == "MIT", f"{label}: License-Expression is {metadata['License-Expression']}")
         check("LICENSE" in (metadata.get_all("License-File") or []), f"{label}: no License-File: LICENSE")
         check(metadata["Requires-Python"] == ">=3.10", f"{label}: Requires-Python is {metadata['Requires-Python']}")
-        check("Test Bench contributors" in (metadata["Author"] or "") + (metadata["Author-email"] or ""), f"{label}: authors are missing")
+        check("Sendproof contributors" in (metadata["Author"] or "") + (metadata["Author-email"] or ""), f"{label}: authors are missing")
         check(metadata["Description-Content-Type"] == "text/markdown", f"{label}: README content type is {metadata['Description-Content-Type']}")
         check(len(metadata.get_payload() or "") > 200, f"{label}: README is not embedded")
         check(len(metadata["Summary"] or "") > 20, f"{label}: summary is missing")
@@ -83,17 +83,17 @@ def main(dist: Path, semver: str, version: str, repository: str) -> list[str]:
         check(urls == {"Homepage": home, "Repository": repository, "Issues": f"{repository}/issues", "Changelog": f"{repository}/blob/main/CHANGELOG.md"},
               f"{label}: Project-URL is {urls}")
         requires = metadata.get_all("Requires-Dist") or []
-        if name == "testbench-core":
+        if name == "sendproof-core":
             check(not requires, f"{label}: core must have no dependencies, has {requires}")
         else:
-            check(f"testbench-core=={version}" in requires, f"{label}: Requires-Dist lacks testbench-core=={version}: {requires}")
+            check(f"sendproof-core=={version}" in requires, f"{label}: Requires-Dist lacks sendproof-core=={version}: {requires}")
 
         with tarfile.open(sdist_path) as sdist:
             members = {member.name for member in sdist.getmembers()}
             top = f"{module}-{version}"
             for required in ("PKG-INFO", "pyproject.toml", "LICENSE", "README.md", f"src/{module}/__init__.py", f"src/{module}/py.typed"):
                 check(f"{top}/{required}" in members, f"{label}: sdist has no {required}")
-            if name == "testbench-core":
+            if name == "sendproof-core":
                 for ui in UI_FILES:
                     check(f"{top}/src/{module}/ui/{ui}" in members, f"{label}: sdist has no ui/{ui}")
             pkg_info = message_from_string(sdist.extractfile(f"{top}/PKG-INFO").read().decode("utf-8"))
