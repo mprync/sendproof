@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sendproof\Laravel\Redis;
 
 use Sendproof\Core\Stores\CommandKind;
+use Sendproof\Core\Stores\PreviewWriteBlockedException;
 use Sendproof\Core\Stores\Redis\RedisHook;
 
 /**
@@ -28,7 +29,18 @@ final class GuardedRedisPipeline
             $kind = CommandKind::Transaction;
         } else {
             [$name, $args] = self::redisCommand($method, $arguments);
-            $kind = $this->hook->check($name, $args);
+            try {
+                $kind = $this->hook->check($name, $args);
+            } catch (PreviewWriteBlockedException $refusal) {
+                // Nothing queued runs: DISCARD the MULTI (or drop the queued pipeline), so a handler
+                // that swallows the refusal doesn't leave the connection queueing every later command.
+                try {
+                    $this->inner->discard();
+                } catch (\Throwable) {
+                    // The refusal is what the caller sees.
+                }
+                throw $refusal;
+            }
             $this->hook->record($name, $args, $kind, hrtime(true));
         }
         $result = $this->inner->{$method}(...$arguments);

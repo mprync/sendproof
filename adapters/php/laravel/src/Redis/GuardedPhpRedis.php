@@ -51,7 +51,9 @@ trait GuardedPhpRedis
         }
         $this->hook->record($name, $args, $kind, $started);
 
-        return $result;
+        // In MULTI or pipeline mode phpredis returns the client itself (`Redis::multi()->set(…)`):
+        // hand back the guarded wrapper, or the chained commands would reach the raw client.
+        return $result === $this->client ? new GuardedRedisPipeline($result, $this->hook) : $result;
     }
 
     public function pipeline(?callable $callback = null)

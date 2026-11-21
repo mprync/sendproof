@@ -78,6 +78,25 @@ abstract class RedisPreviewBase extends StoresTestCase
             return response()->json(['ok' => true]);
         })->sendproofPreview();
         Route::post('/batch/raw', fn () => response()->json(['ok' => Redis::executeRaw(['INCR', $key('raw')])]))->sendproofPreview();
+        // MULTI opened by hand: phpredis hands back the client in MULTI mode, Predis a status reply.
+        Route::post('/batch/multi', function () use ($key) {
+            $transaction = Redis::multi();
+            $target = $transaction instanceof \Predis\Response\Status ? Redis::connection() : $transaction;
+            $target->set($key('multied'), '1');
+            $target->exec();
+
+            return response()->json(['ok' => true]);
+        })->sendproofPreview();
+        // A transaction opened without a callback whose refused write the handler swallows and abandons.
+        Route::post('/batch/abandoned', function () use ($key) {
+            $transaction = Redis::transaction();
+            try {
+                $transaction->set($key('abandoned'), '1');
+            } catch (PreviewWriteBlockedException) {
+            }
+
+            return response()->json(['ok' => true]);
+        })->sendproofPreview();
         Route::post('/batch/reads', function () use ($key) {
             $values = Redis::pipeline(function ($pipe) use ($key): void {
                 $pipe->get($key('seeded'));
@@ -143,11 +162,31 @@ abstract class RedisPreviewBase extends StoresTestCase
     public function testPipelinesTransactionsAndRawCommandsAreRefusedBeforeAnythingIsSent(): void
     {
         $this->signIn();
-        foreach (['pipeline' => 'piped', 'transaction' => 'transacted', 'raw' => 'raw'] as $route => $suffix) {
+        foreach (['pipeline' => 'piped', 'transaction' => 'transacted', 'raw' => 'raw', 'multi' => 'multied'] as $route => $suffix) {
             $this->preview('/batch/' . $route)->assertStatus(409);
             $this->assertNull($this->reader->get($this->prefix . $suffix), "{$route} must not reach Redis.");
         }
         $this->preview('/batch/reads')->assertOk()->assertJsonPath('body.count', 2);
+    }
+
+    public function testASendAfterAPreviewInTheSameWorkerIsNeverBlocked(): void
+    {
+        // One application serves both requests, as Octane and other long-lived workers do.
+        $this->signIn();
+        $this->preview('/counters/next')->assertStatus(409);
+        $this->json('POST', '/counters/next')->assertOk()->assertJsonPath('value', 1);
+        $this->assertSame('1', $this->reader->get($this->prefix . 'next'));
+    }
+
+    public function testARefusedWriteInAnAbandonedTransactionDiscardsItSoTheConnectionStaysUsable(): void
+    {
+        // The connection outlives the request (Octane, queue workers): a MULTI left open would queue every later command.
+        $this->signIn();
+        $this->preview('/batch/abandoned')->assertStatus(409);
+        $this->json('GET', '/counters/seeded')->assertOk()->assertJsonPath('value', 5);
+        $this->json('POST', '/counters/after')->assertOk()->assertJsonPath('value', 1);
+        $this->assertSame('1', $this->reader->get($this->prefix . 'after'), 'A Send after the refused Preview must reach Redis.');
+        $this->assertNull($this->reader->get($this->prefix . 'abandoned'));
     }
 
     public function testObservedSendCommitsOnceAndTracesTheCommand(): void

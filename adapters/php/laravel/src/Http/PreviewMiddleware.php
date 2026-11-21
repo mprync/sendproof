@@ -48,6 +48,9 @@ final class PreviewMiddleware
         AuthorizationException::class, ModelNotFoundException::class, TokenMismatchException::class,
     ];
 
+    /** How many requests this process is handling inside one another; 0 between requests. */
+    private static int $depth = 0;
+
     public function __construct(
         private readonly Application $app,
         private readonly Router $router,
@@ -58,6 +61,25 @@ final class PreviewMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         $started = hrtime(true);
+        // A worker that keeps the application (Octane, RoadRunner, FrankenPHP) can hand this request
+        // the recorder of the last one. Its Preview scope, which refuses late writes for the rest of
+        // that request, must not refuse this request's writes, so every top-level request starts
+        // clean. A request dispatched inside another (a Preview's handler calling the kernel) keeps
+        // the scope it runs in.
+        $recorder = $this->manager->recorder();
+        if (self::$depth === 0 && !$recorder->isCapturing()) {
+            $recorder->forget();
+        }
+        self::$depth++;
+        try {
+            return $this->route($request, $next, $started);
+        } finally {
+            self::$depth--;
+        }
+    }
+
+    private function route(Request $request, Closure $next, int $started): Response
+    {
         $path = $request->getPathInfo();
         $prefer = $request->headers->all('prefer');
         $offset = Protocol::reservedOffset($path);
