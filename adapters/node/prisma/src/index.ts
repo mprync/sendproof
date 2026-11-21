@@ -256,7 +256,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     if (!transaction) throw new Error('The Prisma preview transaction was not started through the provider adapter.');
     return use(async sql => {
       if (sql.startsWith('SAVEPOINT ') && transaction.createSavepoint) return transaction.createSavepoint(previewSavepoint);
-      if (sql.startsWith('RELEASE SAVEPOINT ') && transaction.releaseSavepoint) return transaction.releaseSavepoint(previewSavepoint);
+      if (sql.startsWith('ROLLBACK TO SAVEPOINT ') && transaction.rollbackToSavepoint) return transaction.rollbackToSavepoint(previewSavepoint);
       if (sql.startsWith('SELECT ')) {
         // SQL Server's `@@TRANCOUNT` check reads rows: answer them as objects keyed by column name.
         const result = await transaction.queryRaw({ sql, args: [], argTypes: [] });

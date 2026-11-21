@@ -326,7 +326,7 @@ export async function setPreviewSavepoint(run: (sql: string) => Promise<unknown>
  * Whether nothing committed the Preview transaction since {@link setPreviewSavepoint}. Any failure answers false, since
  * it can't confirm the transaction is the Preview's, and the Preview then answers 500.
  *
- * MySQL, MariaDB, PostgreSQL and SQLite release the savepoint set when the Preview started: any commit, explicit or
+ * MySQL, MariaDB, PostgreSQL and SQLite roll back to the savepoint set when the Preview started: any commit, explicit or
  * implicit, erases every savepoint, so the release fails. Checking the start savepoint, rather than whether some
  * transaction is open now, also holds under MySQL `autocommit=0`, where a new transaction opens after a commit.
  *
@@ -343,19 +343,13 @@ export async function previewSavepointHeld(
       const [row] = rows(await run('SELECT @@TRANCOUNT AS open_transactions, XACT_STATE() AS state'));
       return Number(row?.['open_transactions']) >= 1;
     }
-    await run('RELEASE SAVEPOINT ' + previewSavepoint);
+    // ROLLBACK TO, not RELEASE: it also succeeds on a PostgreSQL transaction an ordinary handler error aborted, and it
+    // discards any savepoint the handler left open after it. The whole transaction rolls back next anyway.
+    await run('ROLLBACK TO SAVEPOINT ' + previewSavepoint);
     return true;
-  } catch (error) {
-    // A PostgreSQL transaction a failed statement aborted (25P02) is still the open Preview transaction: a COMMIT in
-    // that state only rolls back, so nothing could have committed. It refuses every statement, the release included.
-    return (provider === 'postgres' || provider === 'postgresql') && sqlState(error) === '25P02';
+  } catch {
+    return false;
   }
-}
-
-/** The SQLSTATE of a driver error, or of the error an ORM wrapped. */
-function sqlState(error: unknown): unknown {
-  const value = error as { code?: unknown; cause?: { code?: unknown }; driverError?: { code?: unknown } } | null;
-  return value?.code ?? value?.driverError?.code ?? value?.cause?.code;
 }
 
 const readOnly = /^(?:SELECT|SHOW|EXPLAIN|DESCRIBE|DESC|PRAGMA|VALUES|SET\s+(?:SESSION\s+)?TRANSACTION\b)/i;

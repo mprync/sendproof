@@ -187,6 +187,22 @@ for (const target of targets()) {
       });
     }
 
+    it('confirms a Preview whose handler answers 409 after a unique violation, even where it aborts the transaction', async () => {
+      // PostgreSQL aborts the transaction on the violation; the backstop must still find its savepoint.
+      provider = provide();
+      const result = await provider.preview(async () => {
+        await provider.client('items').insert({ id: 'dup', name: 'First' });
+        try {
+          await provider.client('items').insert({ id: 'dup', name: 'Second' });
+          return 201;
+        } catch {
+          return 409;
+        }
+      });
+      assert.equal(result, 409);
+      assert.deepEqual(await ids(), []);
+    });
+
     it('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
       provider = provide();
       await assert.rejects(provider.preview(async () => {

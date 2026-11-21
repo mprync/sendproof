@@ -44,7 +44,7 @@ function scripted(script: Script = {}) {
     async queryRaw(sql: SqlQuery) { executed.push(sql.sql); return empty; },
     async executeRaw(sql: SqlQuery) {
       if (script.failRollback && sql.sql === 'ROLLBACK') throw new Error('rollback failed');
-      if (script.committedBelowGuard && sql.sql === 'RELEASE SAVEPOINT sendproof_preview') throw new Error('SAVEPOINT sendproof_preview does not exist');
+      if (script.committedBelowGuard && sql.sql === 'ROLLBACK TO SAVEPOINT sendproof_preview') throw new Error('SAVEPOINT sendproof_preview does not exist');
       executed.push(sql.sql);
       return 0;
     },
@@ -100,7 +100,7 @@ describe('Prisma rollback acknowledgment', () => {
     const { provider, executed } = scripted();
     assert.equal(await provider.preview(async () => 'result'), 'result');
     // Every provider sets the Preview savepoint first and releases it before the rollback (the commit backstop).
-    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'RELEASE SAVEPOINT sendproof_preview', 'ROLLBACK', 'rollback()']);
+    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'ROLLBACK TO SAVEPOINT sendproof_preview', 'ROLLBACK', 'rollback()']);
   });
 
   it('never confirms a Preview whose transaction was committed by a path the statement guard does not see', async () => {
@@ -115,7 +115,7 @@ describe('Prisma rollback acknowledgment', () => {
     const { provider, executed } = scripted({ provider: 'mysql', phantom: true });
     assert.equal(await provider.preview(async () => 'result'), 'result');
     // On MySQL the Preview savepoint is set first and released before the rollback (the commit backstop).
-    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'RELEASE SAVEPOINT sendproof_preview', 'ROLLBACK (phantom)']);
+    assert.deepEqual(executed, ['BEGIN', 'SAVEPOINT sendproof_preview', 'ROLLBACK TO SAVEPOINT sendproof_preview', 'ROLLBACK (phantom)']);
   });
 
   it('leaves a release without ROLLBACK unconfirmed and retires the client', async () => {
