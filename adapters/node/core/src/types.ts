@@ -100,6 +100,11 @@ export interface BenchOptions<Raw = unknown> {
   resolveIdentity?: (request: BenchRequest<Raw>) => BenchIdentity | null | Promise<BenchIdentity | null>;
   discoverAuth?: (request: BenchRequest<Raw>) => AuthProvider[] | Promise<AuthProvider[]>;
   authorize?: (request: BenchRequest<Raw>, identity: BenchIdentity | null) => boolean | Promise<boolean>;
+  /**
+   * Rolls back the SQL database around each Preview. Optional when `dataStores` is given: an app
+   * whose only database is MongoDB, or that has only guarded stores, previews without one. A SQL
+   * database the binding has no provider for is then not covered, like any unhooked client.
+   */
   previewProvider?: PreviewProvider;
   captureLimits?: Partial<Record<'effects' | 'logs' | 'changes' | 'bytes' | 'valueBytes', number>>;
   maxResponseBytes?: number;

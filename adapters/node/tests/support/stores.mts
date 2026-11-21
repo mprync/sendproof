@@ -107,12 +107,16 @@ type Register = (bench: SendproofMiddleware, db: SQLiteDatabase) => void;
 export const handle = (run: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response, next: (error?: unknown) => void) => { run(req, res).catch(next); };
 
-/** Start an app with `dataStores` and the routes `register` adds; it closes when the test ends. */
-export async function startApp(t: test.TestContext, dataStores: DataStore[], register: Register): Promise<StoreApp> {
+/**
+ * Start an app with `dataStores` and the routes `register` adds; it closes when the test ends.
+ * `sqlProvider: false` leaves out the SQLite rollback provider, for apps whose only stores are
+ * the hooked ones.
+ */
+export async function startApp(t: test.TestContext, dataStores: DataStore[], register: Register, { sqlProvider = true } = {}): Promise<StoreApp> {
   const db = new SQLiteDatabase(':memory:', { schema: 'CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT NOT NULL)' });
   const errors: unknown[] = [];
   const bench = sendproof({
-    environment: 'development', previewProvider: db, dataStores,
+    environment: 'development', ...(sqlProvider ? { previewProvider: db } : {}), dataStores,
     resolveIdentity: () => ({ name: 'Tester', subject: 'tester' }),
     onError: error => { errors.push(error); },
   });

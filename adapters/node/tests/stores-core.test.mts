@@ -170,3 +170,32 @@ test('discovery lists data stores and preview:false operations, which never run 
   assert.equal(ran, 1);
   assert.throws(() => app.bench.unavailable('PUT', '/x', {}, (_req, res) => { res.end(); }), TypeError);
 });
+
+test('Preview runs without a SQL provider when the only stores are hooked ones', async t => {
+  // A guard-only app: reads confirm, writes still block.
+  const guarded = fakeStore();
+  let app = await startApp(t, [guarded], bench => {
+    bench.operation('GET', '/counters/{key}', (_req, res) => { res.json({ ok: true }); });
+    bench.operation('POST', '/counters/{key}', handle(async (req, res) => { await guarded.incr(req.params.key as string); res.json({ ok: true }); }));
+  }, { sqlProvider: false });
+  assert.deepEqual((await app.capabilities()).previewOperations, [{ method: 'GET', path: '/counters/{key}' }, { method: 'POST', path: '/counters/{key}' }]);
+  assert.equal((await app.capabilities()).observedSend, true);
+  assert.deepEqual((await app.confirmed('GET', '/counters/a')).body, { ok: true });
+  await assertBlocked(await app.preview('POST', '/counters/a'), 'redis', 'INCR');
+  assert.deepEqual(guarded.writes, []);
+
+  // A transactional store as the only database: its finishPreview still runs, and its failure
+  // still withholds confirmation.
+  let finished = 0;
+  const transactional = fakeStore({ finish: async () => { finished++; } });
+  app = await startApp(t, [transactional], bench => {
+    bench.operation('GET', '/counters/{key}', (_req, res) => { res.json({ ok: true }); });
+  }, { sqlProvider: false });
+  await app.confirmed('GET', '/counters/a');
+  assert.equal(finished, 1);
+  const failing = fakeStore({ finish: async () => { throw new Error('abort failed'); } });
+  app = await startApp(t, [failing], bench => {
+    bench.operation('GET', '/counters/{key}', (_req, res) => { res.json({ ok: true }); });
+  }, { sqlProvider: false });
+  await assertUnconfirmed(await app.preview('GET', '/counters/a'));
+});

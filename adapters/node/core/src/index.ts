@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import type { BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
+import type { BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Capture } from './capture.js';
@@ -134,7 +134,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
   const {
     apiName = 'API', environment = process.env.NODE_ENV ?? 'production', environments = ['development'],
     openApiUrl = '/openapi.json', documents = [], fieldModules = [], database = null, authProviders = [],
-    resolveIdentity = () => null, authorize = () => true, discoverAuth, previewProvider,
+    resolveIdentity = () => null, authorize = () => true, discoverAuth, previewProvider: sqlProvider,
     maxResponseBytes = 1024 * 1024, captureLimits = {}, traceTtlMs = 300000, traceClock = () => performance.now(),
     includeSqlParameterValues = environment.toLowerCase() === 'development', dataStores = [],
     onError = () => {},
@@ -142,6 +142,9 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
   if (!Array.isArray(dataStores) || dataStores.some(store => typeof store?.system !== 'string' || typeof store.describe !== 'function')) {
     throw new TypeError('dataStores takes stores made by redisStore, dynamoStore, mongoStore or mongooseStore.');
   }
+  // Without a SQL provider, hooked stores alone can carry a Preview: MongoDB rolls back its own
+  // transaction in finishPreview and guarded stores block writes, so the dispatch needs no wrapper.
+  const previewProvider: PreviewProvider | undefined = sqlProvider ?? (dataStores.length ? { preview: dispatch => dispatch() } : undefined);
   const operations = () => registered().filter(entry => !('preview' in entry)).map(({ method, path }) => ({ method, path }));
   const unavailable = () => registered().flatMap(entry => 'preview' in entry
     ? [{ method: entry.method, path: entry.path, reason: entry.reason, ...(entry.stores ? { stores: entry.stores } : {}) }] : []);
