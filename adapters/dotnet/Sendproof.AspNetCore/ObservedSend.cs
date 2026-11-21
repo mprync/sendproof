@@ -32,23 +32,25 @@ internal static class ObservedSend
         request.Invoked = true;
         var services = context.RequestServices;
         var logger = services.GetRequiredService<ILogger<ObservedRequest>>();
-        IPreviewProvider? provider = null;
         IPreviewObservation? observation = null;
+        var observing = false;
         try
         {
             if (await IsWorkbenchAuthorizedAsync(context, options, owner))
             {
-                provider = PreviewEndpointPolicy.GetProvider(context);
+                var provider = PreviewEndpointPolicy.GetProvider(context);
                 observation = provider?.BeginObservation(context);
+                // A host with only data stores (no SQL provider) is observed too: its Db entries still trace.
+                observing = provider is not null || PreviewEndpointPolicy.GetDataStores(context).Count > 0;
             }
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            provider = null;
+            observing = false;
             logger.LogWarning(error, "Sendproof could not start observing the send.");
         }
 
-        if (provider is null)
+        if (!observing)
         {
             await execute(context);
             return;
@@ -90,10 +92,10 @@ internal static class ObservedSend
                 if (completed)
                 {
                     var serializeStarted = Stopwatch.GetTimestamp();
-                    var (changes, truncated) = CaptureLimits.SnapshotChanges(observation?.Changes ?? []);
+                    var (changes, truncated) = CaptureLimits.SnapshotChanges([.. observation?.Changes ?? [], .. capture.Changes ?? []]);
                     finishedTiming = recorder.Timing(clock, Stopwatch.GetElapsedTime(serializeStarted).TotalMilliseconds);
                     reservation.Result.TrySetResult(new ObservedTrace(changes, capture.Effects, capture.Logs, finishedTiming,
-                        truncated || observation?.ChangesTruncated == true, capture.EffectsTruncated, capture.LogsTruncated));
+                        truncated || observation?.ChangesTruncated == true || capture.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated));
                 }
             }
             catch (Exception error) when (error is not OutOfMemoryException)

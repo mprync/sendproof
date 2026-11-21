@@ -9,20 +9,39 @@ namespace Sendproof.EntityFrameworkCore;
 internal sealed class SendproofCommandInterceptor(CaptureContext capture, SendproofOptions options,
     IHostEnvironment? environment = null) : DbCommandInterceptor
 {
-    // Matched against whole words, so IdempotencyKey or Monkey stay visible while
-    // PasswordHash, api_key and RefreshToken are hidden.
-    private static readonly HashSet<string> SecretWords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "password", "passwd", "pwd", "secret", "token", "hash", "salt", "credential", "credentials", "apikey"
-    };
+    private const string Redacted = SecretNames.Redacted;
 
-    // "Key" alone is ordinary (primary key, idempotency key); it is secret only after these words.
-    private static readonly HashSet<string> SecretKeyQualifiers = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "api", "private", "secret", "access", "signing", "encryption", "client"
-    };
+    // The raw-commit rule (spec/data-stores.md): during a Preview, a statement that would end or escape the Preview
+    // transaction is refused before it reaches the database, and the Preview can never be confirmed, even if the
+    // handler catches the exception.
+    public override InterceptionResult<DbDataReader> ReaderExecuting(DbCommand command, CommandEventData eventData,
+        InterceptionResult<DbDataReader> result) => Guard(command, eventData, result);
 
-    private const string Redacted = "[REDACTED]";
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
+        InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default) => ValueTask.FromResult(Guard(command, eventData, result));
+
+    public override InterceptionResult<object> ScalarExecuting(DbCommand command, CommandEventData eventData,
+        InterceptionResult<object> result) => Guard(command, eventData, result);
+
+    public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData,
+        InterceptionResult<object> result, CancellationToken cancellationToken = default) => ValueTask.FromResult(Guard(command, eventData, result));
+
+    public override InterceptionResult<int> NonQueryExecuting(DbCommand command, CommandEventData eventData,
+        InterceptionResult<int> result) => Guard(command, eventData, result);
+
+    public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
+        InterceptionResult<int> result, CancellationToken cancellationToken = default) => ValueTask.FromResult(Guard(command, eventData, result));
+
+    private InterceptionResult<T> Guard<T>(DbCommand command, CommandEventData eventData, InterceptionResult<T> result)
+    {
+        if (capture.Current is { InPreview: true } &&
+            SqlStatements.EndsTransaction(command.CommandText, PreviewTurns.IsMySql(eventData.Context?.Database.ProviderName)))
+        {
+            throw capture.RefuseInPreview("Preview owns the SQL transaction, so a statement that ends or replaces it cannot run during Preview.")!;
+        }
+
+        return result;
+    }
 
     public override DbDataReader ReaderExecuted(DbCommand command, CommandExecutedEventData eventData, DbDataReader result)
     {
@@ -83,43 +102,7 @@ internal sealed class SendproofCommandInterceptor(CaptureContext capture, Sendpr
     }
 
     /// <summary>Whether an identifier or statement names a secret, judged by whole words.</summary>
-    internal static bool LooksSecret(string text)
-    {
-        string? previous = null;
-        foreach (var word in Words(text))
-        {
-            if (SecretWords.Contains(word) ||
-                word.Equals("key", StringComparison.OrdinalIgnoreCase) && previous is not null && SecretKeyQualifiers.Contains(previous))
-            {
-                return true;
-            }
-
-            previous = word;
-        }
-
-        return false;
-    }
-
-    /// <summary>Splits identifiers and SQL text into words at punctuation, underscores and camel-case boundaries.</summary>
-    private static IEnumerable<string> Words(string text)
-    {
-        var start = -1;
-        for (var i = 0; i <= text.Length; i++)
-        {
-            var letterOrDigit = i < text.Length && char.IsLetterOrDigit(text[i]);
-            var boundary = !letterOrDigit || start >= 0 && char.IsUpper(text[i]) && char.IsLower(text[i - 1]);
-            if (boundary && start >= 0)
-            {
-                yield return text[start..i];
-                start = -1;
-            }
-
-            if (letterOrDigit && start < 0)
-            {
-                start = i;
-            }
-        }
-    }
+    internal static bool LooksSecret(string text) => SecretNames.LooksSecret(text);
 
     private static string? ParameterValue(object? value, ref bool truncated)
     {

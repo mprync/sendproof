@@ -66,7 +66,12 @@ internal static class CaptureLimits
 
             truncated |= (key is null && change.Key is not null) || (before is null && change.Before is not null) ||
                 (after is null && change.After is not null) || operation != change.Operation || table != change.Table;
-            result.Add(new PreviewChange(operation, table, key, before, after));
+            result.Add(new PreviewChange(operation, table, key, before, after)
+            {
+                Store = change.Store is null ? null : Clip(change.Store, Name),
+                Namespace = change.Namespace is null ? null : Clip(change.Namespace, Name),
+                Via = change.Via is null ? null : Clip(change.Via, Name)
+            });
         }
 
         return ([.. result], truncated);

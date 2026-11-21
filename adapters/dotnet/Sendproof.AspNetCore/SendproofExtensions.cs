@@ -53,10 +53,26 @@ public static class SendproofExtensions
     /// <remarks>
     /// The host must arrange for all writes to participate in the preview transaction and for external effects
     /// to be suppressed. Register a provider before enabling previews. Use buffered HTTP results.
+    /// <para>
+    /// <c>.WithSendproofPreview(enabled: false, reason: "Clears the Redis session")</c> marks the operation
+    /// <c>preview: false</c> instead: the workbench explains why Preview is unavailable before anyone runs it, and the
+    /// handler never runs in a Preview. <paramref name="stores"/> optionally names the store ids it writes to.
+    /// </para>
     /// </remarks>
-    public static TBuilder WithSendproofPreview<TBuilder>(this TBuilder endpoint) where TBuilder : IEndpointConventionBuilder
+    public static TBuilder WithSendproofPreview<TBuilder>(this TBuilder endpoint, bool enabled = true, string? reason = null,
+        params string[] stores) where TBuilder : IEndpointConventionBuilder
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        return endpoint.WithMetadata(PreviewMetadata);
+        if (enabled && stores.Length == 0 && reason is null)
+        {
+            return endpoint.WithMetadata(PreviewMetadata);
+        }
+
+        return endpoint.WithMetadata(new SendproofPreviewAttribute
+        {
+            Enabled = enabled,
+            Reason = reason,
+            Stores = stores.Length == 0 ? null : stores
+        });
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Sendproof.AspNetCore;
@@ -16,14 +17,16 @@ public static class SendproofEntityFrameworkCoreExtensions
         builder.EnableEfCommandCapture();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Scoped<IPreviewProvider, EntityFrameworkPreviewProvider<TContext>>());
         builder.Services.TryAddSingleton<SendproofCommandInterceptor>();
+        builder.Services.TryAddSingleton<SendproofTransactionInterceptor>();
         builder.Services.ConfigureDbContext<TContext>((services, options) =>
         {
-            var interceptor = services.GetRequiredService<SendproofCommandInterceptor>();
-            if (options.Options.FindExtension<Microsoft.EntityFrameworkCore.Infrastructure.CoreOptionsExtension>()?
-                .Interceptors?.Contains(interceptor) != true)
+            var interceptors = new IInterceptor[]
             {
-                options.AddInterceptors(interceptor);
-            }
+                services.GetRequiredService<SendproofCommandInterceptor>(),
+                services.GetRequiredService<SendproofTransactionInterceptor>()
+            };
+            var registered = options.Options.FindExtension<Microsoft.EntityFrameworkCore.Infrastructure.CoreOptionsExtension>()?.Interceptors;
+            options.AddInterceptors(interceptors.Where(interceptor => registered?.Contains(interceptor) != true));
         });
         return builder;
     }

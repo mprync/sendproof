@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
 
 namespace Sendproof.AspNetCore;
@@ -10,6 +11,12 @@ public interface IPreviewProvider
 
     /// <summary>Gets a public database label for the workbench, without connection details.</summary>
     string? Database { get; }
+
+    /// <summary>
+    /// Gets the SQL provider id the workbench shows a mark for: <c>sqlite</c>, <c>postgresql</c>, <c>mysql</c>,
+    /// <c>sqlserver</c>. Null when the provider doesn't know it.
+    /// </summary>
+    string? DatabaseSystem => null;
 
     /// <summary>
     /// Starts the transaction using the operation's request-scoped services. The provider owns
@@ -50,4 +57,17 @@ public interface IPreviewObservation : IDisposable
 /// <param name="Key">The changed row's key or composite key.</param>
 /// <param name="Before">The previous row values, if available.</param>
 /// <param name="After">The new row values, if available.</param>
-public sealed record PreviewChange(string Operation, string Table, object? Key, object? Before, object? After);
+public sealed record PreviewChange(string Operation, string Table, object? Key, object? Before, object? After)
+{
+    /// <summary>Gets the store id (<c>mongodb</c>, <c>redis</c>, <c>dynamodb</c>) for a data-store change. Null means the SQL database.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Store { get; init; }
+
+    /// <summary>Gets the database a data-store change happened in, such as the MongoDB database.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; init; }
+
+    /// <summary>Gets how a change was made when the operation alone hides it: <c>upsert</c> or <c>replace</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Via { get; init; }
+}

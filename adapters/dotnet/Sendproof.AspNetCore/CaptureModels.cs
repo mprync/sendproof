@@ -32,7 +32,12 @@ internal sealed record PreviewLog(string Level, string Message)
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CapturedSql? Sql { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CapturedDb? Db { get; init; }
+
     internal int Size => Level.Length + Message.Length + (Category?.Length ?? 0) + (EventId?.Name?.Length ?? 0) +
+        (Db is { } db ? db.Operation.Length + db.System.Length + (db.Target?.Length ?? 0) + (db.Namespace?.Length ?? 0) +
+            (db.Statement?.Length ?? 0) + (db.Error?.Length ?? 0) : 0) +
         (Properties?.Sum(pair => pair.Key.Length + pair.Value.Length) ?? 0) +
         (Exception is { } error ? error.Type.Length + error.Message.Length : 0) +
         (Sql is { } sql ? sql.Text.Length + sql.Parameters.Sum(parameter =>
@@ -47,7 +52,30 @@ internal sealed record CapturedSql(string Text, CapturedSqlParameter[] Parameter
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? RowsAffected);
 internal sealed record CapturedSqlParameter(string Name, string? Value, string DbType);
 
-internal sealed record CaptureSnapshot(PreviewEffect[] Effects, PreviewLog[] Logs, bool LogsTruncated, bool EffectsTruncated);
+/// <summary>A command to a non-SQL data store, as the <c>Db</c> log level carries it (OpenTelemetry database attributes).</summary>
+internal sealed record CapturedDb(string System, string Operation)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Target { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Statement { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RowsAffected { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Blocked { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; init; }
+}
+
+internal sealed record CaptureSnapshot(PreviewEffect[] Effects, PreviewLog[] Logs, bool LogsTruncated, bool EffectsTruncated,
+    PreviewChange[]? Changes = null, bool ChangesTruncated = false);
 
 internal sealed record CaptureTiming(double Auth, double Handler, double Db, int QueryCount, double Serialize)
 {

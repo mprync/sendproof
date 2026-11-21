@@ -43,11 +43,32 @@ internal static class PreviewProtocol
         context.Response.Headers.CacheControl = "no-store";
         return Results.Problem(statusCode: statusCode, title: title).ExecuteAsync(context);
     }
+
+    /// <summary>
+    /// The blocked-Preview response (spec/data-stores.md): 409, <c>application/problem+json</c>, no-store, and never
+    /// <c>Preference-Applied</c>, so no client can mistake it for a confirmed rollback. It names the store and the
+    /// refused command, never its arguments, and carries nothing of the handler's own response.
+    /// </summary>
+    internal static Task RejectBlockedAsync(HttpContext context, BlockedWrite blocked)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Problem(type: "about:blank", title: "Preview unavailable", statusCode: StatusCodes.Status409Conflict,
+            detail: blocked.Detail, extensions: new Dictionary<string, object?>
+            {
+                ["code"] = "preview_unavailable",
+                ["store"] = blocked.Store,
+                ["operation"] = blocked.Operation,
+                ["rolledBack"] = false
+            }).ExecuteAsync(context);
+    }
 }
 
 internal sealed class PreviewRequest(PathString originalPath, PathString targetPath, long started)
 {
     internal IPreviewSession? Session { get; set; }
+
+    /// <summary>The data stores that began this Preview, finished after the handler whether or not it succeeded.</summary>
+    internal IReadOnlyList<IPreviewDataStore> Stores { get; set; } = [];
     internal long Started { get; } = started;
     internal CaptureClock Clock { get; } = new(started);
     internal bool HasInvokedEndpoint { get; set; }

@@ -26,6 +26,8 @@ internal sealed class PreviewTransport
         // RequestServices registers its disposal against the current response's OnCompleted.
         // Attach it to the real response so the provider and its DbContext survive rollback.
         var recorder = context.RequestServices.GetRequiredService<SendproofPreview>();
+        // From here every store hook refuses writes, including ones a handler sends late, after its response settled.
+        recorder.MarkPreview();
         using var scope = captureContext.Enter(recorder);
         var features = context.Features;
         var originalResponse = features.Get<IHttpResponseFeature>()!;
@@ -43,7 +45,10 @@ internal sealed class PreviewTransport
         var capture = new PreviewResponseCapture();
         capture.Headers.CacheControl = "no-store";
         PreviewEnvelope? envelope = null;
+        // The handler's own failure. A blocked write still answers 409 when the handler threw after it.
         Exception? failure = null;
+        // A store or rollback failure: the Preview is never confirmed and never reported as blocked.
+        Exception? unsafeFailure = null;
 
         try
         {
@@ -77,35 +82,63 @@ internal sealed class PreviewTransport
                 failure = Combine(failure, error);
             }
 
-            if (preview.Session is { } session)
+            // Pipeline order (spec/data-stores.md): the stores capture their changes and abort their transactions, then
+            // SQL rolls back. A failed abort or rollback, or a recorded fault, answers 500; otherwise a blocked write
+            // answers 409; otherwise the Preview is confirmed.
+            foreach (var store in preview.Stores)
+            {
+                try
+                {
+                    await store.FinishPreviewAsync(recorder, CancellationToken.None);
+                }
+                catch (Exception error)
+                {
+                    unsafeFailure = Combine(unsafeFailure, error);
+                }
+            }
+
+            var session = preview.Session;
+            if (session is not null)
             {
                 try
                 {
                     await session.RollbackAsync(CancellationToken.None);
-                    if (failure is null && preview.EndpointCompleted && !capture.ExceededLimit)
-                    {
-                        var snapshot = recorder.Finish();
-                        envelope = CreateEnvelope(capture, session, snapshot);
-                    }
                 }
                 catch (Exception error)
                 {
-                    failure = Combine(failure, error);
+                    unsafeFailure = Combine(unsafeFailure, error);
                 }
-                finally
-                {
-                    if (recorder.IsActive)
-                    {
-                        recorder.Finish();
-                    }
+            }
 
+            try
+            {
+                if (failure is null && unsafeFailure is null && recorder.Fault is null && recorder.Blocked is null &&
+                    preview.EndpointCompleted && !capture.ExceededLimit)
+                {
+                    var snapshot = recorder.Finish();
+                    envelope = CreateEnvelope(capture, session, snapshot);
+                }
+            }
+            catch (Exception error)
+            {
+                unsafeFailure = Combine(unsafeFailure, error);
+            }
+            finally
+            {
+                if (recorder.IsActive)
+                {
+                    recorder.Finish();
+                }
+
+                if (session is not null)
+                {
                     try
                     {
                         await session.DisposeAsync();
                     }
                     catch (Exception error)
                     {
-                        failure = Combine(failure, error);
+                        unsafeFailure = Combine(unsafeFailure, error);
                     }
                 }
             }
@@ -130,6 +163,20 @@ internal sealed class PreviewTransport
 
         if (context.RequestAborted.IsCancellationRequested)
         {
+            return;
+        }
+
+        if (unsafeFailure is not null || recorder.Fault is not null)
+        {
+            logger.LogError(unsafeFailure ?? recorder.Fault, "A Sendproof preview could not be completed safely for {Method} {Path}.",
+                context.Request.Method, originalPath);
+            await PreviewProtocol.RejectAsync(context, StatusCodes.Status500InternalServerError, "The preview could not be completed safely.");
+            return;
+        }
+
+        if (recorder.Blocked is { } blocked)
+        {
+            await PreviewProtocol.RejectBlockedAsync(context, blocked);
             return;
         }
 
@@ -197,14 +244,14 @@ internal sealed class PreviewTransport
         return PreviewProtocol.RejectAsync(context, status, title);
     }
 
-    private static PreviewEnvelope CreateEnvelope(PreviewResponseCapture response, IPreviewSession session, CaptureSnapshot capture)
+    private static PreviewEnvelope CreateEnvelope(PreviewResponseCapture response, IPreviewSession? session, CaptureSnapshot capture)
     {
-        var (changes, truncated) = CaptureLimits.SnapshotChanges(session.Changes);
+        var (changes, truncated) = CaptureLimits.SnapshotChanges([.. session?.Changes ?? [], .. capture.Changes ?? []]);
         var headers = response.Headers.Where(header => !PrivateHeaders.Contains(header.Key) && header.Key.Length <= CaptureLimits.Name)
             .Take(CaptureLimits.Parameters).ToDictionary(header => header.Key.ToLowerInvariant(),
                 header => CaptureLimits.Clip(header.Value.ToString()), StringComparer.Ordinal);
         return new PreviewEnvelope(response.StatusCode, headers, response.ReadBody(), changes, capture.Effects, capture.Logs, true,
-            truncated || session.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated);
+            truncated || session?.ChangesTruncated == true || capture.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated);
     }
 
     private sealed record PreviewEnvelope(int Status, Dictionary<string, string> Headers, object? Body,

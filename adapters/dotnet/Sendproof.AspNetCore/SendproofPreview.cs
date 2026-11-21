@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -11,8 +12,13 @@ public sealed class SendproofPreview
     private readonly Lock _gate = new();
     private readonly List<PreviewEffect> _effects = [];
     private readonly List<PreviewLog> _logs = [];
+    private readonly List<PreviewChange> _storeChanges = [];
     private bool _active;
     private bool _rollback;
+    private bool _previewScope;
+    private bool _changesTruncated;
+    private BlockedWrite? _blocked;
+    private Exception? _fault;
     private bool _logsTruncated;
     private bool _effectsTruncated;
     private int _logSize;
@@ -105,6 +111,168 @@ public sealed class SendproofPreview
             return true;
         }
     }
+
+    /// <summary>
+    /// Gets the per-request state data stores keep for this Preview, such as a MongoDB transaction. It is a plain
+    /// dictionary on the request scope rather than an <see cref="AsyncLocal{T}"/>, because a value set inside an
+    /// awaited call would not flow back to the handler.
+    /// </summary>
+    internal ConcurrentDictionary<object, object> State { get; } = new();
+
+    /// <summary>
+    /// Gets whether this request is a Preview, from the moment the Preview transport took it over and even after it
+    /// finished, so a write a handler sends late (after its response settled) is still refused, never sent unguarded.
+    /// </summary>
+    internal bool InPreview
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _previewScope;
+            }
+        }
+    }
+
+    /// <summary>Gets the first write the guard refused in this Preview, which decides the 409.</summary>
+    internal BlockedWrite? Blocked
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _blocked;
+            }
+        }
+    }
+
+    /// <summary>Gets the first fault (a transaction-control refusal, an escaped write), which withholds confirmation.</summary>
+    internal Exception? Fault
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _fault;
+            }
+        }
+    }
+
+    /// <summary>Marks the request as a Preview as soon as the transport owns it, before the provider begins.</summary>
+    internal void MarkPreview()
+    {
+        lock (_gate)
+        {
+            _previewScope = true;
+        }
+    }
+
+    /// <summary>Keeps the first refused write. It decides the Preview's 409, whatever the handler returns.</summary>
+    internal void Block(BlockedWrite write)
+    {
+        lock (_gate)
+        {
+            if (_previewScope)
+            {
+                _blocked ??= new BlockedWrite(CaptureLimits.Clip(write.Store, CaptureLimits.Name),
+                    CaptureLimits.Clip(write.Operation, CaptureLimits.Name), CaptureLimits.Clip(write.Detail));
+            }
+        }
+    }
+
+    /// <summary>Keeps the first fault. It withholds confirmation, whatever the handler returns.</summary>
+    internal void Refuse(Exception fault)
+    {
+        lock (_gate)
+        {
+            if (_previewScope)
+            {
+                _fault ??= fault;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Records one data-store command as a <c>Db</c> log entry. The message is the OpenTelemetry span name,
+    /// <c>{operation} {target}</c>. Hooks pass sanitized statements only; values never reach this method.
+    /// </summary>
+    internal void RecordDb(DbEntry entry)
+    {
+        lock (_gate)
+        {
+            if (!_active)
+            {
+                return;
+            }
+
+            if (!entry.Blocked)
+            {
+                _dbMs += entry.ElapsedMs;
+                _queries = _queries < int.MaxValue ? _queries + 1 : _queries;
+            }
+
+            if (!HasLogRoom())
+            {
+                return;
+            }
+
+            var db = new CapturedDb(Clip(entry.System, CaptureLimits.Name), Clip(entry.Operation, CaptureLimits.Name))
+            {
+                Target = entry.Target is null ? null : Clip(entry.Target, CaptureLimits.Name),
+                Namespace = entry.Namespace is null ? null : Clip(entry.Namespace, CaptureLimits.Name),
+                Statement = entry.Statement is null ? null : Clip(entry.Statement),
+                RowsAffected = entry.RowsAffected is >= 0 ? entry.RowsAffected : null,
+                Blocked = entry.Blocked ? true : null,
+                Error = string.IsNullOrEmpty(entry.Error) ? null : Clip(entry.Error, CaptureLimits.Name)
+            };
+            AddLog(new PreviewLog("Db", db.Target is null ? db.Operation : $"{db.Operation} {db.Target}")
+            {
+                Db = db,
+                OffsetMs = Math.Max(0, OffsetMs() - entry.ElapsedMs),
+                ElapsedMs = entry.Blocked ? null : Math.Max(0, entry.ElapsedMs)
+            });
+        }
+    }
+
+    /// <summary>
+    /// Records a document, item or key change from a data store. Secret-named fields never leave the process, at any
+    /// depth of a nested document.
+    /// </summary>
+    internal void RecordChange(PreviewChange change)
+    {
+        lock (_gate)
+        {
+            if (!_active)
+            {
+                return;
+            }
+
+            if (_storeChanges.Count >= CaptureLimits.Changes)
+            {
+                _changesTruncated = true;
+                return;
+            }
+
+            _storeChanges.Add(change with
+            {
+                Key = Redact(change.Key),
+                Before = Redact(change.Before),
+                After = Redact(change.After)
+            });
+        }
+    }
+
+    /// <summary>Marks the store changes as cut short, for a capture that stopped at its own limit.</summary>
+    internal void TruncateChanges()
+    {
+        lock (_gate)
+        {
+            _changesTruncated = true;
+        }
+    }
+
+    private static object? Redact(object? value) =>
+        value is System.Text.Json.Nodes.JsonNode node ? SecretNames.RedactDeep(node.DeepClone()) : value;
 
     internal bool CanLog
     {
@@ -233,9 +401,10 @@ public sealed class SendproofPreview
         lock (_gate)
         {
             _active = false;
-            var snapshot = new CaptureSnapshot([.. _effects], [.. _logs], _logsTruncated, _effectsTruncated);
+            var snapshot = new CaptureSnapshot([.. _effects], [.. _logs], _logsTruncated, _effectsTruncated, [.. _storeChanges], _changesTruncated);
             _effects.Clear();
             _logs.Clear();
+            _storeChanges.Clear();
             return snapshot;
         }
     }

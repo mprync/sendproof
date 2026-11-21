@@ -49,6 +49,10 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
         return Task.CompletedTask;
     }
 
+    /// <summary>The data stores the host hooked, in registration order.</summary>
+    internal static IReadOnlyList<IPreviewDataStore> GetDataStores(HttpContext context) =>
+        [.. context.RequestServices.GetServices<IPreviewDataStore>()];
+
     internal static IPreviewProvider? GetProvider(HttpContext context)
     {
         using var providers = context.RequestServices.GetServices<IPreviewProvider>().GetEnumerator();
@@ -92,7 +96,8 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
     private static async Task ExecuteAsync(HttpContext context, Endpoint endpoint)
     {
         var preview = context.Features.Get<PreviewRequest>()!;
-        if (endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>() is null || endpoint.RequestDelegate is not { } execute ||
+        // An operation marked Enabled = false (preview: false) is treated like an unmarked one: the handler never runs.
+        if (endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>() is not { Enabled: true } || endpoint.RequestDelegate is not { } execute ||
             preview.HasInvokedEndpoint || !preview.MatchesTarget(context.Request))
         {
             context.Response.StatusCode = StatusCodes.Status409Conflict;
@@ -105,8 +110,10 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
             return;
         }
 
+        // A host with only data stores (a MongoDB-only or guard-only app) can still Preview: no SQL provider is needed.
         var provider = GetProvider(context);
-        if (provider is null)
+        var stores = GetDataStores(context);
+        if (provider is null && stores.Count == 0)
         {
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return;
@@ -114,9 +121,20 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
 
         preview.HasInvokedEndpoint = true;
         preview.Clock.StartHandler();
-        preview.Session = await provider.BeginAsync(context, context.RequestAborted) ??
-            throw new InvalidOperationException("The preview provider returned no session.");
-        context.RequestServices.GetRequiredService<SendproofPreview>().Begin(rollback: true, preview.Started);
+        var recorder = context.RequestServices.GetRequiredService<SendproofPreview>();
+        if (provider is not null)
+        {
+            preview.Session = await provider.BeginAsync(context, context.RequestAborted) ??
+                throw new InvalidOperationException("The preview provider returned no session.");
+        }
+
+        recorder.Begin(rollback: true, preview.Started);
+        preview.Stores = stores;
+        foreach (var store in stores)
+        {
+            await store.BeginPreviewAsync(recorder, context.RequestAborted);
+        }
+
         await execute(context);
         preview.EndpointCompleted = true;
     }

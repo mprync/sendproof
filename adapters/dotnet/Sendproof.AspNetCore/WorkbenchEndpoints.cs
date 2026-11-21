@@ -46,31 +46,54 @@ internal static class WorkbenchEndpoints
             documents.Insert(0, new OpenApiDocument(apiName, openApiUrl));
         }
 
-        var operations = provider is null ? [] : endpoints.Endpoints.OfType<RouteEndpoint>()
-            .Where(endpoint => endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>() is not null)
-            .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? [])
+        // A host with only data stores (no SQL provider) can Preview, so it advertises operations too.
+        var stores = PreviewEndpointPolicy.GetDataStores(context);
+        var canPreview = provider is not null || stores.Count > 0;
+        var marked = !canPreview ? [] : endpoints.Endpoints.OfType<RouteEndpoint>()
+            .Select(endpoint => (Endpoint: endpoint, Mark: endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>()))
+            .Where(item => item.Mark is not null)
+            .SelectMany(item => (item.Endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? [])
                 .Where(method => !HttpMethods.IsHead(method))
-                .Select(method => new PreviewOperation(method, OpenApiPath(endpoint.RoutePattern))))
-            .Distinct()
-            .OrderBy(operation => operation.Path, StringComparer.Ordinal)
-            .ThenBy(operation => operation.Method, StringComparer.Ordinal)
+                .Select(method => (Operation: new PreviewOperation(method, OpenApiPath(item.Endpoint.RoutePattern)), Mark: item.Mark!)))
+            .DistinctBy(item => item.Operation)
+            .OrderBy(item => item.Operation.Path, StringComparer.Ordinal)
+            .ThenBy(item => item.Operation.Method, StringComparer.Ordinal)
             .ToArray();
+        var operations = marked.Where(item => item.Mark.Enabled).Select(item => item.Operation).ToArray();
+        // Operations an API author marked preview: false. They are never inferred, and never in previewOperations.
+        var unavailable = marked.Where(item => !item.Mark.Enabled).Select(item => new UnavailableOperation(
+            item.Operation.Method, item.Operation.Path, item.Mark.Reason ?? "Preview is not available for this operation",
+            item.Mark.Stores is { Length: > 0 } ? item.Mark.Stores : null)).ToArray();
+        var dataStores = await Task.WhenAll(stores.Select(store => store.DescribeAsync(context.RequestAborted).AsTask()));
         var identity = context.User.Identities.FirstOrDefault(identity => identity.IsAuthenticated);
 
-        return Results.Json(new
+        var capabilities = new Dictionary<string, object?>
         {
-            protocolVersion = 1,
-            openApiUrl,
-            fieldModules = options.FieldModules.Select(url => LocalUrl.WithPathBase(context.Request, url)),
-            apiName,
-            environment = environment.EnvironmentName,
-            database = provider?.Database,
-            identity = identity is null ? null : new WorkbenchIdentity(identity.Name, identity.FindFirst(identity.RoleClaimType)?.Value),
-            authProviders = await WorkbenchAuthentication.DiscoverAsync(context, options),
-            previewOperations = operations,
-            observedSend = operations.Length > 0,
-            documents
-        }, PreviewProtocol.JsonOptions);
+            ["protocolVersion"] = 1,
+            ["openApiUrl"] = openApiUrl,
+            ["fieldModules"] = options.FieldModules.Select(url => LocalUrl.WithPathBase(context.Request, url)),
+            ["apiName"] = apiName,
+            ["environment"] = environment.EnvironmentName,
+            ["database"] = provider is null ? null : new DatabaseInfo(provider.Database, provider.DatabaseSystem),
+            ["binding"] = new { language = "dotnet", framework = "ASP.NET Core" },
+            ["identity"] = identity is null ? null : new WorkbenchIdentity(identity.Name, identity.FindFirst(identity.RoleClaimType)?.Value),
+            ["authProviders"] = await WorkbenchAuthentication.DiscoverAsync(context, options),
+            ["previewOperations"] = operations,
+            ["observedSend"] = operations.Length > 0 || unavailable.Length > 0,
+            ["documents"] = documents
+        };
+        // Optional arrays are left out, not null: discovery lists only what the host has.
+        if (unavailable.Length > 0)
+        {
+            capabilities["previewUnavailable"] = unavailable;
+        }
+
+        if (dataStores.Length > 0)
+        {
+            capabilities["dataStores"] = dataStores;
+        }
+
+        return Results.Json(capabilities, PreviewProtocol.JsonOptions);
     }
 
     private static async Task<IResult> TraceAsync(HttpContext context, Guid id, ObservedTraceStore store)
@@ -96,6 +119,12 @@ internal static class WorkbenchEndpoints
         }))));
 
     private sealed record PreviewOperation(string Method, string Path);
+
+    private sealed record UnavailableOperation(string Method, string Path, string Reason,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? Stores);
+
+    private sealed record DatabaseInfo(string? Name,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? System);
 
     private sealed record WorkbenchIdentity(string? Name, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Role);
 }

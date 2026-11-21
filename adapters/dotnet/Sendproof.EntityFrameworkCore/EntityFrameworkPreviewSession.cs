@@ -4,7 +4,7 @@ using Sendproof.AspNetCore;
 
 namespace Sendproof.EntityFrameworkCore;
 
-internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContextTransaction transaction) : IPreviewSession
+internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContextTransaction transaction, IDisposable? turn = null) : IPreviewSession
 {
     private readonly EntityFrameworkChangeCapture _capture = new(context);
     private bool _rolledBack;
@@ -32,7 +32,15 @@ internal sealed class EntityFrameworkPreviewSession(DbContext context, IDbContex
         }
         finally
         {
-            await transaction.DisposeAsync();
+            try
+            {
+                await transaction.DisposeAsync();
+            }
+            finally
+            {
+                // MySQL Previews take turns: the next one starts only once this transaction has ended.
+                turn?.Dispose();
+            }
         }
     }
 }

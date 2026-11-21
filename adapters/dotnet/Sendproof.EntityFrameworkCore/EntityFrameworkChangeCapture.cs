@@ -69,12 +69,16 @@ internal sealed class EntityFrameworkChangeCapture : IPreviewObservation
         _pending.Clear();
     }
 
+    // The MongoDB provider names the collection in this annotation; it has no table name.
+    private const string MongoCollectionAnnotation = "Mongo:CollectionName";
+
     private sealed record PendingChange(EntityEntry Entry, EntityState State, string Table,
         Dictionary<string, object?>? Before)
     {
         public static PendingChange Create(EntityEntry entry, EntityFrameworkChangeCapture capture)
         {
-            var table = entry.Metadata.GetTableName() ?? entry.Metadata.DisplayName();
+            var table = entry.Metadata.FindAnnotation(MongoCollectionAnnotation)?.Value as string ??
+                entry.Metadata.GetTableName() ?? entry.Metadata.DisplayName();
             var schema = entry.Metadata.GetSchema();
             if (schema is not null) table = $"{schema}.{table}";
             return new(entry, entry.State, table,
@@ -90,7 +94,10 @@ internal sealed class EntityFrameworkChangeCapture : IPreviewObservation
                 EntityState.Added => "insert",
                 EntityState.Modified => "update",
                 _ => "delete"
-            }, Table, key, Before, State == EntityState.Deleted ? null : capture.Values(Entry, original: false));
+            }, Table, key, Before, State == EntityState.Deleted ? null : capture.Values(Entry, original: false))
+            {
+                Store = Entry.Metadata.FindAnnotation(MongoCollectionAnnotation) is null ? null : "mongodb"
+            };
         }
     }
 

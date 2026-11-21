@@ -12,13 +12,27 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
 
     public EntityFrameworkPreviewProvider(TContext context) => _context = context;
 
-    public bool IsAvailable => _context.Database.IsRelational();
+    // MongoDB.EntityFrameworkCore is not relational, but it supports Database.BeginTransaction() on a replica set,
+    // so the same transaction-and-rollback provider covers it (see the .NET data-stores page).
+    private bool IsMongo => _context.Database.ProviderName == "MongoDB.EntityFrameworkCore";
+
+    public bool IsAvailable => _context.Database.IsRelational() || IsMongo;
+
+    public string? DatabaseSystem => _context.Database.ProviderName switch
+    {
+        "Microsoft.EntityFrameworkCore.Sqlite" => "sqlite",
+        "Npgsql.EntityFrameworkCore.PostgreSQL" => "postgresql",
+        "Microsoft.EntityFrameworkCore.SqlServer" => "sqlserver",
+        var name when PreviewTurns.IsMySql(name) => "mysql",
+        _ => null
+    };
 
     public string? Database
     {
         get
         {
-            if (!IsAvailable) return null;
+            // A MongoDB database is reported through the data store, not as the SQL database.
+            if (!IsAvailable || IsMongo) return null;
 
             var connection = _context.Database.GetDbConnection();
             if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
@@ -59,12 +73,22 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
             throw new InvalidOperationException("The preview provider and endpoint must share a scoped DbContext.");
         }
 
-        if (!db.Database.IsRelational())
+        if (!IsAvailable)
         {
-            throw new InvalidOperationException("EF Core preview requires a relational database provider.");
+            throw new InvalidOperationException("EF Core preview requires a relational or MongoDB database provider.");
         }
 
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        return new EntityFrameworkPreviewSession(db, transaction);
+        // MySQL Previews take their turn before taking a pooled connection, and keep it until the transaction ends.
+        var turn = await PreviewTurns.EnterAsync(db.Database.ProviderName, cancellationToken);
+        try
+        {
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            return new EntityFrameworkPreviewSession(db, transaction, turn);
+        }
+        catch
+        {
+            turn?.Dispose();
+            throw;
+        }
     }
 }

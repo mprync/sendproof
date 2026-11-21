@@ -98,7 +98,9 @@ public sealed class PreviewHttpTests
         Assert.Equal("/tenant/docs/current.json", json.GetProperty("openApiUrl").GetString());
         Assert.Equal("Test API", json.GetProperty("apiName").GetString());
         Assert.Equal("Staging", json.GetProperty("environment").GetString());
-        Assert.Equal("Test database", json.GetProperty("database").GetString());
+        Assert.Equal("Test database", json.GetProperty("database").GetProperty("name").GetString());
+        Assert.Equal("dotnet", json.GetProperty("binding").GetProperty("language").GetString());
+        Assert.Equal("ASP.NET Core", json.GetProperty("binding").GetProperty("framework").GetString());
         Assert.Equal("Robin", json.GetProperty("identity").GetProperty("name").GetString());
         Assert.Equal("Approver", json.GetProperty("identity").GetProperty("role").GetString());
         Assert.Contains(json.GetProperty("documents").EnumerateArray(), document =>
