@@ -4,8 +4,8 @@ from django.urls import path
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from testbench_core import Identity, record_email
-from testbench_django import preview
+from sendproof_core import Identity, record_email
+from sendproof_django import preview
 
 SENT: list[str] = []
 COMMITTED: list[str] = []

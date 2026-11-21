@@ -1,16 +1,16 @@
-# testbench-sqlalchemy
+# sendproof-sqlalchemy
 
-Rollback previews, SQL capture and ORM change capture for [Test Bench](../../spec/README.md)
+Rollback previews, SQL capture and ORM change capture for [Sendproof](../../spec/README.md)
 applications that use SQLAlchemy 2.x.
 
 ```python
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 provider = SQLAlchemyPreview(engine, database="inventory_dev")   # Engine or AsyncEngine
 ```
 
-Pass the provider to a framework adapter, for example `TestBench(app, provider=provider, ...)`.
-Install `testbench-sqlalchemy[asyncio]` for `AsyncEngine` support (needs `greenlet`).
+Pass the provider to a framework adapter, for example `Sendproof(app, provider=provider, ...)`.
+Install `sendproof-sqlalchemy[asyncio]` for `AsyncEngine` support (needs `greenlet`).
 `database` is a public label; never put a connection string in it.
 
 ## What a preview guarantees

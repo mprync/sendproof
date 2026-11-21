@@ -3,14 +3,14 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "testbench-django"
+name = "sendproof-django"
 version = "0.1.0a1"
-description = "Test Bench workbench, rollback previews and observed sends for Django, Django REST framework and Django Ninja, with Django ORM capture."
+description = "Sendproof workbench, rollback previews and observed sends for Django, Django REST framework and Django Ninja, with Django ORM capture."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Test Bench contributors" }]
+authors = [{ name = "Sendproof contributors" }]
 keywords = ["swagger", "api-testing", "django", "django-ninja", "djangorestframework", "openapi", "testing", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -27,10 +27,10 @@ classifiers = [
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
-dependencies = ["testbench-core==0.1.0a1", "django>=4.2"]
+dependencies = ["sendproof-core==0.1.0a1", "django>=4.2"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/testbench_django"]
+packages = ["src/sendproof_django"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/testbench_django", "README.md", "LICENSE"]
+include = ["src/sendproof_django", "README.md", "LICENSE"]

@@ -1,18 +1,18 @@
-# testbench-fastapi
+# sendproof-fastapi
 
-Serves the [Test Bench](../../spec/README.md) workbench from a FastAPI or Starlette application
+Serves the [Sendproof](../../spec/README.md) workbench from a FastAPI or Starlette application
 and runs rollback **Preview** and **Observed Send** through the application's own routing,
 dependencies and authorization.
 
 ```sh
-pip install testbench-fastapi testbench-sqlalchemy
+pip install sendproof-fastapi sendproof-sqlalchemy
 ```
 
 ```python
 from fastapi import Depends, FastAPI
-from testbench_core import Identity
-from testbench_fastapi import AuthProvider, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import Identity
+from sendproof_fastapi import AuthProvider, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 app = FastAPI(title="Inventory")
 
@@ -20,7 +20,7 @@ def identity(request) -> Identity | None:        # read what your authentication
     user = request.session.get("user")
     return user and Identity(user["name"], user["role"], subject=user["id"], authentication_type="session")
 
-TestBench(
+Sendproof(
     app,
     provider=SQLAlchemyPreview(engine, database="inventory_dev"),
     identity=identity,
@@ -34,27 +34,27 @@ def create_item(item: ItemIn, db: Session = Depends(get_db)):
     ...
 ```
 
-Open `/bench/`. Create the `TestBench` before the application starts serving requests.
+Open `/sendproof/`. Create the `Sendproof` before the application starts serving requests.
 
 ## How it works
 
 - **Opt in per operation.** `@preview` marks a path operation function (sync or `async`). Only
   marked operations are advertised in discovery and accepted by the preview route. The function
   keeps its signature, so dependency injection and OpenAPI are unchanged.
-- **Preview.** A request to `/bench/_preview/<path>` with exactly `Prefer: tx=rollback` is routed
+- **Preview.** A request to `/sendproof/_preview/<path>` with exactly `Prefer: tx=rollback` is routed
   with your application's router, authenticated and validated by your dependencies, and executed
   in-process. Nothing is proxied. The adapter buffers the response (1 MiB cap), rolls the data layer
   back, and only then returns HTTP 200 with the confirmed envelope. Denied, unknown, unmarked,
   oversized or unconfirmed requests never return an envelope. The inner status can be any
   application status, including 409 or a 422 validation failure.
 - **Observed Send.** The same URL with `Prefer: trace` commits normally and, for a caller with a
-  stable `Identity.subject`, adds `X-TestBench-Trace`. Fetch it at `/bench/_api/traces/{id}`;
+  stable `Identity.subject`, adds `X-Sendproof-Trace`. Fetch it at `/sendproof/_api/traces/{id}`;
   only the owner can, for five minutes by default (`trace_ttl`, 8 per owner, 32 in total).
-- **Middleware order.** `TestBench` appends its middleware as the innermost user middleware, so
+- **Middleware order.** `Sendproof` appends its middleware as the innermost user middleware, so
   your session and authentication middleware have already run when it asks for an identity.
 - **Dispatch.** A preview is re-dispatched in-process through the whole application, so every
   middleware (including path-based policies) sees the target path, with its own copy of the
-  session and state. Just before the router, Test Bench checks again that the request still
+  session and state. Just before the router, Sendproof checks again that the request still
   routes to the marked operation it checked first; a middleware that changed the method or path
   gets a 409 and nothing runs.
 
@@ -65,7 +65,7 @@ Open `/bench/`. Create the `TestBench` before the application starts serving req
 | `provider` | Data layer such as `SQLAlchemyPreview`. Without one nothing is advertised and previews answer 503. |
 | `identity` | `(request) -> Identity \| None`, sync or async. Drives capabilities and trace ownership. |
 | `authorize` | `(request, identity) -> bool`. Optional policy for the workbench, previews and traces (401/403). |
-| `environment`, `environments` | Where the workbench is on. Defaults to `$TESTBENCH_ENVIRONMENT`, else `Production`; `("Development",)`. |
+| `environment`, `environments` | Where the workbench is on. Defaults to `$SENDPROOF_ENVIRONMENT`, else `Production`; `("Development",)`. |
 | `auth_providers` | Sign-in integrations shown on the workbench sign-in page (`cookie` for a password JSON endpoint, `personas`, `oidc`...). |
 | `api_name`, `openapi_url`, `documents` | Display name and OpenAPI documents (default: your app title and `openapi_url`). |
 | `field_modules` | Same-origin ES modules that register custom field renderers. |
@@ -74,14 +74,14 @@ Open `/bench/`. Create the `TestBench` before the application starts serving req
 
 ## Effects and logs
 
-Record outgoing email, HTTP calls, jobs and messages with `testbench_core.record_email` and
+Record outgoing email, HTTP calls, jobs and messages with `sendproof_core.record_email` and
 friends, and skip delivery when they return `True`. Standard `logging` records are captured when
 their logger propagates to the root logger.
 
 ## Notes
 
 - Mount under a prefix with Starlette `Mount` or `root_path`; discovery URLs include it.
-- The adapter does not pass `/bench/_preview` through your middleware twice; your middleware sees
+- The adapter does not pass `/sendproof/_preview` through your middleware twice; your middleware sees
   the preview request once, with the preview URL, before dispatch to the real route.
 - Streaming and file-path responses are buffered or rejected in a preview; websockets are not supported.
 - See the [SQLAlchemy coverage notes](../sqlalchemy/README.md#coverage-notes) for what a preview

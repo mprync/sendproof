@@ -30,10 +30,10 @@ def main() -> int:
     env = {**os.environ, "PIP_CACHE_DIR": os.environ.get("PIP_CACHE_DIR", str(cache / "pip"))}
     for name in [*PACKAGES, *args.extra]:
         subprocess.run([sys.executable, "-m", "build", "--no-isolation", "--outdir", str(args.out), str(HERE / name)], check=True, env=env)
-    wheel = next(args.out.glob("testbench_core-*.whl"))
+    wheel = next(args.out.glob("sendproof_core-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
-    if "testbench_core/ui/manifest.json" not in names or "testbench_core/ui/index.html" not in names:
+    if "sendproof_core/ui/manifest.json" not in names or "sendproof_core/ui/index.html" not in names:
         print("error: the core wheel is missing the embedded UI bundle", file=sys.stderr)
         return 1
     print("Built:", *sorted(path.name for path in args.out.iterdir()), sep="\n  ")

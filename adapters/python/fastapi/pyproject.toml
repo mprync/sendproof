@@ -3,14 +3,14 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "testbench-fastapi"
+name = "sendproof-fastapi"
 version = "0.1.0a1"
-description = "Test Bench workbench, rollback previews and observed sends for FastAPI and Starlette applications."
+description = "Sendproof workbench, rollback previews and observed sends for FastAPI and Starlette applications."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Test Bench contributors" }]
+authors = [{ name = "Sendproof contributors" }]
 keywords = ["swagger", "api-testing", "fastapi", "starlette", "openapi", "testing", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -27,10 +27,10 @@ classifiers = [
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
-dependencies = ["testbench-core==0.1.0a1", "fastapi>=0.110"]
+dependencies = ["sendproof-core==0.1.0a1", "fastapi>=0.110"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/testbench_fastapi"]
+packages = ["src/sendproof_fastapi"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/testbench_fastapi", "README.md", "LICENSE"]
+include = ["src/sendproof_fastapi", "README.md", "LICENSE"]

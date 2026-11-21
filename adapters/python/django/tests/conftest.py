@@ -4,11 +4,11 @@ from pathlib import Path
 import django
 from django.conf import settings
 
-_directory = Path(tempfile.mkdtemp(prefix="testbench-django-tests-"))
+_directory = Path(tempfile.mkdtemp(prefix="sendproof-django-tests-"))
 
 
 def pytest_configure():
-    from testbench_django import DjangoOrmPreview
+    from sendproof_django import DjangoOrmPreview
 
     settings.configure(
         DEBUG=False,
@@ -16,12 +16,12 @@ def pytest_configure():
         ALLOWED_HOSTS=["*"],
         ROOT_URLCONF="urls_under_test",
         INSTALLED_APPS=["django.contrib.contenttypes", "django.contrib.sessions"],
-        MIDDLEWARE=["testbench_django.middleware.TestBenchMiddleware"],
+        MIDDLEWARE=["sendproof_django.middleware.SendproofMiddleware"],
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": str(_directory / "tests.db")}},
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
         LOGGING_CONFIG=None,
         REST_FRAMEWORK={"DEFAULT_AUTHENTICATION_CLASSES": [], "UNAUTHENTICATED_USER": None},
-        TESTBENCH={
+        SENDPROOF={
             "ENVIRONMENT": "Development",
             "PROVIDER": DjangoOrmPreview(database="tests"),
             "IDENTITY": "urls_under_test.identity",

@@ -1,7 +1,7 @@
-# testbench-core
+# sendproof-core
 
-Framework-neutral core of the Test Bench Python adapters. Install a framework package such as
-`testbench-fastapi` rather than using this directly. Use it to:
+Framework-neutral core of the Sendproof Python adapters. Install a framework package such as
+`sendproof-fastapi` rather than using this directly. Use it to:
 
 - record effects from application code, and
 - write an adapter for another framework or a data layer for another database library.
@@ -14,7 +14,7 @@ the delivery. During an Observed Send they record the intent as `delivered: true
 `False`, so you still deliver.
 
 ```python
-from testbench_core import record_email
+from sendproof_core import record_email
 
 if not record_email("Welcome", sender, [to], [], "Welcome", "Hello!"):
     mailer.send(...)
@@ -48,7 +48,7 @@ While a preview runs, providers refuse SQL that would end its transaction (`COMM
 `ROLLBACK` without `TO`, `SET autocommit`, the provider's own savepoint, and DDL that MySQL,
 MariaDB and Oracle commit implicitly) and refuse switching the connection to autocommit. The
 statement raises `PreviewRollbackError` before it reaches the database and the preview answers an
-unconfirmed 500 (`testbench_core.txguard`).
+unconfirmed 500 (`sendproof_core.txguard`).
 
 ## Writing a data-layer provider
 
@@ -63,4 +63,4 @@ before/after rows: report only what you observed.
 
 Use `Workbench` for discovery, assets, traces and envelopes, `protocol` for the request
 rules, `Capture`/`RequestScope` for per-request state, and `TraceStore` for traces. The
-[FastAPI adapter](../fastapi/src/testbench_fastapi/middleware.py) is a complete example.
+[FastAPI adapter](../fastapi/src/sendproof_fastapi/middleware.py) is a complete example.

@@ -23,20 +23,20 @@ PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
 SCENARIO = os.environ.get("BENCH_SCENARIO", "standard")
 TRACE_TTL_SECONDS = 5.0
-_directory = Path(tempfile.mkdtemp(prefix="testbench-fixture-"))
+_directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
 
 log = logging.getLogger("fixture")
 log.setLevel(logging.INFO)
 
 
 def _fail_rollback_provider():
-    from testbench_django import DjangoOrmPreview
+    from sendproof_django import DjangoOrmPreview
 
     class RollbackFailing(DjangoOrmPreview):
         """Rolls back for real, then reports an injected failure so the transport withholds confirmation."""
 
         def begin(self, scope):
-            from testbench_core import PreviewRollbackError
+            from sendproof_core import PreviewRollbackError
 
             inner = super().begin(scope)
 
@@ -52,7 +52,7 @@ def _fail_rollback_provider():
 
 
 def configure() -> None:
-    from testbench_django import DjangoOrmPreview
+    from sendproof_django import DjangoOrmPreview
 
     provider = None
     if SCENARIO == "rollback-failure":
@@ -65,12 +65,12 @@ def configure() -> None:
         ALLOWED_HOSTS=["*"],
         ROOT_URLCONF=__name__,
         INSTALLED_APPS=["django.contrib.contenttypes"],
-        MIDDLEWARE=["testbench_django.middleware.TestBenchMiddleware"],
+        MIDDLEWARE=["sendproof_django.middleware.SendproofMiddleware"],
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": str(_directory / "items.db")}},
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
         USE_TZ=True,
         LOGGING_CONFIG=None,
-        TESTBENCH={
+        SENDPROOF={
             "ENVIRONMENT": "Production" if SCENARIO == "disabled" else "Development",
             "PROVIDER": provider,
             "IDENTITY": f"{__name__}.identity",
@@ -97,8 +97,8 @@ from ninja import NinjaAPI, Schema  # noqa: E402
 from ninja.errors import HttpError  # noqa: E402
 from pydantic import Field  # noqa: E402
 
-from testbench_core import Identity, record_effect, record_email  # noqa: E402
-from testbench_django import preview  # noqa: E402
+from sendproof_core import Identity, record_effect, record_email  # noqa: E402
+from sendproof_django import preview  # noqa: E402
 
 
 class Item(models.Model):
@@ -182,7 +182,7 @@ def switch_persona(request, email: str):
     return start_session(email)
 
 
-api = NinjaAPI(title="Test Bench Conformance", openapi_url=None, docs_url=None)
+api = NinjaAPI(title="Sendproof Conformance", openapi_url=None, docs_url=None)
 
 
 class ItemIn(Schema):

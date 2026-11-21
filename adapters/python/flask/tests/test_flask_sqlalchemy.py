@@ -17,9 +17,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from testbench_core import is_previewing, record_email
-from testbench_flask import AuthProvider, Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import is_previewing, record_email
+from sendproof_flask import AuthProvider, Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 ROLLBACK = {"Prefer": "tx=rollback"}
 DEFAULT_DRIVERS = {"postgresql": "psycopg", "mysql": "pymysql"}
@@ -81,7 +81,7 @@ class Harness:
 
         engines = [self.engine, *([self.audit_engine] if extra_bind and enroll_extra_bind else [])]
         self.provider = SQLAlchemyPreview(*engines, database="db")
-        TestBench(
+        Sendproof(
             app,
             provider=self.provider,
             environment="Development",
@@ -211,7 +211,7 @@ def make(tmp_path):
 def test_preview_rolls_back_a_session_commit_and_suppresses_effects(make):
     bench = make()
     http = bench.client("admin")
-    response = http.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    response = http.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
     body = response.get_json()
     assert response.status_code == 200 and body["status"] == 201 and body["rolledBack"] is True
     assert body["body"] == {"id": "a", "name": "A"}  # the handler read its own committed row
@@ -226,7 +226,7 @@ def test_observed_send_commits_for_real_and_delivers_the_effect(make):
     assert http.post("/items", json={"id": "a", "name": "A"}).status_code == 201
     assert bench.delivered == ["a"] and bench.stored() == ["a"]
     traced = http.post("/items", json={"id": "b", "name": "B"}, headers={"Prefer": "trace"}, buffered=True)
-    trace = http.get(f"/bench/_api/traces/{traced.headers['X-TestBench-Trace']}").get_json()
+    trace = http.get(f"/sendproof/_api/traces/{traced.headers['X-Sendproof-Trace']}").get_json()
     assert bench.stored() == ["a", "b"]
     assert [c["operation"] for c in trace["changes"]] == ["insert"] and trace["effects"][0]["delivered"] is True
 
@@ -234,7 +234,7 @@ def test_observed_send_commits_for_real_and_delivers_the_effect(make):
 def test_after_commit_listeners_run_in_both_modes(make):
     bench = make()
     http = bench.client("admin")
-    http.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    http.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
     assert bench.committed == ["previewing"]
     http.post("/items", json={"id": "b", "name": "B"})
     assert bench.committed == ["previewing", "real"]
@@ -245,7 +245,7 @@ def test_session_lifecycle_releases_connections_and_scoped_sessions(make):
     bench = make()
     http = bench.client("admin")
     for n in range(3):
-        http.post("/bench/_preview/items", json={"id": f"p{n}", "name": "P"}, headers=ROLLBACK)
+        http.post("/sendproof/_preview/items", json={"id": f"p{n}", "name": "P"}, headers=ROLLBACK)
         assert bench.checked_out() == 0
     assert bench.stored() == []
     # Flask-SQLAlchemy's teardown closed each request's session, and ordinary work still succeeds.
@@ -257,7 +257,7 @@ def test_session_lifecycle_releases_connections_and_scoped_sessions(make):
 def test_commit_then_rollback_inside_the_handler_keeps_real_semantics(make):
     bench = make()
     http = bench.client("admin")
-    body = http.post("/bench/_preview/two-commits", headers=ROLLBACK).get_json()
+    body = http.post("/sendproof/_preview/two-commits", headers=ROLLBACK).get_json()
     assert [c["key"] for c in body["changes"]] == [{"id": "first"}] and bench.stored() == []
     http.post("/two-commits")
     assert bench.stored() == ["first"]
@@ -265,7 +265,7 @@ def test_commit_then_rollback_inside_the_handler_keeps_real_semantics(make):
 
 def test_nested_savepoint_failure_inside_a_preview(make):
     bench = make()
-    body = bench.client("admin").post("/bench/_preview/nested", headers=ROLLBACK).get_json()
+    body = bench.client("admin").post("/sendproof/_preview/nested", headers=ROLLBACK).get_json()
     assert body["rolledBack"] is True and bench.stored() == []
     assert sorted(c["key"]["id"] for c in body["changes"] if c["operation"] == "insert") == ["inner", "outer"]
     bench.client("admin").post("/nested")
@@ -274,7 +274,7 @@ def test_nested_savepoint_failure_inside_a_preview(make):
 
 def test_raw_statements_and_engine_connections_join_the_preview(make):
     bench = make()
-    body = bench.client("admin").post("/bench/_preview/raw", headers=ROLLBACK).get_json()
+    body = bench.client("admin").post("/sendproof/_preview/raw", headers=ROLLBACK).get_json()
     assert body["rolledBack"] is True and bench.stored() == []
     assert any("INSERT INTO items" in log["message"] for log in body["logs"]), body["logs"]
 
@@ -283,7 +283,7 @@ def test_unhandled_exception_is_an_unconfirmed_500_and_rolls_back(make):
     bench = make()
     bench.app.testing = False
     http = bench.client("admin")
-    response = http.post("/bench/_preview/boom", headers=ROLLBACK)
+    response = http.post("/sendproof/_preview/boom", headers=ROLLBACK)
     assert response.status_code == 500 and "preference-applied" not in {k.lower() for k, _ in response.headers}
     assert bench.stored() == [] and bench.checked_out() == 0
     assert http.post("/items", json={"id": "ok", "name": "Ok"}).status_code == 201
@@ -291,8 +291,8 @@ def test_unhandled_exception_is_an_unconfirmed_500_and_rolls_back(make):
 
 def test_denials_never_become_envelopes_and_write_nothing(make):
     bench = make()
-    anonymous = bench.client().post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
-    viewer = bench.client("viewer").post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    anonymous = bench.client().post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    viewer = bench.client("viewer").post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
     assert (anonymous.status_code, viewer.status_code) == (401, 403)
     assert "rolledBack" not in anonymous.get_json() and "rolledBack" not in viewer.get_json()
     assert bench.stored() == [] and bench.delivered == []
@@ -300,10 +300,10 @@ def test_denials_never_become_envelopes_and_write_nothing(make):
 
 def test_capabilities_follow_the_signed_in_identity(make):
     bench = make()
-    assert bench.client().get("/bench/_api/capabilities").get_json()["identity"] is None
-    caps = bench.client("admin").get("/bench/_api/capabilities").get_json()
+    assert bench.client().get("/sendproof/_api/capabilities").get_json()["identity"] is None
+    caps = bench.client("admin").get("/sendproof/_api/capabilities").get_json()
     assert caps["identity"] == {"name": "Admin", "role": "admin"} and caps["database"] == "db"
-    assert bench.client("viewer").get("/bench/_api/capabilities").get_json()["identity"]["role"] == "viewer"
+    assert bench.client("viewer").get("/sendproof/_api/capabilities").get_json()["identity"]["role"] == "viewer"
 
 
 def test_traces_belong_to_their_owner_and_expire(make):
@@ -311,7 +311,7 @@ def test_traces_belong_to_their_owner_and_expire(make):
     bench = make(clock=clock)
     admin = bench.client("admin")
     sent = admin.post("/items", json={"id": "t", "name": "T"}, headers={"Prefer": "trace"}, buffered=True)
-    path = f"/bench/_api/traces/{sent.headers['X-TestBench-Trace']}"
+    path = f"/sendproof/_api/traces/{sent.headers['X-Sendproof-Trace']}"
     assert admin.get(path).status_code == 200
     assert bench.client("viewer").get(path).status_code == 404
     assert bench.client().get(path).status_code == 404
@@ -322,14 +322,14 @@ def test_traces_belong_to_their_owner_and_expire(make):
 
 def test_every_enrolled_bind_is_rolled_back(make):
     bench = make(extra_bind=True)
-    body = bench.client("admin").post("/bench/_preview/audited", headers=ROLLBACK).get_json()
+    body = bench.client("admin").post("/sendproof/_preview/audited", headers=ROLLBACK).get_json()
     assert body["rolledBack"] is True and {c["table"] for c in body["changes"]} == {"items", "audit"}
     assert bench.stored() == [] and bench.stored(bench.Audit) == []
 
 
 def test_a_bind_that_is_not_enrolled_is_not_rolled_back(make):
     bench = make(extra_bind=True, enroll_extra_bind=False)
-    body = bench.client("admin").post("/bench/_preview/audited", headers=ROLLBACK).get_json()
+    body = bench.client("admin").post("/sendproof/_preview/audited", headers=ROLLBACK).get_json()
     # Only the enrolled engine is captured and rolled back; the other bind committed for real.
     assert {c["table"] for c in body["changes"]} == {"items"}
     assert bench.stored() == [] and bench.stored(bench.Audit) == ["audit"]

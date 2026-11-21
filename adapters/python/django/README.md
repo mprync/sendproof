@@ -1,35 +1,35 @@
-# testbench-django
+# sendproof-django
 
-Serves the [Test Bench](../../spec/README.md) workbench from a Django project and runs rollback
+Serves the [Sendproof](../../spec/README.md) workbench from a Django project and runs rollback
 **Preview** and **Observed Send** through Django's URL resolver, middleware and views. Works with
 plain views, Django REST framework and Django Ninja, and captures changes through the Django ORM.
 
 ```sh
-pip install testbench-django
+pip install sendproof-django
 ```
 
 ```python
 # settings.py
 MIDDLEWARE = [
     # ... sessions, authentication, your own middleware ...
-    "testbench_django.middleware.TestBenchMiddleware",   # last
+    "sendproof_django.middleware.SendproofMiddleware",   # last
 ]
 
-TESTBENCH = {
+SENDPROOF = {
     "ENVIRONMENT": "Development",                    # off in any environment not listed
-    "PROVIDER": "testbench_django.DjangoOrmPreview",  # opt in to rollback previews
+    "PROVIDER": "sendproof_django.DjangoOrmPreview",  # opt in to rollback previews
     "OPENAPI_URL": "/api/openapi.json",
     "AUTH_PROVIDERS": [{"label": "Password", "kind": "cookie", "url": "/auth/sign-in"}],
 }
 ```
 
-The workbench is at `/bench/`. It is **off** unless `ENVIRONMENT` (default `$TESTBENCH_ENVIRONMENT`,
+The workbench is at `/sendproof/`. It is **off** unless `ENVIRONMENT` (default `$SENDPROOF_ENVIRONMENT`,
 else `Production`) is in `ENVIRONMENTS` (default `["Development"]`).
 
 ## Marking operations
 
 ```python
-from testbench_django import preview
+from sendproof_django import preview
 
 @preview(methods=["POST"])                  # function view: methods accepted for previews
 def create_item(request): ...
@@ -63,15 +63,15 @@ Unknown keys raise `ValueError` so typos are not silently ignored.
 
 ## How it works
 
-A request to `/bench/_preview/<path>` with exactly `Prefer: tx=rollback` is resolved with your
+A request to `/sendproof/_preview/<path>` with exactly `Prefer: tx=rollback` is resolved with your
 URLconf, then a copy of the request is sent through the complete `MIDDLEWARE` chain and the real
 view, in-process, with `transaction.atomic()` open on every enrolled database. Every middleware,
 including path-based ones, sees the target path, and session changes stay on the copy, so they are
-neither saved by the outer `SessionMiddleware` nor sent as a cookie. Test Bench checks again, last
+neither saved by the outer `SessionMiddleware` nor sent as a cookie. Sendproof checks again, last
 in the chain, that the request still resolves to the marked view and method. The response is buffered (1 MiB cap),
 the atomic blocks are rolled back and confirmed, and only then does the middleware answer with the
-envelope. `Prefer: trace` on the original URL commits normally and adds `X-TestBench-Trace`; the
-same caller can fetch it from `/bench/_api/traces/{id}` until it expires.
+envelope. `Prefer: trace` on the original URL commits normally and adds `X-Sendproof-Trace`; the
+same caller can fetch it from `/sendproof/_api/traces/{id}` until it expires.
 
 - Commit semantics follow Django: a nested `atomic()` releases a savepoint, `transaction.on_commit`
   callbacks are discarded with the rollback, and a handler that handles an `IntegrityError`
@@ -79,7 +79,7 @@ same caller can fetch it from `/bench/_api/traces/{id}` until it expires.
 - A 401 or 403 is always a denial and never an envelope. Other statuses, including 409 and the
   400 or 422 your framework returns for invalid input, are the application's answer. An unhandled
   exception becomes an unconfirmed 500.
-- CSRF protection runs against the target view exactly as for a normal request. Test Bench
+- CSRF protection runs against the target view exactly as for a normal request. Sendproof
   sends no CSRF token, so previews of views protected by it are rejected unless the view is
   exempt or authenticates another way, as API views usually do.
 - Mounted under a prefix (`SCRIPT_NAME`/`FORCE_SCRIPT_NAME`), discovery URLs include it. Django

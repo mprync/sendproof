@@ -3,14 +3,14 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "testbench-sqlalchemy"
+name = "sendproof-sqlalchemy"
 version = "0.1.0a1"
-description = "SQLAlchemy rollback previews and change capture for Test Bench."
+description = "SQLAlchemy rollback previews and change capture for Sendproof."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Test Bench contributors" }]
+authors = [{ name = "Sendproof contributors" }]
 keywords = ["swagger", "api-testing", "sqlalchemy", "testing", "rollback", "openapi"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -26,13 +26,13 @@ classifiers = [
   "Topic :: Database",
   "Typing :: Typed",
 ]
-dependencies = ["testbench-core==0.1.0a1", "sqlalchemy>=2.0"]
+dependencies = ["sendproof-core==0.1.0a1", "sqlalchemy>=2.0"]
 
 [project.optional-dependencies]
 asyncio = ["sqlalchemy[asyncio]>=2.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/testbench_sqlalchemy"]
+packages = ["src/sendproof_sqlalchemy"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/testbench_sqlalchemy", "README.md", "LICENSE"]
+include = ["src/sendproof_sqlalchemy", "README.md", "LICENSE"]

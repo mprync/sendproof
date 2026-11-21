@@ -3,14 +3,14 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "testbench-flask"
+name = "sendproof-flask"
 version = "0.1.0a1"
-description = "Test Bench workbench, rollback previews and observed sends for Flask applications."
+description = "Sendproof workbench, rollback previews and observed sends for Flask applications."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Test Bench contributors" }]
+authors = [{ name = "Sendproof contributors" }]
 keywords = ["swagger", "api-testing", "flask", "wsgi", "openapi", "testing", "rollback"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -27,10 +27,10 @@ classifiers = [
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
-dependencies = ["testbench-core==0.1.0a1", "flask>=2.3"]
+dependencies = ["sendproof-core==0.1.0a1", "flask>=2.3"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/testbench_flask"]
+packages = ["src/sendproof_flask"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/testbench_flask", "README.md", "LICENSE"]
+include = ["src/sendproof_flask", "README.md", "LICENSE"]

@@ -3,10 +3,10 @@ from sqlalchemy import String, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from testbench_core import PreviewRollbackError, PreviewUnavailable, RequestScope
-from testbench_core.capture import Capture
-from testbench_core.scope import activate, deactivate
-from testbench_sqlalchemy import SQLAlchemyPreview, looks_secret
+from sendproof_core import PreviewRollbackError, PreviewUnavailable, RequestScope
+from sendproof_core.capture import Capture
+from sendproof_core.scope import activate, deactivate
+from sendproof_sqlalchemy import SQLAlchemyPreview, looks_secret
 
 
 class Base(DeclarativeBase):
@@ -240,7 +240,7 @@ def test_a_handler_rollback_only_undoes_work_since_its_last_commit(engine):
 
 
 def test_unsupported_dialects_are_refused():
-    from testbench_sqlalchemy.connection import ensure_supported
+    from sendproof_sqlalchemy.connection import ensure_supported
 
     class Dialect:
         name = "mssql"

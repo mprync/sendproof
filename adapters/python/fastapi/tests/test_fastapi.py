@@ -5,9 +5,9 @@ from sqlalchemy import String, create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from testbench_core import AuthProvider, record_email
-from testbench_fastapi import Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import AuthProvider, record_email
+from sendproof_fastapi import Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 ROLLBACK = {"Prefer": "tx=rollback"}
 
@@ -64,7 +64,7 @@ def build(tmp_path, *, environment="Development", provider=True, authorize=None,
     if clock is not None:
         kwargs["clock"] = clock
     sqlalchemy_provider = SQLAlchemyPreview(engine, database="db") if provider else None
-    bench = TestBench(
+    bench = Sendproof(
         app,
         provider=sqlalchemy_provider,
         environment=environment,
@@ -87,11 +87,11 @@ def stored(engine):
 
 
 async def test_disabled_by_default_everywhere(tmp_path, monkeypatch):
-    monkeypatch.delenv("TESTBENCH_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("SENDPROOF_ENVIRONMENT", raising=False)
     app, engine, _ = build(tmp_path, environment=None)
     async with client(app) as http:
-        assert (await http.get("/bench/_api/capabilities")).status_code == 404
-        assert (await http.post("/bench/_preview/items", json={}, headers=ROLLBACK)).status_code == 404
+        assert (await http.get("/sendproof/_api/capabilities")).status_code == 404
+        assert (await http.post("/sendproof/_preview/items", json={}, headers=ROLLBACK)).status_code == 404
         # Ordinary routes are untouched, including a stray rollback preference.
         assert (await http.post("/plain", headers=ROLLBACK)).status_code == 200
     assert stored(engine) == ["plain"]
@@ -100,7 +100,7 @@ async def test_disabled_by_default_everywhere(tmp_path, monkeypatch):
 async def test_preview_rolls_back_and_suppresses_effects(tmp_path):
     app, engine, _ = build(tmp_path)
     async with client(app) as http:
-        response = await http.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
         body = response.json()
         assert response.status_code == 200 and body["rolledBack"] is True and body["status"] == 201
         assert response.headers["preference-applied"] == "tx=rollback"
@@ -116,7 +116,7 @@ async def test_preview_rolls_back_and_suppresses_effects(tmp_path):
 async def test_unhandled_exception_is_an_unconfirmed_500_and_still_rolls_back(tmp_path):
     app, engine, _ = build(tmp_path)
     async with client(app) as http:
-        response = await http.post("/bench/_preview/boom", headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/boom", headers=ROLLBACK)
     assert response.status_code == 500 and "rolledBack" not in response.json()
     assert "preference-applied" not in response.headers
     assert stored(engine) == []
@@ -125,26 +125,26 @@ async def test_unhandled_exception_is_an_unconfirmed_500_and_still_rolls_back(tm
 async def test_unmarked_and_unknown_targets_do_not_execute(tmp_path):
     app, engine, _ = build(tmp_path)
     async with client(app) as http:
-        assert (await http.post("/bench/_preview/plain", headers=ROLLBACK)).status_code == 409
-        assert (await http.post("/bench/_preview/nope", headers=ROLLBACK)).status_code == 404
-        assert (await http.get("/bench/_preview/items", headers=ROLLBACK)).status_code == 405
+        assert (await http.post("/sendproof/_preview/plain", headers=ROLLBACK)).status_code == 409
+        assert (await http.post("/sendproof/_preview/nope", headers=ROLLBACK)).status_code == 404
+        assert (await http.get("/sendproof/_preview/items", headers=ROLLBACK)).status_code == 405
     assert stored(engine) == []
 
 
 async def test_no_provider_advertises_nothing_and_refuses_previews(tmp_path):
     app, engine, _ = build(tmp_path, provider=False)
     async with client(app) as http:
-        capabilities = (await http.get("/bench/_api/capabilities")).json()
+        capabilities = (await http.get("/sendproof/_api/capabilities")).json()
         assert capabilities["previewOperations"] == [] and capabilities["database"] is None
-        assert (await http.post("/bench/_preview/items", json={"id": "x", "name": "x"}, headers=ROLLBACK)).status_code == 503
+        assert (await http.post("/sendproof/_preview/items", json={"id": "x", "name": "x"}, headers=ROLLBACK)).status_code == 503
     assert stored(engine) == []
 
 
 async def test_workbench_authorization_hook(tmp_path):
     app, _, _ = build(tmp_path, authorize=lambda request, identity: identity is not None and identity.role == "admin")
     async with client(app) as http:
-        assert (await http.get("/bench/_api/capabilities")).status_code == 401
-        assert (await http.get("/bench/_api/capabilities", headers={"x-user": "1"})).status_code == 200
+        assert (await http.get("/sendproof/_api/capabilities")).status_code == 401
+        assert (await http.get("/sendproof/_api/capabilities", headers={"x-user": "1"})).status_code == 200
 
 
 async def test_trace_is_owner_scoped_and_expires_with_the_injected_clock(tmp_path):
@@ -152,24 +152,24 @@ async def test_trace_is_owner_scoped_and_expires_with_the_injected_clock(tmp_pat
     app, engine, _ = build(tmp_path, clock=clock)
     async with client(app) as http:
         anonymous = await http.post("/items", json={"id": "t0", "name": "T"}, headers={"Prefer": "trace"})
-        assert "x-testbench-trace" not in anonymous.headers
+        assert "x-sendproof-trace" not in anonymous.headers
         sent = await http.post("/items", json={"id": "t1", "name": "T"}, headers={"Prefer": "trace", "x-user": "1"})
-        trace_id = sent.headers["x-testbench-trace"]
+        trace_id = sent.headers["x-sendproof-trace"]
         assert stored(engine) == ["t0", "t1"]
-        found = await http.get(f"/bench/_api/traces/{trace_id}", headers={"x-user": "1"})
+        found = await http.get(f"/sendproof/_api/traces/{trace_id}", headers={"x-user": "1"})
         assert found.status_code == 200 and found.json()["effects"][0]["delivered"] is True
         assert found.headers["cache-control"] == "no-store"
-        assert (await http.get(f"/bench/_api/traces/{trace_id}")).status_code == 404
+        assert (await http.get(f"/sendproof/_api/traces/{trace_id}")).status_code == 404
         clock.now = 5
-        assert (await http.get(f"/bench/_api/traces/{trace_id}", headers={"x-user": "1"})).status_code == 404
+        assert (await http.get(f"/sendproof/_api/traces/{trace_id}", headers={"x-user": "1"})).status_code == 404
 
 
-async def test_bench_after_startup_is_rejected(tmp_path):
+async def sendproof_after_startup_is_rejected(tmp_path):
     app, _, _ = build(tmp_path)
     async with client(app) as http:
-        await http.get("/bench/_api/capabilities")
+        await http.get("/sendproof/_api/capabilities")
     with pytest.raises(RuntimeError):
-        TestBench(app, environment="Development")
+        Sendproof(app, environment="Development")
 
 
 async def test_async_endpoints_with_an_async_engine(tmp_path):
@@ -190,9 +190,9 @@ async def test_async_endpoints_with_an_async_engine(tmp_path):
                 raise HTTPException(500, "not visible")
         return item
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="async"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="async"), environment="Development")
     async with client(app) as http:
-        response = await http.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
         assert response.status_code == 200 and response.json()["status"] == 201
         assert response.json()["changes"][0]["key"] == {"id": "a"}
         async with maker() as session:

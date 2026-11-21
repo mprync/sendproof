@@ -25,9 +25,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
-from testbench_core import PreviewRollbackError, PreviewSession, RequestScope, record_effect, record_email
-from testbench_fastapi import AuthProvider, Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import PreviewRollbackError, PreviewSession, RequestScope, record_effect, record_email
+from sendproof_fastapi import AuthProvider, Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -38,7 +38,7 @@ logging.getLogger("fixture").setLevel(logging.INFO)
 log = logging.getLogger("fixture")
 
 # ----------------------------------------------------------------------------- database
-_directory = Path(tempfile.mkdtemp(prefix="testbench-fixture-"))
+_directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
 engine = create_engine(f"sqlite:///{_directory / 'items.db'}")
 
 
@@ -112,7 +112,7 @@ def start_session(email: str) -> Response:
 
 
 # --------------------------------------------------------------------------------- app
-app = FastAPI(title="Test Bench Conformance")
+app = FastAPI(title="Sendproof Conformance")
 
 
 class ItemIn(BaseModel):
@@ -246,7 +246,7 @@ def ordinary_item(id: str, db: Session = Depends(get_db), user: dict = Depends(r
     return {"id": id, "name": "Ordinary"}
 
 
-# ----------------------------------------------------------------------- Test Bench
+# ----------------------------------------------------------------------- Sendproof
 class RollbackFailingProvider(SQLAlchemyPreview):
     """Rolls back for real, then reports an injected failure so the transport withholds confirmation."""
 
@@ -268,7 +268,7 @@ if SCENARIO == "rollback-failure":
 elif SCENARIO != "no-provider":
     provider = SQLAlchemyPreview(engine, database="fixture")
 
-TestBench(
+Sendproof(
     app,
     provider=provider,
     identity=identity,

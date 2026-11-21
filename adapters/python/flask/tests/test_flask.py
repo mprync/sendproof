@@ -3,9 +3,9 @@ from flask import Flask, abort, jsonify, request, session
 from sqlalchemy import String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from testbench_core import record_email
-from testbench_flask import AuthProvider, Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import record_email
+from sendproof_flask import AuthProvider, Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 ROLLBACK = {"Prefer": "tx=rollback"}
 
@@ -61,7 +61,7 @@ def build(tmp_path, *, environment="Development", provider=True, clock=None):
         return jsonify(id=id)
 
     kwargs = {"clock": clock} if clock else {}
-    bench = TestBench(
+    bench = Sendproof(
         app,
         provider=SQLAlchemyPreview(engine, database="db") if provider else None,
         environment=environment,
@@ -87,17 +87,17 @@ def signed_in(app):
 
 
 def test_disabled_by_default(tmp_path, monkeypatch):
-    monkeypatch.delenv("TESTBENCH_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("SENDPROOF_ENVIRONMENT", raising=False)
     app, engine, _, _ = build(tmp_path, environment=None)
     http = signed_in(app)
-    assert http.get("/bench/_api/capabilities").status_code == 404
-    assert http.post("/bench/_preview/items", json={}, headers=ROLLBACK).status_code == 404
+    assert http.get("/sendproof/_api/capabilities").status_code == 404
+    assert http.post("/sendproof/_preview/items", json={}, headers=ROLLBACK).status_code == 404
 
 
 def test_preview_rolls_back_and_suppresses_effects(tmp_path):
     app, engine, _, sent = build(tmp_path)
     http = signed_in(app)
-    response = http.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    response = http.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
     body = response.get_json()
     assert response.status_code == 200 and body["status"] == 201 and body["rolledBack"] is True
     assert body["changes"][0]["operation"] == "insert" and body["effects"][0]["description"] == "Created"
@@ -111,14 +111,14 @@ def test_denial_inside_the_handler_is_not_an_envelope(tmp_path):
     app, engine, _, _ = build(tmp_path)
     anonymous = app.test_client()
     # The identity is absent, the handler aborts with 401: no confirmed envelope.
-    response = anonymous.post("/bench/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
+    response = anonymous.post("/sendproof/_preview/items", json={"id": "a", "name": "A"}, headers=ROLLBACK)
     assert response.status_code == 401 and "rolledBack" not in response.get_json()
 
 
 def test_unhandled_exception_is_an_unconfirmed_500_and_rolls_back(tmp_path):
     app, engine, _, _ = build(tmp_path)
     app.testing = False
-    response = signed_in(app).post("/bench/_preview/boom", headers=ROLLBACK)
+    response = signed_in(app).post("/sendproof/_preview/boom", headers=ROLLBACK)
     assert response.status_code == 500 and "preference-applied" not in {k.lower() for k in response.headers.keys()}
     assert stored(engine) == []
 
@@ -126,13 +126,13 @@ def test_unhandled_exception_is_an_unconfirmed_500_and_rolls_back(tmp_path):
 def test_unmarked_methods_and_unknown_targets_do_not_execute(tmp_path):
     app, engine, _, _ = build(tmp_path)
     http = signed_in(app)
-    assert http.post("/bench/_preview/nope", headers=ROLLBACK).status_code == 404
-    assert http.post("/bench/_preview/items/a", headers=ROLLBACK).status_code in (404, 405)
+    assert http.post("/sendproof/_preview/nope", headers=ROLLBACK).status_code == 404
+    assert http.post("/sendproof/_preview/items/a", headers=ROLLBACK).status_code in (404, 405)
 
 
 def test_discovery_lists_only_marked_write_operations(tmp_path):
     app, _, bench, _ = build(tmp_path)
-    operations = signed_in(app).get("/bench/_api/capabilities").get_json()["previewOperations"]
+    operations = signed_in(app).get("/sendproof/_api/capabilities").get_json()["previewOperations"]
     assert operations == [{"method": "POST", "path": "/boom"}, {"method": "POST", "path": "/items"}]
 
 
@@ -141,10 +141,10 @@ def test_trace_is_owner_scoped_and_expires(tmp_path):
     app, engine, _, _ = build(tmp_path, clock=clock)
     http = signed_in(app)
     sent = http.post("/items", json={"id": "t", "name": "T"}, headers={"Prefer": "trace"}, buffered=True)
-    trace_id = sent.headers["X-TestBench-Trace"]
-    found = http.get(f"/bench/_api/traces/{trace_id}")
+    trace_id = sent.headers["X-Sendproof-Trace"]
+    found = http.get(f"/sendproof/_api/traces/{trace_id}")
     assert found.status_code == 200 and found.get_json()["effects"][0]["delivered"] is True
-    assert app.test_client().get(f"/bench/_api/traces/{trace_id}").status_code == 404
+    assert app.test_client().get(f"/sendproof/_api/traces/{trace_id}").status_code == 404
     clock.now = 5
-    assert http.get(f"/bench/_api/traces/{trace_id}").status_code == 404
+    assert http.get(f"/sendproof/_api/traces/{trace_id}").status_code == 404
     assert stored(engine) == ["t"]

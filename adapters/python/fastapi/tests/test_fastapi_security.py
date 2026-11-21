@@ -10,9 +10,9 @@ from sqlalchemy import String, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from starlette.middleware.sessions import SessionMiddleware
 
-from testbench_core import PreviewProvider, PreviewSession
-from testbench_fastapi import TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import PreviewProvider, PreviewSession
+from sendproof_fastapi import Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 ROLLBACK = {"Prefer": "tx=rollback"}
 
@@ -64,11 +64,11 @@ async def test_path_based_host_middleware_guards_the_preview_target(tmp_path):
         session.commit()
         return {"ok": True}
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     async with client(app) as http:
-        denied = await http.post("/bench/_preview/admin/accounts", headers=ROLLBACK)
+        denied = await http.post("/sendproof/_preview/admin/accounts", headers=ROLLBACK)
         assert denied.status_code == 403 and "rolledBack" not in denied.json()
-        allowed = await http.post("/bench/_preview/admin/accounts", headers={**ROLLBACK, "x-admin": "yes"})
+        allowed = await http.post("/sendproof/_preview/admin/accounts", headers={**ROLLBACK, "x-admin": "yes"})
         assert allowed.status_code == 200 and allowed.json()["status"] == 201
     assert stored(engine) == []
 
@@ -83,9 +83,9 @@ async def test_preview_session_changes_never_reach_the_real_response(tmp_path):
         request.session["user"] = "mallory"
         return {"ok": True}
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     async with client(app) as http:
-        response = await http.post("/bench/_preview/sign-in", headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/sign-in", headers=ROLLBACK)
         assert response.status_code == 200 and response.json()["status"] == 200
         assert "set-cookie" not in response.headers
         assert "set-cookie" not in response.json()["headers"]
@@ -122,9 +122,9 @@ async def test_middleware_that_reroutes_the_inner_request_is_refused(tmp_path):
         session.commit()
         return {"deleted": True}
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     async with client(app) as http:
-        response = await http.post("/bench/_preview/accounts", headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/accounts", headers=ROLLBACK)
     assert response.status_code == 409 and "rolledBack" not in response.json()
     assert ran == [] and stored(engine) == []
 
@@ -167,10 +167,10 @@ async def test_aborted_handler_is_still_rolled_back_and_closed():
         raise Abort()
 
     provider = RecordingProvider()
-    TestBench(app, provider=provider, environment="Development")
+    Sendproof(app, provider=provider, environment="Development")
     async with client(app) as http:
         with pytest.raises(Abort):
-            await http.post("/bench/_preview/abort", headers=ROLLBACK)
+            await http.post("/sendproof/_preview/abort", headers=ROLLBACK)
     assert provider.calls == ["rollback", "close"]
 
 
@@ -194,9 +194,9 @@ async def test_handler_commit_cannot_escape_the_preview(tmp_path):
             connection.execution_options(isolation_level="AUTOCOMMIT")
         return {"ok": True}
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     async with client(app) as http:
-        for path in ("/bench/_preview/accounts", "/bench/_preview/autocommit"):
+        for path in ("/sendproof/_preview/accounts", "/sendproof/_preview/autocommit"):
             response = await http.post(path, headers=ROLLBACK)
             assert response.status_code == 500 and "rolledBack" not in response.json()
     assert stored(engine) == []
@@ -213,9 +213,9 @@ async def test_secret_columns_and_sql_echo_never_appear_in_the_envelope(tmp_path
         session.execute(text("UPDATE accounts SET password_hash = :v WHERE id = 'a'"), {"v": "s3cret-two"})
         return {"ok": True}
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     async with client(app) as http:
-        response = await http.post("/bench/_preview/accounts", headers=ROLLBACK)
+        response = await http.post("/sendproof/_preview/accounts", headers=ROLLBACK)
     body = response.json()
     assert response.status_code == 200 and body["status"] == 201
     assert body["changes"][0]["after"] == {"id": "a", "password_hash": "[REDACTED]"}

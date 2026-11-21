@@ -1,16 +1,16 @@
-# testbench-flask
+# sendproof-flask
 
-Serves the [Test Bench](../../spec/README.md) workbench from a Flask application and runs
+Serves the [Sendproof](../../spec/README.md) workbench from a Flask application and runs
 rollback **Preview** and **Observed Send** through Flask's own routing and your view code.
 
 ```sh
-pip install testbench-flask testbench-sqlalchemy
+pip install sendproof-flask sendproof-sqlalchemy
 ```
 
 ```python
 from flask import Flask, session
-from testbench_flask import AuthProvider, Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_flask import AuthProvider, Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 app = Flask(__name__)
 
@@ -18,7 +18,7 @@ def identity(request) -> Identity | None:     # runs in a request context: flask
     user = session.get("user")
     return user and Identity(user["name"], user["role"], subject=user["id"], authentication_type="session")
 
-TestBench(
+Sendproof(
     app,
     provider=SQLAlchemyPreview(engine, database="inventory_dev"),
     identity=identity,
@@ -32,19 +32,19 @@ TestBench(
 def create_item(): ...
 ```
 
-Open `/bench/`. The workbench needs an OpenAPI document; Flask has none built in, so serve one
+Open `/sendproof/`. The workbench needs an OpenAPI document; Flask has none built in, so serve one
 (for example with `apispec` or `flask-smorest`) and set `openapi_url`.
 
 ## How it works
 
-`TestBench` wraps `app.wsgi_app`. A request to `/bench/_preview/<path>` with exactly
+`Sendproof` wraps `app.wsgi_app`. A request to `/sendproof/_preview/<path>` with exactly
 `Prefer: tx=rollback` is matched against the app's own URL map, executed in-process through the
-current `app.wsgi_app` chain (so WSGI middleware wrapped around Test Bench later also sees the
+current `app.wsgi_app` chain (so WSGI middleware wrapped around Sendproof later also sees the
 target path), buffered (1 MiB cap), rolled back, and only then answered with the confirmed envelope.
 A `before_request` hook that runs first checks again that the request still reaches the marked view
 and method; a middleware that changed either gets a 409 and no view runs.
-`Prefer: trace` on the original URL commits normally and adds `X-TestBench-Trace` for a caller with
-a stable `Identity.subject`; fetch it from `/bench/_api/traces/{id}` as the same caller within
+`Prefer: trace` on the original URL commits normally and adds `X-Sendproof-Trace` for a caller with
+a stable `Identity.subject`; fetch it from `/sendproof/_api/traces/{id}` as the same caller within
 `trace_ttl` seconds.
 
 - Only `@preview` views are advertised and accepted, and only for their write methods
@@ -56,14 +56,14 @@ a stable `Identity.subject`; fetch it from `/bench/_api/traces/{id}` as the same
   appears inside the envelope. An unhandled exception becomes an unconfirmed 500.
 - A `Request` is available to `identity` and `authorize` hooks; do not read the request body in
   them.
-- Record outgoing email and similar effects with `testbench_core.record_email`, and skip delivery
+- Record outgoing email and similar effects with `sendproof_core.record_email`, and skip delivery
   when it returns `True`.
 
-Options match [`testbench-fastapi`](../fastapi/README.md#options).
+Options match [`sendproof-fastapi`](../fastapi/README.md#options).
 
 ## Data layer
 
-`testbench-sqlalchemy` (sync engines). The provider enrolls the engine, so plain SQLAlchemy
+`sendproof-sqlalchemy` (sync engines). The provider enrolls the engine, so plain SQLAlchemy
 sessions, `scoped_session`, Flask-SQLAlchemy's `db.session` and raw `engine.begin()` connections all
 share the preview connection. See the [coverage notes](../sqlalchemy/README.md#coverage-notes). A
 Flask development server runs requests on threads: with SQLite, previews at the same time block
@@ -77,8 +77,8 @@ inside one:
 ```python
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from testbench_flask import TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_flask import Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql+psycopg://app:secret@localhost/inventory_dev"
@@ -87,7 +87,7 @@ db = SQLAlchemy(app)
 with app.app_context():
     engines = list(db.engines.values())      # the default engine plus every SQLALCHEMY_BINDS entry
 
-TestBench(app, provider=SQLAlchemyPreview(*engines, database="inventory_dev"),
+Sendproof(app, provider=SQLAlchemyPreview(*engines, database="inventory_dev"),
           identity=identity, environment="Development", openapi_url="/openapi.json")
 
 @app.post("/items")

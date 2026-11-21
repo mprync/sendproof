@@ -2,14 +2,14 @@ import json
 
 import pytest
 
-from testbench_core import BenchOptions, Identity, limits, protocol
-from testbench_core.capture import Capture
-from testbench_core.jsonsafe import body_from_bytes
-from testbench_core.scope import RequestScope, activate, current_scope, deactivate
-from testbench_core.assets import UiAssets, UiBundleError
-from testbench_core.trace_store import TraceStore
-from testbench_core.workbench import Workbench, trace_owner
-import testbench_core
+from sendproof_core import BenchOptions, Identity, limits, protocol
+from sendproof_core.capture import Capture
+from sendproof_core.jsonsafe import body_from_bytes
+from sendproof_core.scope import RequestScope, activate, current_scope, deactivate
+from sendproof_core.assets import UiAssets, UiBundleError
+from sendproof_core.trace_store import TraceStore
+from sendproof_core.workbench import Workbench, trace_owner
+import sendproof_core
 
 
 class Clock:
@@ -21,11 +21,11 @@ class Clock:
 
 
 def test_environment_is_off_by_default(monkeypatch):
-    monkeypatch.delenv("TESTBENCH_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("SENDPROOF_ENVIRONMENT", raising=False)
     assert BenchOptions().environment == "Production"
     assert not BenchOptions().enabled
     assert BenchOptions(environment="development").enabled
-    monkeypatch.setenv("TESTBENCH_ENVIRONMENT", "Development")
+    monkeypatch.setenv("SENDPROOF_ENVIRONMENT", "Development")
     assert BenchOptions().enabled
 
 
@@ -107,7 +107,7 @@ def test_same_origin_rules():
     assert not protocol.is_same_origin(get(origin="http://h:1/path"), "http", "h:1")
 
 
-@pytest.mark.parametrize("target", ["", "//x", "/a/../b", "/a\\b", "/bench", "/bench/_api/capabilities", "/a%2F..%2Fb"])
+@pytest.mark.parametrize("target", ["", "//x", "/a/../b", "/a\\b", "/sendproof", "/sendproof/_api/capabilities", "/a%2F..%2Fb"])
 def test_invalid_preview_targets(target):
     assert not protocol.is_valid_preview_target(target)
 
@@ -173,13 +173,13 @@ def test_trace_owner_separates_issuers_of_the_same_subject():
 
 
 def test_capabilities_document_shape():
-    class Provider(testbench_core.PreviewProvider):
+    class Provider(sendproof_core.PreviewProvider):
         database = "inventory"
 
         def begin(self, scope):
             raise NotImplementedError
 
-    options = BenchOptions(environment="Development", auth_providers=[testbench_core.AuthProvider("P", "cookie", "/auth")])
+    options = BenchOptions(environment="Development", auth_providers=[sendproof_core.AuthProvider("P", "cookie", "/auth")])
     bench = Workbench(options, Provider())
     response = bench.capabilities("/tenant", Identity("Alex", "admin", "1"), [("POST", "/items"), ("HEAD", "/x")], "/openapi.json", "Inventory")
     document = json.loads(response.body)
@@ -193,10 +193,10 @@ def test_capabilities_document_shape():
 
 
 def test_assets_serve_only_verified_manifest_files(tmp_path):
-    (tmp_path / "index.html").write_bytes(b"<title>Test Bench</title>")
-    digest = __import__("hashlib").sha256(b"<title>Test Bench</title>").hexdigest()
+    (tmp_path / "index.html").write_bytes(b"<title>Sendproof</title>")
+    digest = __import__("hashlib").sha256(b"<title>Sendproof</title>").hexdigest()
     (tmp_path / "manifest.json").write_text(json.dumps(
-        {"version": "1", "bundleHash": "x", "files": {"index.html": {"sha256": digest, "bytes": 25, "contentType": "text/html"}}}))
+        {"version": "1", "bundleHash": "x", "files": {"index.html": {"sha256": digest, "bytes": 24, "contentType": "text/html"}}}))
     assets = UiAssets(tmp_path)
     assert assets.get("index.html").content_type == "text/html"
     assert assets.get("../manifest.json") is None and assets.get("other.js") is None
@@ -209,7 +209,7 @@ def test_assets_serve_only_verified_manifest_files(tmp_path):
 
 # ------------------------------------------------------------------ security regressions
 def test_change_snapshots_redact_secret_columns_and_a_secret_primary_key():
-    from testbench_core.provider import PreviewChange
+    from sendproof_core.provider import PreviewChange
 
     change = PreviewChange(
         "update", "api_tokens", {"api_token": "tok-123"},
@@ -224,7 +224,7 @@ def test_change_snapshots_redact_secret_columns_and_a_secret_primary_key():
 
 
 def test_session_identifiers_count_as_secrets():
-    from testbench_core.redaction import describe_parameters, looks_secret
+    from sendproof_core.redaction import describe_parameters, looks_secret
 
     for name in ("session_key", "session_data", "sessionId", "SESSION_TOKEN"):
         assert looks_secret(name), name
@@ -235,16 +235,16 @@ def test_session_identifiers_count_as_secrets():
 
 
 def test_transaction_guard_refuses_statements_that_end_the_preview():
-    from testbench_core.txguard import escapes_transaction as escapes
+    from sendproof_core.txguard import escapes_transaction as escapes
 
     for sql in ("COMMIT", "commit work", "/* x */ END", "ROLLBACK", "BEGIN", "START TRANSACTION",
-                "select 1; commit", "PREPARE TRANSACTION 'x'", "RELEASE SAVEPOINT testbench_preview"):
-        assert escapes(sql, "postgresql", "testbench_preview"), sql
+                "select 1; commit", "PREPARE TRANSACTION 'x'", "RELEASE SAVEPOINT sendproof_preview"):
+        assert escapes(sql, "postgresql", "sendproof_preview"), sql
     assert escapes("SET autocommit = 1", "mysql") and escapes("CREATE TABLE t (a int)", "mysql")
     assert escapes("BEGIN COMMIT; END;", "oracle")
     for sql in ("ROLLBACK TO SAVEPOINT s1", 'SAVEPOINT "s1_x1"', "RELEASE SAVEPOINT sa_savepoint_1",
                 "INSERT INTO t VALUES ('a; commit')", "DO $$ BEGIN PERFORM 1; END $$", "UPDATE t SET end_date = 1"):
-        assert escapes(sql, "postgresql", "testbench_preview") is None, sql
+        assert escapes(sql, "postgresql", "sendproof_preview") is None, sql
     assert escapes("CREATE TABLE t (a int)", "sqlite") is None
     assert escapes("CREATE TEMPORARY TABLE t (a int)", "mysql") is None
     assert escapes("BEGIN NULL; END;", "oracle") is None
@@ -257,14 +257,14 @@ def test_malformed_origin_never_matches_a_malformed_host():
 
 
 def test_database_label_must_be_a_bare_name():
-    from testbench_core.options import require_display_label
+    from sendproof_core.options import require_display_label
 
     assert require_display_label("PostgreSQL 16") == "PostgreSQL 16"
     for bad in ("postgresql://u:p@h/db", "/var/data/app.sqlite", "Server=h;Password=p", "C:\\db.sqlite", "user@host", ""):
         with pytest.raises(ValueError):
             require_display_label(bad)
 
-    class Provider(testbench_core.PreviewProvider):
+    class Provider(sendproof_core.PreviewProvider):
         database = "postgresql://user:secret@db/app"
 
         def begin(self, scope):
@@ -275,7 +275,7 @@ def test_database_label_must_be_a_bare_name():
 
 
 def test_encoded_dot_segments_are_not_local_urls():
-    from testbench_core.options import require_local_url
+    from sendproof_core.options import require_local_url
 
     for bad in ("/docs/%2e%2e/%2E%2E/admin", "/%2F/evil.example", "/a/%5c/b"):
         with pytest.raises(ValueError):
@@ -286,7 +286,7 @@ def test_encoded_dot_segments_are_not_local_urls():
 def test_sql_echo_loggers_and_statement_error_parameters_are_not_captured():
     import logging
 
-    from testbench_core.capture import CaptureLogHandler
+    from sendproof_core.capture import CaptureLogHandler
 
     scope = RequestScope(Capture(rollback=True), "Development", True)
     handler = CaptureLogHandler(lambda: scope)

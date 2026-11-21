@@ -5,9 +5,9 @@ from flask import Flask, jsonify
 from sqlalchemy import String, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from testbench_core import PreviewProvider, PreviewSession
-from testbench_flask import TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import PreviewProvider, PreviewSession
+from sendproof_flask import Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 ROLLBACK = {"Prefer": "tx=rollback"}
 
@@ -48,7 +48,7 @@ def test_path_based_wsgi_middleware_wrapped_later_guards_the_preview_target(tmp_
         write("admin")
         return jsonify(ok=True), 201
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     inner = app.wsgi_app
 
     def admin_only(environ, start_response):
@@ -57,16 +57,16 @@ def test_path_based_wsgi_middleware_wrapped_later_guards_the_preview_target(tmp_
             return [b"admins only"]
         return inner(environ, start_response)
 
-    app.wsgi_app = admin_only  # wrapped around Test Bench after it was installed
+    app.wsgi_app = admin_only  # wrapped around Sendproof after it was installed
     http = app.test_client()
-    denied = http.post("/bench/_preview/admin/notes", headers=ROLLBACK)
+    denied = http.post("/sendproof/_preview/admin/notes", headers=ROLLBACK)
     assert denied.status_code == 403 and "rolledBack" not in denied.get_json()
-    allowed = http.post("/bench/_preview/admin/notes", headers={**ROLLBACK, "X-Admin": "yes"})
+    allowed = http.post("/sendproof/_preview/admin/notes", headers={**ROLLBACK, "X-Admin": "yes"})
     assert allowed.status_code == 200 and allowed.get_json()["status"] == 201
     assert stored(engine) == []
 
 
-def test_method_override_inside_test_bench_cannot_reach_an_unmarked_view(tmp_path):
+def test_method_override_inside_sendproof_cannot_reach_an_unmarked_view(tmp_path):
     app, engine, write = build(tmp_path)
 
     @app.post("/notes")
@@ -90,10 +90,10 @@ def test_method_override_inside_test_bench_cannot_reach_an_unmarked_view(tmp_pat
             environ = {**environ, "REQUEST_METHOD": override}
         return original(environ, start_response)
 
-    app.wsgi_app = method_override  # installed before Test Bench, so it runs inside it
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    app.wsgi_app = method_override  # installed before Sendproof, so it runs inside it
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
     response = app.test_client().post(
-        "/bench/_preview/notes", headers={**ROLLBACK, "X-HTTP-Method-Override": "DELETE"}
+        "/sendproof/_preview/notes", headers={**ROLLBACK, "X-HTTP-Method-Override": "DELETE"}
     )
     assert response.status_code == 409 and "rolledBack" not in response.get_json()
     assert ran == [] and stored(engine) == []
@@ -111,8 +111,8 @@ def test_raw_commit_in_a_preview_fails_closed(tmp_path):
             db.execute(text("COMMIT"))
         return jsonify(ok=True)
 
-    TestBench(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
-    response = app.test_client().post("/bench/_preview/notes", headers=ROLLBACK)
+    Sendproof(app, provider=SQLAlchemyPreview(engine, database="db"), environment="Development")
+    response = app.test_client().post("/sendproof/_preview/notes", headers=ROLLBACK)
     assert response.status_code == 500 and "rolledBack" not in response.get_json()
     assert stored(engine) == []
 
@@ -155,7 +155,7 @@ def test_interrupted_view_is_still_rolled_back_and_closed():
         raise Abort()
 
     provider = RecordingProvider()
-    TestBench(app, provider=provider, environment="Development")
+    Sendproof(app, provider=provider, environment="Development")
     with pytest.raises(Abort):
-        app.test_client().post("/bench/_preview/abort", headers=ROLLBACK)
+        app.test_client().post("/sendproof/_preview/abort", headers=ROLLBACK)
     assert provider.calls == ["rollback", "close"]

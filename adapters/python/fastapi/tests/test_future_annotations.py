@@ -4,7 +4,7 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from testbench_fastapi import preview
+from sendproof_fastapi import preview
 
 
 class Payload(BaseModel):

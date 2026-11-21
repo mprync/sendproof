@@ -23,9 +23,9 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import make_server
 
-from testbench_core import PreviewRollbackError, PreviewSession, RequestScope, record_effect, record_email
-from testbench_flask import AuthProvider, Identity, TestBench, preview
-from testbench_sqlalchemy import SQLAlchemyPreview
+from sendproof_core import PreviewRollbackError, PreviewSession, RequestScope, record_effect, record_email
+from sendproof_flask import AuthProvider, Identity, Sendproof, preview
+from sendproof_sqlalchemy import SQLAlchemyPreview
 
 import fixture_database
 import fixture_flask_persistence
@@ -38,7 +38,7 @@ TRACE_TTL_SECONDS = 5.0
 log = logging.getLogger("fixture")
 log.setLevel(logging.INFO)
 
-_directory = Path(tempfile.mkdtemp(prefix="testbench-fixture-"))
+_directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
 _url, _kind = fixture_database.resolve(_directory)
 persistence = fixture_flask_persistence.create(_url)
 Item = persistence.Item
@@ -254,7 +254,7 @@ def openapi():
     action = lambda name: _operation(name, "200")  # noqa: E731
     return jsonify({
         "openapi": "3.0.3",
-        "info": {"title": "Test Bench Conformance", "version": "1.0"},
+        "info": {"title": "Sendproof Conformance", "version": "1.0"},
         "paths": {
             "/items": {"post": {**_operation("Create item", "201", True, item), "parameters": []}},
             "/items/{id}": {
@@ -294,7 +294,7 @@ if SCENARIO == "rollback-failure":
 elif SCENARIO != "no-provider":
     provider = SQLAlchemyPreview(engine, database=f"fixture-{_kind}")
 
-TestBench(
+Sendproof(
     app,
     provider=provider,
     identity=identity,
