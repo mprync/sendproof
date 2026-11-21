@@ -25,7 +25,8 @@ class TransactionControlTest {
                 "LOAD INDEX INTO CACHE t", "LOAD DATA INFILE 'f' INTO TABLE t", "CACHE INDEX t IN c", "RESET MASTER",
                 "START REPLICA", "STOP REPLICA", "CHANGE REPLICATION SOURCE TO SOURCE_HOST='h'", "IMPORT TABLE FROM 'f'",
                 "XA START 'x'", "BEGIN", "BEGIN WORK", "START TRANSACTION", "COMMIT", "COMMIT AND CHAIN",
-                "ROLLBACK", "ROLLBACK AND CHAIN", "PREPARE s FROM 'COMMIT'", "EXECUTE s")) {
+                "ROLLBACK", "ROLLBACK AND CHAIN", "PREPARE s FROM 'COMMIT'", "EXECUTE s", "EXECUTE IMMEDIATE 'COMMIT'",
+                "execute immediate @sql", "/*M! EXECUTE IMMEDIATE 'COMMIT' */")) {
             assertThat(TransactionControl.find(sql, "mysql", NONE)).as(sql).isNotNull();
             assertThat(TransactionControl.find(sql, "mariadb", NONE)).as(sql).isNotNull();
         }

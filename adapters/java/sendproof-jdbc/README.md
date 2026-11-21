@@ -28,7 +28,8 @@ On MySQL and MariaDB the preview also refuses, before sending:
   `LOCK TABLE(S)`, `ANALYZE`, `OPTIMIZE`, `REPAIR`, `CHECK`, `FLUSH`, `RESET`, `LOAD`, `CACHE INDEX`, `SET PASSWORD`,
   plugin and replication statements, and every spelling of `SET autocommit` (`SET @@session.autocommit`, a later
   assignment in a list);
-- SQL-level `PREPARE` and `EXECUTE`, which can run any of these from a string;
+- SQL-level `PREPARE` and `EXECUTE` (including MariaDB's `EXECUTE IMMEDIATE`), which can run any of these from a
+  string;
 - `CALL`, because a stored procedure can commit, including the JDBC escape `{call p(?)}`;
 - `SAVEPOINT`, `RELEASE SAVEPOINT` and `ROLLBACK TO` of `sendproof_preview`, and the JDBC `setSavepoint`,
   `releaseSavepoint` and `rollback(Savepoint)` calls naming it (see the backstop below).
