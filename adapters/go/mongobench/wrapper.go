@@ -213,7 +213,9 @@ func (d *Database) Collection(name string, opts ...options.Lister[options.Collec
 }
 
 // RunCommand runs a command document. It is classified by its first key; a raw
-// commitTransaction or abortTransaction is refused during a Preview.
+// commitTransaction or abortTransaction is refused during a Preview. The command
+// is marshalled once and those bytes are sent, so the driver sends exactly the
+// document the guard classified (a bson.M may order its keys differently each time).
 func (d *Database) RunCommand(ctx context.Context, runCommand any, opts ...options.Lister[options.RunCmdOptions]) *mongo.SingleResult {
 	raw, err := toRaw(runCommand)
 	if err != nil {
@@ -223,7 +225,7 @@ func (d *Database) RunCommand(ctx context.Context, runCommand any, opts ...optio
 	if err != nil {
 		return failedResult(err)
 	}
-	return d.raw.RunCommand(ctx, runCommand, opts...)
+	return d.raw.RunCommand(ctx, raw, opts...)
 }
 
 // Aggregate runs a database-level aggregation.

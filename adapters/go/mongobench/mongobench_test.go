@@ -683,3 +683,33 @@ func TestAMonitorOnAnotherClientDoesNotCountAsTheTripwire(t *testing.T) {
 		t.Error("the handler ran without its tripwire and its write was not caught")
 	}
 }
+
+// shifting marshals as a read the first time and as an insert afterwards, like a
+// bson.M whose key order changes between two marshals.
+type shifting struct{ calls *int }
+
+func (c shifting) MarshalBSON() ([]byte, error) {
+	*c.calls++
+	if *c.calls == 1 {
+		return bson.Marshal(bson.D{{Key: "find", Value: "documents"}})
+	}
+	return bson.Marshal(bson.D{{Key: "insert", Value: "documents"}, {Key: "documents", Value: bson.A{bson.D{{Key: "_id", Value: "shifted"}}}}})
+}
+
+// RunCommand must send exactly the document the guard classified.
+func TestRunCommandSendsTheDocumentTheGuardClassified(t *testing.T) {
+	a := newApp(t, appOptions{monitor: true, guard: true})
+	mux := http.NewServeMux()
+	a.bench.HandlePreview(mux, "POST /shift", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls := 0
+		_ = a.store.Database(a.raw.Database()).RunCommand(r.Context(), shifting{calls: &calls}).Err()
+		w.WriteHeader(200)
+	}))
+	request := httptest.NewRequest("POST", "/sendproof/_preview/shift", strings.NewReader(`{}`))
+	request.Header.Set("Prefer", "tx=rollback")
+	response := httptest.NewRecorder()
+	a.bench.Middleware(mux).ServeHTTP(response, request)
+	if a.count(t, "shifted") != 0 {
+		t.Fatalf("a command classified as a read was sent as a write: %d %s", response.Code, response.Body)
+	}
+}
