@@ -6,6 +6,7 @@ import type { Knex } from 'knex';
 import { KnexPreview } from '@sendproof/knex';
 import { capturing, sqlEntries } from './support/capture.mts';
 import { deadlockPreview } from './support/deadlock.mts';
+import type { Connection } from './support/deadlock.mts';
 import { resetSchema, targets } from './support/knex-databases.mts';
 import type { TestDatabase } from './support/knex-databases.mts';
 
@@ -183,6 +184,34 @@ for (const target of targets()) {
           }
         }), /not contained/);
         for (const message of outcomes) assert.match(message, /Preview owns the transaction/);
+      });
+    }
+
+    if (target.name === 'SQL Server') {
+      it('refuses every statement after SQL Server picked the Preview as a deadlock victim, so a retry never commits', async () => {
+        provider = provide();
+        /** A connection of its own, outside the Preview, through a one-connection Knex pool. */
+        const connect = async (): Promise<Connection> => {
+          const own = knex({ ...database.client.config, pool: { min: 0, max: 1 } });
+          let trx: Knex.Transaction | undefined;
+          return {
+            query: sql => (trx ?? own).raw(sql),
+            count: async sql => Number((await own.raw(sql))[0].n),
+            begin: async () => { trx = await own.transaction(); },
+            rollback: async () => { await trx?.rollback(); trx = undefined; },
+            end: () => own.destroy(),
+          };
+        };
+        const outcome = await deadlockPreview({
+          connect, column: 'name',
+          preview: work => provider.preview(work),
+          update: id => provider.client('items').where({ id }).update({ name: 'Preview' }),
+          insert: id => provider.client('items').insert({ id, name: 'Retry' }),
+        });
+        assert.match(String((outcome.deadlock as Error)?.message), /deadlock/i, 'the Preview was the deadlock victim');
+        assert.match(String((outcome.retry as Error)?.message), /deadlock|rolled back/i);
+        assert.match(String((outcome.previewError as Error)?.message), /not contained/);
+        assert.equal(outcome.retried, 0);
       });
     }
 
