@@ -473,7 +473,7 @@
     {
       "id": "go-net-http-mysql",
       "database": "mysql",
-      "sharedRules": ["secret-columns", "raw-commit"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "go",
       "port": 5411,
       "readiness": "/ready",
@@ -508,7 +508,7 @@
     {
       "id": "go-gorm-mysql",
       "database": "mysql",
-      "sharedRules": ["secret-columns", "raw-commit"],
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
       "toolchain": "go",
       "port": 5414,
       "readiness": "/ready",
