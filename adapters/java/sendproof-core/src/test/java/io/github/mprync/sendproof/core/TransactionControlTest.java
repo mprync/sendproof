@@ -116,6 +116,17 @@ class TransactionControlTest {
     }
 
     @Test
+    void otherDatabasesReadStringsAsTheServerDoes() {
+        // PostgreSQL's E'' strings take backslash escapes, so the string ends at the second quote and COMMIT runs.
+        assertThat(TransactionControl.find("SELECT E'a\\''; COMMIT", "postgresql", NONE)).isEqualTo("commit");
+        // A dollar-quoted string is one literal, whatever quotes it holds.
+        assertThat(TransactionControl.find("SELECT $$it's$$; COMMIT", "postgresql", NONE)).isEqualTo("commit");
+        assertThat(TransactionControl.find("SELECT $tag$; COMMIT $tag$", "postgresql", NONE)).isNull();
+        assertThat(TransactionControl.find("SELECT 'it''s; COMMIT'", "postgresql", NONE)).isNull();
+        assertThat(TransactionControl.find("UPDATE t SET n = $1 WHERE id = $2", "postgresql", NONE)).isNull();
+    }
+
+    @Test
     void otherDatabasesKeepTheirOwnRules() {
         assertThat(TransactionControl.find("CALL refresh_totals()", "postgresql", NONE)).isNull();
         assertThat(TransactionControl.find("ANALYZE t", "postgresql", NONE)).isNull();

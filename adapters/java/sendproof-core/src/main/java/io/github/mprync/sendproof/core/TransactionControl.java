@@ -16,7 +16,9 @@ import java.util.Set;
  * {@code ROLLBACK} (but not {@code ROLLBACK TO SAVEPOINT}), {@code SET AUTOCOMMIT}, {@code SET IMPLICIT_TRANSACTIONS},
  * XA and two-phase commands, {@code LOCK TABLES}/{@code UNLOCK TABLES}, and DDL ({@code CREATE}, {@code ALTER},
  * {@code DROP}, {@code TRUNCATE}, {@code RENAME}, {@code GRANT}, {@code REVOKE}, {@code COMMENT}), which several
- * databases (H2, MySQL, Oracle) commit implicitly. Every statement of a multi-statement string is checked.
+ * databases (H2, MySQL, Oracle) commit implicitly. Every statement of a multi-statement string is checked, with strings
+ * read both with and without backslash escapes (PostgreSQL's {@code E''} strings) and a {@code $tag$} string read as one
+ * literal.
  *
  * <p>MySQL and MariaDB ({@link #find(String, String, Set)}) add the rest of MySQL's implicit-commit list ({@code ANALYZE},
  * {@code OPTIMIZE}, {@code REPAIR}, {@code CHECK}, {@code FLUSH}, {@code RESET}, {@code LOAD}, {@code CACHE INDEX},
@@ -54,10 +56,13 @@ public final class TransactionControl {
         if (sql == null) {
             return null;
         }
-        for (List<String> statement : statements(SqlParameterNames.tokenize(sql))) {
-            String keyword = check(statement, false);
-            if (keyword != null) {
-                return keyword;
+        // Strings are read with and without backslash escapes (PostgreSQL's E'' strings and standard strings).
+        for (boolean backslashEscapes : new boolean[] {true, false}) {
+            for (List<String> statement : statements(SqlParameterNames.tokenize(text(sql, backslashEscapes, false)))) {
+                String keyword = check(statement, false);
+                if (keyword != null) {
+                    return keyword;
+                }
             }
         }
         return null;
@@ -79,7 +84,7 @@ public final class TransactionControl {
             return null;
         }
         for (boolean backslashEscapes : new boolean[] {true, false}) {
-            for (List<String> statement : statements(SqlParameterNames.tokenize(mysqlText(sql, backslashEscapes)))) {
+            for (List<String> statement : statements(SqlParameterNames.tokenize(text(sql, backslashEscapes, true)))) {
                 String keyword = checkMySql(statement, safeProcedures == null ? Set.of() : safeProcedures);
                 if (keyword != null) {
                     return keyword;
@@ -215,15 +220,18 @@ public final class TransactionControl {
     }
 
     /**
-     * Rewrites MySQL text so {@link SqlParameterNames#tokenize} reads it as the server does: comments become spaces
-     * (except an executable comment's body, which is kept), every string literal becomes {@code 's'}, a doubled backtick
-     * in a quoted identifier becomes {@link #ESCAPED_BACKTICK}, and a minus sign is followed by a space so two of them
-     * never read as a comment.
+     * Rewrites SQL text so {@link SqlParameterNames#tokenize} reads it as the server does: comments become spaces
+     * (except a MySQL executable comment's body, which is kept), every string literal becomes {@code 's'}, a doubled
+     * quote in a quoted identifier becomes {@link #ESCAPED_BACKTICK}, and a minus sign is followed by a space so two of
+     * them never read as a comment. On MySQL {@code #} starts a comment, {@code --} starts one only before whitespace and
+     * {@code "} quotes a string; elsewhere {@code "} quotes an identifier and a PostgreSQL {@code $tag$} string is one
+     * literal.
      *
      * @param backslashEscapes whether a backslash escapes the next character in a string (MySQL's default, off under
-     *                         {@code NO_BACKSLASH_ESCAPES})
+     *                         {@code NO_BACKSLASH_ESCAPES}; PostgreSQL's {@code E''} strings)
+     * @param mysql            whether to apply MySQL's comment and quoting rules
      */
-    static String mysqlText(String sql, boolean backslashEscapes) {
+    static String text(String sql, boolean backslashEscapes, boolean mysql) {
         var out = new StringBuilder(sql.length() + 16);
         int length = sql.length();
         boolean executable = false;
@@ -239,7 +247,7 @@ public final class TransactionControl {
                 int body = i + 2;
                 boolean mysqlOnly = body < length && sql.charAt(body) == '!';
                 boolean mariadbOnly = body + 1 < length && sql.charAt(body) == 'M' && sql.charAt(body + 1) == '!';
-                if (!executable && (mysqlOnly || mariadbOnly)) {
+                if (mysql && !executable && (mysqlOnly || mariadbOnly)) {
                     // /*!50001 ... */ and /*M!100100 ... */ run on the server: keep the body, whatever the version.
                     body += mysqlOnly ? 1 : 2;
                     while (body < length && Character.isDigit(sql.charAt(body))) {
@@ -252,7 +260,8 @@ public final class TransactionControl {
                     i = end < 0 ? length : end + 2;
                 }
                 out.append(' ');
-            } else if (c == '#' || (c == '-' && next == '-' && (i + 2 >= length || sql.charAt(i + 2) <= ' '))) {
+            } else if ((mysql && c == '#')
+                    || (c == '-' && next == '-' && (!mysql || i + 2 >= length || sql.charAt(i + 2) <= ' '))) {
                 int end = sql.indexOf('\n', i);
                 end = end < 0 ? length : end;
                 if (executable) {
@@ -265,31 +274,55 @@ public final class TransactionControl {
             } else if (c == '-') {
                 out.append("- ");
                 i++;
-            } else if (c == '\'' || c == '"') {
+            } else if (c == '\'' || (mysql && c == '"')) {
                 i = afterString(sql, i, c, backslashEscapes);
                 out.append(" 's' ");
-            } else if (c == '`') {
+            } else if (c == '`' || c == '"') {
+                // A quoted identifier: no backslash escapes, a doubled quote is an escaped quote.
                 int end = i + 1;
-                var identifier = new StringBuilder("`");
+                var identifier = new StringBuilder().append(c);
                 while (end < length) {
-                    if (sql.charAt(end) == '`' && end + 1 < length && sql.charAt(end + 1) == '`') {
+                    if (sql.charAt(end) == c && end + 1 < length && sql.charAt(end + 1) == c) {
                         identifier.append(ESCAPED_BACKTICK);
                         end += 2;
-                    } else if (sql.charAt(end) == '`') {
+                    } else if (sql.charAt(end) == c) {
                         end++;
                         break;
                     } else {
                         identifier.append(sql.charAt(end++));
                     }
                 }
-                out.append(identifier).append('`');
+                out.append(identifier).append(c);
                 i = end;
+            } else if (!mysql && c == '$' && dollarTag(sql, i) != null) {
+                String tag = dollarTag(sql, i);
+                int close = sql.indexOf(tag, i + tag.length());
+                i = close < 0 ? length : close + tag.length();
+                out.append(" 's' ");
             } else {
                 out.append(c);
                 i++;
             }
         }
         return out.toString();
+    }
+
+    /**
+     * Returns the PostgreSQL dollar-quote tag ({@code $$} or {@code $name$}) opening at {@code start}, or {@code null}
+     * when there is none there (a {@code $} inside an identifier, or a positional parameter such as {@code $1}).
+     */
+    private static String dollarTag(String sql, int start) {
+        if (start > 0) {
+            char before = sql.charAt(start - 1);
+            if (Character.isLetterOrDigit(before) || before == '_' || before == '$') {
+                return null;
+            }
+        }
+        int i = start + 1;
+        while (i < sql.length() && (Character.isLetter(sql.charAt(i)) || sql.charAt(i) == '_')) {
+            i++;
+        }
+        return i < sql.length() && sql.charAt(i) == '$' ? sql.substring(start, i + 1) : null;
     }
 
     /** Returns the index after the string literal opened at {@code start}, or the end of the text if it never closes. */
