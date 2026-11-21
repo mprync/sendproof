@@ -22,17 +22,41 @@ public final class SqlRedaction {
     private SqlRedaction() {
     }
 
-    /** Returns whether an identifier or a whole statement names a secret, judged by whole words. */
+    /**
+     * Returns whether an identifier or a whole statement names a secret, judged by whole words. Plurals count
+     * ({@code api_tokens}, {@code passwords}), and so does a session identifier ({@code session_id},
+     * {@code sessionId}, Spring Session's {@code SESSION_PRIMARY_ID}), whose value would let a reader take over a
+     * signed-in session.
+     */
     public static boolean looksSecret(String text) {
         String previous = null;
+        String beforePrevious = null;
         for (String word : words(text)) {
-            String lower = word.toLowerCase(Locale.ROOT);
-            if (SECRET_WORDS.contains(lower) || (lower.equals("key") && previous != null && KEY_QUALIFIERS.contains(previous))) {
+            String lower = singular(word.toLowerCase(Locale.ROOT));
+            if (SECRET_WORDS.contains(lower)
+                    || (lower.equals("key") && previous != null && KEY_QUALIFIERS.contains(previous))
+                    || (lower.equals("id") && ("session".equals(previous)
+                        || ("primary".equals(previous) && "session".equals(beforePrevious))))) {
                 return true;
             }
+            beforePrevious = previous;
             previous = lower;
         }
         return false;
+    }
+
+    /** Reduces a plural to its singular for the secret words: tokens, hashes, keys, sessions. */
+    private static String singular(String word) {
+        if (word.length() > 4 && word.endsWith("es") && SECRET_WORDS.contains(word.substring(0, word.length() - 2))) {
+            return word.substring(0, word.length() - 2);
+        }
+        if (word.length() > 3 && word.endsWith("s") && !word.endsWith("ss")) {
+            String stem = word.substring(0, word.length() - 1);
+            if (SECRET_WORDS.contains(stem) || stem.equals("key") || stem.equals("session")) {
+                return stem;
+            }
+        }
+        return word;
     }
 
     /** Splits text at punctuation, underscores and camel-case boundaries. */

@@ -8,7 +8,8 @@ import java.sql.Connection;
 /**
  * A view of the preview's one connection that application code can borrow like any pooled connection. It cannot end
  * the preview's transaction: {@code commit} does nothing, {@code close} returns nothing to a pool, and switching to
- * auto-commit is ignored. The preview's own session rolls back and releases the real connection.
+ * auto-commit is ignored. {@code unwrap} never exposes the driver's connection and {@code abort} is refused. The
+ * preview's own session rolls back and releases the real connection.
  */
 final class SharedConnection {
     private SharedConnection() {
@@ -29,6 +30,17 @@ final class SharedConnection {
                 case "isClosed" -> {
                     return session.isClosed();
                 }
+                case "unwrap" -> {
+                    // The driver's own connection would let the caller commit around this view.
+                    if (args[0] instanceof Class<?> type && type.isInstance(proxy)) {
+                        return proxy;
+                    }
+                    throw session.refuse("Unwrapping the preview connection");
+                }
+                case "isWrapperFor" -> {
+                    return args[0] instanceof Class<?> type && type.isInstance(proxy);
+                }
+                case "abort" -> throw session.refuse("Connection.abort()");
                 case "rollback" -> {
                     if (args == null || args.length == 0) {
                         session.rolledBackEarly();

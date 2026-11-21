@@ -55,6 +55,7 @@ final class JpaPreviewSession implements PreviewSession {
 
     @Override
     public void rollback() {
+        guard.finishing();
         RuntimeException flushFailure = null;
         try {
             if (!status.isCompleted() && !status.isRollbackOnly()) {
@@ -105,6 +106,7 @@ final class JpaPreviewSession implements PreviewSession {
 
     @Override
     public void close() {
+        guard.finishing();
         try {
             if (!status.isCompleted()) {
                 transactions.rollback(status);

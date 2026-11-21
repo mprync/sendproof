@@ -21,8 +21,12 @@ public class TestBenchConfig {
      */
     public var pathBase: String = ""
 
-    /** Display label for the environment. */
-    public var environment: String = "Development"
+    /**
+     * Display label for the environment. When unset it is "Development" in Ktor development mode and "Production"
+     * otherwise, so an enabled workbench never labels a production process as development. It is only a label: SQL
+     * parameter values are controlled by the `PreviewDataSource`'s `showValues`.
+     */
+    public var environment: String? = null
 
     /** Display name of the API. */
     public var apiName: String = "API"

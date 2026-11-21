@@ -1,5 +1,6 @@
 package dev.testbench.jpa;
 
+import dev.testbench.core.TransactionControl;
 import dev.testbench.jdbc.SqlLogListener;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -13,6 +14,8 @@ import net.ttddyy.dsproxy.QueryInfo;
 /**
  * Logs every JDBC command (see {@link SqlLogListener}) and, during a preview, refuses data-changing statements on a
  * connection that is not in a transaction, because such a statement would persist immediately and escape the rollback.
+ * While the handler runs it also refuses statements that end or implicitly commit the transaction ({@code COMMIT},
+ * {@code ROLLBACK}, DDL; see {@link TransactionControl}).
  */
 final class SqlCaptureListener extends SqlLogListener {
     private static final Set<String> WRITES = Set.of("insert", "update", "delete", "merge", "truncate", "create",
@@ -28,6 +31,10 @@ final class SqlCaptureListener extends SqlLogListener {
             return;
         }
         for (QueryInfo query : queries) {
+            String control = PreviewTransactionGuard.isHandling() ? TransactionControl.find(query.getQuery()) : null;
+            if (control != null) {
+                throw PreviewTransactionGuard.refuseWhileHandling("The SQL statement " + control.toUpperCase(Locale.ROOT));
+            }
             if (isWrite(query.getQuery()) && autoCommit(execution)) {
                 throw PreviewTransactionGuard.violation(new PreviewTransactionGuard.EnrollmentException(
                         "A data-changing statement ran outside a transaction during a Test Bench preview and would "

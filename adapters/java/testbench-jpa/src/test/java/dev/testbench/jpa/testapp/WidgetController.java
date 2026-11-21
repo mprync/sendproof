@@ -64,6 +64,24 @@ public class WidgetController {
         return id;
     }
 
+    @PostMapping("/escape/connection-commit/{id}")
+    public String connectionCommit(@PathVariable String id) {
+        widgets.commitThroughTheConnection(id);
+        return id;
+    }
+
+    @PostMapping("/escape/sql-commit/{id}")
+    public String sqlCommit(@PathVariable String id) {
+        widgets.commitWithSql(id);
+        return id;
+    }
+
+    @PostMapping("/logins/{id}")
+    public ResponseEntity<String> login(@PathVariable String id) {
+        widgets.createLogin(id, "s3cret-hash");
+        return ResponseEntity.status(HttpStatus.CREATED).body(id);
+    }
+
     @RestControllerAdvice
     static class Errors {
         @ExceptionHandler(DataIntegrityViolationException.class)

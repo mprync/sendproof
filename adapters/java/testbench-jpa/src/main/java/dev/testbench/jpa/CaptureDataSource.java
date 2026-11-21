@@ -13,7 +13,7 @@ final class CaptureDataSource extends DelegatingDataSource implements AutoClosea
     private final DataSource original;
 
     CaptureDataSource(DataSource original, QueryExecutionListener listener) {
-        super(ProxyDataSourceBuilder.create(original).listener(listener).build());
+        super(ProxyDataSourceBuilder.create(original).listener(listener).methodListener(new JpaConnectionGuard()).build());
         this.original = original;
     }
 

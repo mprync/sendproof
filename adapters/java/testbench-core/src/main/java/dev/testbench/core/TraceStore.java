@@ -1,5 +1,6 @@
 package dev.testbench.core;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -24,6 +25,7 @@ public final class TraceStore {
     /** The default retention period. */
     public static final Duration DEFAULT_RETENTION = Duration.ofMinutes(5);
     private static final Duration COMPLETION_WAIT = Duration.ofSeconds(5);
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final Object gate = new Object();
     private final LinkedList<Reservation> entries = new LinkedList<>();
@@ -60,7 +62,8 @@ public final class TraceStore {
             if (entries.size() == TOTAL_LIMIT) {
                 remove(entries.getFirst());
             }
-            var entry = new Reservation(UUID.randomUUID(), owner, nanoClock.getAsLong());
+            // 128 random bits from a CSPRNG (a version-4 UUID would carry only 122).
+            var entry = new Reservation(new UUID(RANDOM.nextLong(), RANDOM.nextLong()), owner, nanoClock.getAsLong());
             entries.addLast(entry);
             return entry;
         }

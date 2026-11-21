@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.AppenderBase;
 import dev.testbench.core.CaptureContext;
+import dev.testbench.core.CaptureLimits;
 import dev.testbench.core.RequestCapture;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,7 +24,10 @@ public final class LogbackCaptureAppender extends AppenderBase<ILoggingEvent> {
         }
         String logger = event.getLoggerName();
         // SQL is captured with parameters at the JDBC layer; skip the data layer's duplicate text logs.
+        // StatementCreatorUtils traces every bound value, which would bypass parameter redaction.
         if (logger.equals("org.hibernate.SQL") || logger.startsWith("org.hibernate.orm.jdbc")
+                || logger.startsWith("org.hibernate.type.descriptor.sql")
+                || logger.equals("org.springframework.jdbc.core.StatementCreatorUtils")
                 || logger.startsWith("net.ttddyy.dsproxy")) {
             return;
         }
@@ -31,6 +35,10 @@ public final class LogbackCaptureAppender extends AppenderBase<ILoggingEvent> {
         if (event.getKeyValuePairs() != null && !event.getKeyValuePairs().isEmpty()) {
             properties = new LinkedHashMap<>();
             for (var pair : event.getKeyValuePairs()) {
+                // One over the cap, so the capture still sees that the entry was truncated.
+                if (properties.size() > CaptureLimits.PROPERTIES) {
+                    break;
+                }
                 properties.put(pair.key, String.valueOf(pair.value));
             }
         }

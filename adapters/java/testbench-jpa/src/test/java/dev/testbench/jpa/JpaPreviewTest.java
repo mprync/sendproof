@@ -167,6 +167,34 @@ class JpaPreviewTest {
     }
 
     @Test
+    void aDirectConnectionCommitIsRefusedEvenWhenTheHandlerSwallowsIt() throws Exception {
+        MvcResult result = preview("POST", "/escape/connection-commit/c1");
+        assertThat(result.getResponse().getStatus()).isEqualTo(500);
+        assertThat(result.getResponse().getHeader("Preference-Applied")).isNull();
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    void aCommitStatementIsRefusedEvenWhenTheHandlerSwallowsIt() throws Exception {
+        MvcResult result = preview("POST", "/escape/sql-commit/c2");
+        assertThat(result.getResponse().getStatus()).isEqualTo(500);
+        assertThat(result.getResponse().getHeader("Preference-Applied")).isNull();
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    void secretColumnsAreHiddenInChangesAndSql() throws Exception {
+        MvcResult result = preview("POST", "/logins/l1");
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        JsonNode envelope = json(result);
+        JsonNode after = envelope.get("changes").get(0).get("after");
+        assertThat(after.get("id").asText()).isEqualTo("l1");
+        assertThat(after.get("passwordHash").asText()).isEqualTo("[REDACTED]");
+        assertThat(envelope.toString()).doesNotContain("s3cret-hash");
+        assertThat(jdbc.queryForObject("select count(*) from logins", Integer.class)).isZero();
+    }
+
+    @Test
     void changesAreCappedAndFlagged() throws Exception {
         JsonNode envelope = json(preview("POST", "/bulk/b"));
         assertThat(envelope.get("changes")).hasSize(200);

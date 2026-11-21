@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -102,9 +104,13 @@ public final class CaptureLimits {
         boolean truncated = changes.size() > CHANGES;
         int remaining = PAYLOAD_BUDGET;
         for (PreviewChange change : changes.subList(0, Math.min(changes.size(), CHANGES))) {
-            JsonNode key = change.key() == null ? null : snapshot(change.key());
-            JsonNode before = change.before() == null ? null : snapshot(change.before());
-            JsonNode after = change.after() == null ? null : snapshot(change.after());
+            // A table whose name marks it as secret (api_tokens, user_credentials) hides every value; otherwise each
+            // column whose name looks secret (password_hash, refreshToken) is hidden. The key keeps ordinary columns
+            // so the row stays identifiable.
+            boolean secretTable = change.table() != null && SqlRedaction.looksSecret(change.table());
+            JsonNode key = change.key() == null ? null : snapshot(redact(change.key(), false));
+            JsonNode before = change.before() == null ? null : snapshot(redact(change.before(), secretTable));
+            JsonNode after = change.after() == null ? null : snapshot(redact(change.after(), secretTable));
             String operation = clip(change.operation(), NAME);
             String table = clip(change.table(), NAME);
             remaining -= size(key) + size(before) + size(after) + operation.length() + table.length();
@@ -118,6 +124,34 @@ public final class CaptureLimits {
             result.add(new PreviewChange(operation, table, key, before, after));
         }
         return new BoundedChanges(List.copyOf(result), truncated);
+    }
+
+    /**
+     * Replaces secret-named members of a row with {@link SqlRedaction#REDACTED}. A row is a map of column (or property)
+     * names to values, or a JSON object; anything else is returned unchanged.
+     *
+     * @param row the captured row
+     * @param all whether every value is hidden regardless of its name
+     */
+    static Object redact(Object row, boolean all) {
+        if (row instanceof Map<?, ?> map) {
+            var result = new LinkedHashMap<Object, Object>();
+            for (var entry : map.entrySet()) {
+                boolean hide = all || (entry.getKey() != null && SqlRedaction.looksSecret(String.valueOf(entry.getKey())));
+                result.put(entry.getKey(), hide && entry.getValue() != null ? SqlRedaction.REDACTED : entry.getValue());
+            }
+            return result;
+        }
+        if (row instanceof ObjectNode node) {
+            ObjectNode result = node.deepCopy();
+            node.fieldNames().forEachRemaining(name -> {
+                if ((all || SqlRedaction.looksSecret(name)) && !node.get(name).isNull()) {
+                    result.put(name, SqlRedaction.REDACTED);
+                }
+            });
+            return result;
+        }
+        return row;
     }
 
     private static boolean fits(JsonNode value, int depth) {

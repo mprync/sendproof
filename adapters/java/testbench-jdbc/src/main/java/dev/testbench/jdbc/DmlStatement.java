@@ -27,6 +27,17 @@ record DmlStatement(Kind kind, String table, List<Term> columns, List<Term> wher
     }
 
     private static final Pattern TABLE = Pattern.compile("[A-Za-z_][A-Za-z0-9_$]*(\\.[A-Za-z_][A-Za-z0-9_$]*)?");
+    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_$]*");
+
+    /** Returns whether {@code name} is a plain, unquoted column identifier that is safe to place in SQL. */
+    static boolean isIdentifier(String name) {
+        return name != null && IDENTIFIER.matcher(name).matches();
+    }
+
+    /** Returns whether {@code name} is a plain, optionally schema-qualified table identifier. */
+    static boolean isTable(String name) {
+        return name != null && TABLE.matcher(name).matches();
+    }
 
     /** Parses {@code sql}, returning {@code null} when it is not one of the supported shapes. */
     static DmlStatement parse(String sql) {
@@ -34,12 +45,19 @@ record DmlStatement(Kind kind, String table, List<Term> columns, List<Term> wher
         if (t.size() < 4) {
             return null;
         }
-        return switch (t.get(0).toLowerCase(Locale.ROOT)) {
+        DmlStatement statement = switch (t.get(0).toLowerCase(Locale.ROOT)) {
             case "insert" -> insert(t);
             case "update" -> update(t);
             case "delete" -> delete(t);
             default -> null;
         };
+        // The change reader builds its own SELECT from these names, so only plain identifiers are accepted; a quoted
+        // name with spaces or quote characters is logged as SQL only.
+        if (statement == null || statement.columns().stream().anyMatch(term -> !isIdentifier(term.column()))
+                || statement.where().stream().anyMatch(term -> !isIdentifier(term.column()))) {
+            return null;
+        }
+        return statement;
     }
 
     private static DmlStatement insert(List<String> t) {

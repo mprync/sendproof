@@ -1,6 +1,7 @@
 package dev.testbench.jpa.testapp;
 
 import jakarta.persistence.EntityManager;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -47,6 +48,36 @@ public class WidgetService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createInNewTransaction(String id) {
         entities.persist(new Widget(id, "new tx"));
+    }
+
+    @Transactional
+    public void createLogin(String id, String passwordHash) {
+        entities.persist(new Login(id, passwordHash));
+    }
+
+    /** Tries to escape the preview by committing the shared connection directly, then hides the refusal. */
+    @Transactional
+    public void commitThroughTheConnection(String id) {
+        jdbc.update("insert into widgets (id, name) values (?, ?)", id, "committed");
+        try {
+            jdbc.execute((ConnectionCallback<Void>) connection -> {
+                connection.commit();
+                return null;
+            });
+        } catch (RuntimeException ignored) {
+            // A handler that swallows the refusal must still not be confirmed.
+        }
+    }
+
+    /** Tries to escape the preview with a COMMIT statement, then hides the refusal. */
+    @Transactional
+    public void commitWithSql(String id) {
+        jdbc.update("insert into widgets (id, name) values (?, ?)", id, "committed");
+        try {
+            jdbc.execute("commit");
+        } catch (RuntimeException ignored) {
+            // A handler that swallows the refusal must still not be confirmed.
+        }
     }
 
     /** Escapes the preview: runs without a transaction, so the JDBC write would autocommit. */

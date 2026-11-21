@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.DispatcherServlet;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -32,6 +33,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 @Conditional(TestBenchEnabledCondition.class)
 @EnableConfigurationProperties(TestBenchProperties.class)
 public class TestBenchAutoConfiguration {
+    /** Spring Boot's default order for the Spring Security filter chain ({@code spring.security.filter.order}). */
+    private static final int SECURITY_FILTER_ORDER = -100;
 
     /** Property values with the optional {@link TestBench} builder merged over them. */
     @Bean
@@ -83,8 +86,18 @@ public class TestBenchAutoConfiguration {
     }
 
     @Bean
-    FilterRegistrationBean<TestBenchFilter> testBenchFilter(TestBenchSettings settings) {
-        var registration = new FilterRegistrationBean<>(new TestBenchFilter());
+    FilterRegistrationBean<TestBenchFilter> testBenchFilter(TestBenchSettings settings, Environment environment,
+                                                            ObjectProvider<HandlerMapping> handlerMappings) {
+        // The preview must be rewritten before Spring Security sees it; otherwise the security rules would be matched
+        // against /bench/_preview/... instead of the real operation's path.
+        int securityOrder = environment.getProperty("spring.security.filter.order", Integer.class,
+                SECURITY_FILTER_ORDER);
+        if (settings.filterOrder() >= securityOrder) {
+            throw new IllegalStateException("testbench.filter-order (" + settings.filterOrder()
+                    + ") must be lower than spring.security.filter.order (" + securityOrder
+                    + ") so previews are authorized as the real operation.");
+        }
+        var registration = new FilterRegistrationBean<>(new TestBenchFilter(new PreviewTargets(handlerMappings)));
         registration.setName("testBenchFilter");
         registration.addUrlPatterns("/*");
         // Before Spring Security (-100) so the rewritten request is authenticated and authorized as the real one.

@@ -140,8 +140,111 @@ class JdbcPreviewTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> provider.begin());
     }
 
+    /** Runs {@code escape} inside a preview, expecting it to be refused, and returns the rollback's failure. */
+    private Exception refusedPreview(SqlAction escape) throws Exception {
+        var scope = new JdbcScope();
+        try (var ignored = scope.enter()) {
+            var session = provider.begin();
+            execute("insert into items (id, name) values (?, ?)", "x", "Escaping");
+            try (Connection connection = enrolled.getConnection()) {
+                org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> escape.run(connection));
+            }
+            Exception failure = null;
+            try {
+                session.rollback();
+            } catch (IllegalStateException error) {
+                failure = error;
+            } finally {
+                session.close();
+            }
+            return failure;
+        }
+    }
+
+    @FunctionalInterface
+    private interface SqlAction {
+        void run(Connection connection) throws Exception;
+    }
+
+    @Test
+    void aCommitReachedThroughTheStatementIsRefusedAndFailsThePreview() throws Exception {
+        Exception failure = refusedPreview(connection -> {
+            try (var statement = connection.createStatement()) {
+                statement.getConnection().commit();
+            }
+        });
+        assertThat(failure).hasMessageContaining("Connection.commit()");
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    void transactionControlAndDdlStatementsAreRefused() throws Exception {
+        for (String sql : List.of("commit", "COMMIT WORK", "rollback", "create table other (id int)",
+                "/* hidden */ start transaction", "select 1; commit", "set autocommit true")) {
+            Exception failure = refusedPreview(connection -> {
+                try (var statement = connection.createStatement()) {
+                    statement.execute(sql);
+                }
+            });
+            assertThat(failure).as(sql).isNotNull();
+            assertThat(count()).as(sql).isZero();
+        }
+    }
+
+    @Test
+    void unwrappingToTheDriverConnectionIsRefused() throws Exception {
+        Exception failure = refusedPreview(connection -> connection.unwrap(org.h2.jdbc.JdbcConnection.class).commit());
+        assertThat(failure).isNotNull();
+        assertThat(count()).isZero();
+        assertThat(DmlStatement.parse("insert into items (id, name) values (?, ?)")).isNotNull();
+    }
+
+    @Test
+    void savepointsStayAllowed() throws Exception {
+        var scope = new JdbcScope();
+        try (var ignored = scope.enter()) {
+            var session = provider.begin();
+            try (Connection connection = enrolled.getConnection(); var statement = connection.createStatement()) {
+                var savepoint = connection.setSavepoint();
+                statement.execute("insert into items (id, name) values ('s', 'Saved')");
+                connection.rollback(savepoint);
+                statement.execute("savepoint named");
+                statement.execute("rollback to savepoint named");
+            }
+            session.rollback();
+            session.close();
+        }
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    void secretColumnsAreHiddenInChangeSnapshots() throws Exception {
+        try (Connection connection = raw.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("create table users (id varchar(40) primary key, password_hash varchar(100))");
+            statement.execute("insert into users values ('u', 'old-hash')");
+        }
+        var scope = new JdbcScope();
+        List<PreviewChange> changes;
+        try (var ignored = scope.enter()) {
+            var session = provider.begin();
+            execute("update users set password_hash = ? where id = ?", "new-hash", "u");
+            changes = session.changes();
+            session.rollback();
+            session.close();
+        }
+        var snapshot = dev.testbench.core.CaptureLimits.snapshotChanges(changes).changes().get(0);
+        assertThat(snapshot.toString()).doesNotContain("old-hash").doesNotContain("new-hash");
+        assertThat(((com.fasterxml.jackson.databind.JsonNode) snapshot.before()).get("password_hash").asText())
+                .isEqualTo("[REDACTED]");
+        assertThat(((com.fasterxml.jackson.databind.JsonNode) snapshot.key()).get("id").asText()).isEqualTo("u");
+    }
+
     @Test
     void dmlShapesAreParsedConservatively() {
+        // Quoted names that are not plain identifiers are never spliced into the change reader's own SQL.
+        assertThat(DmlStatement.parse("update items set name = ? where \"id\" = ?")).isNotNull();
+        assertThat(DmlStatement.parse("update items set name = ? where \"a b\" = ?")).isNull();
+        assertThat(DmlStatement.parse("insert into items (\"x) or 1=1 --\", name) values (?, ?)")).isNull();
         assertThat(DmlStatement.parse("insert into items (id, name) values (?, ?)")).isNotNull();
         assertThat(DmlStatement.parse("update items set name = ?, n = ? where id = ? and k = ?")).isNotNull();
         assertThat(DmlStatement.parse("delete from items where id = ?")).isNotNull();

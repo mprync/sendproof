@@ -2,6 +2,7 @@ package dev.testbench.jdbc;
 
 import dev.testbench.core.PreviewChange;
 import dev.testbench.core.SqlCapture.Binding;
+import dev.testbench.core.TransactionControl;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -43,6 +44,7 @@ final class JdbcCaptureListener extends SqlLogListener {
     @Override
     public void beforeQuery(ExecutionInfo execution, List<QueryInfo> queries) {
         super.beforeQuery(execution, queries);
+        refuseTransactionControl(execution, queries);
         Deque<Pending> pending = PENDING.get();
         pending.push(new Pending(null, List.of(), List.of()));
         if (!tracking() || queries.size() != 1) {
@@ -101,6 +103,30 @@ final class JdbcCaptureListener extends SqlLogListener {
         }
     }
 
+    /**
+     * Refuses {@code COMMIT}, {@code ROLLBACK}, DDL and similar statements on a preview's connection: they would commit
+     * or end the transaction the preview must roll back. Runs before anything is pushed for {@link #afterQuery}, which
+     * is not called for a refused statement.
+     */
+    private static void refuseTransactionControl(ExecutionInfo execution, List<QueryInfo> queries) {
+        JdbcPreviewSession session;
+        try {
+            Statement statement = execution.getStatement();
+            session = statement == null ? null : JdbcPreviewSession.owning(statement.getConnection());
+        } catch (SQLException | RuntimeException error) {
+            return;
+        }
+        if (session == null) {
+            return;
+        }
+        for (QueryInfo query : queries) {
+            String keyword = TransactionControl.find(query.getQuery());
+            if (keyword != null) {
+                throw session.refuse("The SQL statement " + keyword.toUpperCase(Locale.ROOT));
+            }
+        }
+    }
+
     private static boolean tracking() {
         return !READING.get() && JdbcScope.current() != null;
     }
@@ -111,6 +137,9 @@ final class JdbcCaptureListener extends SqlLogListener {
 
     private List<Map<String, Object>> read(ExecutionInfo execution, String table, List<DmlStatement.Term> where,
                                            List<Binding> bindings) {
+        if (!DmlStatement.isTable(table) || where.stream().anyMatch(term -> !DmlStatement.isIdentifier(term.column()))) {
+            return List.of();
+        }
         var sql = new StringBuilder("select * from ").append(table).append(" where ");
         var values = new ArrayList<Object>();
         for (int i = 0; i < where.size(); i++) {
@@ -122,7 +151,8 @@ final class JdbcCaptureListener extends SqlLogListener {
 
     private List<Map<String, Object>> readByKey(ExecutionInfo execution, String table, Map<String, Object> key)
             throws SQLException {
-        if (key.isEmpty()) {
+        // Column names come from database metadata; anything that is not a plain identifier is not spliced into SQL.
+        if (key.isEmpty() || !DmlStatement.isTable(table) || key.keySet().stream().anyMatch(name -> !DmlStatement.isIdentifier(name))) {
             return List.of();
         }
         var sql = new StringBuilder("select * from ").append(table).append(" where ");

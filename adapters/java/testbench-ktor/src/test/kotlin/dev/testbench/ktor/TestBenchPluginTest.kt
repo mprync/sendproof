@@ -132,6 +132,23 @@ class TestBenchPluginTest {
     }
 
     @Test
+    fun aCrossOriginPreviewIsRefusedBeforeAnyRoutePluginRuns() = testApplication {
+        application { app() }
+        // Deny would answer 403 too, so use an unmarked route: the gate would say 409 if the inner call had run.
+        val response = send(HttpMethod.Post, "/bench/_preview/items/unmarked", rollback, "Sec-Fetch-Site" to "cross-site")
+        assertEquals(403, response.status.value)
+        assertTrue(response.bodyAsText().contains("Cross-origin"))
+        assertEquals(0, count())
+    }
+
+    @Test
+    fun theEnvironmentLabelIsNotDevelopmentOutsideDevelopmentMode() = testApplication {
+        serverConfig { developmentMode = false }
+        application { app() }
+        assertEquals("Production", send(HttpMethod.Get, "/bench/_api/capabilities").json()["environment"].asText())
+    }
+
+    @Test
     fun hostAuthorizationRunsBeforeThePreviewBegins() = testApplication {
         application { app() }
         val response = send(HttpMethod.Post, "/bench/_preview/items", rollback, "X-Deny" to "1")

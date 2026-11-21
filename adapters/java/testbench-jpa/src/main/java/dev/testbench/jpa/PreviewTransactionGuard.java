@@ -8,7 +8,9 @@ import org.springframework.transaction.TransactionExecutionListener;
  * <ul>
  *   <li>flushes the persistence context when a {@code @Transactional} method completes (see
  *       {@link PreviewFlushAdvisor}), so constraint violations surface where a real commit would raise them;</li>
- *   <li>refuses to start any other transaction ({@code REQUIRES_NEW}), whose commit would escape the rollback.</li>
+ *   <li>refuses to start any other transaction ({@code REQUIRES_NEW}), whose commit would escape the rollback;</li>
+ *   <li>backs {@link JpaConnectionGuard} and {@link SqlCaptureListener}, which refuse a handler's own
+ *       {@code Connection.commit()}, {@code setAutoCommit(true)} and transaction-control or DDL statements.</li>
  * </ul>
  * It is registered once on the transaction manager and does nothing outside a preview.
  */
@@ -29,6 +31,7 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
         private final Runnable flush;
         private final Scope previous;
         private boolean starting = true;
+        private boolean finishing;
         private RuntimeException violation;
 
         private Scope(Runnable flush, Scope previous) {
@@ -39,6 +42,14 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
         /** Marks the outer transaction as started; further new transactions are violations. */
         void started() {
             starting = false;
+        }
+
+        /**
+         * Marks the end of the handler: the session itself is about to flush, roll back and reset the connection, so
+         * connection-level refusals stop applying.
+         */
+        void finishing() {
+            finishing = true;
         }
 
         /** Returns the first violation seen, or {@code null}. */
@@ -87,6 +98,24 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
     /** Returns whether a preview is guarding this thread. */
     static boolean isActive() {
         return CURRENT.get() != null;
+    }
+
+    /** Returns whether the handler of a preview is running on this thread (after begin, before the rollback). */
+    static boolean isHandling() {
+        Scope scope = CURRENT.get();
+        return scope != null && !scope.starting && !scope.finishing;
+    }
+
+    /**
+     * Records and returns a violation for an action that would end the preview's transaction, when the handler of a
+     * preview is running on this thread; otherwise returns {@code null}.
+     */
+    static RuntimeException refuseWhileHandling(String action) {
+        if (!isHandling()) {
+            return null;
+        }
+        return violation(new EnrollmentException(action + " ran during a Test Bench preview and would have ended the "
+                + "rolled-back transaction. The operation is not previewable."));
     }
 
     @Override

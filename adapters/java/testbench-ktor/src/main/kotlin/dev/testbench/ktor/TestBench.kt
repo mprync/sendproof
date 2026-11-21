@@ -130,6 +130,8 @@ internal class TestBenchRuntime(private val application: Application, private va
                 call.respondProblem(400, "A Test Bench preview requires Prefer: tx=rollback.")
             call.request.httpMethod == HttpMethod.Head -> call.respondProblem(405, "A preview requires a response body.")
             !Protocol.isValidTarget(target) -> call.respondProblem(400, "The Test Bench preview target is invalid.")
+            // Refused before the inner call runs any plugin, so a cross-site page cannot drive one through a preview.
+            !sameOrigin(call) -> call.respondProblem(403, "Cross-origin previews are refused.")
             else -> preview(context, config.pathBase + target, started)
         }
         context.finish()
@@ -292,7 +294,8 @@ internal class TestBenchRuntime(private val application: Application, private va
             documents.add(0, Capabilities.OpenApiDocument(config.apiName, openApiUrl))
         }
         val body = Capabilities(
-            1, openApiUrl, config.fieldModules.map { mount + it }, config.apiName, config.environment,
+            1, openApiUrl, config.fieldModules.map { mount + it }, config.apiName,
+            config.environment ?: if (application.developmentMode) "Development" else "Production",
             config.provider?.takeIf { it.isAvailable }?.database(), config.identity(call),
             config.authProviders.map { Capabilities.AuthProvider(it.label(), it.kind(), it.url()?.let { url -> mount + url }) },
             operations, operations.isNotEmpty(), documents,

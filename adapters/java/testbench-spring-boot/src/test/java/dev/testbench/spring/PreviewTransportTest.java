@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.testbench.spring.testapp.FilterEndpoint;
 import dev.testbench.spring.testapp.RecordingProvider;
 import dev.testbench.spring.testapp.TestApp;
 import java.security.Principal;
@@ -161,6 +162,38 @@ class PreviewTransportTest {
     void unmarkedAndUnknownTargetsAreRefused() throws Exception {
         assertThat(status(preview("/things/unmarked"))).isEqualTo(409);
         assertThat(status(preview("/missing"))).isEqualTo(404);
+        assertThat(provider.begun).hasValue(0);
+    }
+
+    @Test
+    void aFilterLevelEndpointNeverRunsForAPreview() throws Exception {
+        FilterEndpoint.HITS.set(0);
+        assertThat(status(post("/tenant/filter-endpoint").contextPath("/tenant"))).isEqualTo(204);
+        assertThat(FilterEndpoint.HITS).hasValue(1);
+        // The target is resolved before the filter chain runs: no controller is marked, so nothing executes.
+        assertThat(status(preview("/filter-endpoint"))).isEqualTo(404);
+        assertThat(status(preview("/filter-endpoint").header("Origin", "https://elsewhere.example.test")))
+                .isEqualTo(403);
+        assertThat(FilterEndpoint.HITS).hasValue(1);
+        assertThat(provider.begun).hasValue(0);
+    }
+
+    @Test
+    void theMethodIsCheckedAgainstTheRealMapping() throws Exception {
+        assertThat(status(post("/tenant/bench/_preview/things/12").contextPath("/tenant")
+                .header("Prefer", "tx=rollback"))).isEqualTo(405);
+        assertThat(provider.begun).hasValue(0);
+    }
+
+    @Test
+    void aPreviewSegmentDeeperInThePathIsAnOrdinaryUrl() throws Exception {
+        // Only <mount>/bench/_preview is reserved; deeper, the rollback preference is refused like on any other URL.
+        MvcResult result = mvc.perform(post("/tenant/bench/bench/_preview/_api/capabilities").contextPath("/tenant")
+                .header("Prefer", "tx=rollback")).andReturn();
+        assertThat(result.getResponse().getStatus()).isEqualTo(400);
+        assertThat(body(result).get("title").asText()).contains("Use the Test Bench preview URL");
+        assertThat(status(post("/tenant/x/bench/_preview/things").contextPath("/tenant")
+                .header("Prefer", "tx=rollback"))).isEqualTo(400);
         assertThat(provider.begun).hasValue(0);
     }
 

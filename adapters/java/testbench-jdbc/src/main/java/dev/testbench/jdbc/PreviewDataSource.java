@@ -15,6 +15,10 @@ import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
  * During a preview every borrower, on any thread that carries the request's {@link JdbcScope}, receives the preview's
  * single connection, whose {@code commit} and {@code close} do nothing.
  *
+ * <p>During a preview, statements and calls that would end the shared transaction ({@code COMMIT}, DDL, a
+ * {@code commit()} reached through {@code Statement.getConnection()}, unwrapping to the driver's connection) are
+ * refused and the preview is not confirmed (see {@link PreviewConnectionGuard}).
+ *
  * <p>SQL is logged for every request that has an active capture, and simple single-row {@code INSERT}, {@code UPDATE}
  * and {@code DELETE} statements are reported as row changes (see {@link JdbcCaptureListener}).
  */
@@ -27,7 +31,16 @@ public final class PreviewDataSource implements DataSource {
      * @param showValues says whether non-secret bound values may be shown in captured SQL
      */
     public PreviewDataSource(DataSource target, BooleanSupplier showValues) {
-        this.proxy = ProxyDataSourceBuilder.create(target).listener(new JdbcCaptureListener(showValues)).build();
+        this.proxy = ProxyDataSourceBuilder.create(target).listener(new JdbcCaptureListener(showValues))
+                .methodListener(new PreviewConnectionGuard()).build();
+    }
+
+    /**
+     * Wraps {@code target} with bound SQL values hidden (secret-named values are always hidden). Use
+     * {@link #PreviewDataSource(DataSource, BooleanSupplier)} to show values in a development environment.
+     */
+    public PreviewDataSource(DataSource target) {
+        this(target, () -> false);
     }
 
     /** Starts the preview transaction for the request that owns the current {@link JdbcScope}. */

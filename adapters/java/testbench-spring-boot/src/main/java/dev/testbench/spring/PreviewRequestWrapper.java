@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Locale;
+import org.springframework.web.util.ServletRequestPathUtils;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * Presents a {@code /bench/_preview/...} request to the rest of the filter chain as the original operation request.
@@ -47,6 +49,10 @@ final class PreviewRequestWrapper extends HttpServletRequestWrapper {
             this.servletPath = decoded;
             this.pathInfo = null;
         }
+        // A filter that ran before this one may have cached the parsed /bench/_preview path; drop it so Spring Security
+        // and Spring MVC parse the rewritten path instead of matching against the preview URL.
+        request.removeAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
+        request.removeAttribute(UrlPathHelper.PATH_ATTRIBUTE);
         StringBuffer original = request.getRequestURL();
         String originalUri = request.getRequestURI();
         this.requestUrl = new StringBuffer(original.substring(0, original.length() - originalUri.length()) + requestUri);
