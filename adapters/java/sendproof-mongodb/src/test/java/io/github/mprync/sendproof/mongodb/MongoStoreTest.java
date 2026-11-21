@@ -339,6 +339,29 @@ class MongoStoreTest {
     }
 
     @Test
+    void handlesDerivedWithOtherOptionsStayGuarded() throws Exception {
+        var concern = com.mongodb.WriteConcern.W1;
+        var primary = com.mongodb.ReadPreference.primary();
+        java.util.Map<String, Harness.Handler> writes = new java.util.LinkedHashMap<>();
+        writes.put("d1", () -> documents().withWriteConcern(concern).insertOne(new Document("_id", "d1")));
+        writes.put("d2", () -> documents().withReadPreference(primary).withReadConcern(com.mongodb.ReadConcern.LOCAL)
+                .withDocumentClass(BsonDocument.class).insertOne(new BsonDocument("_id", new org.bson.BsonString("d2"))));
+        // (withTimeout is guarded too, but the driver refuses to change timeoutMS inside a transaction.)
+        writes.put("d3", () -> documents().withCodecRegistry(MongoClientSettings.getDefaultCodecRegistry())
+                .insertOne(new Document("_id", "d3")));
+        writes.put("d4", () -> client.getDatabase(databaseName).withWriteConcern(concern).withReadPreference(primary)
+                .getCollection("documents", Document.class).insertOne(new Document("_id", "d4")));
+        writes.put("d5", () -> client.withWriteConcern(concern).withReadPreference(primary).getDatabase(databaseName)
+                .getCollection("documents").insertOne(new Document("_id", "d5")));
+        for (var write : writes.entrySet()) {
+            // Each write joins the Preview transaction: one that escaped would answer 500, and none commits.
+            JsonNode envelope = Harness.envelope(Harness.preview(write.getValue(), store));
+            assertThat(change(envelope, "insert").get("key").get("_id").asText()).as(write.getKey()).isEqualTo(write.getKey());
+            assertThat(committed(write.getKey())).as(write.getKey()).isZero();
+        }
+    }
+
+    @Test
     void concurrentPreviewsAndSendsNeverShareASession() throws Exception {
         var results = new AtomicReference<List<PreviewOutcome>>();
         var latch = new CountDownLatch(2);
