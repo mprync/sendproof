@@ -21,7 +21,9 @@
       "required": ["operation", "table", "key", "before", "after"],
       "properties": {
         "operation": {"type": "string"},
-        "table": {"type": "string"},
+        "table": {"type": "string", "description": "SQL table, MongoDB collection, DynamoDB table, or Redis key prefix."},
+        "store": {"type": "string", "description": "Data store id from capabilities dataStores; absent for the SQL database. See data-stores.md."},
+        "namespace": {"type": "string", "description": "Database that holds the collection or table."},
         "key": true,
         "before": {"type": ["null", "object"]},
         "after": {"type": ["null", "object"]}
@@ -75,6 +77,29 @@
               }
             },
             "rowsAffected": {"type": "integer", "minimum": 0}
+          }
+        },
+        "db": {
+          "type": "object",
+          "description": "A command to a non-SQL store, logged with level Db. See data-stores.md.",
+          "required": ["system", "operation"],
+          "properties": {
+            "system": {"type": "string"},
+            "operation": {"type": "string"},
+            "target": {"type": "string"},
+            "namespace": {"type": "string"},
+            "statement": {"type": "string"},
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "value"],
+                "properties": {"name": {"type": "string"}, "value": {"type": ["string", "null"]}}
+              }
+            },
+            "rowsAffected": {"type": "integer", "minimum": 0},
+            "blocked": {"type": "boolean"},
+            "error": {"type": "string"}
           }
         }
       }

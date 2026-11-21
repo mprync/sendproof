@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test Bench blocked Preview v1",
+  "description": "RFC 9457 problem body for HTTP 409 when the write guard stopped a Preview. See data-stores.md.",
+  "type": "object",
+  "required": [
+    "title",
+    "status",
+    "code",
+    "detail",
+    "store",
+    "operation",
+    "rolledBack"
+  ],
+  "properties": {
+    "type": {
+      "type": "string"
+    },
+    "title": {
+      "const": "Preview unavailable"
+    },
+    "status": {
+      "const": 409
+    },
+    "code": {
+      "const": "preview_unavailable"
+    },
+    "detail": {
+      "type": "string",
+      "pattern": "^Preview unavailable: "
+    },
+    "store": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "rolledBack": {
+      "const": false
+    }
+  }
+}

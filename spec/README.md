@@ -90,6 +90,16 @@ Successful .NET previews and observed sends emit `Server-Timing` with the metric
 - Sibling properties with the same `x-testbench-row` string can share a form row. Use `x-testbench-visible: true` to keep an optional property above the disclosure. A string `x-testbench-type-label` supplies concise display text for a domain type. The underlying schema still controls validation and serialization.
 - Standard schema fields and operation-level examples are portable across framework adapters. Custom UI controls must provide a usable native or JSON fallback when an extension is unknown.
 
+## Data stores
+
+Protocol v1.1 adds data stores other than the SQL database, as an additive revision: [data-stores.md](data-stores.md) is the full rule set. In brief:
+
+- A store that can roll back (MongoDB on a replica set) runs in `preview` mode and joins the Preview transaction. A store that can't (Redis, DynamoDB, a standalone MongoDB) runs in `guard` mode: reads run, and the first write stops the Preview before it reaches the store.
+- A blocked Preview answers HTTP 409 with an RFC 9457 problem whose `code` is `preview_unavailable` and whose `detail` reads, for example, "Preview unavailable: this operation writes to Redis". Any SQL work in the same Preview rolls back. Nothing is written.
+- Capabilities may list `dataStores` (each store's mode) and `previewUnavailable` (operations an author marked `preview: false`, with a reason).
+- Logs gain level `"Db"` with `db: {system, operation, target?, namespace?, statement?, parameters?, rowsAffected?}`, aligned with the OpenTelemetry database conventions and redacted like SQL parameters. Changes gain optional `store` and `namespace` for documents, items and keys.
+- Shared tables in [data-stores/](data-stores/) classify every command; anything not listed is a write. Stores whose client the binding hasn't hooked are not covered.
+
 ## Implementing another adapter
 
 An ASP.NET Core host can call `.WithFieldModule("/assets/inventory-fields.js")`. Serve that ES module as a normal same-origin static asset. The adapter adds the application path base to the URL in the optional `fieldModules` array. The UI loads each module once, in configuration order. Only host configuration supplies executable URLs.

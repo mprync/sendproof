@@ -44,3 +44,73 @@ Enable Preview for `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}`, and
 - `rollback-failure` uses the usual provider for capture but reports an injected failure from rollback after promoting no data. The transport must withhold confirmation. An independent read must still find the database unchanged.
 
 The fixtures exercise the actual protocol via HTTP. Auxiliary test configuration, authentication and database seed logic stay in the fixture.
+
+## Shared security rules
+
+These two rules come from the [security review](../../docs/security-review.md#follow-ups). A manifest entry opts in per rule with `"sharedRules": ["secret-columns", "raw-commit"]`; the runner reports a rule the entry doesn't list as not implemented rather than failing it.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `POST /accounts` | Accept `{id,email,password}`, insert a row into a second table `accounts` with string columns `id` (primary key), `email` and `password_hash`, and return 201 and `{id,email}`. Store `password_hash` as the literal `hashed:<password>`: it is test data, so the runner can search captures for it. |
+| `GET /accounts/{id}` | Return `{id,email}` or 404. |
+| `POST /items/{id}/commit` | Accept `{name}`, insert the item, then execute a raw `COMMIT` on the same connection the handler uses, and return 201 and `{id,name}`. Ordinary Send behavior of this route is not checked. |
+
+Enable Preview for `POST /accounts` and `POST /items/{id}/commit`.
+
+- **`secret-columns`:** in the Preview envelope and in the observed-Send trace, the `accounts` change's `after.password_hash` is `"[REDACTED]"`, and neither the password nor `hashed:<password>` appears anywhere else, including SQL log parameters.
+- **`raw-commit`:** the Preview answers 500 without confirmation, because the provider refuses transaction-control statements during a Preview ([data-stores.md](../data-stores.md#transaction-control-statements-from-the-handler)). A normal read afterwards finds no item.
+
+## Data store routes
+
+A manifest entry that lists `"stores"` (any of `mongodb`, `redis` and `dynamodb`) adds the routes for those stores, hooks each store's client as its binding documents, and advertises the stores in capabilities `dataStores`. The runner provisions a fresh namespace per fixture process, passes it in these variables, and removes it after stopping the fixture. The services are the ones in [compose.yml](../../tests/conformance/compose.yml).
+
+| Variable | Meaning |
+| --- | --- |
+| `BENCH_MONGODB_URL` | `mongodb://` URL whose path names a fresh database, with `directConnection=true`. Use collection `documents`. |
+| `BENCH_REDIS_URL` | `redis://` URL with the server password. The password must never appear in a capture. |
+| `BENCH_REDIS_PREFIX` | Fresh key prefix, such as `tb_1a2b3c:`. Prefix every key with it. |
+| `BENCH_DYNAMODB_URL` | DynamoDB endpoint URL. |
+| `BENCH_DYNAMODB_TABLE` | A fresh table with string partition key `id`, created by the runner. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | Local-only credentials for DynamoDB Local. The secret key must never appear in a capture. |
+
+### MongoDB routes (`preview` mode)
+
+Documents have the shape `{_id, name, profile: {city}, password_hash}`.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `GET /documents/{id}` | Return `{id,name,city}` or 404. |
+| `POST /documents` | Accept `{id,name,city,password}`, insert `{_id: id, name, profile: {city}, password_hash: "hashed:<password>"}`, log `created-document:<id>`, and return 201 and `{id,name,city}`. |
+| `PATCH /documents/{id}` | Accept `{name?,city?}`, apply them with one `updateOne` using `$set` (`profile.city` for the city), and return 200 and the updated `{id,name,city}`, or 404. |
+| `POST /documents/archive` | Run `aggregate` on `documents` with the pipeline `[{ "$match": {} }, { "$out": "documents_archive" }]` and return 204. |
+| `DELETE /documents/{id}` | Delete the document and return 204. Marked `preview: false`. |
+
+### Redis routes (`guard` mode)
+
+Counters live at `<prefix>counter:<key>`.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `GET /counters/{key}` | `GET` the counter and return 200 and `{key,value}` with an integer value, or 404. |
+| `POST /counters/{key}` | `INCR` the counter and return 200 and `{key,value}`. |
+| `POST /counters/{key}/take` | `GETDEL` the counter and return 200 and `{key,value}`, or 404. |
+| `DELETE /counters/{key}` | `DEL` the counter and return 204. Marked `preview: false`. |
+
+### DynamoDB routes (`guard` mode)
+
+Items in `BENCH_DYNAMODB_TABLE` have the shape `{id, status, hits}`.
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `GET /orders/{id}` | `GetItem` and return 200 and `{id,status,hits}`, or 404. |
+| `POST /orders/{id}/touch` | `UpdateItem` with `ADD hits :one SET #s = if_not_exists(#s, :new)` (`#s` is `status`, `:new` is `"new"`) and `ReturnValues: ALL_NEW`, and return 200 and `{id,status,hits}`. |
+| `POST /orders/{id}/cancel` | `ExecuteStatement` with `UPDATE "<table>" SET status = 'cancelled' WHERE id = ?`, and return 200 and `{id,status}`. |
+| `DELETE /orders/{id}` | `DeleteItem` and return 204. Marked `preview: false`. |
+
+### Mixed SQL and store route
+
+| Method and path | Handler behavior |
+| --- | --- |
+| `POST /items/{id}/remember?store=<store>` | Accept `{name}`, insert the item into `items`, then write the named guarded store: `INCR <prefix>counter:item-<id>` for `redis`, or the `touch` update on item `item-<id>` for `dynamodb`. Return 201 and `{id,name}`. |
+
+Enable Preview for every route in these tables except the ones marked `preview: false`. Report each marked route in capabilities `previewUnavailable` with the reason `Preview unavailable: this operation writes to <Store>` and `stores: ["<store>"]`. Log every store command as a `Db` entry in Previews and observed-Send traces.

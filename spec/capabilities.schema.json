@@ -41,6 +41,32 @@
       }
     },
     "observedSend": { "type": "boolean", "description": "Supports Prefer: trace for advertised preview operations." },
+    "dataStores": {
+      "type": "array",
+      "description": "Data stores the binding has hooked and how Preview treats each. See data-stores.md.",
+      "items": {
+        "type": "object", "required": ["system", "mode"],
+        "properties": {
+          "system": { "type": "string" },
+          "name": { "type": "string" },
+          "mode": { "enum": ["preview", "guard"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "previewUnavailable": {
+      "type": "array",
+      "description": "Operations an API author marked preview: false, with the reason the UI shows.",
+      "items": {
+        "type": "object", "required": ["method", "path", "reason"],
+        "properties": {
+          "method": { "type": "string", "pattern": "^[A-Z]+$" },
+          "path": { "$ref": "#/$defs/localUrl" },
+          "reason": { "type": "string" },
+          "stores": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
     "previewOperations": {
       "type": "array",
       "items": {
