@@ -72,6 +72,52 @@ final class TraceStoreTest extends TestCase
         $this->assertNotNull($store->get($other, 'carol'));
     }
 
+    public function testTraceFilesAndTheDirectoryArePrivate(): void
+    {
+        $id = $this->store()->put('alice', ['x' => 1]);
+
+        $this->assertSame(0700, fileperms($this->directory) & 0777);
+        $this->assertSame(0600, fileperms($this->directory . '/' . $id . '.json') & 0777);
+    }
+
+    public function testAnExistingSharedDirectoryIsTightenedBeforeUse(): void
+    {
+        mkdir($this->directory, 0777);
+        chmod($this->directory, 0777);
+
+        $this->store()->put('alice', ['x' => 1]);
+
+        clearstatcache();
+        $this->assertSame(0700, fileperms($this->directory) & 0777);
+    }
+
+    public function testASymlinkedDirectoryIsRefused(): void
+    {
+        $target = $this->directory . '-target';
+        mkdir($target, 0700);
+        symlink($target, $this->directory);
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->store()->put('alice', ['x' => 1]);
+        } finally {
+            unlink($this->directory);
+            rmdir($target);
+        }
+    }
+
+    public function testStaleTemporaryFilesAreRemoved(): void
+    {
+        $store = $this->store(5);
+        $store->put('alice', ['x' => 1]);
+        $orphan = $this->directory . '/' . str_repeat('a', 32) . '.json.dead.tmp';
+        file_put_contents($orphan, '{}');
+        touch($orphan, time() - 60);
+
+        $store->put('alice', ['x' => 2]);
+
+        $this->assertFileDoesNotExist($orphan);
+    }
+
     public function testOwnerKeysRequireAStableSubject(): void
     {
         $this->assertNull(TraceOwner::key('web', null, ''));

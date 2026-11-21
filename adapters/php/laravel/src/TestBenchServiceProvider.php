@@ -15,6 +15,7 @@ use TestBench\Laravel\Capture\CaptureListeners;
 use TestBench\Laravel\Eloquent\ChangeCollector;
 use TestBench\Laravel\Eloquent\EloquentPreviewProvider;
 use TestBench\Laravel\Http\AllowPreview;
+use TestBench\Laravel\Http\AuthorizeWorkbench;
 use TestBench\Laravel\Http\PreviewMiddleware;
 use TestBench\Laravel\Http\WorkbenchController;
 
@@ -73,10 +74,9 @@ final class TestBenchServiceProvider extends ServiceProvider
     {
         $router = $this->app->make(Router::class);
         $middleware = $this->app['config']->get('testbench.middleware');
-        $middleware ??= $router->hasMiddlewareGroup('web') ? ['web'] : [];
-        if (($ability = $this->app['config']->get('testbench.authorize')) !== null) {
-            $middleware[] = 'can:' . $ability;
-        }
+        $middleware = (array) ($middleware ?? ($router->hasMiddlewareGroup('web') ? ['web'] : []));
+        // Applies the gate ability and any authorizeUsing() closure to every workbench route.
+        $middleware[] = AuthorizeWorkbench::class;
 
         Route::middleware($middleware)->prefix('bench')->group(function (): void {
             Route::get('/', [WorkbenchController::class, 'index']);

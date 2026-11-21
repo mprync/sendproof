@@ -53,6 +53,23 @@ final class Capabilities
         ];
     }
 
+    /**
+     * Prefixes a configured application-relative URL with the path base after validating it.
+     *
+     * Discovery advertises these URLs to the browser, which loads field modules as scripts and
+     * follows sign-in links, so only same-origin paths are accepted.
+     *
+     * @throws \InvalidArgumentException when `$url` is not an application-relative path
+     */
+    public static function withBase(string $pathBase, string $url): string
+    {
+        if (!self::isLocalUrl($url)) {
+            throw new \InvalidArgumentException('Test Bench URLs must be application-relative paths such as /openapi/v1.json.');
+        }
+
+        return $pathBase . $url;
+    }
+
     /** True for an application-relative, same-origin path such as `/auth/sign-in`. */
     public static function isLocalUrl(string $url): bool
     {

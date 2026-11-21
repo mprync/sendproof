@@ -55,22 +55,22 @@ final class WorkbenchController
     public function capabilities(Request $request): JsonResponse
     {
         $base = $request->getBaseUrl();
-        $withBase = static fn (string $url): string => $base . $url;
+        $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
         $provider = $this->manager->provider();
         $available = $provider !== null && $provider->isAvailable();
-        $openApi = $withBase($this->manager->config('openapi_url', '/openapi/v1.json'));
+        $openApi = $withBase((string) $this->manager->config('openapi_url', '/openapi/v1.json'));
         $apiName = $this->manager->config('api_name') ?? $this->app->make('config')->get('app.name', 'API');
 
         $capabilities = Capabilities::build(
             (string) $apiName,
             $this->app->environment(),
             $openApi,
-            array_map(static fn (array $document): array => ['name' => $document['name'], 'url' => $base . $document['url']], (array) $this->manager->config('documents', [])),
+            array_map(static fn (array $document): array => ['name' => $document['name'], 'url' => $withBase((string) $document['url'])], (array) $this->manager->config('documents', [])),
             array_map($withBase, (array) $this->manager->config('field_modules', [])),
             $available ? $provider->database() : null,
             $this->manager->identity($request),
             array_map(static fn (array $entry): array => [
-                'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => isset($entry['url']) ? $base . $entry['url'] : null,
+                'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => isset($entry['url']) ? $withBase((string) $entry['url']) : null,
             ], (array) $this->manager->config('auth_providers', [])),
             $available ? $this->operations() : [],
         );

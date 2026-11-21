@@ -126,7 +126,8 @@ final class OrmChangeCollector
     {
         $key = [];
         foreach ($meta->getIdentifierValues($entity) as $field => $value) {
-            $key[$meta->hasField($field) ? $meta->getColumnName($field) : $field] = $value;
+            $column = $meta->hasField($field) ? $meta->getColumnName($field) : $field;
+            $key[$column] = SqlRedactor::looksSecret($column) ? Limits::REDACTED : $value;
         }
 
         return $key;

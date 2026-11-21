@@ -38,7 +38,9 @@ final class EloquentSession implements PreviewSession
         $failure = null;
         foreach ($this->enrolled as [$connection, $before]) {
             try {
-                if ($connection->transactionLevel() <= $before) {
+                // A raw COMMIT (DB::unprepared('COMMIT') or the PDO itself) leaves Laravel's level
+                // counter untouched, and Laravel then skips the rollback silently, so ask the driver.
+                if ($connection->transactionLevel() <= $before || ($before === 0 && $this->transactionLost($connection))) {
                     throw new \RuntimeException('The previewed operation committed or closed the preview transaction, so rollback cannot be confirmed.');
                 }
                 $connection->rollBack($before);
@@ -71,6 +73,14 @@ final class EloquentSession implements PreviewSession
                 // Best effort. The preview was already withheld when rollback failed earlier.
             }
         }
+    }
+
+    /** True when the driver reports that the transaction the preview opened is gone. */
+    private function transactionLost(Connection $connection): bool
+    {
+        $pdo = $connection->getRawPdo();
+
+        return $pdo instanceof \PDO && !$pdo->inTransaction();
     }
 
     private function inTransaction(Connection $connection): bool

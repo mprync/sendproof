@@ -43,7 +43,10 @@ final class ExecutionListener
         $preview = $event->getRequest()->attributes->get(PreviewListener::MODE) === 'preview';
         if ($state->reached || !$this->manager->authorized()) {
             // A denied or repeated entry must not run the handler; a preview then yields no envelope.
-            $event->setController(static fn (): Response => new Response('', 403));
+            // An observed send is an ordinary request: it runs untouched and simply records no trace.
+            if ($preview) {
+                $event->setController(static fn (): Response => new Response('', 403));
+            }
             return;
         }
 

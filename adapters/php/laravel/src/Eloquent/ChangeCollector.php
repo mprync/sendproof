@@ -70,7 +70,7 @@ final class ChangeCollector
         $this->changes[] = [
             'operation' => $operation,
             'table' => $model->getTable(),
-            'key' => [$model->getKeyName() => $model->getKey()],
+            'key' => $this->row($model, [$model->getKeyName() => $model->getKey()], $model),
             'before' => $before,
             'after' => $after,
         ];

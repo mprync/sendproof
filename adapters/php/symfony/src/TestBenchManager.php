@@ -76,9 +76,13 @@ final class TestBenchManager
         $token = $this->tokens?->getToken();
         $user = $token?->getUser();
 
-        return $user instanceof UserInterface
-            ? TraceOwner::key($token::class, $user->getUserIdentifier(), $request->getBaseUrl())
-            : null;
+        if (!$user instanceof UserInterface) {
+            return null;
+        }
+        // The firewall separates user namespaces: "alice" on an admin firewall is not "alice" on the API one.
+        $firewall = method_exists($token, 'getFirewallName') ? (string) $token->getFirewallName() : '';
+
+        return TraceOwner::key($token::class . '#' . $firewall, $user->getUserIdentifier(), $request->getBaseUrl());
     }
 
     /** Whether the current user may use the workbench. */

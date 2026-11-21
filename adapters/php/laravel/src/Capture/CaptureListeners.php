@@ -67,7 +67,8 @@ final class CaptureListeners
             $bindings[] = ['name' => is_string($key) ? ltrim($key, ':') : 'p' . $position, 'value' => $value];
             $position++;
         }
-        [$sql, $truncated] = SqlRedactor::entry($event->sql, $bindings, $this->showValues());
+        $private = $this->touchesSessionStorage($event->sql, $event->connection->getTablePrefix());
+        [$sql, $truncated] = SqlRedactor::entry($event->sql, $bindings, $this->showValues() && !$private);
         $recorder->recordSql((float) $event->time, $sql, $truncated, 'Illuminate.Database.Query');
     }
 
@@ -109,6 +110,38 @@ final class CaptureListeners
         );
 
         return $suppress ? false : null;
+    }
+
+    /**
+     * Whether a statement reads or writes the table that stores sessions.
+     *
+     * Its bindings carry the session id and the serialized session (including the CSRF token),
+     * which must never reach an envelope or trace, so every value of such a statement is hidden.
+     */
+    private function touchesSessionStorage(string $sql, string $prefix): bool
+    {
+        $config = $this->app->make('config');
+        $driver = $config->get('session.driver');
+        $tables = [];
+        if ($driver === 'database') {
+            $tables[] = (string) $config->get('session.table', 'sessions');
+        }
+        // Cache-backed session drivers keep sessions in a cache store, which may be the database one.
+        $store = match ($driver) {
+            'database', null => null,
+            'cache' => $config->get('session.store') ?? $config->get('cache.default'),
+            default => $driver,
+        };
+        if ($store !== null && $config->get("cache.stores.{$store}.driver") === 'database') {
+            $tables[] = (string) $config->get("cache.stores.{$store}.table", 'cache');
+        }
+        foreach ($tables as $table) {
+            if ($table !== '' && preg_match('/(?<![\w$])' . preg_quote($prefix . $table, '/') . '(?![\w$])/i', $sql)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function showValues(): bool

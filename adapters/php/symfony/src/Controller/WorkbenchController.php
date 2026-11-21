@@ -63,18 +63,18 @@ final class WorkbenchController
         $base = $request->getBaseUrl();
         $provider = $this->manager->provider();
         $available = $provider !== null && $provider->isAvailable();
-        $withBase = static fn (string $url): string => $base . $url;
+        $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
 
         $capabilities = Capabilities::build(
             (string) ($this->manager->setting('api_name') ?? 'API'),
             $this->manager->environment(),
             $withBase((string) $this->manager->setting('openapi_url')),
-            array_map(static fn (array $document): array => ['name' => $document['name'], 'url' => $base . $document['url']], $this->manager->setting('documents')),
+            array_map(static fn (array $document): array => ['name' => $document['name'], 'url' => $withBase((string) $document['url'])], $this->manager->setting('documents')),
             array_map($withBase, $this->manager->setting('field_modules')),
             $available ? $provider->database() : null,
             $this->manager->identity($request),
             array_map(static fn (array $entry): array => [
-                'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => $entry['url'] === null ? null : $base . $entry['url'],
+                'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => $entry['url'] === null ? null : $withBase((string) $entry['url']),
             ], $this->manager->setting('auth_providers')),
             $available ? $this->catalog->operations() : [],
         );
