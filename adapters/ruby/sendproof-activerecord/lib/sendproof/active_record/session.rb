@@ -9,9 +9,11 @@ module Sendproof
     class Session < Sendproof::Provider::PreviewSession
       Enrollment = Struct.new(:connection, :transaction)
 
-      def initialize(tracker)
+      # @param release_turn [#call, nil] hands the provider's MySQL turn back (see {Turns})
+      def initialize(tracker, release_turn: nil)
         super()
         @tracker = tracker
+        @release_turn = release_turn
         @enrollments = []
         @rolled_back = false
         @closed = false
@@ -39,6 +41,10 @@ module Sendproof
         end
         @rolled_back = failures.empty?
         raise failures.first, cause: failures.first if failures.any?
+
+        # The transaction has ended with the rollback, so the next MySQL Preview may run. A failed
+        # rollback keeps the turn until +close+ has tried again.
+        hand_back_turn
       end
 
       # Warns when write statements bypassed the model callbacks and so are missing from the diff.
@@ -59,10 +65,17 @@ module Sendproof
           @enrollments.reverse_each { |enrollment| rollback_one(enrollment) } unless @rolled_back
         ensure
           @tracker.deactivate
+          hand_back_turn
         end
       end
 
       private
+
+      def hand_back_turn
+        release = @release_turn
+        @release_turn = nil
+        release&.call
+      end
 
       def rollback_one(enrollment)
         connection = enrollment.connection

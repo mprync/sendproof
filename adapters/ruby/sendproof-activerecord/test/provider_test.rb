@@ -246,4 +246,87 @@ class ObservationTest < Minitest::Test
   ensure
     Item.filter_attributes = nil
   end
+
+  # --- the raw-commit rule ----------------------------------------------------------------------
+
+  def test_a_raw_commit_is_refused_before_it_reaches_the_database_and_records_a_fault
+    refused = nil
+    session, = preview do
+      Item.create!(id: "a", name: "Alpha")
+      begin
+        Item.lease_connection.execute("COMMIT")
+      rescue Sendproof::PreviewTransactionControl => error
+        refused = error
+      end
+    end
+    refute_nil refused, "The COMMIT must be refused"
+    assert_kind_of Sendproof::PreviewTransactionControl, recorder.fault
+    assert_empty durable_items, "Nothing may have been committed"
+    assert_equal ["insert"], session.changes.map { |c| c[:operation] }
+  end
+
+  def test_other_transaction_control_statements_are_refused_too
+    ["END", "ROLLBACK", "BEGIN", "SET autocommit = 1", "/* x */ commit", "select 1; COMMIT"].each do |sql|
+      preview { assert_raises(Sendproof::PreviewTransactionControl, sql) { Item.lease_connection.execute(sql) } }
+    end
+  end
+
+  def test_savepoints_and_ordinary_statements_stay_allowed
+    session, = preview do
+      Item.transaction(requires_new: true) { Item.create!(id: "a", name: "Alpha") }
+      Item.lease_connection.execute("SAVEPOINT mine")
+      Item.lease_connection.execute("ROLLBACK TO SAVEPOINT mine")
+      Item.lease_connection.execute("RELEASE SAVEPOINT mine")
+    end
+    assert_nil recorder.fault
+    assert_equal ["insert"], session.changes.map { |c| c[:operation] }
+  end
+
+  def test_a_raw_commit_outside_a_preview_is_not_refused
+    # An observed send and an ordinary request run unguarded.
+    observe { Item.create!(id: "a", name: "Alpha") }
+    assert_equal ["a"], durable_items
+  end
+
+  # --- discovery --------------------------------------------------------------------------------
+
+  def test_the_provider_names_its_sql_system
+    assert_equal "sqlite", Sendproof::ActiveRecord::Provider.new.database_system
+    assert_equal "mariadb", Sendproof::ActiveRecord::Provider.new(system: "mariadb").database_system
+  end
+
+  # --- MySQL turn-taking --------------------------------------------------------------------------
+
+  def test_serialized_previews_never_overlap_and_all_complete
+    provider = Sendproof::ActiveRecord::Provider.new(serialize_previews: true)
+    running = 0
+    overlap = 0
+    guard = Mutex.new
+    threads = Array.new(6) do |n|
+      Thread.new do
+        # The turn is taken before the connection is leased, so waiting Previews hold none.
+        preview(provider) do
+          guard.synchronize { running += 1; overlap = [overlap, running].max }
+          Item.create!(id: "turn-#{n}", name: "Turn")
+          sleep 0.02
+          guard.synchronize { running -= 1 }
+        end
+      ensure
+        ActiveRecord::Base.connection_pool.release_connection
+      end
+    end
+    threads.each(&:join)
+    assert_equal 1, overlap, "Serialized previews must take turns"
+    assert_empty durable_items
+  end
+
+  def test_a_failed_begin_hands_the_turn_back
+    provider = Sendproof::ActiveRecord::Provider.new(serialize_previews: true)
+    broken = Class.new { def self.lease_connection = raise("no connection") }
+    provider.instance_variable_set(:@connection_classes, [broken])
+    assert_raises(RuntimeError) { provider.begin_preview(Context.new) }
+    Timeout.timeout(2) { preview(Sendproof::ActiveRecord::Provider.new(serialize_previews: true)) { Item.create!(id: "a", name: "A") } }
+    provider.instance_variable_set(:@connection_classes, [ActiveRecord::Base])
+    Timeout.timeout(2) { preview(provider) { Item.create!(id: "b", name: "B") } }
+  end
 end

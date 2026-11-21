@@ -26,6 +26,8 @@ module Sendproof
 
       def logger = @logger || ::Rails.logger
 
+      def framework = @framework || "Rails"
+
       def preview_operations=(operations)
         @preview_operations_set = true
         super
@@ -42,6 +44,11 @@ module Sendproof
       def exception_status = @exception_status || Routes.method(:status_for_error)
 
       private
+
+      # Marked operations come from +sendproof_no_preview+ unless set explicitly.
+      def unavailable_source
+        @preview_unavailable.respond_to?(:call) || !@preview_unavailable.empty? ? super : Routes.unavailable
+      end
 
       # Operations come from preview-enabled controller actions unless set explicitly.
       def operations_source

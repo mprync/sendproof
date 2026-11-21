@@ -20,6 +20,8 @@ module Sendproof
     autoload :SqlSubscriber, "sendproof/active_record/sql_subscriber"
     autoload :Tracker, "sendproof/active_record/tracker"
     autoload :Tracking, "sendproof/active_record/tracking"
+    autoload :TransactionGuard, "sendproof/active_record/transaction_guard"
+    autoload :Turns, "sendproof/active_record/turns"
 
     # Hooks the model callbacks and the SQL subscriber into ActiveRecord. Idempotent.
     def self.install!
@@ -27,6 +29,7 @@ module Sendproof
 
       @installed = true
       ::ActiveRecord::Base.include(Tracking)
+      ::ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(TransactionGuard)
       SqlSubscriber.subscribe
     end
   end

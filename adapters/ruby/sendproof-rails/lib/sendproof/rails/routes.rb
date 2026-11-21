@@ -18,6 +18,17 @@ module Sendproof
         end
       end
 
+      # @return [Array<Hash>] +{method:, path:, reason:, stores:}+ for every route marked +preview: false+
+      def unavailable
+        ::Rails.application.routes.routes.flat_map do |route|
+          next [] unless route.dispatcher? && (controller = controller_class(route.defaults[:controller]))
+          next [] unless controller.respond_to?(:sendproof_unavailable)
+
+          mark = controller.sendproof_unavailable(route.defaults[:action]) or next []
+          verbs(route).map { |verb| { method: verb, path: template(route.path.spec.to_s), **mark } }
+        end
+      end
+
       # @return [Symbol, nil] +:eligible+, +:ineligible+, or nil when the router has no such endpoint
       def resolve(method, path)
         params = ::Rails.application.routes.recognize_path(path, method: method)

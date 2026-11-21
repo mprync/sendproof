@@ -51,10 +51,14 @@ module ProviderHelpers
 
   def durable_items = durable { Item.order(:id).pluck(:id) }
 
+  # The recorder of the last {#preview}, for its fault and blocked marks.
+  attr_reader :recorder
+
   # Runs the block as a request handler inside a preview, then rolls back like the transport does.
   # @return [Array(Sendproof::Provider::PreviewSession, Sendproof::Recorder::Snapshot)]
   def preview(provider = Sendproof::ActiveRecord::Provider.new, include_values: true)
     recorder = Sendproof::Recorder.new(rollback: true, include_sql_values: include_values)
+    @recorder = recorder
     session = nil
     snapshot = nil
     Sendproof::Capture.with(recorder) do

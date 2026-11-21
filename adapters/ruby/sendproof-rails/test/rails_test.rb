@@ -48,6 +48,48 @@ class RoutesTest < Minitest::Test
   end
 end
 
+class UnavailableTest < Minitest::Test
+  include Rack::Test::Methods
+
+  def app = DummyApp
+
+  def test_marked_actions_are_not_operations_and_are_reported_with_their_reason
+    operations = Sendproof::Rails::Routes.operations
+    assert_includes operations, ["POST", "/sessions/{id}/refresh"]
+    refute_includes operations, ["DELETE", "/sessions/{id}"]
+    refute_includes operations, ["POST", "/sessions/{id}/purge"]
+    assert_equal :ineligible, Sendproof::Rails::Routes.resolve("DELETE", "/sessions/7")
+
+    unavailable = Sendproof::Rails::Routes.unavailable
+    assert_includes unavailable, { method: "DELETE", path: "/sessions/{id}", reason: "Clears the Redis session", stores: [] }
+    assert_includes unavailable, { method: "POST", path: "/sessions/{id}/purge", stores: %w[redis dynamodb],
+                                   reason: "Preview unavailable: this operation writes to Redis" }
+  end
+
+  def test_capabilities_carry_previewUnavailable_the_binding_and_never_infer_it
+    get "/sendproof/_api/capabilities", {}, { "HTTP_X_USER" => "alex" }
+    document = JSON.parse(last_response.body)
+    assert_equal({ "language" => "ruby", "framework" => "Rails" }, document["binding"])
+    marked = document["previewUnavailable"].find { |entry| entry["path"] == "/sessions/{id}" }
+    assert_equal({ "method" => "DELETE", "path" => "/sessions/{id}", "reason" => "Clears the Redis session" }, marked)
+    refute(document["previewOperations"].any? { |entry| entry["path"] == "/items/{id}" && entry["method"] == "DELETE" })
+    assert_nil document["previewUnavailable"].find { |entry| entry["path"] == "/items" }, "Nothing is marked without sendproof_no_preview"
+  end
+
+  def test_a_preview_of_a_marked_action_never_runs_it
+    PROVIDER.sessions.clear
+    delete "/sendproof/_preview/sessions/7", "", { "HTTP_PREFER" => "tx=rollback", "HTTP_X_USER" => "alex" }
+    assert_equal 409, last_response.status
+    assert_nil last_response["preference-applied"]
+    assert_empty PROVIDER.sessions
+  end
+
+  def test_the_macro_needs_a_reason_or_the_stores
+    assert_raises(ArgumentError) { Class.new(ActionController::API) { sendproof_no_preview only: :x } }
+    assert_raises(ArgumentError) { Class.new(ActionController::API) { sendproof_no_preview only: :x, reason: " " } }
+  end
+end
+
 class ControllerMacroTest < Minitest::Test
   def test_unmarked_controllers_are_not_previewable
     refute ApplicationController.sendproof_preview?(:anything)

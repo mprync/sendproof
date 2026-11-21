@@ -110,7 +110,21 @@ class ChildController < PartialController
   def inherited_action = head(:ok)
 end
 
+# Writes to a store Sendproof can only guard: the actions that know it say so with sendproof_no_preview.
+class SessionsController < ApplicationController
+  sendproof_preview
+  sendproof_no_preview only: :clear, reason: "Clears the Redis session"
+  sendproof_no_preview only: :purge, stores: %i[redis dynamodb]
+
+  def refresh = head(:ok)
+  def clear = head(:no_content)
+  def purge = head(:no_content)
+end
+
 DummyApp.routes.draw do
+  post "/sessions/:id/refresh", to: "sessions#refresh"
+  delete "/sessions/:id", to: "sessions#clear"
+  post "/sessions/:id/purge", to: "sessions#purge"
   resources :items, only: %i[index create update destroy] do
     collection { post :boom }
     member { post :touch }
