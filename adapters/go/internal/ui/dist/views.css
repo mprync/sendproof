@@ -124,7 +124,7 @@
 .lvl-sql .lvl { color: var(--post); background: var(--post-bg); }
 .log-row.is-open { background: var(--selected); }
 .prop { font: 500 var(--fs-sm)/1 var(--mono); color: var(--accent-text); }
-.log-detail { padding: 0.65rem 0.875rem 0.875rem 2.4rem; border-block-start: 1px solid var(--line); background: var(--panel); }
+.log-detail { padding: 0.65rem 0.875rem 0.875rem; border-block-start: 1px solid var(--line); background: var(--panel); }
 .sql-wrap { border-radius: var(--r); border: 1px solid var(--line); background: var(--raised); }
 .sql-bar { display: flex; align-items: center; gap: 0.5rem; padding-inline: 0.8rem 0.25rem; min-block-size: 2.25rem; border-block-end: 1px solid var(--line); font-size: var(--fs-xs); color: var(--text-3); }
 .sql { margin: 0; padding: 0.6rem 0.8rem; font: 400 var(--fs-sm)/1.6 var(--mono); white-space: pre; overflow-x: auto; }

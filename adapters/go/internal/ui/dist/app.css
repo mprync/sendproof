@@ -135,7 +135,7 @@ button.expect-row { inline-size: 100%; border: 0; background: none; text-align: 
 @container result (max-width: 25rem) {
   .fx-head .tag { max-inline-size: 40%; block-size: auto; white-space: normal; }
   .log-bar .segmented { flex-wrap: wrap; }
-  .log-detail { padding-inline-start: 0.75rem; }
+  .log-detail { padding-inline: 0.75rem; }
   .params { grid-template-columns: fit-content(40%) minmax(0, 1fr); }
   .collapsed-section .title { white-space: normal; }
   .collapsed-section .faint { text-align: end; }
