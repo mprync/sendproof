@@ -1,0 +1,32 @@
+.DS_Store
+.vs/
+.idea/
+**/bin/
+**/obj/
+**/node_modules/
+artifacts/
+TestResults/
+*.user
+*.db
+*.db-shm
+*.db-wal
+*.nupkg
+*.snupkg
+__pycache__/
+
+# Binding build output, local toolchains and dependency caches
+**/target/
+**/vendor/
+**/.venv/
+**/.gradle/
+**/.gradle-home/
+adapters/java/**/build/
+adapters/java/build/
+adapters/python/dist/
+adapters/php/dist/
+*.egg-info/
+.pytest_cache/
+.phpunit.cache/
+
+# Demo cookie keys, kept beside the demo database
+treasury-demo.keys/

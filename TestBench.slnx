@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/adapters/dotnet/">
+    <Project Path="adapters/dotnet/TestBench.AspNetCore/TestBench.AspNetCore.csproj" />
+    <Project Path="adapters/dotnet/TestBench.EntityFrameworkCore/TestBench.EntityFrameworkCore.csproj" />
+  </Folder>
+  <Folder Name="/examples/">
+    <Project Path="examples/TreasuryApi/TreasuryApi.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="examples/TreasuryApi/tests/TreasuryApi.Tests.csproj" />
+    <Project Path="tests/TestBench.AspNetCore.Tests/TestBench.AspNetCore.Tests.csproj" />
+    <Project Path="tests/TestBench.EntityFrameworkCore.Tests/TestBench.EntityFrameworkCore.Tests.csproj" />
+  </Folder>
+</Solution>
