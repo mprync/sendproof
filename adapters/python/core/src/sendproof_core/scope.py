@@ -23,6 +23,10 @@ class RequestScope:
     extensions: dict[str, Any] = field(default_factory=dict)
     #: Set when the application handler is entered, i.e. after routing and authorization.
     entered: bool = False
+    #: Document, item and key changes captured by ``preview``-mode data stores (MongoDB), in addition
+    #: to the SQL provider's own.
+    store_changes: list[Any] = field(default_factory=list)
+    store_changes_truncated: bool = False
 
     @property
     def rollback(self) -> bool:

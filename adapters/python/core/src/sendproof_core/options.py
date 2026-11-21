@@ -89,6 +89,9 @@ class BenchOptions:
     trace_ttl: float = 300.0
     clock: Callable[[], float] = time.monotonic
     identity: Callable[..., Identity | None] | None = None
+    #: The web framework serving the workbench, published as capabilities ``binding.framework``
+    #: so the workbench shows the ``preview: false`` snippet in the host's own language.
+    framework: str | None = None
 
     def __post_init__(self) -> None:
         if self.environment is None:

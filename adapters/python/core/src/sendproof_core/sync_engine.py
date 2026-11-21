@@ -20,8 +20,9 @@ from .identity import Identity
 from .options import BenchOptions
 from .provider import PreviewProvider, PreviewUnavailable
 from .scope import RequestScope, activate, deactivate
+from .stores.base import DataStore, StoresOnlyProvider, validate_stores
 from .trace_store import Reservation
-from .workbench import Response, Workbench, problem_response, trace_owner
+from .workbench import Response, Workbench, blocked_response, problem_response, trace_owner
 
 logger = logging.getLogger("sendproof")
 
@@ -101,8 +102,9 @@ class SyncBench:
     """Framework-neutral engine used by the synchronous adapters."""
 
     def __init__(self, options: BenchOptions, provider: PreviewProvider | None, workbench: Workbench,
-                 authorize: Callable[..., bool] | None = None) -> None:
+                 authorize: Callable[..., bool] | None = None, stores: Iterable[DataStore] = ()) -> None:
         self.options, self.provider, self.workbench, self.authorize = options, provider, workbench, authorize
+        self.stores = validate_stores(stores)
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -122,6 +124,7 @@ class SyncBench:
         self, *, method: str, path: str, path_base: str, query: str, identity: Identity | None,
         authorized: bool, origin_ok: bool, operations: Callable[[], Iterable[tuple[str, str]]],
         default_openapi_url: str, default_api_name: str,
+        unavailable: Callable[[], Iterable[tuple[str, str, str, tuple[str, ...]]]] | None = None,
     ) -> Response:
         """Serve every ``/sendproof/*`` route except the preview prefix."""
         if method not in ("GET", "HEAD"):
@@ -134,13 +137,26 @@ class SyncBench:
         if path in ("/sendproof/", "/sendproof/signin.html"):
             return workbench.asset("index.html")
         if path == "/sendproof/_api/capabilities":
-            return workbench.capabilities(path_base, identity, operations(), default_openapi_url, default_api_name)
+            return workbench.capabilities(
+                path_base, identity, operations(), default_openapi_url, default_api_name,
+                unavailable() if unavailable else (), self.describe_stores(),
+            )
         if path.startswith("/sendproof/_api/traces/"):
             owner = trace_owner(identity, path_base) if origin_ok else None
             return workbench.trace(path.rsplit("/", 1)[1], owner)
         if path.startswith("/sendproof/_api/"):
             return Response(404, [("cache-control", "no-store")])
         return workbench.asset(path[len("/sendproof/"):])
+
+    def describe_stores(self) -> list[dict[str, Any]]:
+        """The capabilities ``dataStores`` entries. A store that cannot describe itself is left out."""
+        described = []
+        for store in self.stores:
+            try:
+                described.append(store.describe())
+            except Exception:
+                logger.warning("Sendproof could not describe a data store.", exc_info=True)
+        return described
 
     # ------------------------------------------------------------------ preview
     def check_preview_request(self, *, method: str, path: str, get_header: protocol.HeaderGetter, origin_ok: bool) -> Response | None:
@@ -156,7 +172,13 @@ class SyncBench:
         return None
 
     def preview(self, *, dispatch: Callable[[RequestScope], Inner], started: float, method: str, path: str) -> Response:
-        """Run ``dispatch`` inside a rollback scope and wrap its response in the envelope."""
+        """Run ``dispatch`` inside a rollback scope and wrap its response in the envelope.
+
+        Order after the handler (spec/data-stores.md): abort every ``preview``-mode store
+        transaction, then roll back SQL. If anything failed to roll back, or a fault was recorded
+        (a handler ``COMMIT``, a write that escaped the MongoDB session), answer 500 without
+        confirmation. Else, if the write guard blocked a write, answer 409. Otherwise confirm.
+        """
         provider = self.provider
         if provider is None or not provider.is_available:
             return problem_response(503, "Preview requires one available preview provider.")
@@ -164,8 +186,10 @@ class SyncBench:
         token = activate(scope)
         inner: Inner | None = None
         failure: BaseException | None = None
+        unsafe = False  # a store abort or the SQL rollback failed: the Preview can never be confirmed
         exceeded = False
         envelope: dict[str, Any] | None = None
+        begun: list[DataStore] = []
         try:
             try:
                 session = provider.begin(scope)
@@ -177,6 +201,9 @@ class SyncBench:
                 return problem_response(500, "The preview could not be completed safely.")
             interrupted: BaseException | None = None
             try:
+                for store in self.stores:
+                    begun.append(store)  # finish runs for a store whose begin failed halfway, too
+                    store.begin(scope)
                 inner = dispatch(scope)
             except ResponseTooLarge:
                 exceeded = True
@@ -185,26 +212,45 @@ class SyncBench:
             except BaseException as error:  # SystemExit, gevent.Timeout...: roll back, then re-raise
                 failure = interrupted = error
             scope.capture.handler_finished()
+            for store in reversed(begun):
+                try:
+                    store.finish(scope)
+                except Exception as error:
+                    unsafe = True
+                    logger.error("A Sendproof data store could not finish the preview.", exc_info=error)
             try:
                 session.rollback()
-                if failure is None and not exceeded and inner is not None and is_application_response(scope, inner.status):
+                if (not unsafe and failure is None and not exceeded and inner is not None
+                        and is_application_response(scope, inner.status)):
                     envelope = self.workbench.preview_envelope(
-                        inner.status, inner.headers, inner.body, list(session.changes), session.changes_truncated,
-                        scope.capture.finish(),
+                        inner.status, inner.headers, inner.body,
+                        [*session.changes, *scope.store_changes],
+                        session.changes_truncated or scope.store_changes_truncated, scope.capture.finish(),
                     )
             except Exception as error:
-                failure = failure or error
+                unsafe = True
+                logger.error("A Sendproof preview could not roll back for %s %s.", method, path, exc_info=error)
             finally:
                 scope.capture.finish()
                 try:
                     session.close()
                 except Exception as error:
-                    failure = failure or error
+                    unsafe = True
+                    logger.error("A Sendproof preview could not release its transaction.", exc_info=error)
             if interrupted is not None:
                 raise interrupted
         finally:
             deactivate(token)
 
+        blocked, fault = scope.capture.blocked, scope.capture.fault
+        if unsafe or fault is not None:
+            if fault is not None:
+                logger.error("A Sendproof preview was not confirmed for %s %s: %s", method, path, fault)
+            return problem_response(500, "The preview could not be completed safely.")
+        if blocked is not None:
+            # The mark decides, whatever the handler did with the refusal: it may have caught the
+            # error and returned 200, or let it escape as a 500.
+            return blocked_response(blocked)
         if failure is not None or exceeded:
             if failure is not None:
                 logger.error("A Sendproof preview failed for %s %s.", method, path, exc_info=failure)

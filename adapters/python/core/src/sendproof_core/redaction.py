@@ -34,6 +34,23 @@ def looks_secret(text: str) -> bool:
     return False
 
 
+def redact_deep(value: object) -> object:
+    """Replace the value of every secret-named field, at any depth of a nested document.
+
+    A secret-named field (``password_hash``, ``apiKey``) keeps its place but shows
+    :data:`REDACTED`, even when its value is itself a document or a list. ``None`` is left as it
+    is, so an absent secret stays distinguishable.
+    """
+    if isinstance(value, dict):
+        return {
+            name: (REDACTED if looks_secret(str(name)) and inner is not None else redact_deep(inner))
+            for name, inner in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [redact_deep(item) for item in value]
+    return value
+
+
 def python_type_name(value: object) -> str:
     """A database-neutral type label for a bound Python value."""
     return {str: "String", int: "Int64", float: "Double", bool: "Boolean", bytes: "Binary"}.get(

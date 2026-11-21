@@ -18,7 +18,7 @@ from .identity import Identity
 from .jsonsafe import body_from_bytes
 from .options import BenchOptions, OpenApiDocument, require_display_label
 from .provider import PreviewChange, PreviewProvider
-from .redaction import REDACTED, looks_secret
+from .redaction import REDACTED, looks_secret, redact_deep
 from .trace_store import Owner, TraceStore
 
 
@@ -29,6 +29,11 @@ class Response:
     status: int
     headers: list[tuple[str, str]] = field(default_factory=list)
     body: bytes = b""
+
+    def with_content_type(self, content_type: str) -> "Response":
+        """This response with its ``Content-Type`` replaced."""
+        kept = [(k, v) for k, v in self.headers if k.lower() != "content-type"]
+        return Response(self.status, [("content-type", content_type), *kept], self.body)
 
 
 def json_response(value: Any, status: int = 200, headers: Iterable[tuple[str, str]] = ()) -> Response:
@@ -45,6 +50,27 @@ def problem_response(status: int, title: str, headers: Iterable[tuple[str, str]]
     """Build a problem+json rejection."""
     code, base, body = protocol.problem(status, title)
     return Response(code, [*base, *headers], body)
+
+
+def blocked_response(blocked: dict[str, str]) -> Response:
+    """The 409 answer for a Preview the write guard stopped: an RFC 9457 problem, never a confirmation.
+
+    The body names the store and the refused operation, never its arguments, and carries neither
+    the handler's response nor ``Preference-Applied``, so no client can mistake it for a rollback.
+    """
+    return json_response(
+        {
+            "type": "about:blank",
+            "title": "Preview unavailable",
+            "status": 409,
+            "code": "preview_unavailable",
+            "detail": blocked["detail"],
+            "store": blocked["store"],
+            "operation": blocked["operation"],
+            "rolledBack": False,
+        },
+        409,
+    ).with_content_type("application/problem+json")
 
 
 def trace_owner(identity: Identity | None, path_base: str) -> Owner | None:
@@ -65,11 +91,10 @@ def redact_row(row: Any) -> Any:
     """Replace the values of secret-named columns (``password_hash``, ``api_key``...) in a snapshot.
 
     Change snapshots are shown in every enabled environment, so a column the SQL log would
-    redact is redacted here too, whatever the SQL parameter setting.
+    redact is redacted here too, whatever the SQL parameter setting. Documents from a data store
+    are redacted at any depth.
     """
-    if not isinstance(row, dict):
-        return row
-    return {name: (REDACTED if looks_secret(str(name)) and value is not None else value) for name, value in row.items()}
+    return redact_deep(row) if isinstance(row, dict) else row
 
 
 class Workbench:
@@ -91,8 +116,14 @@ class Workbench:
         operations: Iterable[tuple[str, str]],
         default_openapi_url: str,
         default_api_name: str,
+        unavailable: Iterable[tuple[str, str, str, tuple[str, ...]]] = (),
+        data_stores: Iterable[dict[str, Any]] = (),
     ) -> Response:
-        """Build ``GET /sendproof/_api/capabilities``."""
+        """Build ``GET /sendproof/_api/capabilities``.
+
+        ``unavailable`` lists the operations marked ``preview: false`` as ``(method, path, reason,
+        stores)``; ``data_stores`` holds the description of each hooked store.
+        """
         options = self.options
         provider = self.provider if self.provider is not None and self.provider.is_available else None
         api_name = options.api_name or default_api_name
@@ -102,6 +133,15 @@ class Workbench:
             documents.insert(0, {"name": api_name, "url": openapi})
         listed = (
             sorted({(m.upper(), p) for m, p in operations if m.upper() not in ("HEAD", "OPTIONS")}, key=lambda o: (o[1], o[0]))
+            if provider
+            else []
+        )
+        database: Any = None
+        if provider is not None:
+            database = {"name": provider.database, "system": provider.system} if provider.system else provider.database
+        marked = (
+            sorted({(m.upper(), p, r, tuple(st)) for m, p, r, st in unavailable if m.upper() not in ("HEAD", "OPTIONS")},
+                   key=lambda o: (o[1], o[0]))
             if provider
             else []
         )
@@ -117,13 +157,22 @@ class Workbench:
                 "fieldModules": [path_base + url for url in options.field_modules],
                 "apiName": api_name,
                 "environment": options.environment,
-                "database": provider.database if provider else None,
+                "database": database,
+                **({"binding": {"language": "python", "framework": options.framework}} if options.framework else {}),
                 "identity": who,
                 "authProviders": [
                     {"label": a.label, "kind": a.kind, "url": None if a.url is None else path_base + a.url}
                     for a in options.auth_providers
                 ],
                 "previewOperations": [{"method": m, "path": p} for m, p in listed],
+                **(
+                    {"previewUnavailable": [
+                        {"method": m, "path": p, "reason": r, **({"stores": list(st)} if st else {})}
+                        for m, p, r, st in marked
+                    ]}
+                    if marked else {}
+                ),
+                **({"dataStores": list(data_stores)} if data_stores else {}),
                 "observedSend": bool(listed),
                 "documents": documents,
             },
@@ -176,15 +225,20 @@ class Workbench:
             if remaining < 0:
                 truncated = True
                 break
-            result.append(
-                {
-                    "operation": limits.clip(change.operation, limits.NAME),
-                    "table": limits.clip(change.table, limits.NAME),
-                    "key": key,
-                    "before": before,
-                    "after": after,
-                }
-            )
+            record: dict[str, Any] = {
+                "operation": limits.clip(change.operation, limits.NAME),
+                "table": limits.clip(change.table, limits.NAME),
+                "key": key,
+                "before": before,
+                "after": after,
+            }
+            if change.store:
+                record["store"] = limits.clip(change.store, limits.NAME)
+            if change.namespace:
+                record["namespace"] = limits.clip(change.namespace, limits.NAME)
+            if change.via in ("upsert", "replace"):
+                record["via"] = change.via
+            result.append(record)
         return result, truncated
 
     def preview_envelope(

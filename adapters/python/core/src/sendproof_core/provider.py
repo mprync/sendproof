@@ -31,6 +31,12 @@ class PreviewChange:
     key: Any
     before: dict[str, Any] | None
     after: dict[str, Any] | None
+    #: Store id (``mongodb``) for a data-store change; ``None`` for the SQL database.
+    store: str | None = None
+    #: The database holding the collection or table, for a data-store change.
+    namespace: str | None = None
+    #: ``"upsert"`` or ``"replace"`` when the operation alone hides how the change was made.
+    via: str | None = None
 
 
 class PreviewSession(ABC):
@@ -91,6 +97,8 @@ class PreviewProvider(ABC):
 
     #: Public database label, never a connection string.
     database: str | None = None
+    #: SQL provider id for the workbench's store mark: ``sqlite``, ``postgresql``, ``mysql``, ``mariadb``...
+    system: str | None = None
 
     @property
     def is_available(self) -> bool:

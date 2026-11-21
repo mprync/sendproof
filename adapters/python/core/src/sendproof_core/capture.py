@@ -81,6 +81,39 @@ class Capture:
     _serialize_ms: float = 0.0
     _handler_start: float | None = None
     _handler_end: float | None = None
+    _blocked: dict[str, str] | None = None
+    _fault: BaseException | None = None
+    _quiet: bool = False
+
+    # ------------------------------------------------------------ write guard
+    @property
+    def blocked(self) -> dict[str, str] | None:
+        """The first write the guard refused during a Preview: ``store``, ``operation`` and ``detail``."""
+        return self._blocked
+
+    @property
+    def fault(self) -> BaseException | None:
+        """The first transaction-control refusal or escape of a Preview; it withholds confirmation."""
+        return self._fault
+
+    def block(self, store: str, operation: str, detail: str) -> None:
+        """Keep the first refused write. It decides the Preview's 409, whatever the handler returns.
+
+        Recording works after :meth:`finish` too, so a write sent late by a handler is never lost.
+        """
+        with self._lock:
+            if self.rollback and self._blocked is None:
+                self._blocked = {
+                    "store": limits.clip(store, limits.NAME),
+                    "operation": limits.clip(operation, limits.NAME),
+                    "detail": limits.clip(detail),
+                }
+
+    def refuse(self, error: BaseException) -> None:
+        """Keep the first fault. It withholds confirmation, whatever the handler returns."""
+        with self._lock:
+            if self.rollback and self._fault is None:
+                self._fault = error
 
     # ------------------------------------------------------------------ effects
     def record_effect(self, kind: str, description: str, data: Any = None) -> bool:
@@ -130,6 +163,7 @@ class Capture:
         elapsed_ms: float | None = None,
         offset_ms: float | None = None,
         sql: dict[str, Any] | None = None,
+        db: dict[str, Any] | None = None,
     ) -> None:
         """Append a structured log entry when there is room."""
         with self._lock:
@@ -167,6 +201,8 @@ class Capture:
                 }
             if sql is not None:
                 entry["sql"] = sql
+            if db is not None:
+                entry["db"] = db
             size = _entry_size(entry)
             if self._log_size + size <= limits.LOG_BUDGET:
                 self._logs.append(entry)
@@ -216,6 +252,51 @@ class Capture:
                 sql=sql,
             )
 
+    def record_db(
+        self,
+        system: str,
+        operation: str,
+        *,
+        target: str | None = None,
+        namespace: str | None = None,
+        statement: str | None = None,
+        rows_affected: int | None = None,
+        blocked: bool = False,
+        error: str | None = None,
+        elapsed_ms: float | None = None,
+    ) -> None:
+        """Record one data-store command as a ``Db`` log entry.
+
+        The message is the OpenTelemetry span name, ``{operation} {target}``. Hooks pass sanitized
+        statements only: values never reach this method. A blocked command never ran, so it adds
+        nothing to the ``db`` timing.
+        """
+        with self._lock:
+            if not self._active or self._quiet:
+                return
+            if not blocked:
+                self._queries += 1
+                self._db_ms += elapsed_ms or 0.0
+            db: dict[str, Any] = {
+                "system": limits.clip(system, limits.NAME), "operation": limits.clip(operation, limits.NAME),
+            }
+            if target is not None:
+                db["target"] = limits.clip(target, limits.NAME)
+            if namespace is not None:
+                db["namespace"] = limits.clip(namespace, limits.NAME)
+            if statement is not None:
+                self._logs_truncated |= len(statement) > limits.TEXT
+                db["statement"] = limits.clip(statement)
+            if rows_affected is not None and rows_affected >= 0:
+                db["rowsAffected"] = int(rows_affected)
+            if blocked:
+                db["blocked"] = True
+            if error:
+                db["error"] = limits.clip(error, limits.NAME)
+            message = db["operation"] if "target" not in db else f"{db['operation']} {db['target']}"
+            offset = None if elapsed_ms is None else max(0.0, self._offset_ms() - elapsed_ms)
+            self.record_log("Db", message, elapsed_ms=elapsed_ms, offset_ms=offset, db=db)
+
     # ------------------------------------------------------------------- timing
     def handler_started(self) -> None:
         """Mark entry into the application handler (end of the ``auth`` phase)."""
@@ -223,8 +304,13 @@ class Capture:
             self._handler_start = time.perf_counter()
 
     def handler_finished(self) -> None:
-        """Mark the end of handler execution."""
+        """Mark the end of handler execution.
+
+        Data-store commands the binding itself sends after this point (reading document changes,
+        aborting a transaction) are not logged as the handler's.
+        """
         self._handler_end = time.perf_counter()
+        self._quiet = True
 
     def timing(self, extra_serialize_ms: float = 0.0) -> CaptureTiming:
         """Compute the current timing breakdown."""
@@ -270,6 +356,9 @@ def _entry_size(entry: Mapping[str, Any]) -> int:
         size += len(key) + len(value)
     if "exception" in entry:
         size += len(entry["exception"]["type"]) + len(entry["exception"]["message"])
+    if "db" in entry:
+        db = entry["db"]
+        size += sum(len(str(value)) for value in db.values())
     if "sql" in entry:
         sql = entry["sql"]
         size += len(sql["text"])
