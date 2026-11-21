@@ -1,7 +1,7 @@
 """The MongoDB Preview and write guard against a real replica set
 (``docker compose -f tests/conformance/compose.yml up -d mongodb``).
 
-Covers PyMongo, ``AsyncMongoClient`` and Motor. An independent, unhooked client reads the data back,
+Covers PyMongo and ``AsyncMongoClient`` (Motor is refused). An independent, unhooked client reads the data back,
 so a passing check proves what a Preview left, or did not leave, behind.
 """
 
@@ -63,15 +63,19 @@ def test_a_replica_set_runs_in_preview_mode(hooked):
 
 
 def standalone(monkeypatch):
-    """Make ``hello`` answer like a standalone server (no replica set name)."""
+    """Make ``hello`` answer like a standalone server (no replica set name).
+
+    The real ``hello`` is still sent, so the monitor sees the client's own detection; only its reply changes.
+    """
     from pymongo.database import Database
 
     original = Database.command
 
     def command(self, command, *args, **kwargs):
+        reply = original(self, command, *args, **kwargs)
         if command == {"hello": 1}:
             return {"isWritablePrimary": True, "logicalSessionTimeoutMinutes": 30, "ok": 1.0}
-        return original(self, command, *args, **kwargs)
+        return reply
 
     monkeypatch.setattr(Database, "command", command)
 
@@ -330,6 +334,121 @@ def test_the_handlers_session_never_exposes_the_driver_session(hooked, reader):
     assert run_preview(sync_bench(store), handler).status == 200
 
 
+def test_a_session_the_driver_hands_back_can_never_commit_the_preview(hooked, reader):
+    """A cursor returns the session it was given, which is the Preview's own: its commit must never be sent."""
+    store, documents, _ = hooked
+    sent: list[str] = []
+
+    def handler(scope):
+        documents.insert_one({"_id": "kept"})
+        session = documents.find({}).session  # the driver session itself, not the handler's view
+        with pytest.raises(PreviewTransactionControl):
+            session.commit_transaction()
+        with pytest.raises(PreviewTransactionControl):
+            session.abort_transaction()
+        session.end_session()  # left to the Preview: the transaction stays open for the abort
+        assert session.in_transaction
+        documents.insert_one({"_id": "after"})
+        return 201, {}
+
+    from pymongo import monitoring
+
+    class Spy(monitoring.CommandListener):
+        def started(self, event):
+            sent.append(event.command_name)
+
+        def succeeded(self, event):
+            pass
+
+        def failed(self, event):
+            pass
+
+    spy = Spy()
+    monitoring.register(spy)
+    try:
+        response = run_preview(sync_bench(store), handler)
+    finally:
+        monitoring._LISTENERS.command_listeners.remove(spy)
+    assert response.status == 500 and "preference-applied" not in {k.lower() for k, _ in response.headers}
+    assert "commitTransaction" not in sent  # refused before sending, not only tripped afterwards
+    assert reader["documents"].count_documents({}) == 0
+
+
+def test_a_command_built_from_keywords_is_classified_with_them(monkeypatch, database, reader):
+    """``db.command("aggregate", name, pipeline=[...])`` sends the keywords as fields: an $out among them is a write."""
+    standalone(monkeypatch)
+    client = new_mongo()
+    store = mongo_store(client)
+    seed(reader, {"_id": "a"})
+
+    def handler(scope):
+        store.client[database].command("aggregate", "documents", pipeline=[{"$match": {}}, {"$out": "copied"}], cursor={})
+        return 200, {}
+
+    status, body = outcome(run_preview(sync_bench(store), handler))
+    assert status == 409 and body["operation"] == "aggregate"
+    assert "copied" not in reader.list_collection_names()
+    client.close()
+
+
+def test_a_client_whose_monitor_is_not_proven_never_previews(monkeypatch, database, reader):
+    """The tripwire must be installed on the guarded client itself: its own hello proves it."""
+    from pymongo import monitoring
+
+    from sendproof_core.stores import mongo_hook
+
+    listeners = monitoring._LISTENERS
+    monkeypatch.setattr(monitoring, "_LISTENERS", monitoring._Listeners([], [], [], [], []))
+    raw = new_mongo()  # built without any listener
+    monkeypatch.setattr(monitoring, "_LISTENERS", listeners)
+    monkeypatch.setattr(mongo_hook, "_listeners_of", lambda client: None)  # a driver that hides its listeners
+    store = mongo_store(raw)
+
+    def handler(scope):
+        raw[database]["documents"].insert_one({"_id": "unseen"})  # nothing would see this escape
+        return 201, {}
+
+    response = run_preview(sync_bench(store), handler)
+    assert response.status == 500 and "preference-applied" not in {k.lower() for k, _ in response.headers}
+    assert reader["documents"].find_one({"_id": "unseen"}) is None  # refused at begin: the handler never ran
+    raw.close()
+
+
+def test_a_write_no_request_accounts_for_fails_every_open_preview(hooked, reader, database):
+    """A thread the handler started without its context: the write can't be attributed, so no Preview is confirmed."""
+    from sendproof_core import detached
+    from sendproof_core.scope import request_context
+
+    store, documents, _ = hooked
+    raw = new_mongo()
+
+    def write(identifier, wrap=None):
+        def body():
+            if wrap is None:
+                raw[database]["documents"].insert_one({"_id": identifier})
+            else:
+                with wrap():
+                    raw[database]["documents"].insert_one({"_id": identifier})
+        thread = threading.Thread(target=body)
+        thread.start()
+        thread.join()
+
+    def unattributed(scope):
+        write("stray")
+        return 200, {}
+
+    def accounted(scope):
+        write("worker", detached)
+        write("request", request_context)
+        return 200, {}
+
+    assert run_preview(sync_bench(store), unattributed).status == 500
+    assert run_preview(sync_bench(store), accounted).status == 200
+    write("idle")  # no Preview open: nothing to fail
+    reader["documents"].delete_many({})
+    raw.close()
+
+
 def test_with_transaction_and_start_transaction_join_the_preview_transaction(hooked, reader):
     store, documents, _ = hooked
 
@@ -359,6 +478,32 @@ def test_a_method_the_guard_does_not_know_is_refused_in_a_preview(hooked):
     assert documents.database.name and documents.database.client is store.client  # and wrap back to guarded handles
 
 
+def test_handles_derived_with_other_options_stay_guarded(hooked, reader, database):
+    """``with_options``, ``get_database``/``get_collection`` with options, and the ``client``/``database`` they lead
+    back to must all be guarded handles: a raw one would write outside the Preview transaction."""
+    from bson.codec_options import CodecOptions
+    from pymongo import ReadPreference, WriteConcern
+
+    store, documents, _ = hooked
+    derived = [
+        documents.with_options(write_concern=WriteConcern(w=1), read_preference=ReadPreference.PRIMARY),
+        store.client.get_database(database, codec_options=CodecOptions(tz_aware=True)).get_collection(
+            "documents", write_concern=WriteConcern(w=1)),
+        store.client[database].with_options(write_concern=WriteConcern(w=1))["documents"],
+        documents.database.client.get_database(database, write_concern=WriteConcern(w=1))["documents"],
+    ]
+
+    def handler(scope):
+        for index, collection in enumerate(derived):
+            assert type(collection).__name__ == "_Handle"
+            collection.insert_one({"_id": f"derived-{index}"})  # joins the Preview transaction
+        return 201, {}
+
+    envelope = json.loads(run_preview(sync_bench(store), handler).body)
+    assert sorted(c["key"]["_id"] for c in envelope["changes"]) == [f"derived-{i}" for i in range(len(derived))]
+    assert reader["documents"].count_documents({}) == 0
+
+
 def test_calls_outside_a_preview_pass_straight_through_and_observed_send_commits(hooked, reader):
     store, documents, _ = hooked
     documents.insert_one({"_id": "plain"})
@@ -375,9 +520,12 @@ def test_before_images_come_from_the_transaction_start_not_from_later_commits_by
     seed(reader, {"_id": "x", "name": "X"})
 
     def another_request():
-        # A thread starts with no scope, as another request would: its writes are not the Preview's.
-        reader["documents"].insert_one({"_id": "y", "name": "inserted by another request"})
-        reader["documents"].update_one({"_id": "x2"}, {"$set": {"n": 1}}, upsert=True)
+        # A thread with no Preview scope, inside an ordinary request as the adapters mark every one.
+        from sendproof_core.scope import request_context
+
+        with request_context():
+            reader["documents"].insert_one({"_id": "y", "name": "inserted by another request"})
+            reader["documents"].update_one({"_id": "x2"}, {"$set": {"n": 1}}, upsert=True)
 
     def handler(scope):
         documents.find_one({"_id": "x"})  # the first reply fixes the transaction's snapshot time
@@ -402,9 +550,10 @@ def test_a_preview_keeps_the_mode_it_began_in(monkeypatch, hooked, reader):
     state = {"fail": True}
 
     def command(self, command, *args, **kwargs):
+        reply = original(self, command, *args, **kwargs)  # sent, so the monitor sees the detection
         if command == {"hello": 1} and state["fail"]:
-            raise ConnectionFailure("simulated: the server could not be reached")
-        return original(self, command, *args, **kwargs)
+            raise ConnectionFailure("simulated: the reply was lost")
+        return reply
 
     monkeypatch.setattr(Database, "command", command)
 
@@ -544,31 +693,31 @@ def test_treat_as_read_lets_an_exact_command_through_in_guard_mode(monkeypatch, 
 
 
 # --------------------------------------------------------------------- async clients
-def async_clients():
+@pytest.fixture
+async def ahooked(database):
     from pymongo import AsyncMongoClient
 
     from store_support import MONGODB_URL
 
-    clients = [("async", lambda: AsyncMongoClient(MONGODB_URL))]
-    try:
-        import motor.motor_asyncio as motor
-
-        clients.append(("motor", lambda: motor.AsyncIOMotorClient(MONGODB_URL)))
-    except ImportError:  # pragma: no cover
-        pass
-    return clients
-
-
-@pytest.fixture(params=[name for name, _ in async_clients()])
-async def ahooked(request, database):
-    client = dict(async_clients())[request.param]()
+    client = AsyncMongoClient(MONGODB_URL)
     store = mongo_store(client, name="catalog", preview_timeout=30)
-    yield store, store.client[database]["documents"], request.param
-    await client.close() if request.param == "async" else client.close()
+    yield store, store.client[database]["documents"]
+    await client.close()
+
+
+def test_motor_is_refused_at_registration():
+    """Motor's thread pool drops the Preview's context, so the tripwire could not attribute its writes."""
+    motor = pytest.importorskip("motor.motor_asyncio")
+    from store_support import MONGODB_URL
+
+    client = motor.AsyncIOMotorClient(MONGODB_URL)
+    with pytest.raises(TypeError, match="AsyncMongoClient"):
+        mongo_store(client)
+    client.close()
 
 
 async def test_async_clients_roll_back_and_report_changes(ahooked, reader):
-    store, documents, flavor = ahooked
+    store, documents = ahooked
     seed(reader, {"_id": "seeded", "name": "Seeded", "profile": {"city": "Leeds"}})
     assert (await store.adescribe())["mode"] == "preview"
 
@@ -590,15 +739,13 @@ async def test_async_clients_roll_back_and_report_changes(ahooked, reader):
 
 
 async def test_async_blocked_commands_session_calls_and_escapes(ahooked, reader, database):
-    store, documents, flavor = ahooked
+    store, documents = ahooked
     raw = new_mongo()  # synchronous and unhooked, only for the escape
 
     async def handler(scope):
         with pytest.raises(PreviewWriteBlocked):
-            cursor = documents.aggregate([{"$out": "archive"}])
-            await cursor if flavor == "async" else None  # PyMongo's async aggregate is a coroutine; Motor's returns a cursor
+            await documents.aggregate([{"$out": "archive"}])
         session = store.client.start_session()
-        session = await session if hasattr(session, "__await__") and flavor == "motor" else session
         with pytest.raises(PreviewTransactionControl):
             await session.commit_transaction()
         raw[database]["documents"].insert_one({"_id": "escaped"})  # sent around the hook
@@ -606,23 +753,27 @@ async def test_async_blocked_commands_session_calls_and_escapes(ahooked, reader,
     scope, error = await arun_preview([store], handler)
     assert error is None
     assert scope.capture.blocked["operation"] == "aggregate" and "$out" in scope.capture.blocked["detail"]
-    assert scope.capture.fault is not None  # the commit attempt, and (where the context carries) the escape
+    assert scope.capture.fault is not None  # the commit attempt, and the escape
     assert "archive" not in reader.list_collection_names()
     reader["documents"].delete_many({})
     raw.close()
 
 
-async def test_motors_session_wrapper_does_not_expose_its_delegate(ahooked):
-    store, documents, flavor = ahooked
+async def test_an_async_cursors_session_can_never_commit_the_preview(ahooked, reader):
+    """``AsyncCursor.session`` is the Preview's driver session: sealed like the synchronous one."""
+    store, documents = ahooked
 
     async def handler(scope):
-        session = store.client.start_session()
-        session = await session if flavor == "motor" and hasattr(session, "__await__") else session
-        with pytest.raises(AttributeError):
-            session.delegate  # Motor's driver session: commit_transaction on it would persist the Preview
+        await documents.insert_one({"_id": "kept"})
+        session = documents.find({}).session
+        with pytest.raises(PreviewTransactionControl):
+            await session.commit_transaction()
+        await session.end_session()  # left to the Preview
+        assert session.in_transaction
 
     scope, error = await arun_preview([store], handler)
-    assert error is None
+    assert error is None and scope.capture.fault is not None
+    assert reader["documents"].count_documents({}) == 0
 
 
 async def test_an_async_escape_is_caught_where_the_context_carries(database, reader):

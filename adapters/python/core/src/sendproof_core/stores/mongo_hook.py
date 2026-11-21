@@ -7,7 +7,7 @@ blocks the Preview.
 
 Usage::
 
-    client = MongoClient(url)                      # PyMongo, AsyncMongoClient or Motor
+    client = MongoClient(url)                      # PyMongo or AsyncMongoClient
     catalog = mongo_store(client, name="catalog")  # handlers use catalog.client
     app.get("/documents/{id}")(lambda id: catalog.client["shop"]["documents"].find_one({"_id": id}))
 
@@ -26,13 +26,19 @@ Command monitoring backs the handles up as a **tripwire**: a global ``CommandLis
 command of every client created after this module was imported (or given the listener), in the
 request's context. A write during a Preview without the Preview's ``lsid`` and
 ``autocommit: false`` has escaped the transaction and cannot be undone: the Preview fails with 500,
-so no rollback is ever claimed for it. The same listener supplies the ``Db`` log entries, the
-change candidates, the snapshot time and the code 263 block.
+so no rollback is ever claimed for it. A write that no request accounts for (a thread a handler
+started without its context) while any Preview is open fails every open Preview the same way,
+unless the host marked it :func:`~sendproof_core.detached`. The same listener supplies the ``Db``
+log entries, the change candidates, the snapshot time and the code 263 block.
+
+The Preview's driver session carries the transaction, and the driver hands it back on cursors
+(``cursor.session``). Its class is swapped for the Preview, so its ``commit_transaction`` and
+``abort_transaction`` are refused before anything is sent, whoever holds it.
 
 Limits: a client created before this module was imported has no listener and is refused (pass
-``event_listeners=[mongo_monitor]``). Motor runs the driver in a thread pool that does not carry
-``contextvars``, so for Motor the monitor attributes commands to a Preview by their ``lsid`` only:
-a stray write through an unhooked Motor client cannot be attributed and is not caught.
+``event_listeners=[mongo_monitor]``); a client whose own detection ``hello`` the listener never
+saw cannot Preview. Motor is refused: it is deprecated in favour of PyMongo's ``AsyncMongoClient``,
+and its thread pool drops ``contextvars``, so the tripwire could not attribute its commands.
 """
 
 from __future__ import annotations
@@ -42,6 +48,7 @@ import inspect
 import json
 import threading
 import weakref
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Generator, Iterable, Mapping, Optional
 
@@ -63,6 +70,7 @@ from .guard import (
     refuse_in_preview,
     sanitize_document,
     store_label,
+    unattributed_write,
 )
 
 #: The reason a standalone server, or any reply the binding does not recognise, runs in ``guard`` mode.
@@ -107,8 +115,15 @@ def system_database(name: Optional[str]) -> bool:
 # --------------------------------------------------------------------------- sans-IO driving
 # The engine's server calls are written once, as generators that yield zero-argument callables
 # and receive their results. ``_drive_sync`` runs them against PyMongo, ``_drive_async`` against
-# AsyncMongoClient and Motor, where a result may need awaiting.
+# AsyncMongoClient, where a result may need awaiting. Both run the generator in the caller's
+# context, so a ``ContextVar`` the generator sets is seen by the calls it yields.
 Steps = Generator[Callable[[], Any], Any, Any]
+
+#: Set while the engine itself ends the Preview transaction: only then may the Preview's driver
+#: session commit, abort or end. A ``ContextVar``, so a handler thread never inherits the permission.
+_engine_call: ContextVar[bool] = ContextVar("sendproof_mongo_engine_call", default=False)
+#: The engine whose detection ``hello`` is being sent, so the monitor can prove it sees that client.
+_probe: ContextVar[Optional["MongoEngine"]] = ContextVar("sendproof_mongo_probe", default=None)
 
 
 def _drive_sync(steps: Steps) -> Any:
@@ -188,7 +203,7 @@ class PreviewState:
 
 
 #: Preview states by lsid, so a command is attributed to its Preview even where ``contextvars``
-#: are lost (Motor's thread pool).
+#: are lost (the time limit's timer thread aborting a transaction).
 _states: dict[str, PreviewState] = {}
 _states_lock = threading.Lock()
 #: Host-declared reads of every engine, for the monitor's write classification.
@@ -228,11 +243,18 @@ class MongoMonitor(monitoring.CommandListener):
         command = event.command or {}
         name = event.command_name
         lower = name.lower()
+        probe = _probe.get()
+        if probe is not None and lower == "hello":
+            probe.monitored = True  # the guarded client's own detection reached the listener
         lsid = _lsid_hex(command)
         state = _state_of(lsid)
         context = current_scope()
         scope = context if context is not None else (state.scope if state is not None else None)
         if scope is None:  # nothing to guard or log: the common case for an application's ordinary traffic
+            if not _ends_transaction(lower):
+                kind, _ = classify_mongo(command if command else {name: 1}, frozenset(_extra_reads) or None)
+                if kind == WRITE:
+                    unattributed_write("mongodb", name)
             return
         preview = scope if scope.rollback else None
         kind, _ = classify_mongo(command if command else {name: 1}, frozenset(_extra_reads) or None)
@@ -371,14 +393,12 @@ monitoring.register(mongo_monitor)
 
 # -------------------------------------------------------------------------------- the engine
 def _flavor(client: Any) -> str:
-    """``sync`` (PyMongo), ``async`` (``AsyncMongoClient``) or ``motor``."""
-    try:
-        from motor.core import AgnosticClient
-
-        if isinstance(client, AgnosticClient):
-            return "motor"
-    except ImportError:
-        pass
+    """``sync`` (PyMongo) or ``async`` (``AsyncMongoClient``). Motor is refused."""
+    if type(client).__module__.split(".", 1)[0] == "motor":
+        raise TypeError(
+            "Motor is not supported: it is deprecated in favour of PyMongo's AsyncMongoClient, and its thread "
+            "pool drops the Preview's context, so a stray write could not be attributed. Use "
+            "pymongo.AsyncMongoClient with mongo_store.")
     try:
         from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
@@ -390,16 +410,21 @@ def _flavor(client: Any) -> str:
 
     if isinstance(client, MongoClient):
         return "sync"
-    raise TypeError("mongo_store takes a MongoClient, AsyncMongoClient or Motor client.")
+    raise TypeError("mongo_store takes a MongoClient or AsyncMongoClient.")
 
 
 def _listeners_of(client: Any) -> Optional[list[Any]]:
     """The command listeners a client was built with, or ``None`` when this driver version hides them."""
     try:
-        target = getattr(client, "delegate", client)
-        return list(target.options.pool_options._event_listeners.event_listeners())
+        return list(client.options.pool_options._event_listeners.event_listeners())
     except Exception:
         return None
+
+
+#: Why a Preview refuses to begin on a client the monitor has not been proven on.
+UNMONITORED = ("The MongoDB client's commands never reached the Sendproof monitor, so a write that escaped the "
+               "Preview could not be caught. Create the client after importing sendproof_core.stores.mongo_hook, "
+               "or pass event_listeners=[mongo_monitor].")
 
 
 class MongoEngine:
@@ -416,6 +441,9 @@ class MongoEngine:
         self._detected: Optional[tuple[str, Optional[str]]] = None
         #: The detected mode, known before any Preview runs: ``begin`` awaits detection.
         self.mode: Optional[str] = None
+        #: Set when the monitor saw this client's own detection ``hello``: the proof that the
+        #: tripwire is installed on it. A Preview never begins without it.
+        self.monitored = False
         listeners = _listeners_of(client)
         if listeners is not None and not any(isinstance(item, MongoMonitor) for item in listeners):
             raise TypeError(
@@ -447,12 +475,15 @@ class MongoEngine:
     def _detect_steps(self) -> Steps:
         if self._detected is not None:
             return self._detected
+        token = _probe.set(self)
         try:
             hello = yield (lambda: self.client["admin"].command({"hello": 1}))
         except Exception:
             # Unreachable or unrecognised: guard mode for now, and ask again next time.
             self.mode = self.mode or "guard"
             return "guard", STANDALONE_REASON
+        finally:
+            _probe.reset(token)
         transactions = bool((hello.get("setName") or hello.get("msg") == "isdbgrid")
                             and hello.get("logicalSessionTimeoutMinutes") is not None)
         self._detected = ("preview", None) if transactions else ("guard", STANDALONE_REASON)
@@ -477,6 +508,10 @@ class MongoEngine:
         mode, _ = yield from self._detect_steps()
         if scope.rollback is not True:
             return None
+        if not self.monitored:
+            # Without the proof, a write that escaped the guarded handles could persist while the
+            # Preview reports a rollback. Fail the Preview instead (500).
+            raise RuntimeError(UNMONITORED)
         records = self._records(scope)
         records[("mode", id(self))] = mode
         if mode != "preview":
@@ -492,6 +527,7 @@ class MongoEngine:
             yield from self._discard_steps(session)
             raise RuntimeError("The MongoDB driver did not expose the Preview session id.")
         state = PreviewState(self, scope, session, lsid)
+        _seal_session(state)
         state.view = _SessionView(state)
         records[id(self)] = state
         with _states_lock:
@@ -630,6 +666,7 @@ class MongoEngine:
             state.finished = True
             state.aborting = True
         timer = state.timer
+        permission = _engine_call.set(True)  # the sealed session ends only for the engine
         try:
             if timer is not None:
                 timer.cancel()
@@ -643,6 +680,7 @@ class MongoEngine:
             except Exception:
                 pass
         finally:
+            _engine_call.reset(permission)
             state.aborting = False
             with _states_lock:
                 _states.pop(state.lsid, None)
@@ -715,6 +753,70 @@ def _start_transaction(session: Any) -> Any:
     return session.start_transaction(read_concern=ReadConcern("snapshot"), write_concern=WriteConcern("majority"))
 
 
+def _session_refusal(session: Any, what: str) -> PreviewTransactionControl:
+    """Record and return the refusal of a handler's attempt to end the Preview transaction."""
+    error = PreviewTransactionControl(
+        f"Preview owns the MongoDB transaction, so the handler's {what} cannot run during Preview.")
+    state = getattr(session, "_sendproof_state", None)
+    if state is not None:
+        state.scope.capture.refuse(error)
+    return error
+
+
+def _sealed_methods(base: type) -> dict[str, Any]:
+    """The methods of a sealed session class: only the engine may end the Preview transaction.
+
+    The driver hands the Preview's session back to handler code (``cursor.session``), so the
+    refusal lives on the session itself rather than on the view the handler is given. The class
+    must derive from the driver's class alone (a mixin changes the object layout, which forbids the
+    ``__class__`` swap), so the methods call the driver's own explicitly.
+    """
+    if inspect.iscoroutinefunction(base.commit_transaction):
+        async def commit_transaction(self: Any) -> None:
+            if not _engine_call.get():
+                raise _session_refusal(self, "commit_transaction")
+            await base.commit_transaction(self)
+
+        async def abort_transaction(self: Any) -> None:
+            if not _engine_call.get():
+                raise _session_refusal(self, "abort_transaction")
+            await base.abort_transaction(self)
+
+        async def _end_session(self: Any, lock: bool) -> None:
+            if _engine_call.get():  # anyone else's end_session leaves the session to the Preview
+                await base._end_session(self, lock)
+    else:
+        def commit_transaction(self: Any) -> None:  # type: ignore[misc]
+            if not _engine_call.get():
+                raise _session_refusal(self, "commit_transaction")
+            base.commit_transaction(self)
+
+        def abort_transaction(self: Any) -> None:  # type: ignore[misc]
+            if not _engine_call.get():
+                raise _session_refusal(self, "abort_transaction")
+            base.abort_transaction(self)
+
+        def _end_session(self: Any, lock: bool) -> None:  # type: ignore[misc]
+            if _engine_call.get():
+                base._end_session(self, lock)
+    return {"commit_transaction": commit_transaction, "abort_transaction": abort_transaction,
+            "_end_session": _end_session, "__module__": __name__}
+
+
+_sealed: dict[type, type] = {}
+
+
+def _seal_session(state: PreviewState) -> None:
+    """Swap the Preview session's class for one whose transaction only the engine can end."""
+    session = state.session
+    base = type(session)
+    sealed = _sealed.get(base)
+    if sealed is None:
+        sealed = _sealed[base] = type(f"Preview{base.__name__}", (base,), _sealed_methods(base))
+    session._sendproof_state = state
+    session.__class__ = sealed
+
+
 # -------------------------------------------------------------------------- the guarded handles
 Rule = Callable[[str, tuple, dict], dict]
 
@@ -732,11 +834,24 @@ def _stream(name: str, args: tuple, kwargs: dict) -> dict:
     return {"aggregate": name, "pipeline": [{"$changeStream": {}}, *(args[0] if args else kwargs.get("pipeline") or [])]}
 
 
+#: ``Database.command`` keywords that are driver options; every other keyword becomes a command field.
+_COMMAND_OPTIONS = frozenset({"command", "value", "check", "allowable_errors", "read_preference", "codec_options",
+                              "session", "comment", "max_await_time_ms"})
+
+
 def _command_document(name: str, args: tuple, kwargs: dict) -> dict:
+    """The document ``Database.command`` sends. The driver adds extra keywords as fields
+    (``command("aggregate", "c", pipeline=[...])``), so an ``$out`` given that way is classified
+    like any other."""
     command = args[0] if args else kwargs.get("command")
     if isinstance(command, str):
-        return {command: args[1] if len(args) > 1 else kwargs.get("value", 1)}
-    return dict(command) if isinstance(command, Mapping) else {}
+        document: dict = {command: args[1] if len(args) > 1 else kwargs.get("value", 1)}
+    elif isinstance(command, Mapping):
+        document = dict(command)
+    else:
+        return {}
+    document.update({key: value for key, value in kwargs.items() if key not in _COMMAND_OPTIONS})
+    return document
 
 
 def _db_aggregate(name: str, args: tuple, kwargs: dict) -> dict:
@@ -812,15 +927,6 @@ def _classes() -> tuple[tuple[type, ...], tuple[type, ...], tuple[type, ...], tu
         sessions.append(AsyncClientSession)
     except ImportError:
         pass
-    try:
-        from motor.core import AgnosticClient, AgnosticClientSession, AgnosticCollection, AgnosticDatabase
-
-        clients.append(AgnosticClient)
-        databases.append(AgnosticDatabase)
-        collections.append(AgnosticCollection)
-        sessions.append(AgnosticClientSession)
-    except ImportError:
-        pass
     return tuple(clients), tuple(databases), tuple(collections), tuple(sessions)
 
 
@@ -839,9 +945,9 @@ class _SessionView:
     def __init__(self, state: PreviewState) -> None:
         object.__setattr__(self, "_sp_state", state)
 
-    #: What the handler may read from the real session. Anything else fails closed: Motor's ``delegate``
-    #: and any private member would hand handler code the driver session itself, whose
-    #: ``commit_transaction`` would commit the Preview's writes.
+    #: What the handler may read from the real session. Anything else fails closed: a private
+    #: member would hand handler code the driver session itself (which is sealed too, see
+    #: ``_seal_session``, but the view never relies on that alone).
     _READABLE = frozenset({
         "session_id", "cluster_time", "operation_time", "in_transaction", "has_ended", "options",
         "advance_cluster_time", "advance_operation_time",
@@ -1089,7 +1195,10 @@ def mongo_store(
     client: Any, *, name: Optional[str] = None, treat_as_read: Optional[Iterable[str]] = None,
     preview_timeout: float = DEFAULT_PREVIEW_TIMEOUT,
 ) -> MongoStore:
-    """Hook a PyMongo, ``AsyncMongoClient`` or Motor client and return the store for ``data_stores``.
+    """Hook a PyMongo ``MongoClient`` or ``AsyncMongoClient`` and return the store for ``data_stores``.
+
+    Motor is refused with a ``TypeError``: it is deprecated in favour of ``AsyncMongoClient``, and
+    its thread pool drops the context the tripwire needs to attribute a stray write.
 
     Handlers must use the returned store's ``client``; the original stays unguarded. Create the
     client after importing this module (or pass ``event_listeners=[mongo_monitor]``): the store
