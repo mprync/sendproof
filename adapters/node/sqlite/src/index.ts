@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue, SQLOutputValue, StatementResultingChanges } from 'node:sqlite';
+import { endsTransaction, refuseInPreview } from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import { defaultTrackedKeyLimit, trackRows } from './rows.js';
 import type { Row, RowKey, TrackedRows } from './rows.js';
@@ -45,6 +46,19 @@ interface Scope {
 }
 
 const noScopeMessage = 'The SQLite preview transaction has ended.';
+
+/**
+ * The error for a statement the guarded methods don't accept. A statement that would end the
+ * transaction (a raw `COMMIT`, `ROLLBACK` or `BEGIN`) also records a fault on the current Preview,
+ * so the Preview answers 500 without confirmation even if the operation catches this error.
+ */
+function rejected(text: string, message: string): Error {
+  if (endsTransaction(text, 'sqlite')) {
+    const refusal = refuseInPreview('Preview owns the SQLite transaction, so "' + text.trim().slice(0, 40) + '" cannot run during Preview.');
+    if (refusal) return refusal;
+  }
+  return new TypeError(message);
+}
 
 /** SQLite reports lock contention as `SQLITE_BUSY` (5) or `SQLITE_LOCKED` (6), possibly extended. */
 function isBusy(error: unknown): boolean {
@@ -114,20 +128,20 @@ export class SQLiteDatabase implements PreviewProvider {
 
   /** Read one row. Accepts a SELECT statement. */
   async get(text: string, bindings: NamedBindings = {}): Promise<Row | undefined> {
-    if (!allowedRead.test(text)) throw new TypeError('get accepts a SELECT statement.');
+    if (!allowedRead.test(text)) throw rejected(text, 'get accepts a SELECT statement.');
     return this.#access(connection => execute(connection, 'get', text, bindings) as Row | undefined);
   }
 
   /** Read every matching row. Accepts a SELECT statement. */
   async all(text: string, bindings: NamedBindings = {}): Promise<Row[]> {
-    if (!allowedRead.test(text)) throw new TypeError('all accepts a SELECT statement.');
+    if (!allowedRead.test(text)) throw rejected(text, 'all accepts a SELECT statement.');
     return this.#access(connection => execute(connection, 'all', text, bindings) as Row[]);
   }
 
   /** Track a mutation by its stable primary key. Supply the key for each row the statement affects. */
   async write(text: string, bindings: NamedBindings = {}, changes: TrackedRows = { table: '' }): Promise<StatementResultingChanges> {
     if (!allowedWrite.test(text)) {
-      throw new TypeError('write accepts an INSERT, UPDATE, DELETE or REPLACE statement.');
+      throw rejected(text, 'write accepts an INSERT, UPDATE, DELETE or REPLACE statement.');
     }
     return this.#access(connection => trackRows(connection, changes, this.#trackedKeyLimit,
       () => execute(connection, 'run', text, bindings) as StatementResultingChanges));
@@ -142,7 +156,7 @@ export class SQLiteDatabase implements PreviewProvider {
     captureSql = true,
   ): Promise<SQLOutputValue[] | SQLOutputValue[][] | undefined> {
     if (!['all', 'get', 'values', 'run'].includes(method) || !(allowedRead.test(text) || allowedWrite.test(text))) {
-      throw new TypeError('Supply a SELECT or data mutation with a supported row mode.');
+      throw rejected(text, 'Supply a SELECT or data mutation with a supported row mode.');
     }
     return this.#access(connection => {
       const run = () => execute(connection, method === 'values' ? 'all' : method, text, bindings, method !== 'run',
