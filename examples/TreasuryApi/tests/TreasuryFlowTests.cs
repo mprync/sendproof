@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -426,6 +427,49 @@ public sealed class TreasuryFlowTests
         Assert.Contains("-amount", list.Single(p => p.GetProperty("name").GetString() == "sort").GetProperty("schema").GetProperty("enum")
             .EnumerateArray().Select(v => v.GetString()));
         Assert.Empty(problems);
+    }
+
+    /// <summary>Password-less persona switching stays on this machine and same-origin unless the caller is already signed in.</summary>
+    [Fact]
+    public async Task Persona_switching_is_local_and_same_origin_for_anonymous_callers()
+    {
+        await using var host = await TreasuryHost.StartAsync();
+        var server = host.App.GetTestServer();
+
+        // An anonymous caller on another machine can neither list the seeded users nor become one.
+        foreach (var (method, path) in new[] { ("GET", "/auth/personas"), ("POST", "/auth/personas/ada.admin%40acme.dev") })
+        {
+            var remote = await server.SendAsync(context =>
+            {
+                context.Request.Method = method;
+                context.Request.Path = PathString.FromUriComponent(path);
+                context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+            });
+            Assert.Equal(StatusCodes.Status403Forbidden, remote.Response.StatusCode);
+            Assert.False(remote.Response.Headers.ContainsKey("Set-Cookie"));
+        }
+
+        // A cross-site page cannot force a local browser into a seeded account.
+        foreach (var (name, value) in new[] { ("Origin", "https://elsewhere.example.test"), ("Sec-Fetch-Site", "cross-site") })
+        {
+            using var crossSite = new HttpRequestMessage(HttpMethod.Post, "/auth/personas/ada.admin%40acme.dev");
+            crossSite.Headers.Add(name, value);
+            var response = await host.Client.SendAsync(crossSite);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.False(response.Headers.Contains("Set-Cookie"));
+        }
+
+        // The local, same-origin workbench flow keeps working, and a signed-in remote user may switch.
+        await host.SignInAsync("ada.admin@acme.dev");
+        var cookie = host.Client.DefaultRequestHeaders.GetValues("Cookie").Single();
+        var signedIn = await server.SendAsync(context =>
+        {
+            context.Request.Method = "POST";
+            context.Request.Path = PathString.FromUriComponent("/auth/personas/cara.viewer%40acme.dev");
+            context.Request.Headers.Cookie = cookie;
+            context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        });
+        Assert.Equal(StatusCodes.Status200OK, signedIn.Response.StatusCode);
     }
 
     [Fact]

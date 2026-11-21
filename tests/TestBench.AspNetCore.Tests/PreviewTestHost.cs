@@ -179,6 +179,7 @@ internal sealed class PreviewTestHost(WebApplication app, HttpClient client, Pre
                 return Task.CompletedTask;
             });
             context.Response.Headers.SetCookie = "live-only=1";
+            context.Response.Headers.KeepAlive = "timeout=5";
             context.Response.OnStarting(() =>
             {
                 context.Response.Headers["X-Started"] = "buffered";

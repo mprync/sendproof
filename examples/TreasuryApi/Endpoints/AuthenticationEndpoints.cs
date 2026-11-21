@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -18,9 +19,41 @@ internal static class AuthenticationEndpoints
         group.MapPost("/logout", Logout).WithName("AuthController.Logout").Produces(StatusCodes.Status204NoContent);
 
         if (!app.Environment.IsDevelopment()) return;
-        group.MapGet("/personas", Personas).WithName("AuthController.Personas").Produces<IEnumerable<Persona>>();
+        group.MapGet("/personas", Personas).WithName("AuthController.Personas").Produces<IEnumerable<Persona>>()
+            .AddEndpointFilter(PersonaGuard).ProducesProblem(StatusCodes.Status403Forbidden);
         group.MapPost("/personas/{email}", SwitchPersona).WithName("AuthController.SwitchPersona")
-            .Produces<Persona>().ProducesProblem(StatusCodes.Status404NotFound);
+            .Produces<Persona>().ProducesProblem(StatusCodes.Status404NotFound)
+            .AddEndpointFilter(PersonaGuard).ProducesProblem(StatusCodes.Status403Forbidden);
+    }
+
+    /// <summary>
+    /// Persona switching signs in without a password, so it must not become a password-less backdoor when a
+    /// development server is reachable from the network. A signed-in user may always use it. An anonymous caller
+    /// may use it only from this machine (loopback, or an in-process test server with no remote address). Every
+    /// caller must be same-origin, so a cross-site page cannot force a browser into a seeded account.
+    /// </summary>
+    internal static async ValueTask<object?> PersonaGuard(EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)
+    {
+        var context = invocation.HttpContext;
+        var remote = context.Connection.RemoteIpAddress;
+        var local = remote is null || IPAddress.IsLoopback(remote);
+        var signedIn = context.User.Identity?.IsAuthenticated == true;
+        if (!IsSameOrigin(context.Request) || !signedIn && !local)
+        {
+            return Results.Problem(title: "Persona switching is unavailable",
+                detail: "Sign in first, or switch personas from a browser on this machine.", statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        return await next(invocation);
+    }
+
+    /// <summary>True unless the browser marks the request cross-site or sends an Origin other than this host.</summary>
+    private static bool IsSameOrigin(HttpRequest request)
+    {
+        if (string.Equals(request.Headers["Sec-Fetch-Site"], "cross-site", StringComparison.OrdinalIgnoreCase)) return false;
+        var origin = request.Headers.Origin;
+        return origin.Count == 0 || origin.Count == 1 &&
+            string.Equals(origin[0], $"{request.Scheme}://{request.Host.ToUriComponent()}", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Sign in with a password</summary>

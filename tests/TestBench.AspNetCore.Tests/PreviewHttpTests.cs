@@ -38,6 +38,7 @@ public sealed class PreviewHttpTests
         Assert.Equal(201, json.GetProperty("status").GetInt32());
         Assert.Equal("buffered", json.GetProperty("headers").GetProperty("x-started").GetString());
         Assert.False(json.GetProperty("headers").TryGetProperty("set-cookie", out _));
+        Assert.False(json.GetProperty("headers").TryGetProperty("keep-alive", out _), "Hop-by-hop headers stay out of the envelope.");
         Assert.Equal(PreviewTestHost.PaymentId, json.GetProperty("body").GetProperty("id").GetGuid());
         Assert.Equal("verified", json.GetProperty("body").GetProperty("tag").GetString());
         Assert.Equal("Robin", json.GetProperty("body").GetProperty("actor").GetString());

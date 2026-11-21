@@ -97,12 +97,63 @@ public sealed class PreviewProviderTests
         Assert.Equal("original", remaining.Name);
     }
 
+    [Fact]
+    public async Task ChangeSnapshotsRedactSecretNamedColumnsInEveryEnvironment()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var services = new ServiceCollection();
+        services.AddDbContext<ExampleContext>(options => options.UseSqlite(connection));
+        services.AddTestBench().AddEntityFrameworkCore<ExampleContext>();
+        await using var root = services.BuildServiceProvider();
+
+        await using (var setup = root.CreateAsyncScope())
+        {
+            var db = setup.ServiceProvider.GetRequiredService<ExampleContext>();
+            await db.Database.EnsureCreatedAsync();
+            db.Accounts.Add(new Account { Email = "ada@example.test", PasswordHash = "old-hash-value", ApiKey = "old-api-key" });
+            await db.SaveChangesAsync();
+        }
+
+        await using var scope = root.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ExampleContext>();
+        var provider = scope.ServiceProvider.GetRequiredService<IPreviewProvider>();
+        await using var session = await provider.BeginAsync(new DefaultHttpContext { RequestServices = scope.ServiceProvider }, CancellationToken.None);
+        var account = await context.Accounts.SingleAsync();
+        account.PasswordHash = "new-hash-value";
+        account.ApiKey = "new-api-key";
+        context.Accounts.Add(new Account { Email = "grace@example.test", PasswordHash = "inserted-hash", ApiKey = "inserted-key" });
+        await context.SaveChangesAsync();
+        await session.RollbackAsync(CancellationToken.None);
+
+        Assert.Equal(2, session.Changes.Count);
+        foreach (var change in session.Changes)
+        {
+            foreach (var snapshot in new[] { change.Before, change.After }.Where(value => value is not null))
+            {
+                var fields = Fields(snapshot);
+                Assert.Equal("[REDACTED]", fields[nameof(Account.PasswordHash)]);
+                Assert.Equal("[REDACTED]", fields[nameof(Account.ApiKey)]);
+                Assert.Contains("@example.test", Assert.IsType<string>(fields[nameof(Account.Email)]));
+            }
+        }
+    }
+
     private static Dictionary<string, object?> Fields(object? value) =>
         Assert.IsType<Dictionary<string, object?>>(value);
 
     public sealed class ExampleContext(DbContextOptions<ExampleContext> options) : DbContext(options)
     {
         public DbSet<Item> Items => Set<Item>();
+        public DbSet<Account> Accounts => Set<Account>();
+    }
+
+    public sealed class Account
+    {
+        public int Id { get; set; }
+        public string Email { get; set; } = "";
+        public string PasswordHash { get; set; } = "";
+        public string ApiKey { get; set; } = "";
     }
 
     public sealed class Item

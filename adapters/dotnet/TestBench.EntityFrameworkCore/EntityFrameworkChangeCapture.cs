@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Metadata;
 using TestBench.AspNetCore;
 
 namespace TestBench.EntityFrameworkCore;
@@ -83,7 +84,7 @@ internal sealed class EntityFrameworkChangeCapture : IPreviewObservation
         public PreviewChange Complete(EntityFrameworkChangeCapture capture)
         {
             var key = Entry.Metadata.FindPrimaryKey()?.Properties.ToDictionary(
-                property => property.Name, property => capture.Snapshot(Entry.Property(property.Name).CurrentValue));
+                property => property.Name, property => capture.Value(property, Entry.Property(property.Name).CurrentValue));
             return new PreviewChange(State switch
             {
                 EntityState.Added => "insert",
@@ -104,11 +105,24 @@ internal sealed class EntityFrameworkChangeCapture : IPreviewObservation
                 break;
             }
 
-            fields[property.Metadata.Name] = Snapshot(original ? property.OriginalValue : property.CurrentValue);
+            fields[property.Metadata.Name] = Value(property.Metadata, original ? property.OriginalValue : property.CurrentValue);
         }
 
         return fields;
     }
+
+    /// <summary>
+    /// Snapshots one property value, hiding it when the property or its column names a secret (PasswordHash,
+    /// api_key, RefreshToken). Change snapshots are shown in every enabled environment, so unlike SQL parameter
+    /// values they are never revealed by a Development-only switch.
+    /// </summary>
+    private object? Value(IReadOnlyProperty property, object? value) =>
+        TestBenchCommandInterceptor.LooksSecret(property.Name) ||
+        property.GetColumnName() is { } column && TestBenchCommandInterceptor.LooksSecret(column)
+            ? Redacted
+            : Snapshot(value);
+
+    private const string Redacted = "[REDACTED]";
 
     private object? Snapshot(object? value)
     {

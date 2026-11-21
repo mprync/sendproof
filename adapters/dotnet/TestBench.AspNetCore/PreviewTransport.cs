@@ -11,10 +11,13 @@ namespace TestBench.AspNetCore;
 
 internal sealed class PreviewTransport
 {
+    // Session, redirect and framing headers, plus every RFC 9110 hop-by-hop header, describe the simulated
+    // transport rather than the operation's result. None of them belongs in the preview envelope.
     private static readonly HashSet<string> PrivateHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         HeaderNames.SetCookie, HeaderNames.Location, HeaderNames.ContentLength, HeaderNames.TransferEncoding,
-        HeaderNames.Connection, HeaderNames.Upgrade, HeaderNames.Trailer
+        HeaderNames.Connection, HeaderNames.Upgrade, HeaderNames.Trailer, HeaderNames.KeepAlive, HeaderNames.TE,
+        HeaderNames.ProxyAuthenticate, "Proxy-Connection"
     };
 
     internal static async Task ExecuteAsync(HttpContext context, RequestDelegate next, PreviewRequest preview,
