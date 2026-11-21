@@ -2,14 +2,15 @@
 
 This plan takes MongoDB, Redis and DynamoDB (batch one), then Cassandra, Elasticsearch and OpenSearch, Cosmos DB and Firestore (batch two), to all eight bindings. The rules are in [spec/data-stores.md](../../spec/data-stores.md); this page says how each binding implements them and in what order.
 
-**Status:** the foundation is done: the spec, the shared classification tables and vectors in `spec/data-stores/`, the conformance checks, the compose services, and a working reference in `tests/conformance/fixtures/data-stores-reference/`. Node is done for batch one (see [How the Node binding did it](#how-the-node-binding-did-it)); the other seven languages have not started.
+**Status:** the foundation is done: the spec, the shared classification tables and vectors in `spec/data-stores/`, the conformance checks, the compose services, and a working reference in `tests/conformance/fixtures/data-stores-reference/`. Node is done for batch one (see [How the Node binding did it](#how-the-node-binding-did-it)); the other seven languages have not started. The batch-two foundation is done too; see [Work breakdown, batch two](#work-breakdown-batch-two).
 
 ## What the foundation gives each binding
 
 | Piece | Where | How a binding uses it |
 | --- | --- | --- |
 | Rules | `spec/data-stores.md` | The behavior to implement. |
-| Classification tables | `spec/data-stores/{redis,mongodb,dynamodb}.json` | Embed unchanged, or generate a source file from them at build time. A unit test fails when the copy differs. |
+| Classification tables | `spec/data-stores/{redis,mongodb,dynamodb}.json`; batch two `{cassandra,elasticsearch,cosmosdb,firestore}.json` | Embed unchanged, or generate a source file from them at build time. A unit test fails when the copy differs. |
+| Recorded requests | `spec/data-stores/recordings/{cosmosdb,firestore}.json` | Replay through the Cosmos DB and Firestore hooks over a fake transport (see its README). |
 | Classification vectors | `spec/data-stores/classification-cases.json` | Run every case through the binding's classifier in its unit tests. |
 | Reference guard | `tests/conformance/fixtures/data-stores-reference/guard.mjs` | Classification, the Preview scope's blocked mark, the Db log builder and redaction, in about 200 lines. |
 | Reference hooks | `…/data-stores-reference/hooks.mjs` | What each store hook does, including MongoDB session injection and change capture. |
@@ -289,12 +290,70 @@ Once the last MySQL-escape helpers finish:
 
 Batch two adds one classification table per store under `spec/data-stores/`, extends `classification-cases.json`, and adds guard-only hooks. All four stores are `guard` only (see [Batch two stores](../../spec/data-stores.md#batch-two-stores)).
 
-| Store | Libraries per language (hook) |
-| --- | --- |
-| Cassandra | Node `cassandra-driver` (wrap `execute`, `batch`, `eachRow`, `stream`); Python `cassandra-driver` (wrap `Session.execute`/`execute_async`); .NET `CassandraCSharpDriver` (`ISession` decorator); Java DataStax driver 4 (`CqlSession` proxy; Spring Data Cassandra through it); Go `gocql` (`QueryObserver` is post-hoc, so a `Session` wrapper); PHP and Ruby have no maintained driver: document as unsupported; Rust `scylla` (wrapper). |
-| Elasticsearch and OpenSearch | Official clients in every language; each has a transport layer to hook: Node `Transport` subclass, Python `Transport` class, .NET `ITransport`, Java `Transport` wrapper, Go `elastictransport.Interface`, PHP `Transport` middleware, Ruby Faraday middleware on the transport, Rust `Transport` wrapper. Classify by method and endpoint. |
-| Cosmos DB | Node `@azure/cosmos` (plugin pipeline), Python `azure-cosmos` (pipeline policy), .NET `Microsoft.Azure.Cosmos` (`RequestHandler`, native), Java `azure-cosmos` (policy), Go `azcosmos` (policy). PHP, Ruby and Rust: no official SDK; unsupported. |
-| Firestore | Node `@google-cloud/firestore` (gax interceptors, **spike**), Python `google-cloud-firestore` (gRPC interceptor), .NET `Google.Cloud.Firestore` (gRPC `CallInvoker` interceptor), Java (gRPC `ClientInterceptor`), Go (gRPC `UnaryClientInterceptor`), PHP `google/cloud-firestore` (gRPC interceptor), Ruby (gRPC interceptor), Rust: no official SDK; unsupported. |
+**Status:** the foundation is done (2026-11-22). The four tables, their shared cases, the Cosmos DB and Firestore recordings, the reference hooks for Cassandra and OpenSearch with their conformance checks, the compose `heavy-stores` services and the CI heavy-stores jobs are in place. No binding has started batch two.
+
+In the tables below, **confirmed** means the hook uses a documented, public extension point of that library; the Node Cosmos DB and Firestore rows were also confirmed by recording the SDK's traffic for `spec/data-stores/recordings/`. **Spike** means the first hour of that language's work must prove the hook sees every request before it is sent, and the fallback is named. Unsupported stores are documented as such in the binding's data-store page.
+
+### Cassandra
+
+The unit is the CQL statement, so a hook at the statement API (above the driver's own prepare) sees the text for every call, including prepared ones. Post-hoc trackers (`RequestTracker`, `QueryObserver`) run after sending and can't guard.
+
+| Language | Library | Hook | Status |
+| --- | --- | --- | --- |
+| Node | `cassandra-driver` 4 | Wrap the client's `execute`, `batch`, `eachRow` and `stream`; `batch` is always refused in a Preview. | Confirmed |
+| Python | `cassandra-driver` (DataStax, also ScyllaDB's fork) | Wrap `Session.execute` and `execute_async`; a `BoundStatement` carries `prepared_statement.query_string`. | Confirmed |
+| .NET | `CassandraCSharpDriver` 3 | `ISession` decorator (`Execute`, `ExecuteAsync`, `Prepare`); `BatchStatement` is refused. | Confirmed |
+| Java and Kotlin | DataStax Java driver 4, Spring Data Cassandra | `java.lang.reflect.Proxy` over `CqlSession`; Spring: a `BeanPostProcessor` wraps the `CqlSession` bean, which `CqlTemplate` and repositories use. | Confirmed |
+| Go | `github.com/apache/cassandra-gocql-driver/v2` (gocql) | `Session` is a struct, so a wrapper type with `Query(...).Exec/Iter/Scan` and `Batch`; handlers use the wrapper. | Confirmed (wrapper) |
+| PHP, Ruby | none maintained | The DataStax PHP extension and Ruby gem are unmaintained. | Unsupported |
+| Rust | `scylla` | Wrapper over `Session` (`query_unpaged`, `execute_unpaged`, `batch`), like the existing extractors. | Confirmed (wrapper) |
+
+### Elasticsearch and OpenSearch
+
+One hook per client, below the typed API, sees method, path and body. Classify with `elasticsearch.json`; report `opensearch` or `elasticsearch` as the store.
+
+| Language | Libraries | Hook | Status |
+| --- | --- | --- | --- |
+| Node | `@elastic/elasticsearch` 8, `@opensearch-project/opensearch` 2 | A `Transport` subclass passed as the client's `Transport` option, overriding `request(params, options)`. | Confirmed |
+| Python | `elasticsearch` 8, `opensearch-py` 2 | A `transport_class` whose `perform_request(method, target, body=…)` guards first. | Confirmed |
+| .NET | `Elastic.Clients.Elasticsearch` 8, `OpenSearch.Client` | A request invoker (`IRequestInvoker`, an `HttpRequestInvoker` subclass) given to `ElasticsearchClientSettings`; OpenSearch: an `HttpConnection` subclass given to `ConnectionSettings`. | Confirmed |
+| Java and Kotlin | `elasticsearch-java` 8, `opensearch-java` 2, Spring Data Elasticsearch | Decorate `ElasticsearchTransport` / `OpenSearchTransport` (`performRequest` sees the endpoint's method and URL); Spring: a `BeanPostProcessor` on the transport bean. | Confirmed |
+| Go | `go-elasticsearch` 8, `opensearch-go` 4 | An `http.RoundTripper` wrapper set as `Config.Transport`; it returns an error before the inner round trip. | Confirmed |
+| PHP | `elasticsearch/elasticsearch` 8, `opensearch-project/opensearch-php` 2 | A decorating PSR-18 client passed to `ClientBuilder::setHttpClient`. | Confirmed |
+| Ruby | `elasticsearch` 8, `opensearch-ruby` 3 | Faraday middleware added in the client's block (`Client.new { |f| f.use Guard }`). | Confirmed |
+| Rust | `elasticsearch`, `opensearch` crates | The `Transport` is a concrete struct with no middleware; typed calls can't be intercepted by a wrapper. | **Spike**: a custom `reqwest` client through `TransportBuilder`, or wrap `Elasticsearch::send` and expose only the wrapper |
+
+### Cosmos DB
+
+Hooks on the HTTP pipeline derive the operation with `fromRequest` in `cosmosdb.json`; every request also carries the trigger headers.
+
+| Language | Library | Hook | Status |
+| --- | --- | --- | --- |
+| Node | `@azure/cosmos` 4 | A request plugin (`plugins: [{ on: 'request', plugin }]`): it sees `operationType` (lower case), `resourceType` and the headers. The option isn't in the public docs, so pin the minor version and keep the recording test. | Confirmed by recording (4.10.2) |
+| Python | `azure-cosmos` 4 | **Spike**: whether `CosmosClient` honours azure-core `per_call_policies`; fallback: a custom `transport` (azure-core `HttpTransport`) that classifies each `HttpRequest`. | Spike |
+| .NET | `Microsoft.Azure.Cosmos` 3 | A `RequestHandler` in `CosmosClientOptions.CustomHandlers`. `RequestMessage.OperationType` is internal, so classify from method, URI and headers. | Confirmed |
+| Java and Kotlin | `azure-cosmos` 4 | The client has no public pre-send policy hook (diagnostics handlers run after). **Spike**: a wrapper over `CosmosContainer`/`CosmosAsyncContainer` and `CosmosScripts`; Spring Data Cosmos through a wrapped `CosmosAsyncClient` bean. | Spike |
+| Go | `azcosmos` | An azcore `policy.Policy` in `ClientOptions.PerCallPolicies`. | Confirmed |
+| PHP, Ruby, Rust | no official SDK | | Unsupported |
+
+### Firestore
+
+Every gRPC hook must cover streaming calls as well as unary ones: `RunQuery`, `BatchGetDocuments` and `Listen` stream, and `Write` is a bidirectional stream that must be refused before its first message. A unary-only interceptor lets `Write` through.
+
+| Language | Library | Hook | Status |
+| --- | --- | --- | --- |
+| Node | `@google-cloud/firestore` 7 | **Spike**: gax `interceptors` in the client options for gRPC; the REST transport (`preferRest: true`) was recorded and is the fallback, hooked at its HTTP request function. | Spike |
+| Python | `google-cloud-firestore` 2 | **Spike**: `Client` doesn't take a transport; a channel wrapped with `grpc.intercept_channel` (unary-unary, unary-stream and stream-stream interceptors) given to `FirestoreGrpcTransport`, reached through the client's internals. Fallback: wrap the client's `_firestore_api`. | Spike |
+| .NET | `Google.Cloud.Firestore` 3 | `FirestoreClientBuilder.CallInvoker = channel.Intercept(guard)` with an `Interceptor` overriding the unary and streaming calls; then `FirestoreDb.Create(project, client)`. | Confirmed |
+| Java and Kotlin | `google-cloud-firestore` 3 | A gRPC `ClientInterceptor` (covers every call type) through `InstantiatingGrpcChannelProvider.setInterceptorProvider`. | Confirmed |
+| Go | `cloud.google.com/go/firestore` | `option.WithGRPCDialOption(grpc.WithChainUnaryInterceptor(…))` **and** `grpc.WithChainStreamInterceptor(…)`. | Confirmed |
+| PHP | `google/cloud-firestore` (needs the grpc extension) | **Spike**: gax `transportConfig.grpc.interceptors`. | Spike |
+| Ruby | `google-cloud-firestore` 2 | **Spike**: the generated `Firestore::V1::Firestore::Client` `interceptors` configuration, reached from the handwritten client. | Spike |
+| Rust | no official SDK | | Unsupported |
+
+### Order and acceptance
+
+One helper per language once its batch-one work is reviewed, in any order. Each language's work: embed the four tables with a parity test, run every batch-two case in `classification-cases.json`, add the hooks above with the store's display name and `Db` entries, replay the recordings for Cosmos DB and Firestore (and show the replay fails with the hook removed), add the Cassandra and OpenSearch fixture routes from [the fixture contract](../../spec/conformance/fixture.md#data-store-routes), and list `"cassandra"` and `"opensearch"` in the entry's `stores`. The review findings above apply unchanged; finding 4 (derived clients stay guarded) applies to every client that returns another client, such as Elasticsearch's `child()` and Cosmos DB's `database().container()`.
 
 Batch two's conformance needs Cassandra and OpenSearch from the `heavy-stores` compose profile; Cosmos DB and Firestore have emulators that are large or Linux-only, so they get unit tests against recorded requests rather than a service in CI.
 
@@ -313,7 +372,7 @@ Another helper will mock these; they must keep the current layout and every exis
 
 ## CI additions
 
-The batch-one steps below are applied in `.github/workflows/check.yml`; the batch-two jobs are added with batch two. `node tests/conformance/run.mjs --matrix` now emits a comma-separated `stores` field for each entry.
+The batch-one steps below and the batch-two jobs are applied in `.github/workflows/check.yml`. `node tests/conformance/run.mjs --matrix` emits a comma-separated `stores` field for each entry.
 
 In the `conformance` job, after `npm ci --prefix tests/conformance`:
 
@@ -333,78 +392,33 @@ After "Run shared HTTP checks":
       - name: Prove the data-store checks catch a missing guard
         if: matrix.id == 'data-stores-reference'
         run: |
-          node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs
+          node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs tests/conformance/fixtures/data-stores-reference/recordings.test.mjs
           node tests/conformance/fixtures/data-stores-reference/negative.mjs
       - name: Stop data stores
         if: always() && matrix.stores != ''
         run: docker compose -f tests/conformance/compose.yml down -v
 ```
 
-For batch two, a separate job runs only entries that list a heavy store, on a schedule, on manual dispatch, or on a pull request labelled `heavy-stores`. The main `conformance-matrix` step must then exclude those entries with `jq -c '{include: [.include[] | select(.stores | test("cassandra|opensearch|elasticsearch") | not)]}'`.
+### Batch two: the heavy-stores jobs
 
-```yaml
-  heavy-stores-matrix:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'heavy-stores')
-    runs-on: ubuntu-latest
-    outputs:
-      bindings: ${{ steps.matrix.outputs.bindings }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - id: matrix
-        run: |
-          bindings=$(node tests/conformance/run.mjs --matrix | jq -c '{include: [.include[] | select(.stores | test("cassandra|opensearch|elasticsearch"))]}')
-          echo "bindings=$bindings" >> "$GITHUB_OUTPUT"
+Cassandra and OpenSearch need about 3 GB of containers, so they run in separate jobs, `heavy-stores-matrix` and `heavy-stores`, on the weekly schedule (`0 4 * * 1`), on manual dispatch (`workflow_dispatch`), and on pull requests labelled `heavy-stores`. A label added to an open pull request counts from its next push, because the workflow doesn't listen for `labeled` events (that would rerun every job for any label).
 
-  heavy-stores:
-    name: Heavy stores / ${{ matrix.id }}
-    needs: heavy-stores-matrix
-    if: fromJSON(needs.heavy-stores-matrix.outputs.bindings).include[0] != null
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.heavy-stores-matrix.outputs.bindings) }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-      # Toolchain setup steps: copy the `if: matrix.toolchain == …` steps from the conformance job.
-      - run: npm ci --prefix tests/conformance
-      - name: Start heavy stores
-        env:
-          STORES: ${{ matrix.stores }}
-        run: docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait ${STORES//,/ }
-      - name: Prepare fixture
-        if: matrix.prepare != ''
-        env:
-          PREPARE: ${{ matrix.prepare }}
-        run: bash -euo pipefail -c "$PREPARE"
-      - name: Run shared HTTP checks
-        env:
-          BINDING: ${{ matrix.id }}
-        run: node tests/conformance/run.mjs "$BINDING"
-      - name: Stop heavy stores
-        if: always()
-        run: docker compose -f tests/conformance/compose.yml --profile heavy-stores down -v
-```
-
-Add `schedule: [{ cron: '0 4 * * 1' }]` to the workflow's `on:` block if it has no schedule yet.
+- `heavy-stores-matrix` selects the entries whose `stores` name `cassandra`, `opensearch` or `elasticsearch`.
+- `heavy-stores` sets up the entry's toolchain like the conformance job, checks the entry is on SQLite or H2 (store entries live on each binding's SQLite or H2 profile, and this job starts no database service), starts the entry's stores with `--profile heavy-stores`, prepares the fixture, runs `node tests/conformance/run.mjs <id>` with every store the entry lists, runs `negative.mjs` for `data-stores-reference`, and removes the containers.
+- The plan first said to drop heavy entries from the main matrix. That would have taken `data-stores-reference` and every binding that lists a heavy store out of pull-request CI entirely, so `conformance-matrix` instead removes the heavy stores from each entry's `stores`, and the conformance job passes the rest as `BENCH_STORES`. The runner then checks only those stores and reports the heavy ones as skipped ("CI runs these in the heavy-stores job"). `negative.mjs` reads `BENCH_STORES` too, so it expects exactly the guard checks of the stores in the run.
 
 ## Running the checks locally
 
 ```sh
 docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb
+docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch
 node tests/conformance/run.mjs data-stores-reference
+node --test tests/conformance/fixtures/data-stores-reference/classification.test.mjs tests/conformance/fixtures/data-stores-reference/recordings.test.mjs
 node tests/conformance/fixtures/data-stores-reference/negative.mjs
-docker compose -f tests/conformance/compose.yml down -v
+docker compose -f tests/conformance/compose.yml --profile heavy-stores down -v
 ```
 
-The runner defaults to the compose ports; set `BENCH_MONGODB_SERVER_URL`, `BENCH_REDIS_SERVER_URL` or `BENCH_DYNAMODB_SERVER_URL` to use other services.
+Without the heavy stores, run the batch-one checks only with `BENCH_STORES=mongodb,redis,dynamodb` in front of the `run.mjs` and `negative.mjs` commands. The runner defaults to the compose ports; set `BENCH_MONGODB_SERVER_URL`, `BENCH_REDIS_SERVER_URL`, `BENCH_DYNAMODB_SERVER_URL`, `BENCH_CASSANDRA_SERVER` (`host:port`) or `BENCH_OPENSEARCH_SERVER_URL` to use other services. Cassandra and OpenSearch together need about 3 GB of free Docker disk and 4 GB of memory.
 
 ## Decisions (approved 2026-11-21)
 

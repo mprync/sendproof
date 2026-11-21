@@ -8,16 +8,16 @@ Every rule here serves one promise: **a confirmed Preview never leaves a write b
 
 Each store a binding knows about runs in one of two modes.
 
-| Mode | Meaning | Batch-one stores |
+| Mode | Meaning | Stores |
 | --- | --- | --- |
 | `preview` | Writes run inside a transaction that the binding aborts after the handler. Changes and commands are captured. | MongoDB on a replica set or sharded cluster |
-| `guard` | Reads run normally. A write blocks the Preview, which fails with [Preview unavailable](#blocked-preview-response). | Redis, DynamoDB, MongoDB on a standalone server |
+| `guard` | Reads run normally. A write blocks the Preview, which fails with [Preview unavailable](#blocked-preview-response). | Redis, DynamoDB, MongoDB on a standalone server; batch two: Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore |
 
 Observed Send and ordinary Send are unaffected by the mode: writes commit normally and an observed Send traces them.
 
 A binding only covers a store through the hook it installs on that store's client (command monitoring, middleware, an interceptor or a wrapper). A client the binding never saw, such as one created inside a handler, a second client for the same store, or a raw socket, is not covered. Its writes are not blocked and not rolled back. Documentation for every binding says this next to the setup instructions.
 
-Batch two adds Cassandra, Elasticsearch and OpenSearch, Azure Cosmos DB and Google Cloud Firestore. Each starts in `guard` mode; [Batch two stores](#batch-two-stores) lists what would let one move to `preview`.
+Batch two adds Cassandra, Elasticsearch and OpenSearch, Azure Cosmos DB and Google Cloud Firestore. Each runs in `guard` mode; [Batch two stores](#batch-two-stores) lists what would let one move to `preview`.
 
 ## Discovery
 
@@ -56,6 +56,10 @@ Each guarded store has a shared classification table that every binding embeds u
 | Redis | [redis.json](data-stores/redis.json) | Upper-case command name, plus `|SUBCOMMAND` for container commands such as `OBJECT|ENCODING` |
 | MongoDB | [mongodb.json](data-stores/mongodb.json) | The command document's first key, case-insensitive |
 | DynamoDB | [dynamodb.json](data-stores/dynamodb.json) | The API action name, such as `UpdateItem` |
+| Cassandra | [cassandra.json](data-stores/cassandra.json) | A CQL statement's first keyword (`LIST` takes its next word), or the native-protocol message for `BATCH` and `EXECUTE` |
+| Elasticsearch and OpenSearch | [elasticsearch.json](data-stores/elasticsearch.json) | The HTTP method and path pattern, such as `POST /{index}/_update_by_query` |
+| Cosmos DB | [cosmosdb.json](data-stores/cosmosdb.json) | The operation type, such as `Upsert`, or the HTTP request it is derived from |
+| Firestore | [firestore.json](data-stores/firestore.json) | The gRPC method, such as `/google.firestore.v1.Firestore/Commit`, or the REST request it is derived from |
 
 Each table lists reads and connection-level commands. **Everything else is a write, including commands the table has never heard of.** A store version that adds a read command stays blocked until the table lists it. That keeps the guard failing closed.
 
@@ -88,6 +92,43 @@ Reads are `GetItem`, `BatchGetItem`, `Query`, `Scan`, `TransactGetItems` and the
 - `UpdateItem` is always a write, whatever its `ReturnValues`. So are `PutItem` and `DeleteItem`, including a conditional write whose condition will fail.
 - `TransactWriteItems` and `BatchWriteItem` are writes, even when a transaction holds only `ConditionCheck` entries.
 - `ExecuteStatement`, `BatchExecuteStatement` and `ExecuteTransaction` carry PartiQL. The request is a read only when every statement is a `SELECT`: skip whitespace, `--` line comments and `/* */` block comments, then compare the first word case-insensitively. An `INSERT`, `UPDATE`, `DELETE`, or any text the binding can't parse, makes the whole request a write.
+
+### Cassandra
+
+Reads are `SELECT`, `USE` (it only changes the connection's keyspace), `DESCRIBE` and the `LIST` statements. The ones that need care:
+
+- Every `BATCH` is a write, both `BEGIN … APPLY BATCH` text and the native protocol's `BATCH` message, whose statements may be prepared ids the hook can't read. An empty batch is refused too.
+- A lightweight transaction (`IF NOT EXISTS`, `IF EXISTS`, `IF <condition>`) is a write even when its condition fails.
+- `EXECUTE` takes the classification of the text the hook saw prepared. An id the hook never saw prepared is a write. `PREPARE` only parses a statement and is allowed.
+- Text is a read only when it holds one statement. A second statement after a semicolon (outside quotes, comments and `$$` strings), an unterminated quote or comment, or no statement at all makes it a write.
+- DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`), `GRANT`, `REVOKE` and Cassandra 5's `ADD IDENTITY` are writes.
+
+### Elasticsearch and OpenSearch
+
+One table covers both engines; the hook reports `elasticsearch` or `opensearch` as the store. The table lists endpoints in order and the first match decides; `GET` and `HEAD` are reads on every other path, and anything else is a write. The ones that need care:
+
+- A `POST` is not a write by itself: `_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, `_explain`, the template searches and the other listed read endpoints take their query in a `POST` body.
+- `_bulk`, `_update_by_query`, `_delete_by_query` and `_reindex` are always writes, even when their query matches nothing. So are document `PUT`, `POST` and `DELETE`, stored scripts, and index, alias, template, mapping and setting changes.
+- The SQL endpoints (`_sql`, `_plugins/_sql`, `_opendistro/_sql`) are reads only when the body's `query` is one `SELECT`, `SHOW` or `DESCRIBE` statement, or the body only fetches the next page of a cursor. OpenSearch's legacy SQL engine can run `DELETE`.
+- Point-in-time, scroll, async-search and SQL-cursor handles are session state: opening and closing them is allowed and not logged.
+- Match the path after percent-decoding each segment and dropping repeated or trailing slashes, as the server does. An index name never starts with an underscore, so `/_x/_search` is not a search.
+
+### Cosmos DB
+
+Reads are `Read`, `ReadFeed` (including the change feed), `Query`, `QueryPlan` and the `Head` operations; the Cosmos DB query language can't write. The ones that need care:
+
+- A request that names a pre-trigger or post-trigger is a write whatever its operation, because trigger code can write.
+- Executing a stored procedure is a write, even one that only reads: the guard can't see its code.
+- `Batch` is a write, whether a transactional batch or the bulk mode that sends non-atomic batches, and even when every operation in it is a read. So is a conditional `Patch` whose filter fails.
+- A hook on the HTTP pipeline derives the operation from the method, the resource path and the `x-ms-documentdb-isquery`, `x-ms-cosmos-is-query-plan-request`, `x-ms-cosmos-is-batch-request` and `x-ms-documentdb-is-upsert` headers, as `fromRequest` in the table lists. Operation types compare case-insensitively.
+
+### Firestore
+
+Reads are `GetDocument`, `ListDocuments`, `BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `PartitionQuery`, `Listen` and `ListCollectionIds`, including the ones that begin a transaction. The ones that need care:
+
+- `BeginTransaction` and `Rollback` are allowed: they change no data.
+- `Commit` is a write when it carries at least one write. A `Commit` with no writes only ends a transaction that wrote nothing (the SDKs send one after a read-write transaction that only read), so it is allowed. A hook that can't read the request message treats every `Commit` as a write.
+- `BatchWrite`, `Write` (a stream, refused before its first message) and the document RPCs are writes. A method of any other service, or another API version, is a write; admin methods are reads only when they start with `Get` or `List`.
 
 ### Host-declared reads
 
@@ -128,7 +169,7 @@ A blocked Preview answers HTTP 409 with `Content-Type: application/problem+json`
 }
 ```
 
-- `code` is always `preview_unavailable`. `detail` is the sentence the UI shows. For a write it reads `Preview unavailable: this operation writes to <Store>`, using the display names `MongoDB`, `Redis` and `DynamoDB`. For a command MongoDB can't run in a transaction it uses the reason from the table.
+- `code` is always `preview_unavailable`. `detail` is the sentence the UI shows. For a write it reads `Preview unavailable: this operation writes to <Store>`, using the display names `MongoDB`, `Redis`, `DynamoDB`, `Cassandra`, `Elasticsearch`, `OpenSearch`, `Cosmos DB` and `Firestore`. For a command MongoDB can't run in a transaction it uses the reason from the table.
 - `store` is the `system` value. `operation` is the refused command or action name, never its arguments: keys and filters can contain personal data.
 - `rolledBack` is `false`: nothing was written, but nothing was previewed either.
 - The response never carries the handler's status, body, headers, cookies, logs, changes or effects.
@@ -174,6 +215,10 @@ The rules match SQL parameters. A value never appears in `statement`; it appears
 - **MongoDB:** `statement` is the command document as JSON with every literal value replaced by `"?"`, keeping field names and operators. Commands the [MongoDB command monitoring specification](https://github.com/mongodb/specifications/blob/master/source/command-logging-and-monitoring/command-logging-and-monitoring.md#security) marks security-sensitive (`authenticate`, `saslStart`, `saslContinue`, `getnonce`, `createUser`, `updateUser`, and `hello` with `speculativeAuthenticate`) are never logged.
 - **Redis:** `statement` is the command name followed by its key arguments, with every other argument replaced by `?`, as in `SET session:42 ?`. Session commands, including `AUTH` and `HELLO … AUTH`, are never logged.
 - **DynamoDB:** PartiQL `statement` is the statement text, which uses `?` placeholders. Other actions have no `statement`. Credentials, the `Authorization` header and signatures are never captured.
+- **Cassandra:** `statement` is the CQL text with every quoted string, `$$` string and number replaced by `?`; bound values are never logged. A `BATCH` is logged as `BEGIN BATCH <statement>; …; APPLY BATCH`. `target` is the table and `namespace` the keyspace.
+- **Elasticsearch and OpenSearch:** `statement` is the request body with every literal replaced by `"?"`, as for MongoDB, one line per NDJSON line for `_bulk` and `_msearch`. The path is not logged, because it can hold document ids. `target` is the index the path names.
+- **Cosmos DB:** `statement` is the query text, whose values are `@` parameters, with any inline literals replaced by `?`; parameter values and documents are never logged. `target` is the container and `namespace` the database. The `authorization` header and account keys are never captured.
+- **Firestore:** `statement` is the request message as JSON with every literal, including document paths, replaced by `"?"`. `target` is the collection. OAuth tokens and authorization metadata are never captured.
 - Connection strings, host names, user names and passwords never appear in a capture, a trace or capabilities.
 
 ## Document and key changes
@@ -266,17 +311,19 @@ The same applies to SQL Server, where a deadlock victim (error 1205) or an error
 
 ## Batch two stores
 
-Each batch-two store starts in `guard` mode. Its plan entry names the hook and the classification table to add under `spec/data-stores/`.
+Each batch-two store runs in `guard` mode. Its classification table is under `spec/data-stores/` (see [Write classification](#write-classification)), and its plan entry names the hook in each language.
 
-| Store | Could it Preview? | Guard classification unit |
-| --- | --- | --- |
-| Cassandra | No: Cassandra has no rollback; a logged batch only makes its statements all-or-nothing. Guard only. | CQL statement verb: `SELECT` and `USE` are reads; `BATCH` is a write when any inner statement is |
-| Elasticsearch and OpenSearch | No: there is no rollback. Guard only. | HTTP method and endpoint: `GET`/`HEAD`, `_search`, `_count`, `_msearch`, `_mget`, `_field_caps` are reads; `_update_by_query`, `_delete_by_query`, `_bulk`, `_reindex` and every `PUT` are writes |
-| Azure Cosmos DB | Only inside a single logical partition, through a transactional batch; not for arbitrary handlers. Guard only. | Operation type: `Read`, `ReadFeed`, `Query` are reads; stored procedures and triggers are writes |
-| Google Cloud Firestore | Not for arbitrary handlers: a transaction can be rolled back, but it needs every read before the first write and its reads don't see its own buffered writes. Guard only. | RPC: `GetDocument`, `ListDocuments`, `RunQuery`, `RunAggregationQuery`, `BatchGetDocuments`, `Listen` are reads; `Commit`, `BatchWrite`, `Write` are writes |
+| Store | Could it Preview? | Guard classification unit | Proven by |
+| --- | --- | --- | --- |
+| Cassandra | No: Cassandra has no rollback; a logged batch only makes its statements all-or-nothing. Guard only. | CQL statement: `SELECT`, `USE`, `DESCRIBE` and `LIST` are reads; every `BATCH` is a write | Shared HTTP checks against the compose `cassandra` service |
+| Elasticsearch and OpenSearch | No: there is no rollback. Guard only. | HTTP method and endpoint: `GET`/`HEAD`, `_search`, `_count`, `_msearch`, `_mget`, `_field_caps` are reads; `_update_by_query`, `_delete_by_query`, `_bulk`, `_reindex` and every `PUT` are writes | Shared HTTP checks against the compose `opensearch` service |
+| Azure Cosmos DB | Only inside a single logical partition, through a transactional batch; not for arbitrary handlers. Guard only. | Operation type: `Read`, `ReadFeed`, `Query` are reads; stored procedures, triggers and batches are writes | Unit tests replaying [recorded requests](data-stores/recordings/README.md) |
+| Google Cloud Firestore | Not for arbitrary handlers: a transaction can be rolled back, but it needs every read before the first write and its reads don't see its own buffered writes. Guard only. | RPC: `GetDocument`, `ListDocuments`, `RunQuery`, `RunAggregationQuery`, `BatchGetDocuments`, `Listen` are reads; `Commit` with writes, `BatchWrite`, `Write` are writes | Unit tests replaying [recorded requests](data-stores/recordings/README.md) |
 
 A store can move to `preview` only with a mechanism that applies nothing until the binding says so and can discard everything on request, proven by an independent read in the conformance suite.
 
 ## Conformance
 
-The shared HTTP checks live in [tests/conformance/data-stores.mjs](../tests/conformance/data-stores.mjs) and use the fixture routes in [the fixture contract](conformance/fixture.md#data-store-routes). A manifest entry opts in with `"stores": ["mongodb", "redis", "dynamodb"]`; entries without it report the checks as not implemented.
+The shared HTTP checks live in [tests/conformance/data-stores.mjs](../tests/conformance/data-stores.mjs) and use the fixture routes in [the fixture contract](conformance/fixture.md#data-store-routes). A manifest entry opts in with `"stores": ["mongodb", "redis", "dynamodb"]`, adding `"cassandra"` and `"opensearch"` for batch two; entries without it report the checks as not implemented. Cassandra and OpenSearch come from the compose `heavy-stores` profile and run in a separate CI job; `BENCH_STORES` narrows a local run to the listed stores.
+
+Cosmos DB and Firestore have no compose service. Each binding proves those hooks with unit tests that replay [the recorded requests](data-stores/recordings/README.md) over a fake transport.
