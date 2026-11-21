@@ -1,6 +1,7 @@
 package io.github.mprync.sendproof.ktor
 
 import io.github.mprync.sendproof.core.Capabilities
+import io.github.mprync.sendproof.core.DataStore
 import io.github.mprync.sendproof.core.PreviewProvider
 import io.github.mprync.sendproof.core.TraceOwner
 import io.github.mprync.sendproof.core.TraceStore
@@ -51,6 +52,17 @@ public class SendproofConfig {
 
     /** The data-layer provider, for example `JdbcPreviewProvider`. Without one no operation is previewable. */
     public var provider: PreviewProvider? = null
+
+    /**
+     * The data store hooks: `MongoStore`, `RedisStore` and `DynamoDbStore`. Registering one makes a Preview possible even
+     * without a [provider], so a MongoDB-only or guard-only application can Preview.
+     *
+     * ```kotlin
+     * dataStores += catalog          // a MongoStore, whose guarded client the handlers use
+     * dataStores += cache            // a RedisStore
+     * ```
+     */
+    public val dataStores: MutableList<DataStore> = mutableListOf()
 
     /** Resolves the identity shown in the workbench, or null for an anonymous caller. */
     public var identity: (ApplicationCall) -> Capabilities.Identity? = { null }

@@ -17,6 +17,11 @@ dependencies {
     api(project(":sendproof-jdbc"))
     api(project(":sendproof-ui"))
     api(project(":sendproof-logback"))
+    // Data store hooks. Their client libraries are compile-only there: the application brings the ones it uses.
+    api(project(":sendproof-mongodb"))
+    api(project(":sendproof-redis"))
+    api(project(":sendproof-dynamodb"))
+    compileOnly(libs.mongodb.kotlin)
     api("io.ktor:ktor-server-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 

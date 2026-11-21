@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.ktor
 
 import io.github.mprync.sendproof.core.Capabilities
 import io.github.mprync.sendproof.core.CaptureContext
+import io.github.mprync.sendproof.core.DataStore
 import io.github.mprync.sendproof.core.Json
 import io.github.mprync.sendproof.core.LocalUrl
 import io.github.mprync.sendproof.core.ObservedExecution
@@ -45,6 +46,7 @@ import io.ktor.server.routing.routingRoot
 import io.ktor.util.pipeline.PipelineContext
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -159,12 +161,21 @@ internal class SendproofRuntime(private val application: Application, private va
                 failure = error
             }
             inner.response.await()
-            execution.finish(inner.response.captured(), failure)
+            // Rolling back and capturing store changes block on I/O, so they run off the request's event loop.
+            withContext(Dispatchers.IO) { execution.finish(inner.response.captured(), failure) }
         }
         write(call, outcome)
     }
 
     private suspend fun write(call: ApplicationCall, outcome: PreviewOutcome) {
+        if (outcome.blocked()) {
+            // A guarded store refused a write: 409 problem+json, never a confirmation and without the handler's output.
+            call.response.header("Cache-Control", "no-store")
+            call.respondBytes(
+                outcome.problem(), ContentType.parse("application/problem+json; charset=UTF-8"), HttpStatusCode.fromValue(outcome.status()),
+            )
+            return
+        }
         if (!outcome.confirmed()) {
             call.respondProblem(outcome.status(), outcome.title(), outcome.challenge())
             return
@@ -185,7 +196,9 @@ internal class SendproofRuntime(private val application: Application, private va
         val preview = call.attributes.getOrNull(PreviewStateKey)
         when {
             preview != null -> previewGate(context, route, preview)
-            else -> call.attributes.getOrNull(ObservedKey)?.let { if (route.isPreviewable()) observe(context, it) }
+            else -> call.attributes.getOrNull(ObservedKey)?.let {
+                if (route.isPreviewable() || route.unavailable() != null) observe(context, it)
+            }
         }
     }
 
@@ -197,12 +210,14 @@ internal class SendproofRuntime(private val application: Application, private va
             else -> null
         }
         val provider = config.provider?.takeIf { it.isAvailable }
-        if (reject != null || provider == null) {
+        // A Preview needs a SQL provider or at least one hooked data store, so a MongoDB-only or guard-only app can Preview.
+        if (reject != null || (provider == null && config.dataStores.isEmpty())) {
             call.respond(reject ?: HttpStatusCode.ServiceUnavailable)
             context.finish()
             return
         }
-        preview.execution.begin(provider)
+        // Starting a transaction (a MongoDB session) blocks on I/O, so it runs off the event loop; the capture follows.
+        withContext(Dispatchers.IO) { preview.execution.begin(provider, config.dataStores) }
         context.proceed()
         preview.execution.markCompleted()
     }
@@ -211,13 +226,13 @@ internal class SendproofRuntime(private val application: Application, private va
         val call = context.call
         val owner = config.traceOwner(call)
         val provider = config.provider?.takeIf { it.isAvailable }
-        if (owner == null || provider == null || !config.access(call)) {
+        if (owner == null || (provider == null && config.dataStores.isEmpty()) || !config.access(call)) {
             return
         }
         val scope = io.github.mprync.sendproof.jdbc.JdbcScope()
         withContext(io.github.mprync.sendproof.jdbc.JdbcScope.holder().asContextElement(scope)) {
             val observation = try {
-                provider.beginObservation()
+                provider?.beginObservation()
             } catch (error: Exception) {
                 log.warn("Sendproof could not start observing the send.", error)
                 context.proceed()
@@ -287,20 +302,36 @@ internal class SendproofRuntime(private val application: Application, private va
             return call.respond(HttpStatusCode.Forbidden)
         }
         val mount = config.pathBase
-        val operations = if (config.provider?.isAvailable == true) previewOperations() else emptyList()
+        val provider = config.provider?.takeIf { it.isAvailable }
+        // A hooked data store is enough to Preview, so an application without a SQL provider still lists its operations.
+        val canPreview = provider != null || config.dataStores.isNotEmpty()
+        val operations = if (canPreview) previewOperations() else emptyList()
+        val unavailable = if (canPreview) previewUnavailable() else emptyList()
         val openApiUrl = mount + config.openApiUrl
         val documents = config.documents.map { Capabilities.OpenApiDocument(it.name(), mount + it.url()) }.toMutableList()
         if (documents.none { it.url() == openApiUrl }) {
             documents.add(0, Capabilities.OpenApiDocument(config.apiName, openApiUrl))
         }
+        // Describing a store may contact its server (MongoDB asks hello), so it runs off the event loop.
+        val stores = withContext(Dispatchers.IO) { config.dataStores.map(::describe) }
+        val database: Any? = provider?.let {
+            it.databaseSystem()?.let { system -> Capabilities.Database(it.database(), system) } ?: it.database()
+        }
         val body = Capabilities(
             1, openApiUrl, config.fieldModules.map { mount + it }, config.apiName,
             config.environment ?: if (application.developmentMode) "Development" else "Production",
-            config.provider?.takeIf { it.isAvailable }?.database(), config.identity(call),
+            database, config.identity(call),
             config.authProviders.map { Capabilities.AuthProvider(it.label(), it.kind(), it.url()?.let { url -> mount + url }) },
-            operations, operations.isNotEmpty(), documents,
+            operations, operations.isNotEmpty(), documents, stores, unavailable, Capabilities.Binding("kotlin", "Ktor"),
         )
         json(call, Json.MAPPER.writeValueAsBytes(body))
+    }
+
+    /** A store that can't describe itself is reported as guarded, never left out. */
+    private fun describe(store: DataStore): DataStore.Description = try {
+        store.describe()
+    } catch (error: RuntimeException) {
+        DataStore.Description(store.system(), null, "guard", null)
     }
 
     private fun previewOperations(): List<Capabilities.PreviewOperation> =
@@ -312,6 +343,20 @@ internal class SendproofRuntime(private val application: Application, private va
             } else {
                 val path = route.path(OpenApiRoutePathFormat).removePrefix(config.pathBase)
                 Capabilities.PreviewOperation(method.value, path.ifEmpty { "/" })
+            }
+        }.distinct().sortedWith(compareBy({ it.path() }, { it.method() }))
+
+    /** The operations marked `sendproofPreview(enabled = false)`, with the reason the workbench shows. */
+    private fun previewUnavailable(): List<Capabilities.PreviewUnavailable> =
+        application.routingRoot.getAllRoutes().mapNotNull { route ->
+            val mark = route.unavailable() ?: return@mapNotNull null
+            val method = generateSequence<Route>(route) { it.parent }
+                .mapNotNull { (it.selector as? HttpMethodRouteSelector)?.method }.firstOrNull()
+            if (method == null || method == HttpMethod.Head) {
+                null
+            } else {
+                val path = route.path(OpenApiRoutePathFormat).removePrefix(config.pathBase)
+                Capabilities.PreviewUnavailable(method.value, path.ifEmpty { "/" }, mark.reason, mark.stores)
             }
         }.distinct().sortedWith(compareBy({ it.path() }, { it.method() }))
 

@@ -4,7 +4,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.mprync.sendproof.jdbc.PreviewDataSource
 
-/** One real relational table, `items`, empty at every process start. Access goes through [dataSource]. */
+/** Two real relational tables, `items` and `accounts`, empty at every process start. Access goes through [dataSource]. */
 class Database {
     private val pool = HikariDataSource(
         HikariConfig().apply {
@@ -20,6 +20,10 @@ class Database {
         pool.connection.use { connection ->
             connection.createStatement().use {
                 it.execute("create table items (id varchar(100) primary key, name varchar(200) not null)")
+                it.execute(
+                    "create table accounts (id varchar(100) primary key, email varchar(200) not null, " +
+                        "password_hash varchar(200) not null)",
+                )
             }
         }
     }

@@ -84,6 +84,31 @@ class Items(private val db: Database, private val capture: SendproofCapture) {
         throw HandledFailure()
     }
 
+    /** Inserts the item, then ends the transaction by hand with a raw COMMIT, which a Preview must refuse. */
+    fun insertThenCommit(id: String, name: String): Item = unit { connection ->
+        insert(connection, id, name)
+        connection.createStatement().use { it.execute("COMMIT") }
+        Item(id, name)
+    }
+
+    /** Inserts an account whose `password_hash` is the literal `hashed:<password>`: the shared secret-column rule. */
+    fun createAccount(id: String, email: String, password: String): Map<String, String> = unit { connection ->
+        connection.prepareStatement("insert into accounts (id, email, password_hash) values (?, ?, ?)").use { statement ->
+            statement.setString(1, id)
+            statement.setString(2, email)
+            statement.setString(3, "hashed:$password")
+            statement.executeUpdate()
+        }
+        mapOf("id" to id, "email" to email)
+    }
+
+    fun findAccount(id: String): Map<String, String>? = db.dataSource.connection.use { connection ->
+        connection.prepareStatement("select id, email from accounts where id = ?").use { statement ->
+            statement.setString(1, id)
+            statement.executeQuery().use { rows -> if (rows.next()) mapOf("id" to rows.getString(1), "email" to rows.getString(2)) else null }
+        }
+    }
+
     fun insertPlain(id: String, name: String): Item = unit { connection ->
         insert(connection, id, name)
         Item(id, name)

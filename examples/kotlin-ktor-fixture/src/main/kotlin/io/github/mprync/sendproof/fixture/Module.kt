@@ -28,6 +28,8 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Wraps the real provider and reports an injected failure after it has rolled back for real. */
 private class FailingRollbackProvider(private val delegate: PreviewProvider) : PreviewProvider by delegate {
@@ -53,6 +55,7 @@ fun Application.fixtureModule(scenario: Scenario) {
     val database = Database()
     val capture = SendproofCapture()
     val items = Items(database, capture)
+    val stores = if (scenario.enabled) Stores() else Stores.none()
     val base = scenario.pathBase
 
     install(ContentNegotiation) { jackson() }
@@ -65,6 +68,7 @@ fun Application.fixtureModule(scenario: Scenario) {
         authProviders += Capabilities.AuthProvider("Fixture password", "cookie", "/auth/sign-in")
         authProviders += Capabilities.AuthProvider("Fixture personas", "personas", "/auth/personas")
         traceRetention = java.time.Duration.ofSeconds(5)
+        dataStores += stores.all
         if (scenario.hasProvider) {
             val real = JdbcPreviewProvider(database.dataSource) { "In-memory H2" }
             provider = if (scenario.failsRollback) FailingRollbackProvider(real) else real
@@ -81,7 +85,11 @@ fun Application.fixtureModule(scenario: Scenario) {
                 call.respondText(spec, io.ktor.http.ContentType.Application.Json)
             }
             authRoutes(accounts, base)
-            itemRoutes(accounts, items, base)
+            itemRoutes(accounts, items, base, stores)
+            accountRoutes(accounts, items)
+            stores.mongo?.let { documentRoutes(accounts, it) }
+            stores.redis?.let { counterRoutes(accounts, it) }
+            stores.dynamo?.let { orderRoutes(accounts, it) }
         }
     }
 }
@@ -113,7 +121,7 @@ private fun io.ktor.server.routing.Route.authRoutes(accounts: Accounts, base: St
 
 private suspend fun ApplicationCall.json(): Map<String, Any?>? = runCatching { receive<Map<String, Any?>>() }.getOrNull()
 
-private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: Items, base: String) {
+private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: Items, base: String, stores: Stores) {
     route("/items") {
         install(Secured) { this.accounts = accounts }
 
@@ -164,6 +172,24 @@ private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: I
                 call.response.cookies.append(Cookie("fixture_inner", "1"))
                 call.respond(HttpStatusCode.Found)
             }
+            // The shared raw-commit rule: a handler that ends the Preview transaction by hand.
+            post("/{id}/commit") {
+                val name = (call.json()?.get("name") as? String)?.takeIf { it.isNotBlank() }
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "name is required"))
+                call.respond(HttpStatusCode.Created, items.insertThenCommit(call.parameters["id"]!!, name))
+            }
+            // The mixed route: a SQL insert, then a write to a guarded store, which must roll back or block together.
+            post("/{id}/remember") {
+                val id = call.parameters["id"]!!
+                val name = (call.json()?.get("name") as? String)?.takeIf { it.isNotBlank() }
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "name is required"))
+                val item = items.insertPlain(id, name)
+                when (call.request.queryParameters["store"]) {
+                    "redis" -> withContext(Dispatchers.IO) { stores.redis!!.jedis.incr(stores.redis.key("item-$id")) }
+                    else -> touchOrder(stores.dynamo!!, "item-$id")
+                }
+                call.respond(HttpStatusCode.Created, item)
+            }
             post("/{id}/capture") {
                 call.respond(mapOf("created" to items.capture(call.parameters["id"]!!)))
             }
@@ -172,6 +198,29 @@ private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: I
         // Deliberately not marked: Preview must refuse it, ordinary Send must still work.
         post("/{id}/ordinary") {
             call.respond(HttpStatusCode.Created, items.insertPlain(call.parameters["id"]!!, "ordinary"))
+        }
+    }
+}
+
+/** The shared secret-column rule: accounts are stored with `password_hash` as the literal `hashed:<password>`. */
+private fun io.ktor.server.routing.Route.accountRoutes(accounts: Accounts, items: Items) {
+    route("/accounts") {
+        install(Secured) { this.accounts = accounts }
+        get("/{id}") {
+            val account = items.findAccount(call.parameters["id"]!!)
+            if (account == null) call.respond(HttpStatusCode.NotFound) else call.respond(account)
+        }
+        sendproofPreview {
+            post {
+                val body = call.json()
+                val id = body?.get("id") as? String
+                val email = body?.get("email") as? String
+                val password = body?.get("password") as? String
+                if (id == null || email == null || password == null) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id, email and password are required"))
+                }
+                call.respond(HttpStatusCode.Created, items.createAccount(id, email, password))
+            }
         }
     }
 }

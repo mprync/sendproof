@@ -25,6 +25,11 @@ dependencies {
     implementation("io.ktor:ktor-serialization-jackson")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("com.zaxxer:HikariCP:6.3.0")
+    // The data stores of spec/conformance/fixture.md, each used only when the runner passes its variables.
+    implementation(libs.mongodb.kotlin)
+    implementation("redis.clients:jedis:5.2.0")
+    implementation(platform(libs.awssdk.bom))
+    implementation("software.amazon.awssdk:dynamodb")
     runtimeOnly("com.h2database:h2:2.3.232")
     runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
 }
