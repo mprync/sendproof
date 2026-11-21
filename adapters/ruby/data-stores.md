@@ -16,13 +16,25 @@ The hooks live in the `sendproof-core` gem and load on demand, so the core gem n
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you hook. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis `pubsub` connection, a raw socket, and a client from a library the hook doesn't know. Hook every client your handlers use, at startup.
+> The binding covers a store only through the client you hook. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a raw socket, and a client from a library the hook doesn't know. Hook every client your handlers use, at startup.
 
 Details per store are below. In short:
 
 - **Redis.** `RedisClient.register` is process-wide, so by default every `redis-client` (and `redis` 5) client in the process is guarded. Pass `global: false` to cover one client instead.
 - **DynamoDB.** Hook one client with `client:`, every client created afterwards with `global: true`, or build a client with the store's `plugin`.
-- **MongoDB.** The store hooks one `Mongo::Client` (Mongoid's `:default` client, or the one you pass). A different client is not covered.
+- **MongoDB.** The store hooks one `Mongo::Client` (Mongoid's `:default` client, or the one you pass) and every client derived from it with `with`. A different client is not covered.
+
+### Writes from other threads and fibers
+
+A hook finds the request through thread- and fiber-local state, so a write sent from a thread or fiber the handler started (`Thread.new`, a `Fiber`, an external `Enumerator`) carries no request: the guard can't block it and MongoDB can't put it in the Preview transaction, so it runs. While a Preview is open, any store write that belongs to no request therefore fails every open Preview with 500, rather than let one confirm a rollback that didn't happen.
+
+A write is attributed, and never fails a Preview, when it runs inside a request that passed through `Sendproof::Middleware` (Sends included), inside a Preview or observed Send, or inside `Sendproof.detached`. Mark background work that runs in the server process, such as an in-process job worker or a scheduled task, as detached:
+
+```ruby
+Sendproof.detached { Rails.cache.increment("jobs:processed") } # this work belongs to no request
+```
+
+Never use `Sendproof.detached` inside a handler: a write it sends escapes the Preview, like an unhooked client. `ActionController::Live` actions run on a copy of the request's thread state and are attributed. Separate processes (Sidekiq, a console) never affect a Preview.
 
 ## Register the stores
 
@@ -73,7 +85,13 @@ The same subscriber classifies every command during a Preview:
 - on a standalone server (`guard` mode), a write is refused and the Preview answers 409;
 - on a replica set (`preview` mode), what MongoDB can't run in a transaction (`$out`, `$merge`, `count`, an explicit `create`, `drop`, `listCollections`, `listIndexes` …) is refused with a reason such as "Preview unavailable: MongoDB can't run $out inside a transaction", and a write that doesn't carry the Preview's session and `autocommit: false` is refused and fails the Preview with 500.
 
-The guard sees commands only through monitoring, so a client created with `monitoring: false` is refused when you hook it. Hook the client at boot: a client Mongoid builds later (after `Mongoid::Clients.clear`) is not hooked.
+The guard sees commands only through monitoring, so a client created with `monitoring: false` is refused when you hook it, and a Preview refuses to start (500) if the store's subscriber has been removed from the client. Hook the client at boot: a client Mongoid builds later (after `Mongoid::Clients.clear`) is not hooked, and a Mongoid store whose client Mongoid rebuilt refuses to start a Preview rather than run unguarded.
+
+`client.with(...)` with an option outside the driver's CRUD set (`app_name`, `socket_timeout`, `monitoring` …) makes the driver build a new cluster with a fresh monitor. The store subscribes to it, so the derived client is guarded too. Its sessions belong to the new cluster, so in `preview` mode its writes can't join the Preview transaction and fail the Preview with 500; in `guard` mode they block.
+
+The test suite pins the driver behavior the guard relies on (mongo 2.26): for every write path (single and bulk writes, a batch the driver splits, retryable writes, find-and-modify, aggregations, `database.command`, index builds, GridFS) it checks at the socket that no byte of a refused command is written and that the command is not retried, and it checks that the same watch catches a command the driver sends anyway. A driver upgrade that changed this fails those tests.
+
+A handler that gets the Preview session (`start_session`, `with_session`, Mongoid's ambient session) can't end its transaction: the session's own `commit_transaction` and `abort_transaction` are refused, and a `commitTransaction` or `abortTransaction` command is refused by name before it is sent, whatever sent it.
 
 A refused command marks its pooled connection as failed, so the next operation on it opens a new one. That costs one reconnect per refusal and is invisible otherwise.
 
@@ -88,7 +106,7 @@ A direct connection (`directConnection=true` with one host, no replica set name)
 - `global: false` leaves the middleware unregistered: add `store.middleware` to one client with `RedisClient.config(middlewares: [store.middleware])`.
 - A second global store is refused until the first is `unhook!`ed, so no command is logged twice.
 - A write refused after a bare `MULTI` sends `DISCARD`, so the connection is never left with a queue a later `EXEC` could run.
-- `pubsub` connections bypass the middleware and are not covered.
+- A `pubsub` connection writes straight to its socket, past the middleware, so its `call` and `call_v` are guarded separately, for the clients the store covers. `SUBSCRIBE` and `PUBLISH` are writes, so a Preview that subscribes or publishes is blocked.
 - Sidekiq enqueues are writes, so a Preview that enqueues a job is blocked. Record the job as an effect instead: `Sendproof.record_job("Welcome email", name: "WelcomeJob")`.
 - Rails' `RedisCacheStore` reads and writes through the same middleware. A `Rails.cache.fetch` that misses writes, so a Preview of that handler is blocked: the guard is right, because the write is real.
 
@@ -123,6 +141,8 @@ When the guard refuses a write, the command never reaches the store and the hand
 
 The SQL transaction rolls back as usual. A failed rollback or abort, a handler `COMMIT` or `commitTransaction`, a Preview past its time limit, or a write that escaped the MongoDB session answers 500 without confirmation instead. `Sendproof::PreviewTransactionControl` is the error the handler sees for those.
 
+Every cleanup step runs, whatever fails: each store's abort, the SQL rollback and the connection release. A store that fails to abort never skips the others or the rollback, and the Preview answers 500. A timeout (`rack-timeout`, `Timeout`) or an `Interrupt` that unwinds the handler still aborts every store and rolls back SQL, then propagates as it would without Sendproof.
+
 A raw SQL `COMMIT`, `END`, `ROLLBACK` (without `TO`), `BEGIN` or `SET autocommit` that a handler runs through the ActiveRecord connection (`execute`, `exec_query`, any model query) is refused the same way before it reaches the database, and on MySQL and MariaDB so are the statements that commit implicitly (`CREATE`, `ALTER`, `DROP` …). `SAVEPOINT` stays allowed. A statement sent on the driver's own handle (`connection.raw_connection`) is not covered.
 
 ## Host-declared reads
@@ -150,7 +170,7 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 On MySQL and MariaDB, the ActiveRecord provider lets one Preview run at a time in each process, and further Previews wait their turn. InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the same key and the first one rolls back, as every Preview does, InnoDB aborts all but one of the rest with a deadlock (error 1213), at any isolation level. Previews sent to different processes still run at the same time and can still hit it; the Preview then fails safely and nothing is written. Sends and observed sends never wait. See [verified databases](../../docs/bindings/databases.md).
 
-MySQL through Trilogy and `mysql2` does not use prepared statements, so Active Record inlines parameter values into the SQL text. The Sql log hides those values too: a statement that names a secret, or any statement when parameter values are hidden, is logged with every literal replaced by `?`.
+MySQL through Trilogy and `mysql2` does not use prepared statements, so Active Record inlines parameter values into the SQL text. The binding records the binds Active Record inlines and logs them as parameters by name, so the Sql log looks the same as on a database that binds them. It hides those values too: a statement that names a secret, that inlined a secret-named bind, or any statement when parameter values are hidden, is logged with every literal replaced by `?`. SQL written by hand with its values in the text (`execute("... = 'x'")`) has no binds to report and is masked only when it names a secret.
 
 ## Logs and redaction
 
