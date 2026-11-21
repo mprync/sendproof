@@ -11,10 +11,10 @@ The [conformance manifest](../../tests/conformance/bindings.json) lists the exac
 | Express and Knex | 11/11 | 11/11 | 11/11 | 11/11 | — |
 | Express and TypeORM | 11/11 | 11/11 | 11/11 | — | — |
 | Express and Prisma | 11/11 | 11/11 | 11/11 | — | — |
-| FastAPI and SQLAlchemy | 11/11 | — | — | — | — |
-| Django Ninja and Django ORM | 11/11 | — | — | — | — |
-| Flask and SQLAlchemy | 11/11 | — | — | — | — |
-| Flask-SQLAlchemy | 11/11 | 11/11 | 11/11 | — | — |
+| FastAPI and SQLAlchemy | 25/25 | — | — | — | — |
+| Django Ninja and Django ORM | 25/25 | — | — | — | — |
+| Flask and SQLAlchemy | 25/25 | — | — | — | — |
+| Flask-SQLAlchemy | 25/25 | 25/25 | 25/25 | — | — |
 | Spring Boot and JPA/Hibernate | — | — | 14/14 | — | 25/25 |
 | Ktor and JDBC | — | — | — | — | 25/25 |
 | Go net/http with database/sql | 11/11 | 11/11 | 11/11 | 11/11 | — |
@@ -42,7 +42,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 | Drizzle | 10 | 21 | 12 | — | 2 configuration, 10 PGlite |
 | TypeORM | 9 | 10 | 9 | — | 10 |
 | Prisma | 11 | 11 | 12 | — | 15 |
-| Flask-SQLAlchemy | 13 | 13 | 13 | — | — |
+| Flask-SQLAlchemy | 14 | 14 | 14 | — | — |
 | Go database/sql and GORM | 27 | 27 | 27 | 26, 1 skipped | 2 |
 | Rails ActiveRecord | 35, 1 skipped | — | 35, 1 skipped | — | — |
 | SQLx | 8 | 10 | 11 | — | 22 unit |
@@ -50,7 +50,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 Other local suites passed as follows:
 
 - **.NET, 163:** ASP.NET Core 55, EF Core 58 (the MySQL regression test and the EF MongoDB provider test need the compose services and skip without them), data stores 48 (13 Redis, 11 DynamoDB and 24 MongoDB, against the compose services and skipping without them) and Treasury 2.
-- **Python, 80:** core 29, FastAPI 10, Django 8, Flask 20 (including 13 extension tests on SQLite) and SQLAlchemy 13. The PostgreSQL and MySQL extension runs are listed separately above.
+- **Python, 306:** core 207 (69 of them data-store tests for MongoDB, Redis and DynamoDB, which need the compose services and skip without them, and 100 classifier, guard and pipeline tests), FastAPI 24 (9 data-store), Django 21 (7 data-store), Flask 39 (13 data-store, and 14 extension tests on SQLite) and SQLAlchemy 15. The PostgreSQL and MySQL extension runs are listed separately above.
 - **JVM, 185:** core 56, Spring Boot 46, JPA 13, Ktor 16, JDBC 12, MongoDB 25, Redis 9 and DynamoDB 8. The MongoDB, Redis, DynamoDB and Spring Data tests need the `mongodb`, `redis` and `dynamodb` Compose services and skip when they are down. The Spring MySQL run uses the same fixture with `BENCH_DATABASE=mysql`.
 - **PHP, 248:** core 136 (30 of them data-store tests for MongoDB, Redis and DynamoDB, which need the compose services and skip without them), Laravel 71 (31 data-store tests that need the services, the MySQL turn and the transaction-control checks) and Symfony 41. The Laravel MySQL conformance entry runs the fixture with eight workers, so its concurrent-Preview check exercises the turn.
 - **Ruby, 235:** core 165 (97 of them data-store tests: classifiers, MongoDB, Mongoid, Redis and DynamoDB, which need the compose services and skip without them), ActiveRecord 36 (listed above for SQLite and MySQL), Rails 26 and the Rails fixture 8.
