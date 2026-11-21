@@ -1,3 +1,4 @@
+import { previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import type { SQLiteDatabase, TrackedRows } from '@sendproof/sqlite';
 import { sql } from 'drizzle-orm';
@@ -24,6 +25,15 @@ export interface DrizzlePreviewOptions {
    * captured changes are marked as truncated. Defaults to 500.
    */
   trackedRowLimit?: number;
+  /**
+   * MySQL and MariaDB stored procedures that never commit, by exact name (`name` or `schema.name`, no
+   * wildcards). During a Preview every other `CALL` is refused, because a procedure can run `COMMIT`
+   * or an implicitly committing statement inside the Preview transaction.
+   *
+   * **Warning:** listing a procedure is your statement that it never commits. One that does would
+   * commit the handler's writes; the Preview still fails, but the writes stay.
+   */
+  safeProcedures?: readonly string[];
 }
 
 /** Settings for the SQLite client the provider creates over `@sendproof/sqlite`. */
@@ -96,7 +106,7 @@ export function drizzlePreview(
   requireDedicatedConnections(dialect, database);
 
   const base = database as unknown as DatabaseLike;
-  const state: ProviderState = { dialect, base, trackedRowLimit };
+  const state: ProviderState = { dialect, base, trackedRowLimit, safeProcedures: safeProcedureNames(options.safeProcedures) };
   const restore = instrumentSession(base.session, dialect);
   // MySQL previews take turns: concurrent rolled-back inserts of one key would deadlock (see PreviewTurns).
   const turns = dialect === 'mysql' ? new PreviewTurns() : undefined;
@@ -173,18 +183,22 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
   const rollback = new PreviewRollback();
   let outcome: { value: T } | undefined;
   let opened: Scope | undefined;
+  let contained = true;
   try {
     // Drizzle rethrows the error only after its ROLLBACK succeeds, which confirms the rollback.
     await asInternal(() => state.base.transaction(async transaction => {
-      const scope: Scope = { target: transaction, preview: true, open: true };
+      const scope: Scope = { target: transaction, preview: true, open: true, ...state.safeProcedures && { safeProcedures: state.safeProcedures } };
       opened = scope;
       instrumentSession(transaction.session, state.dialect, scope);
+      // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
+      if (state.dialect === 'mysql') await setPreviewSavepoint(statement => runRaw(transaction, statement));
       try {
         outcome = { value: await asCaller(() => inScope(scope, async () => await dispatch())) };
       } finally {
         scope.open = false;
       }
       if (state.dialect === 'postgresql') await confirmOpen(transaction);
+      if (state.dialect === 'mysql') contained = await previewSavepointHeld(statement => runRaw(transaction, statement));
       throw rollback;
     }));
   } catch (error) {
@@ -192,6 +206,9 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
   }
   // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
   if (opened?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');
+  if (!contained) {
+    throw new Error('The Drizzle preview was not contained: the savepoint set when the Preview started was gone, so something committed the MySQL transaction.');
+  }
   if (!outcome) throw new Error('Drizzle did not run the Preview operation.');
   return outcome.value;
 }
@@ -209,6 +226,12 @@ async function confirmOpen(transaction: DatabaseLike): Promise<void> {
     if (sqlState(error) === '25P02') return;
     throw new Error('The operation ended the PostgreSQL transaction before Preview could roll it back.', { cause: error });
   }
+}
+
+/** Runs one provider-owned statement on a Drizzle transaction. Called in the internal context, so the guard passes it. */
+async function runRaw(transaction: DatabaseLike, statement: string): Promise<unknown> {
+  const execute = transaction['execute'] as (query: unknown) => Promise<unknown>;
+  return execute.call(transaction, sql.raw(statement));
 }
 
 function sqlState(error: unknown): unknown {

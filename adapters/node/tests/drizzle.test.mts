@@ -225,6 +225,47 @@ for (const target of targets()) {
       assert.deepEqual(await opened.ids(), []);
     });
 
+    if (target.dialect === 'mysql') {
+      it('refuses CALL and the Preview savepoint during a MySQL Preview, and catches a declared procedure that commits', async () => {
+        await raw(sql.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe'));
+        await raw(sql.raw('CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END'));
+        try {
+          const refusals: string[] = [];
+          await assert.rejects(opened.provider.preview(async () => {
+            await client.insert(t.items).values({ id: 'called', name: 'Must roll back' });
+            for (const statement of ['CALL sendproof_commit_probe()', 'RELEASE SAVEPOINT sendproof_preview']) {
+              try { await raw(sql.raw(statement)); refusals.push('ran'); } catch (error) { refusals.push((error as Error).message); }
+            }
+          }), /not contained/);
+          for (const message of refusals) assert.match(message, /Preview owns the transaction/);
+          assert.deepEqual(await opened.ids(), []);
+
+          // Wrongly declared safe, the procedure commits; the savepoint set when the Preview started is then gone.
+          const trusting = opened.provide({ safeProcedures: ['sendproof_commit_probe'] });
+          await assert.rejects(trusting.preview(async () => {
+            await trusting.client.insert(t.items).values({ id: 'declared', name: 'Committed' });
+            await trusting.client.execute(sql.raw('CALL sendproof_commit_probe()'));
+          }), /savepoint set when the Preview started was gone/);
+          assert.deepEqual(await opened.ids(), ['declared']);
+
+          // Under autocommit=0 MySQL opens a new transaction after the COMMIT, which only the start savepoint sees through.
+          const manual = await opened.manualCommit!({ safeProcedures: ['sendproof_commit_probe'] });
+          try {
+            await assert.rejects(manual.provider.preview(async () => {
+              await manual.provider.client.insert(t.items).values({ id: 'manual', name: 'Committed' });
+              await manual.provider.client.execute(sql.raw('CALL sendproof_commit_probe()'));
+              await manual.provider.client.insert(t.items).values({ id: 'after', name: 'In the implicit transaction' });
+            }), /savepoint set when the Preview started was gone/);
+          } finally {
+            await manual.close();
+          }
+          assert.deepEqual(await opened.ids(), ['declared', 'manual']);
+        } finally {
+          await raw(sql.raw('DROP PROCEDURE IF EXISTS sendproof_commit_probe'));
+        }
+      });
+    }
+
     it('marks changes truncated for unidentifiable rows, prepared mutations and the row limit', async () => {
       await client.insert(t.items).values([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }]);
       const limited = opened.provide({ trackedRowLimit: 2 });

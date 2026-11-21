@@ -95,7 +95,8 @@ async function transaction(
   // Drizzle issues BEGIN, SAVEPOINT, COMMIT and ROLLBACK itself; they stay out of the SQL log.
   let scope: Scope | undefined;
   const result = await asInternal(() => target.transaction(async opened => {
-    scope = { target: opened, preview: parent?.preview ?? false, open: true, changes: [] };
+    scope = { target: opened, preview: parent?.preview ?? false, open: true, changes: [],
+      ...parent?.safeProcedures && { safeProcedures: parent.safeProcedures } };
     const current = scope;
     instrumentSession(opened.session, state.dialect, current);
     try {

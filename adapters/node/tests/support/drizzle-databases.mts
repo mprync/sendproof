@@ -90,6 +90,8 @@ export interface Opened {
   provide(options?: DrizzlePreviewOptions): DrizzlePreview<Client>;
   /** A provider over a fresh connection pool that a test may break, or undefined when unsupported. */
   disposable?(): Promise<{ provider: DrizzlePreview<Client>; close(): Promise<void> }>;
+  /** MySQL only: a provider over a fresh pool whose connections run with `autocommit=0`, as JDBC-style drivers do. */
+  manualCommit?(options?: DrizzlePreviewOptions): Promise<{ provider: DrizzlePreview<Client>; close(): Promise<void> }>;
   /** Ids in a table read on an independent connection, outside every Preview. */
   ids(table?: 'items' | 'counters' | 'tokens'): Promise<string[]>;
   /** SQL that ends the database session the statement runs on. */
@@ -221,6 +223,12 @@ function mysqlServer(raw: string): Target {
           const isolated = connect();
           const pool = pools.at(-1)!;
           return { provider: drizzlePreview(isolated as never) as unknown as DrizzlePreview<Client>, close: () => pool.end() };
+        },
+        async manualCommit(options) {
+          const pool = mysql.createPool({ uri: url.toString(), connectionLimit: 2 });
+          pool.on('connection', connection => { connection.query('SET autocommit = 0'); });
+          const manual = mysqlDrizzle(pool, { mode: 'default' });
+          return { provider: drizzlePreview(manual as never, options) as unknown as DrizzlePreview<Client>, close: () => pool.end() };
         },
         killSession: 'KILL CONNECTION_ID()',
         async ids(table = 'items') {

@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { currentCapture, endsTransaction, splitStatements } from '@sendproof/core';
+import { currentCapture, refusedStatement } from '@sendproof/core';
 import { is, Placeholder } from 'drizzle-orm';
 import type { DrizzleDialect } from './metadata.js';
 import { endedMessage, isInternal, parameterNames } from './scope.js';
@@ -88,9 +88,9 @@ function guard(text: string, session: object, dialect: DrizzleDialect): void {
   if (!scope) return;
   if (!scope.open) throw new Error(endedMessage);
   if (!scope.preview) return;
-  // The shared classifier also covers MySQL's implicit commits and executable comments.
-  if (!endsTransaction(text, dialect)) return;
-  const statement = splitStatements(text).find(part => endsTransaction(part, dialect)) ?? text;
+  // The shared classifier also covers MySQL's implicit commits, CALL and executable comments.
+  const statement = refusedStatement(text, dialect, scope.safeProcedures);
+  if (statement === undefined) return;
   // The Preview fails even if the operation catches this error.
   scope.refused = true;
   throw new Error('Preview owns the transaction and must roll it back, so "' + statement.slice(0, 40) +

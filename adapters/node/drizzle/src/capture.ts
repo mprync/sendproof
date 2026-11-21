@@ -45,6 +45,8 @@ export interface ProviderState {
   base: DatabaseLike;
   sqlite?: SQLiteConnection;
   trackedRowLimit: number;
+  /** MySQL stored procedures the host declared never commit (see `DrizzlePreviewOptions.safeProcedures`). */
+  safeProcedures?: ReadonlySet<string>;
 }
 
 type Placeholders = Record<string, unknown> | undefined;

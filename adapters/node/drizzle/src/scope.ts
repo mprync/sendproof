@@ -16,6 +16,8 @@ export interface Scope {
   changes?: Change[];
   /** Set when the Preview refused a statement that would have ended its transaction. */
   refused?: boolean;
+  /** MySQL stored procedures the host declared never commit; every other `CALL` is refused in a Preview. */
+  safeProcedures?: ReadonlySet<string>;
 }
 
 export const endedMessage = 'The Drizzle transaction has ended.';
