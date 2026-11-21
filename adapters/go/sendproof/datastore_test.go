@@ -389,3 +389,71 @@ func TestObservedSendRecordsDbEntriesWithoutBlocking(t *testing.T) {
 		t.Errorf("the trace has no Db entry: %v", logs)
 	}
 }
+
+// A write whose context belongs to no request, such as a handler calling a store
+// with context.Background(), cannot be told apart from the Preview's own: while a
+// Preview is open it fails that Preview instead of letting it claim a rollback.
+func TestAWriteWithoutARequestContextFailsTheOpenPreview(t *testing.T) {
+	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(&fakeStore{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent int
+	mux := http.NewServeMux()
+	bench.HandlePreview(mux, "POST /background", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = write(context.Background(), &sent)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	request := httptest.NewRequest("POST", "/sendproof/_preview/background", strings.NewReader(`{}`))
+	request.Header.Set("Prefer", "tx=rollback")
+	response := httptest.NewRecorder()
+	bench.Middleware(mux).ServeHTTP(response, request)
+	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
+		t.Fatalf("an unattributed write during a Preview must answer 500, got %d %s", response.Code, response.Body)
+	}
+	// Outside any Preview the same write is untouched.
+	if err := write(context.Background(), &sent); err != nil || sent != 2 {
+		t.Errorf("a background write outside a Preview was refused: %v sent=%d", err, sent)
+	}
+}
+
+// Writes of other requests, and background work marked Detached, never fail an
+// open Preview.
+func TestOtherRequestsAndDetachedWorkNeverFailAnOpenPreview(t *testing.T) {
+	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(&fakeStore{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent int
+	var mu sync.Mutex
+	entered, release := make(chan struct{}), make(chan struct{})
+	mux := http.NewServeMux()
+	bench.HandlePreview(mux, "POST /wait", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+		w.WriteHeader(http.StatusCreated)
+	}))
+	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_ = write(r.Context(), &sent)
+	})
+	handler := bench.Middleware(mux)
+	done := make(chan *httptest.ResponseRecorder)
+	go func() {
+		request := httptest.NewRequest("POST", "/sendproof/_preview/wait", strings.NewReader(`{}`))
+		request.Header.Set("Prefer", "tx=rollback")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		done <- response
+	}()
+	<-entered
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/send", nil))
+	mu.Lock()
+	_ = write(sendproof.Detached(context.Background()), &sent)
+	mu.Unlock()
+	close(release)
+	if response := <-done; response.Code != 200 || sent != 2 {
+		t.Fatalf("another request's write failed the Preview: %d sent=%d %s", response.Code, sent, response.Body)
+	}
+}

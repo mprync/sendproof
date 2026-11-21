@@ -1,6 +1,7 @@
 package sendproof
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +20,9 @@ func (b *Sendproof) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		r = withPathBase(r, b.cfg.pathBase)
+		// Store writes made with this request's context are attributed to it, so
+		// they never fail another request's open Preview (see ReportWrite).
+		r = r.WithContext(context.WithValue(r.Context(), requestKey{}, true))
 		escaped := r.URL.EscapedPath()
 
 		if hasSegmentPrefix(escaped, previewPrefix) {

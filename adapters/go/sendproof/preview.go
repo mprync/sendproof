@@ -77,6 +77,10 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 	}
 	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r),
 		target: decoded, method: r.Method, escaped: target}
+	// While the handler and cleanup run, a store write with no request context may
+	// be this handler's: it fails the Preview (see ReportWrite).
+	openPreview(state)
+	defer closePreview(state)
 	inner := withState(r.Clone(r.Context()), state)
 	inner.URL.Path, inner.URL.RawPath = decoded, ""
 	if inner.URL.EscapedPath() != target {

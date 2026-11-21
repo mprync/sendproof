@@ -194,6 +194,12 @@ func newApp(t *testing.T, o appOptions) *app {
 		_, err := a.raw.InsertOne(r.Context(), bson.D{{Key: "_id", Value: "escaped"}, {Key: "name", Value: "Raw"}})
 		reply(w, 200, map[string]any{"swallowed": err != nil})
 	}))
+	// escape/background writes through the guarded collection without the request's
+	// context: the wrapper can't see the Preview, so only the monitor can stop a confirmation.
+	bench.HandlePreview(mux, "POST /escape/background", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := a.docs.InsertOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
+		reply(w, 200, map[string]any{"swallowed": err != nil})
+	}))
 	bench.HandlePreview(mux, "POST /escape/foreign", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, err := hooked.StartSession()
 		if err != nil {
@@ -441,6 +447,14 @@ func TestAWriteWithoutThePreviewSessionFailsThePreviewWith500(t *testing.T) {
 	assertUnconfirmed(t, response, 500)
 	// The binding cannot undo the escaped write; that is exactly why it never claims a rollback.
 	_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "escaped"}})
+}
+
+func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+	for _, guard := range []bool{false, true} {
+		a := newApp(t, appOptions{monitor: true, guard: guard})
+		assertUnconfirmed(t, a.preview("POST", "/escape/background", `{}`), 500)
+		_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
+	}
 }
 
 func TestAForeignSessionAndAHandlerCommitNeverConfirm(t *testing.T) {

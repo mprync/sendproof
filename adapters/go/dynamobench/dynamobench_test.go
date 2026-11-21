@@ -135,6 +135,10 @@ func newApp(t *testing.T, hook bool) *app {
 		}
 		reply(w, 200, map[string]any{"items": len(out.Items)})
 	}))
+	bench.HandlePreview(mux, "POST /orders/{id}/background", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = client.PutItem(context.Background(), &dynamodb.PutItemInput{TableName: aws.String(table), Item: key(r)})
+		w.WriteHeader(200)
+	}))
 	return &app{handler: bench.Middleware(mux), plain: plain, table: table}
 }
 
@@ -258,5 +262,14 @@ func TestAddingTheMiddlewareTwiceIsRefused(t *testing.T) {
 	}
 	if err := dynamobench.Middleware()(stack); err == nil {
 		t.Error("a second hook on the same stack must be refused")
+	}
+}
+
+
+func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+	a := newApp(t, true)
+	response := a.preview("POST", "/orders/background-1/background")
+	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
+		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
 	}
 }

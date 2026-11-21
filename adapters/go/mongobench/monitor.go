@@ -110,6 +110,11 @@ func (s *Store) started(ctx context.Context, e *event.CommandStartedEvent) {
 		_ = sendproof.RefusePreview(ctx, "A MongoDB "+name+" reached the server during a Preview; the Preview can't be confirmed.")
 	case inPreview && kind == stores.Write:
 		s.watchWrite(ctx, state, e, lowerName)
+	case kind == stores.Write:
+		// A write with no Preview in its context, such as a guarded call made with
+		// context.Background(), fails every open Preview unless it belongs to
+		// another request or to work marked sendproof.Detached.
+		sendproof.ReportWrite(ctx, system, name)
 	}
 	if kind == stores.Session || sensitive[lowerName] {
 		return

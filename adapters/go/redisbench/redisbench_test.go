@@ -129,6 +129,12 @@ func newApp(t *testing.T, hook bool, options ...redisbench.Option) *app {
 		})
 		reply(w, 200, map[string]any{"error": errString(err)})
 	}))
+	// background sends its write with context.Background(): the guard can't see the
+	// Preview, so the write runs, but the Preview must never be confirmed.
+	bench.HandlePreview(mux, "POST /background/{key}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = hooked.Incr(context.Background(), key(r)).Err()
+		w.WriteHeader(200)
+	}))
 	a.handler = bench.Middleware(mux)
 	return a
 }
@@ -291,4 +297,15 @@ func TestStoreRefusesAConnectionStringAsALabel(t *testing.T) {
 		}
 	}()
 	redisbench.Store("redis://:secret@host:6379")
+}
+
+func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+	a := newApp(t, true)
+	response := a.preview("POST", "/background/b")
+	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
+		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	}
+	if !a.exists(t, "counter:b") {
+		t.Error("the unattributed write should have run (it is reported, not blocked)")
+	}
 }
