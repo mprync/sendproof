@@ -2,6 +2,9 @@
   <Folder Name="/adapters/dotnet/">
     <Project Path="adapters/dotnet/Sendproof.AspNetCore/Sendproof.AspNetCore.csproj" />
     <Project Path="adapters/dotnet/Sendproof.EntityFrameworkCore/Sendproof.EntityFrameworkCore.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.MongoDB/Sendproof.MongoDB.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Redis/Sendproof.Redis.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.DynamoDB/Sendproof.DynamoDB.csproj" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples/TreasuryApi/TreasuryApi.csproj" />
@@ -10,5 +13,6 @@
     <Project Path="examples/TreasuryApi/tests/TreasuryApi.Tests.csproj" />
     <Project Path="tests/Sendproof.AspNetCore.Tests/Sendproof.AspNetCore.Tests.csproj" />
     <Project Path="tests/Sendproof.EntityFrameworkCore.Tests/Sendproof.EntityFrameworkCore.Tests.csproj" />
+    <Project Path="tests/Sendproof.DataStores.Tests/Sendproof.DataStores.Tests.csproj" />
   </Folder>
 </Solution>
