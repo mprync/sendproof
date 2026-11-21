@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/mprync/sendproof/adapters/go/sendproof"
@@ -191,6 +192,35 @@ func (h *handlers) readAccount(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, found)
 	}
+}
+
+// identifierPattern limits the id the escape route puts into a table name.
+var identifierPattern = regexp.MustCompile(`^\w{1,40}$`)
+
+// escapeRoute inserts the item, then runs, by via, implicitly committing DDL
+// ("ddl") or a CALL to a procedure that commits ("call"), ignoring the error as a
+// careless handler would. A Preview must still answer 500 without confirmation.
+func (h *handlers) escapeRoute(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+		Via  string `json:"via"`
+	}
+	id := r.PathValue("id")
+	if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.Name) == "" || !identifierPattern.MatchString(id) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and a word id are required"})
+		return
+	}
+	statement := map[string]string{"ddl": "CREATE TABLE sendproof_escape_" + id + " (n INT)", "call": "CALL sendproof_commit_probe()"}[body.Via]
+	if statement == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `via must be "ddl" or "call"`})
+		return
+	}
+	if err := h.store.insert(r.Context(), id, body.Name); err != nil {
+		h.fail(w, err)
+		return
+	}
+	_ = h.store.escape(r.Context(), statement)
+	writeJSON(w, http.StatusCreated, item{ID: id, Name: body.Name})
 }
 
 // commitRoute inserts the item, then executes a raw COMMIT and ignores its error, as

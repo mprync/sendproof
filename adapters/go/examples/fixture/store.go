@@ -57,6 +57,9 @@ type engine struct {
 	// secretQuery selects a bound parameter named fixture_secret.
 	secretQuery string
 	dialector   func(gorm.ConnPool) gorm.Dialector
+	// commitProbe creates the procedure of the shared mysql-escape rule
+	// (spec/conformance/fixture.md); only MySQL has one, and serves the escape route.
+	commitProbe string
 }
 
 var engines = map[string]engine{
@@ -83,6 +86,7 @@ var engines = map[string]engine{
 		placeholder:    func(int) string { return "?" },
 		secretQuery:    "SELECT ?",
 		dialector:      func(pool gorm.ConnPool) gorm.Dialector { return gormmysql.New(gormmysql.Config{Conn: pool}) },
+		commitProbe:    "CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END",
 	},
 	"sqlserver": {
 		driver:         "sqlserver",
@@ -107,6 +111,10 @@ type store interface {
 	account(ctx context.Context, id string) (account, bool, error)
 	// commit executes a raw COMMIT on the connection the handler uses.
 	commit(ctx context.Context) error
+	// escapes reports whether the engine serves the mysql-escape route, and
+	// escape runs its statement on the connection the handler uses.
+	escapes() bool
+	escape(ctx context.Context, statement string) error
 	provider() sendproof.Provider
 	close() error
 }
@@ -135,7 +143,12 @@ func openStore(kind string, database Database) (store, error) {
 		pool.SetMaxOpenConns(24)
 		pool.SetMaxIdleConns(24)
 	}
-	for _, statement := range []string{spec.createTable, spec.createAccounts} {
+	startup := []string{spec.createTable, spec.createAccounts}
+	if spec.commitProbe != "" {
+		// The fixture declares no procedure safe, so a Preview refuses every CALL.
+		startup = append(startup, spec.commitProbe)
+	}
+	for _, statement := range startup {
 		if _, err := pool.Exec(statement); err != nil {
 			return nil, errors.Join(err, pool.Close())
 		}
@@ -307,9 +320,22 @@ func (s *sqlStore) commit(ctx context.Context) error {
 	return err
 }
 
+func (s *sqlStore) escapes() bool { return s.spec.commitProbe != "" }
+
+// escape runs implicitly committing DDL or a committing CALL, which a Preview must refuse before sending.
+func (s *sqlStore) escape(ctx context.Context, statement string) error {
+	_, err := s.db.ExecContext(ctx, statement)
+	return err
+}
+
 type gormStore struct {
 	sqlStore
 	gdb *gorm.DB
+}
+
+// escape runs the statement through GORM, as a GORM handler would.
+func (s *gormStore) escape(ctx context.Context, statement string) error {
+	return s.gdb.WithContext(ctx).Exec(statement).Error
 }
 
 func (s *gormStore) insert(ctx context.Context, id, name string) error {

@@ -187,9 +187,16 @@ var routes = []route{
 	{"POST", "/items/{id}/commit", true, true, "", func(h *handlers) http.HandlerFunc { return h.commitRoute }},
 }
 
+// escapeRoute is the shared mysql-escape route (spec/conformance/fixture.md), served on MySQL only.
+var escapeRoute = route{"POST", "/items/{id}/escape", true, true, "", func(h *handlers) http.HandlerFunc { return h.escapeRoute }}
+
 // allRoutes lists the item routes and the routes of the hooked data stores.
 func (h *handlers) allRoutes() []route {
-	return append(append([]route{}, routes...), h.stores.routes()...)
+	all := append([]route{}, routes...)
+	if h.store.escapes() {
+		all = append(all, escapeRoute)
+	}
+	return append(all, h.stores.routes()...)
 }
 
 func (r route) role() string {
