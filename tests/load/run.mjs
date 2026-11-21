@@ -71,7 +71,7 @@ async function shell(command) {
  */
 async function withDatabaseService(run) {
   if (binding.database !== 'postgresql' || process.env.BENCH_POSTGRES_URL || values['no-docker']) return run();
-  const name = 'test-bench-load-postgres';
+  const name = 'sendproof-load-postgres';
   log(`starting disposable PostgreSQL container ${name} on 127.0.0.1:55433`);
   await shell(`docker rm -f ${name} >/dev/null 2>&1 || true`);
   await shell([
@@ -150,7 +150,7 @@ try {
 }
 
 // Idle and soak tolerate a handful of failures per thousand requests: SQLite fixtures occasionally time out on the single write lock
-// (see docs/performance.md), which is an engine limit rather than a Test Bench fault. Preview and Send correctness checks stay strict.
+// (see docs/performance.md), which is an engine limit rather than a Sendproof fault. Preview and Send correctness checks stay strict.
 result.passed = (result.concurrency?.passed ?? true) && (result.contention?.passed ?? true) &&
   (result.soak ? result.soak.memory.bounded !== false && result.soak.load.errorRate < 0.01 : true) &&
   (result.idle ? Object.values(result.idle.comparison).every(row => (row.disabled?.errorRate ?? 0) < 0.001 && (row.enabled?.errorRate ?? 0) < 0.001) : true);

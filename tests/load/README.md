@@ -22,7 +22,7 @@ Profiles are in `profiles.json`. `quick` takes a couple of minutes per binding; 
 latency runs used for `docs/performance.md`. `overrides` in the same file swap in optimized builds for load runs (Rust release,
 the JVM with full tiered compilation).
 
-For PostgreSQL bindings the harness starts a throwaway `postgres:17-alpine` container (`test-bench-load-postgres`, port 55433, data
+For PostgreSQL bindings the harness starts a throwaway `postgres:17-alpine` container (`sendproof-load-postgres`, port 55433, data
 on tmpfs) and removes it afterwards. Set `BENCH_POSTGRES_URL` to use an existing server instead.
 
 Exit status is non-zero when a correctness check fails (a Preview that persisted, saw another Preview's write, or failed; an observed

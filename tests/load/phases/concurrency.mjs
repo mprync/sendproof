@@ -49,7 +49,7 @@ export async function concurrencyPhase(binding, plan, log) {
       const unique = await drive(client, {
         concurrency: plan.concurrency, count: ids.length,
         build: index => ({
-          method: 'POST', path: '/bench/_preview/items', cookie: admin, headers: rollback, ok: [200],
+          method: 'POST', path: '/sendproof/_preview/items', cookie: admin, headers: rollback, ok: [200],
           body: { id: ids[index], name: 'Preview ' + index },
           check: response => {
             const body = parse(response);
@@ -71,7 +71,7 @@ export async function concurrencyPhase(binding, plan, log) {
       const sameId = await drive(client, {
         concurrency: plan.concurrency, count: plan.previews,
         build: () => ({
-          method: 'POST', path: '/bench/_preview/items', cookie: admin, headers: rollback, ok: [200],
+          method: 'POST', path: '/sendproof/_preview/items', cookie: admin, headers: rollback, ok: [200],
           body: { id: `shared-${run}`, name: 'Shared' },
           check: response => {
             const body = parse(response);
@@ -91,7 +91,7 @@ export async function concurrencyPhase(binding, plan, log) {
       const updates = await drive(client, {
         concurrency: plan.concurrency, count: names.length,
         build: index => ({
-          method: 'PATCH', path: `/bench/_preview/items/${row}`, cookie: admin, headers: rollback, ok: [200],
+          method: 'PATCH', path: `/sendproof/_preview/items/${row}`, cookie: admin, headers: rollback, ok: [200],
           body: { name: names[index] },
           check: response => {
             const body = parse(response);
@@ -119,10 +119,10 @@ export async function concurrencyPhase(binding, plan, log) {
         build: index => ({
           method: 'POST', path: '/items', cookie: admin, headers: trace, ok: [201],
           body: { id: sendIds[index], name: 'Send ' + index },
-          check: response => response.headers['x-testbench-trace'] ? undefined : 'No trace ID on an observed Send',
+          check: response => response.headers['x-sendproof-trace'] ? undefined : 'No trace ID on an observed Send',
         }),
         onResponse: (response, request) => {
-          if (response.headers['x-testbench-trace']) traces.set(response.headers['x-testbench-trace'], request.body.id);
+          if (response.headers['x-sendproof-trace']) traces.set(response.headers['x-sendproof-trace'], request.body.id);
         },
       });
       const committed = await present(sendIds);
@@ -130,7 +130,7 @@ export async function concurrencyPhase(binding, plan, log) {
       sends.missing = sendIds.length - committed;
       let retained = 0; let misattributed = 0;
       for (const [traceId, id] of traces) {
-        const response = await client.send('GET', '/bench/_api/traces/' + traceId, { cookie: admin });
+        const response = await client.send('GET', '/sendproof/_api/traces/' + traceId, { cookie: admin });
         if (response.status === 200) {
           retained++;
           if (!response.text.includes(id)) misattributed++;

@@ -1,4 +1,4 @@
-name: Check and release Test Bench
+name: Check and release Sendproof
 on:
   push:
     branches: ['**']
@@ -35,10 +35,10 @@ jobs:
           node-version: '22'
       - name: Build
         id: build
-        run: dotnet build TestBench.slnx -c Release -warnaserror
+        run: dotnet build Sendproof.slnx -c Release -warnaserror
       - name: Test .NET
         id: dotnet_tests
-        run: dotnet test TestBench.slnx -c Release --no-build
+        run: dotnet test Sendproof.slnx -c Release --no-build
       - name: Test JavaScript
         id: js_tests
         run: node --test tests/ui/*.test.mjs ui/*.test.mjs

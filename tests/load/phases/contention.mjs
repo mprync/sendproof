@@ -91,12 +91,12 @@ export async function contentionPhase(binding, plan, log) {
       };
       const previews = {
         insert: () => ({
-          method: 'POST', path: '/bench/_preview/items', cookie: admin, headers: rollback, ok: [200],
+          method: 'POST', path: '/sendproof/_preview/items', cookie: admin, headers: rollback, ok: [200],
           body: { id: `pi-${run}-${serial++}`, name: 'Preview-insert' },
         }),
-        capture: () => ({ method: 'POST', path: `/bench/_preview/items/c-${run}-${serial++}/capture`, cookie: admin, headers: rollback, ok: [200] }),
+        capture: () => ({ method: 'POST', path: `/sendproof/_preview/items/c-${run}-${serial++}/capture`, cookie: admin, headers: rollback, ok: [200] }),
         hotRow: () => ({
-          method: 'PATCH', path: '/bench/_preview/items/hot', cookie: admin, headers: rollback, ok: [200],
+          method: 'PATCH', path: '/sendproof/_preview/items/hot', cookie: admin, headers: rollback, ok: [200],
           body: { name: `Preview-${serial++}` },
         }),
       };
@@ -136,7 +136,7 @@ export async function contentionPhase(binding, plan, log) {
       const raced = async (key, withPreview) => {
         const jobs = [];
         if (withPreview) {
-          jobs.push(client.send('POST', '/bench/_preview/items', { cookie: admin, headers: rollback, body: { id: key, name: 'Preview-key' } }));
+          jobs.push(client.send('POST', '/sendproof/_preview/items', { cookie: admin, headers: rollback, body: { id: key, name: 'Preview-key' } }));
         }
         const ordinary = client.send('POST', '/items', { cookie: admin, body: { id: key, name: 'Ordinary' } });
         jobs.push(ordinary);

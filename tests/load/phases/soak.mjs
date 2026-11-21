@@ -32,12 +32,12 @@ export async function soakPhase(binding, plan, log) {
       const id = prefix => `${prefix}-${run}-${serial++}`;
       const accepts = [200, 201, 400, 413, 422];
       const mix = [
-        [35, () => ({ kind: 'preview', method: 'POST', path: '/bench/_preview/items', cookie: admin, headers: rollback, ok: [200], body: { id: id('p'), name: 'Preview' } })],
+        [35, () => ({ kind: 'preview', method: 'POST', path: '/sendproof/_preview/items', cookie: admin, headers: rollback, ok: [200], body: { id: id('p'), name: 'Preview' } })],
         [15, () => ({ kind: 'send', method: 'POST', path: '/items', cookie: admin, headers: trace, ok: [201], body: { id: id('s'), name: 'Send' } })],
         [25, () => ({ kind: 'read', method: 'GET', path: '/items/hot', cookie: admin, ok: [200] })],
-        [5, () => ({ kind: 'capture', method: 'POST', path: `/bench/_preview/items/${id('c')}/capture`, cookie: admin, headers: rollback, ok: [200] })],
-        [5, () => ({ kind: 'large', method: 'POST', path: `/bench/_preview/items/${id('l')}/large`, cookie: admin, headers: rollback, ok: [413] })],
-        [5, () => ({ kind: 'previewBody', method: 'POST', path: '/bench/_preview/items', cookie: admin, headers: rollback, ok: accepts, body: padded(id('pb'), plan.bodyBytes) })],
+        [5, () => ({ kind: 'capture', method: 'POST', path: `/sendproof/_preview/items/${id('c')}/capture`, cookie: admin, headers: rollback, ok: [200] })],
+        [5, () => ({ kind: 'large', method: 'POST', path: `/sendproof/_preview/items/${id('l')}/large`, cookie: admin, headers: rollback, ok: [413] })],
+        [5, () => ({ kind: 'previewBody', method: 'POST', path: '/sendproof/_preview/items', cookie: admin, headers: rollback, ok: accepts, body: padded(id('pb'), plan.bodyBytes) })],
         [10, () => ({ kind: 'sendBody', method: 'POST', path: '/items', cookie: admin, headers: trace, ok: accepts, body: padded(id('sb'), plan.bodyBytes) })],
       ];
       const total = mix.reduce((sum, [weight]) => sum + weight, 0);

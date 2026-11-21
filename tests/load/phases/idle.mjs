@@ -68,10 +68,10 @@ function routesFor(sides) {
     send: route((name, cookie) => ({ method: 'POST', path: '/items', cookie, ok: [201], body: { id: next(name, 's'), name: 'Send' } }), 'enabled'),
     observedSend: route((name, cookie) => ({
       method: 'POST', path: '/items', cookie, headers: { Prefer: 'trace' }, ok: [201], body: { id: next(name, 'o'), name: 'Observed' },
-      check: response => response.headers['x-testbench-trace'] ? undefined : 'observed Send returned no trace ID',
+      check: response => response.headers['x-sendproof-trace'] ? undefined : 'observed Send returned no trace ID',
     }), 'enabled'),
     preview: route((name, cookie) => ({
-      method: 'POST', path: '/bench/_preview/items', cookie, headers: { Prefer: 'tx=rollback' }, ok: [200],
+      method: 'POST', path: '/sendproof/_preview/items', cookie, headers: { Prefer: 'tx=rollback' }, ok: [200],
       body: { id: next(name, 'p'), name: 'Preview' },
       check: response => response.headers['preference-applied'] === 'tx=rollback' ? undefined : 'Preview was not confirmed',
     }), 'enabled'),
