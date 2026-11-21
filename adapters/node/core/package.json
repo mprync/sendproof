@@ -32,6 +32,7 @@
   "scripts": {
     "build": "tsc -b && npm run pack-ui",
     "pack-ui": "node ../../../tools/pack-ui.mjs --out assets",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "embed-store-tables": "node scripts/embed-store-tables.mjs"
   }
 }

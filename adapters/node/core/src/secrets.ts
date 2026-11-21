@@ -32,3 +32,22 @@ export function redactRow<Row extends Record<string, unknown> | null>(row: Row):
   if (row === null || typeof row !== 'object') return row;
   return Object.fromEntries(Object.entries(row).map(([name, value]) => [name, looksSecret(name) ? redacted : value])) as Row;
 }
+
+/** A plain object literal, as opposed to arrays, dates, buffers and BSON values. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Copy a row or document with every secret-named field replaced by {@link redacted} at any depth,
+ * through nested objects and arrays. Store documents nest, so `profile.apiKey` is hidden too.
+ */
+export function redactDeep<Value>(value: Value): Value {
+  if (Array.isArray(value)) return value.map(redactDeep) as Value;
+  if (isPlainObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([name, inner]) => [name, looksSecret(name) ? redacted : redactDeep(inner)])) as Value;
+  }
+  return value;
+}

@@ -1,7 +1,7 @@
-import type { CaptureCollection, CaptureLimits, CaptureMode, CaptureSnapshot, CaptureRecorder, Change, Effect, Log, RecordedLog, SqlEntry, Timing } from './types.js';
+import type { BlockedWrite, CaptureCollection, CaptureLimits, CaptureMode, CaptureSnapshot, CaptureRecorder, Change, DbEntry, Effect, Log, RecordedLog, SqlEntry, Timing } from './types.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
-import { looksSecret, redacted, redactRow } from './secrets.js';
+import { looksSecret, redacted, redactDeep } from './secrets.js';
 
 const current = new AsyncLocalStorage<Capture>();
 const defaults = { changes: 200, effects: 100, logs: 500, bytes: 1024 * 1024, valueBytes: 8192 };
@@ -38,6 +38,15 @@ export function currentCapture(): CaptureRecorder | undefined {
   return capture?.active ? capture : undefined;
 }
 
+/**
+ * The Preview this code runs inside, even after the Preview finished. Store hooks use it so a
+ * write that a handler sends after its response settled is still refused, never sent unguarded.
+ */
+export function currentPreview(): CaptureRecorder | undefined {
+  const capture = current.getStore();
+  return capture?.mode === 'preview' ? capture : undefined;
+}
+
 export class Capture implements CaptureRecorder {
   readonly mode: CaptureMode;
   active = true;
@@ -47,6 +56,8 @@ export class Capture implements CaptureRecorder {
   #bytes = 0;
   #timing: Timing = { auth: 0, handler: 0, db: 0, queryCount: 0, serialize: 0 };
   #values: CaptureSnapshot = { changes: [], effects: [], logs: [] };
+  #blocked: BlockedWrite | null = null;
+  #fault: Error | null = null;
 
   constructor(mode: CaptureMode, limits: CaptureLimits = {}, parameterValues = false) {
     this.mode = mode;
@@ -80,12 +91,32 @@ export class Capture implements CaptureRecorder {
     this.#values[truncated] = true;
   }
 
-  /** Record a row change. Secret-named columns (for example `password_hash`) never leave the process. */
+  get blocked(): BlockedWrite | null {
+    return this.#blocked;
+  }
+
+  get fault(): Error | null {
+    return this.#fault;
+  }
+
+  /** Keep the first refused write; it decides the Preview's 409, whatever the handler returns. */
+  block(value: BlockedWrite) {
+    if (this.mode !== 'preview' || this.#blocked) return;
+    this.#blocked = { store: clip(value.store, nameLimit), operation: clip(value.operation, nameLimit), detail: clip(value.detail) };
+  }
+
+  /** Keep the first fault; it withholds confirmation, whatever the handler returns. */
+  refuse(fault: Error) {
+    if (this.mode === 'preview') this.#fault ??= fault;
+  }
+
+  /**
+   * Record a row, document, item or key change. Secret-named fields (for example `password_hash`)
+   * never leave the process, at any depth of a nested document.
+   */
   change(value: Change) {
     if (!this.active) return;
-    const key = value.key !== null && typeof value.key === 'object' && !Array.isArray(value.key)
-      ? redactRow(value.key as Record<string, unknown>) : value.key;
-    this.#append('changes', { ...value, key, before: redactRow(value.before), after: redactRow(value.after) });
+    this.#append('changes', { ...value, key: redactDeep(value.key), before: redactDeep(value.before), after: redactDeep(value.after) });
   }
 
   truncate(name: CaptureCollection) {
@@ -99,11 +130,36 @@ export class Capture implements CaptureRecorder {
 
   log(value: RecordedLog) {
     if (!this.active) return;
-    const { level, message, elapsedMs, sql } = value;
+    const { level, message, elapsedMs, sql, db } = value;
     this.#append('logs', {
       level: clip(level, nameLimit), message: clip(message), ...boundedLog(value),
       ...(elapsedMs === undefined ? {} : { elapsedMs }), ...(sql === undefined ? {} : { sql }),
+      ...(db === undefined ? {} : { db }),
       offsetMs: performance.now() - this.#started,
+    });
+  }
+
+  /**
+   * Record one data-store command as a `Db` log entry. The message is the OpenTelemetry span name,
+   * `{operation} {target}`. Hooks pass sanitized statements only; values never reach this method.
+   */
+  db({ system, operation, target, namespace, statement, rowsAffected, blocked, error, elapsedMs }: DbEntry) {
+    if (!this.active) return;
+    if (!blocked) {
+      this.#timing.queryCount++;
+      this.#timing.db += elapsedMs ?? 0;
+    }
+    if (statement !== undefined && statement.length > textLimit) this.#values.logsTruncated = true;
+    const db: NonNullable<RecordedLog['db']> = { system: clip(system, nameLimit), operation: clip(operation, nameLimit) };
+    if (target !== undefined) db.target = clip(target, nameLimit);
+    if (namespace !== undefined) db.namespace = clip(namespace, nameLimit);
+    if (statement !== undefined) db.statement = clip(statement);
+    if (rowsAffected !== undefined && Number.isSafeInteger(rowsAffected) && rowsAffected >= 0) db.rowsAffected = rowsAffected;
+    if (blocked) db.blocked = true;
+    if (error) db.error = clip(error, nameLimit);
+    this.log({
+      level: 'Db', message: db.target === undefined ? db.operation : `${db.operation} ${db.target}`, db,
+      ...(elapsedMs === undefined ? {} : { elapsedMs: Math.max(0, elapsedMs) }),
     });
   }
 

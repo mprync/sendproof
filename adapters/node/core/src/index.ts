@@ -1,15 +1,21 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import type { BenchIdentity, BenchOptions, BenchRequest, DispatchResponse, LookupResponse, Observation, PreviewOperation, Trace, TransportResponse } from './types.js';
+import type { BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Capture } from './capture.js';
 import { hasPreference, localPath, requireLocalPath, requestsRollback, sameOrigin } from './paths.js';
+import { writeReason } from './stores/guard.js';
 
 export type * from './types.js';
-export { Capture, currentCapture, deliverEffect } from './capture.js';
-export { looksSecret, redacted, redactRow } from './secrets.js';
+export { Capture, currentCapture, currentPreview, deliverEffect } from './capture.js';
+export { looksSecret, redacted, redactDeep, redactRow } from './secrets.js';
+export { classifyDynamo, classifyMongo, classifyRedis, partiqlVerb, type CommandKind, type MongoClassification } from './stores/classify.js';
+export {
+  guard, PreviewTransactionControlError, PreviewWriteBlockedError, refuseInPreview, sanitizeDocument, storeName, storeNames, writeReason,
+} from './stores/guard.js';
+export { dynamodbTable, mongodbTable, redisTable } from './stores/tables.js';
 export { controlsTransaction, endsTransaction, isRollback, mayWrite, splitStatements, type AdapterProvider } from './statements.js';
 
 const prefix = '/sendproof/_preview';
@@ -26,6 +32,31 @@ const json = (status: number, value: unknown, headers: TransportResponse['header
   body: Buffer.from(JSON.stringify(value)),
 });
 const problem = (status: number, title: string) => json(status, { status, title }, { 'Content-Type': 'application/problem+json' });
+
+/**
+ * The blocked-Preview response of spec/data-stores.md: 409 problem+json, never a confirmation.
+ * It carries nothing the handler produced, and names the command, never its arguments.
+ */
+const blockedPreview = ({ store, operation, detail }: BlockedWrite) => json(409, {
+  type: 'about:blank', title: 'Preview unavailable', status: 409, code: 'preview_unavailable',
+  detail, store, operation, rolledBack: false,
+}, { 'Content-Type': 'application/problem+json' });
+
+/**
+ * Validate the options of an operation marked `preview: false` and build its capabilities entry.
+ * The reason defaults to the first store's "writes to <Store>" sentence; one of the two is required.
+ */
+export function unavailableOperation(method: string, path: string, options: UnavailableOptions): UnavailableOperation {
+  const { reason, stores } = options ?? {};
+  if (stores !== undefined && (!Array.isArray(stores) || stores.some(store => typeof store !== 'string' || !/^[a-z][a-z0-9]*$/.test(store)))) {
+    throw new TypeError('List the stores an unavailable operation writes as store ids such as "redis".');
+  }
+  const text = reason ?? (stores?.length ? writeReason(stores[0]!) : undefined);
+  if (typeof text !== 'string' || !text.trim() || text.length > 512) {
+    throw new TypeError('Give an unavailable operation a reason, or the stores it writes.');
+  }
+  return { method, path, reason: text, ...(stores?.length ? { stores: [...stores] } : {}) };
+}
 
 function under(value: string, prefix: string) {
   return value === prefix || value.startsWith(prefix + '/');
@@ -98,15 +129,21 @@ function publicIdentity(identity: BenchIdentity | null) {
 }
 
 /** Internal protocol interface used by the framework packages. */
-export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, operations: () => PreviewOperation[] = () => []) {
+export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, registered: () => RegisteredOperation[] = () => []) {
   const {
     apiName = 'API', environment = process.env.NODE_ENV ?? 'production', environments = ['development'],
     openApiUrl = '/openapi.json', documents = [], fieldModules = [], database = null, authProviders = [],
     resolveIdentity = () => null, authorize = () => true, discoverAuth, previewProvider,
     maxResponseBytes = 1024 * 1024, captureLimits = {}, traceTtlMs = 300000, traceClock = () => performance.now(),
-    includeSqlParameterValues = environment.toLowerCase() === 'development',
+    includeSqlParameterValues = environment.toLowerCase() === 'development', dataStores = [],
     onError = () => {},
   } = options;
+  if (!Array.isArray(dataStores) || dataStores.some(store => typeof store?.system !== 'string' || typeof store.describe !== 'function')) {
+    throw new TypeError('dataStores takes stores made by redisStore, dynamoStore, mongoStore or mongooseStore.');
+  }
+  const operations = () => registered().filter(entry => !('preview' in entry)).map(({ method, path }) => ({ method, path }));
+  const unavailable = () => registered().flatMap(entry => 'preview' in entry
+    ? [{ method: entry.method, path: entry.path, reason: entry.reason, ...(entry.stores ? { stores: entry.stores } : {}) }] : []);
   for (const value of [apiName, environment, ...environments]) {
     if (typeof value !== 'string' || !value.trim()) throw new TypeError('API and environment names must be nonempty strings.');
   }
@@ -153,6 +190,8 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
         fieldModules: fieldModules.map(addBase),
         authProviders: providers.map(({ kind, label, url }) => ({ kind, label, url: addBase(url) })),
         previewOperations: previewProvider ? operations() : [],
+        ...(previewProvider && unavailable().length ? { previewUnavailable: unavailable() } : {}),
+        ...(dataStores.length ? { dataStores: await Promise.all(dataStores.map(store => store.describe())) } : {}),
         observedSend: Boolean(previewProvider),
       });
     }
@@ -180,8 +219,35 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
     if (!enabled) return problem(404, 'Sendproof is unavailable.');
     if (!previewProvider) return problem(503, 'Preview requires an available provider.');
     const capture = new Capture('preview', captureLimits, includeSqlParameterValues);
+    let storesFinished = true;
+    // A handler that throws after a blocked write still gets the 409, once the provider rolled
+    // back and rethrew that same error. Any other rejection means the rollback itself failed.
+    const failure: { error?: unknown } = {};
     try {
-      const response = await capture.run(() => previewProvider.preview(dispatch));
+      // Pipeline order (spec/data-stores.md): run the handler; abort every preview-mode store
+      // transaction; roll back SQL. A failed abort or rollback, or a recorded fault, answers 500;
+      // otherwise a blocked write answers 409; otherwise the Preview is confirmed.
+      const handler = dataStores.reduceRight<() => Promise<DispatchResponse>>(
+        (next, store) => store.around ? () => store.around!(capture, next) : next, dispatch);
+      const response = await capture.run(() => previewProvider.preview(async () => {
+        try {
+          return await handler();
+        } catch (error) {
+          failure.error = error;
+          throw error;
+        } finally {
+          for (const store of dataStores) {
+            try {
+              await store.finishPreview?.(capture);
+            } catch (error) {
+              storesFinished = false;
+              onError(error, context);
+            }
+          }
+        }
+      }));
+      if (!storesFinished || capture.fault) return problem(500, 'The preview could not be completed safely.');
+      if (capture.blocked) return blockedPreview(capture.blocked);
       if ('unmatched' in response) return problem(409, 'This operation is unavailable for preview.');
       if (response.status === 401 || response.status === 403) return problem(response.status, 'Preview access denied.');
       if (response.status >= 500) return problem(500, 'The preview operation did not complete safely.');
@@ -202,6 +268,9 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, oper
       }, { 'Preference-Applied': 'tx=rollback' });
     } catch (error) {
       onError(error, context);
+      if ('error' in failure && error === failure.error && storesFinished && !capture.fault && capture.blocked) {
+        return blockedPreview(capture.blocked);
+      }
       return problem(500, 'The preview could not be completed safely.');
     } finally {
       if (capture.active) capture.finish();
