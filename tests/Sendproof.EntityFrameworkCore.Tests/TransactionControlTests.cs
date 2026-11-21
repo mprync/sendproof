@@ -187,17 +187,10 @@ public sealed class TransactionControlTests
     /// The regression: eight concurrent Previews insert the same new key and each rolls back. Without turn-taking
     /// InnoDB aborts all but one with a deadlock (1213). Skips when the compose MySQL service isn't running.
     /// </summary>
-    [Fact]
+    [ServiceFact("mysql")]
     public async Task ConcurrentMySqlPreviewsOfTheSameNewKeyAllSucceed()
     {
-        var server = Environment.GetEnvironmentVariable("BENCH_MYSQL_SERVER") ?? "127.0.0.1";
-        var port = int.TryParse(Environment.GetEnvironmentVariable("BENCH_MYSQL_PORT"), out var parsed) ? parsed : 53306;
-        var root = $"server={server};port={port};user=root;password=bench_local;SslMode=Disabled;AllowPublicKeyRetrieval=True";
-        if (!await MySqlAnswers(root))
-        {
-            // Not xunit's Skip (2.5 has no dynamic skip): the service is optional, the compose command is in the docs.
-            return;
-        }
+        var root = ServiceFactAttribute.MySqlRoot;
 
         var name = "tb_ef_" + Guid.NewGuid().ToString("N")[..10];
         await using (var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(root).Options))
@@ -235,21 +228,6 @@ public sealed class TransactionControlTests
         {
             await using var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(root).Options);
             await admin.Database.ExecuteSqlRawAsync($"DROP DATABASE IF EXISTS {name}");
-        }
-    }
-
-    private static async Task<bool> MySqlAnswers(string connectionString)
-    {
-        try
-        {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await using var db = new DbContext(new DbContextOptionsBuilder().UseMySQL(connectionString).Options);
-            await db.Database.ExecuteSqlRawAsync("SELECT 1", timeout.Token);
-            return true;
-        }
-        catch (Exception error) when (error is not OutOfMemoryException)
-        {
-            return false;
         }
     }
 
