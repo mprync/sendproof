@@ -62,6 +62,12 @@ final class RedisHook
     ) {
     }
 
+    /** Whether the current request is a Preview or an observed Send, so commands must be looked at. */
+    public function watching(): bool
+    {
+        return $this->guard->inPreview() || $this->guard->recorder()->isCapturing();
+    }
+
     /**
      * Classifies a command and lets the guard refuse a write before anything is sent.
      *

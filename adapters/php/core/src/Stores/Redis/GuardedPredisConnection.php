@@ -24,12 +24,9 @@ use Sendproof\Core\Stores\PreviewWriteBlockedException;
 final class GuardedPredisConnection implements NodeConnectionInterface
 {
     private bool $inMulti = false;
-    /** @var \SplObjectStorage<CommandInterface,array{0:CommandKind,1:int}> Pipelined commands awaiting their reply */
-    private \SplObjectStorage $written;
 
     public function __construct(private readonly NodeConnectionInterface $inner, private readonly RedisHook $hook)
     {
-        $this->written = new \SplObjectStorage();
     }
 
     public function connect()
@@ -51,24 +48,32 @@ final class GuardedPredisConnection implements NodeConnectionInterface
     public function writeRequest(CommandInterface $command)
     {
         $kind = $this->check($command, true);
-        $this->written[$command] = [$kind, hrtime(true)];
+        // A pipeline reads its replies later, in a way this decorator can't pair with the command, so the
+        // command is logged as it is written, without a duration.
+        $this->hook->record($command->getId(), array_values($command->getArguments()), $kind, hrtime(true));
         $this->inner->writeRequest($command);
     }
 
     public function readResponse(CommandInterface $command)
     {
-        $response = $this->inner->readResponse($command);
-        if (isset($this->written[$command])) {
-            [$kind, $started] = $this->written[$command];
-            unset($this->written[$command]);
-            $this->finish($command, $kind, $started, $response);
-        }
-
-        return $response;
+        return $this->inner->readResponse($command);
     }
 
+    /**
+     * A pipeline serialises every queued command into one buffer and writes it here, so this is the
+     * last place to refuse one. The buffer is parsed and each command classified before a byte of it
+     * is written; a buffer that can't be parsed is refused as a write, so the guard fails closed.
+     */
     public function write(string $buffer): void
     {
+        $commands = self::parseRequests($buffer, $this->hook->watching());
+        $kinds = [];
+        foreach ($commands ?? [['PIPELINE', []]] as [$name, $args]) {
+            $kinds[] = $this->classify($name, $args, false);
+        }
+        foreach ($commands ?? [] as $index => [$name, $args]) {
+            $this->hook->record($name, $args, $kinds[$index], hrtime(true));
+        }
         $this->inner->write($buffer);
     }
 
@@ -154,9 +159,14 @@ final class GuardedPredisConnection implements NodeConnectionInterface
      */
     private function check(CommandInterface $command, bool $pipelined): CommandKind
     {
-        $id = strtoupper($command->getId());
+        return $this->classify(strtoupper($command->getId()), array_values($command->getArguments()), $pipelined);
+    }
+
+    /** @param list<mixed> $args */
+    private function classify(string $id, array $args, bool $pipelined): CommandKind
+    {
         try {
-            $kind = $this->hook->check($id, array_values($command->getArguments()));
+            $kind = $this->hook->check($id, $args);
         } catch (PreviewWriteBlockedException $refusal) {
             try {
                 if ($this->inMulti) {
@@ -181,5 +191,48 @@ final class GuardedPredisConnection implements NodeConnectionInterface
     {
         $error = $response instanceof ErrorInterface ? new \RuntimeException($response->getMessage()) : null;
         $this->hook->record($command->getId(), array_values($command->getArguments()), $kind, $started, $error);
+    }
+
+    /**
+     * Splits a RESP request buffer (`*2\r\n$3\r\nGET\r\n$1\r\nk\r\n…`) into commands. Returns null
+     * when the buffer is not a sequence of well-formed command arrays. Outside a Preview and an observed
+     * Send nothing is refused or logged, so `$strict` false skips the work and returns an empty list.
+     *
+     * @return list<array{0:string,1:list<string>}>|null
+     */
+    private static function parseRequests(string $buffer, bool $strict = true): ?array
+    {
+        if (!$strict) {
+            return [];
+        }
+        $commands = [];
+        $offset = 0;
+        $length = strlen($buffer);
+        while ($offset < $length) {
+            if ($buffer[$offset] !== '*' || ($end = strpos($buffer, "\r\n", $offset)) === false) {
+                return null;
+            }
+            $count = (int) substr($buffer, $offset + 1, $end - $offset - 1);
+            $offset = $end + 2;
+            $parts = [];
+            for ($index = 0; $index < $count; $index++) {
+                if (($buffer[$offset] ?? '') !== '$' || ($end = strpos($buffer, "\r\n", $offset)) === false) {
+                    return null;
+                }
+                $size = (int) substr($buffer, $offset + 1, $end - $offset - 1);
+                $offset = $end + 2;
+                if ($offset + $size + 2 > $length) {
+                    return null;
+                }
+                $parts[] = substr($buffer, $offset, $size);
+                $offset += $size + 2;
+            }
+            if ($parts === []) {
+                return null;
+            }
+            $commands[] = [strtoupper(array_shift($parts)), $parts];
+        }
+
+        return $commands;
     }
 }

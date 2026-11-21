@@ -13,7 +13,7 @@ final class Tables
     /** The shared redis classification table, embedded unchanged from spec/data-stores/redis.json. */
     private const REDIS = <<<'JSON'
 {
-  "$comment": "Write-guard classification for Redis, shared by every binding. Generated from COMMAND on Redis 7.4 (readonly flag without write), plus session commands and common module reads. Anything not listed is a write. See spec/data-stores.md.",
+  "$comment": "Write-guard classification for Redis, shared by every binding. Generated from COMMAND on Redis 7.4 (readonly flag without write), plus session commands (including CLIENT MAINT_NOTIFICATIONS, which Redis 8 clients such as go-redis 9.23 send on connect) and common module reads. Anything not listed is a write. See spec/data-stores.md.",
   "store": "redis",
   "version": 1,
   "source": "redis 7.4 COMMAND flags",
@@ -157,6 +157,7 @@ final class Tables
     "CLIENT|GETNAME",
     "CLIENT|ID",
     "CLIENT|INFO",
+    "CLIENT|MAINT_NOTIFICATIONS",
     "CLIENT|SETINFO",
     "CLIENT|SETNAME",
     "COMMAND",
