@@ -123,6 +123,10 @@ final class PreviewMiddleware
         if (!self::isMarked($this->router, $route)) {
             return $this->problem(409, 'This operation is unavailable for preview.');
         }
+        if (($reason = $this->manager->concurrencyReason()) !== null) {
+            // Nothing runs: refused before the handler, so no write of this or any other request is touched.
+            return $this->problem(409, $reason);
+        }
         if (!$this->sameOrigin($request)) {
             return $this->problem(403, 'This preview is forbidden.');
         }

@@ -193,6 +193,42 @@ final class SendproofManager
         };
     }
 
+    /** Why Preview is off in this worker, shown in capabilities and in the 409 a Preview request gets. */
+    public const CONCURRENT_WORKER_REASON = 'Preview unavailable: this worker runs requests concurrently (Laravel Octane on Swoole or OpenSwoole), '
+        . 'so a write could not be told apart from another request\'s and rolled back with the right Preview.';
+
+    /**
+     * The reason Previews are refused in this worker, or null when they may run.
+     *
+     * The PHP binding attributes every write in the process to the Preview that is open, because PHP
+     * normally runs one request per process at a time (php-fpm, `php -S`, Octane on RoadRunner or
+     * FrankenPHP). Laravel Octane on Swoole or OpenSwoole runs requests concurrently in coroutines in
+     * one worker, so another request's write would be counted, guarded or rolled back as the
+     * Preview's. Previews are therefore refused there. `sendproof.concurrent_workers` overrides the
+     * detection: true refuses, false allows (only for a Swoole server configured to run one request
+     * per worker at a time).
+     */
+    public function concurrencyReason(): ?string
+    {
+        $configured = $this->config('concurrent_workers');
+        if (is_bool($configured)) {
+            return $configured ? self::CONCURRENT_WORKER_REASON : null;
+        }
+        $octane = (bool) ($_SERVER['LARAVEL_OCTANE'] ?? $_ENV['LARAVEL_OCTANE'] ?? getenv('LARAVEL_OCTANE'));
+        $server = strtolower((string) ($this->app->make('config')->get('octane.server') ?? getenv('OCTANE_SERVER') ?: ''));
+        if ($octane && in_array($server, ['swoole', 'openswoole'], true)) {
+            return self::CONCURRENT_WORKER_REASON;
+        }
+        // Any code running inside a Swoole or OpenSwoole coroutine, with or without Octane.
+        foreach (['Swoole\\Coroutine', 'OpenSwoole\\Coroutine'] as $coroutine) {
+            if (class_exists($coroutine, false) && method_exists($coroutine, 'getCid') && $coroutine::getCid() > 0) {
+                return self::CONCURRENT_WORKER_REASON;
+            }
+        }
+
+        return null;
+    }
+
     public function config(string $key, mixed $default = null): mixed
     {
         return $this->app->make('config')->get('sendproof.' . $key, $default);

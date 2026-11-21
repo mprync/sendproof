@@ -59,6 +59,13 @@ final class WorkbenchController
         $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
         $provider = $this->manager->previewProvider();
         $available = $provider !== null && $provider->isAvailable();
+        // Under a concurrent worker every opted-in operation is listed as unavailable, with the reason.
+        $concurrency = $this->manager->concurrencyReason();
+        $operations = $available && $concurrency === null ? $this->operations() : [];
+        $unavailable = $available ? $this->unavailable() : [];
+        if ($available && $concurrency !== null) {
+            $unavailable = [...array_map(static fn (array $operation): array => $operation + ['reason' => $concurrency], $this->operations()), ...$unavailable];
+        }
         $openApi = $withBase((string) $this->manager->config('openapi_url', '/openapi/v1.json'));
         $apiName = $this->manager->config('api_name') ?? $this->app->make('config')->get('app.name', 'API');
 
@@ -73,10 +80,10 @@ final class WorkbenchController
             array_map(static fn (array $entry): array => [
                 'label' => $entry['label'], 'kind' => $entry['kind'], 'url' => isset($entry['url']) ? $withBase((string) $entry['url']) : null,
             ], (array) $this->manager->config('auth_providers', [])),
-            $available ? $this->operations() : [],
+            $operations,
             ['language' => 'php', 'framework' => 'Laravel'],
             array_map(static fn (\Sendproof\Core\Stores\DataStore $store): array => $store->describe(), $this->manager->dataStores()),
-            $available ? $this->unavailable() : [],
+            $unavailable,
             $provider instanceof DescribesDatabaseSystem ? $provider->databaseSystem() : null,
         );
 

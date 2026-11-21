@@ -49,6 +49,11 @@ return [
     // 'reports.rebuild'; case-insensitive; no wildcards). Sendproof trusts this list.
     'safe_procedures' => [],
 
+    // Laravel Octane on Swoole or OpenSwoole runs requests concurrently in one worker, so Previews are
+    // refused there (detected). True refuses, false allows: only for a server that runs one request per
+    // worker at a time. Null detects.
+    'concurrent_workers' => null,
+
     // Display label for the database. Defaults to the connection's database name without its path.
     'database_label' => env('SENDPROOF_DATABASE_LABEL'),
 
