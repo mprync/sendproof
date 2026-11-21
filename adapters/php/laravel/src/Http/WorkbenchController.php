@@ -59,8 +59,9 @@ final class WorkbenchController
         $withBase = static fn (string $url): string => Capabilities::withBase($base, $url);
         $provider = $this->manager->previewProvider();
         $available = $provider !== null && $provider->isAvailable();
-        // Under a concurrent worker every opted-in operation is listed as unavailable, with the reason.
-        $concurrency = $this->manager->concurrencyReason();
+        // When every Preview is refused (a concurrent worker, a connection Sendproof can't guard), each
+        // opted-in operation is listed as unavailable, with the reason.
+        $concurrency = $available ? $this->manager->previewRefusal() : null;
         $operations = $available && $concurrency === null ? $this->operations() : [];
         $unavailable = $available ? $this->unavailable() : [];
         if ($available && $concurrency !== null) {

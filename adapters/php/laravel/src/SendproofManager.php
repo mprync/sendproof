@@ -229,6 +229,21 @@ final class SendproofManager
         return null;
     }
 
+    /**
+     * Why every Preview is refused right now, before any handler runs: a concurrent worker
+     * ({@see concurrencyReason()}), or a provider that can't guard its connections
+     * ({@see EloquentPreviewProvider::unavailableReason()}). Null when Previews may run.
+     */
+    public function previewRefusal(): ?string
+    {
+        if (($reason = $this->concurrencyReason()) !== null) {
+            return $reason;
+        }
+        $provider = $this->provider();
+
+        return $provider instanceof EloquentPreviewProvider ? $provider->unavailableReason() : null;
+    }
+
     public function config(string $key, mixed $default = null): mixed
     {
         return $this->app->make('config')->get('sendproof.' . $key, $default);

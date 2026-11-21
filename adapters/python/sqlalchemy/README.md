@@ -77,7 +77,9 @@ Read these before advertising an operation for Preview.
   `innodb_rollback_on_timeout` on, rolls back the whole Preview transaction. The handler still gets
   the original error, but every later statement in that Preview is refused before it is sent (a
   retry would run outside the transaction, and with autocommit on commit for real), and the
-  Preview answers 500 without confirmation.
+  Preview answers 500 without confirmation. The lock wait timeout case shares the deadlock code
+  path and is covered by unit tests only, because `innodb_rollback_on_timeout` can be set only at
+  server startup.
 - **Outside the database:** caches, files, other services, other engines you did not register and
   work queued after the response are not rolled back. Sequences may advance.
 - **Connections the application holds across requests** are not enrolled.

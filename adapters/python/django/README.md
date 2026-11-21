@@ -114,7 +114,9 @@ performs. The row before an update or delete is read from the database; that rea
 - **Deadlocks on MySQL and MariaDB:** a deadlock (1213), or a lock wait timeout (1205) with
   `innodb_rollback_on_timeout` on, rolls back the whole Preview transaction. The handler still gets
   the original error; every later statement in that Preview except Django's own savepoint
-  rollbacks is refused before it is sent, and the Preview answers 500 without confirmation.
+  rollbacks is refused before it is sent, and the Preview answers 500 without confirmation. The
+  lock wait timeout case shares the deadlock code path and is covered by unit tests only, because
+  `innodb_rollback_on_timeout` can be set only at server startup.
 - Enrolled aliases share the request thread's connection. Work in other threads, other databases
   you did not list, caches, files and other services are not rolled back.
 - Synchronous views only. Async views and ASGI deployments are not tested.

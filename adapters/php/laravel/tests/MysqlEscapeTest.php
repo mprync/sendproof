@@ -209,10 +209,55 @@ final class MysqlEscapeTest extends TestCase
         $this->assertTrue($seen['refused'] ?? false, 'The retry must be refused before it is sent.');
     }
 
+    /**
+     * Sendproof sees a deadlock through its own statement class. A MySQL connection with the app's own
+     * statement class would let a retry after a deadlock commit for real, so Preview refuses to start on
+     * it (409 before the handler runs) and capabilities say why.
+     */
+    public function testAMysqlConnectionWithItsOwnStatementClassRefusesPreview(): void
+    {
+        DB::connection('mysql')->getPdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [AppStatement::class, []]);
+        Route::middleware([RequireUser::class])->post('/items/{id}/plain', function (string $id) {
+            DB::connection('mysql')->insert('INSERT INTO items VALUES (?)', [$id]);
+
+            return response()->json(['id' => $id]);
+        })->sendproofPreview();
+        $this->signIn();
+
+        try {
+            $response = $this->preview('/items/a/plain')->assertStatus(409);
+            $this->assertStringContainsString('statement class', (string) $response->json('title'));
+            $this->assertSame([], $this->stored(), 'The handler never ran.');
+            $capabilities = $this->getJson('/sendproof/_api/capabilities')->json();
+            $this->assertNotContains(['method' => 'POST', 'path' => '/items/{id}/plain'], $capabilities['previewOperations'] ?? []);
+            $reasons = array_column(array_filter($capabilities['previewUnavailable'], static fn (array $entry): bool => $entry['path'] === '/items/{id}/plain'), 'reason');
+            $this->assertCount(1, $reasons);
+            $this->assertStringContainsString('statement class', $reasons[0]);
+            // Reached without the middleware, the provider fails closed too and leaves no transaction open.
+            try {
+                $this->app->make(\Sendproof\Laravel\Eloquent\EloquentPreviewProvider::class)->begin(null);
+                $this->fail('The Preview must not start.');
+            } catch (\RuntimeException $error) {
+                $this->assertStringContainsString('statement class', $error->getMessage());
+            }
+            $this->assertSame(0, DB::connection('mysql')->transactionLevel());
+        } finally {
+            DB::connection('mysql')->getPdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+    }
+
     public function testASafeProcedureMustBeAnExactName(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->app['config']->set('sendproof.safe_procedures', ['reads_*']);
         $this->app->make(\Sendproof\Laravel\Eloquent\EloquentPreviewProvider::class);
+    }
+}
+
+/** An application's own statement class, as some apps configure through `PDO::ATTR_STATEMENT_CLASS`. */
+class AppStatement extends \PDOStatement
+{
+    protected function __construct()
+    {
     }
 }

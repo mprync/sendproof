@@ -160,13 +160,52 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
         }
     }
 
+    /** Why Preview is refused on a MySQL connection that uses the application's own statement class. */
+    public const CUSTOM_STATEMENT_CLASS_REASON = 'Preview unavailable: a MySQL connection uses its own PDO statement class, '
+        . 'so Sendproof could not see a deadlock that ends the Preview transaction and stop a retry from committing.';
+
+    /**
+     * The reason Previews can't run on the enrolled connections, or null when they can.
+     *
+     * Sendproof sees a MySQL deadlock through its own statement class (see {@see WatchedStatement}). A
+     * MySQL or MariaDB connection whose PDO already uses another class (`PDO::ATTR_STATEMENT_CLASS`) would
+     * hide it, and a retry after the deadlock would commit for real, so Preview refuses to start there.
+     */
+    public function unavailableReason(): ?string
+    {
+        if ($this->recorder === null) {
+            return null;
+        }
+        foreach ($this->connections as $name) {
+            try {
+                $connection = $this->database->connection($name);
+                if (in_array($connection->getDriverName(), ['mysql', 'mariadb'], true) && self::customStatementClass($connection->getPdo())) {
+                    return self::CUSTOM_STATEMENT_CLASS_REASON;
+                }
+            } catch (\Throwable) {
+                // An unreachable connection is reported by isAvailable().
+            }
+        }
+
+        return null;
+    }
+
+    /** Whether the PDO uses a statement class other than PDO's own (or Sendproof's, mid-Preview). */
+    private static function customStatementClass(\PDO $pdo): bool
+    {
+        $class = $pdo->getAttribute(\PDO::ATTR_STATEMENT_CLASS)[0] ?? \PDOStatement::class;
+
+        return $class !== \PDOStatement::class && $class !== WatchedStatement::class;
+    }
+
     /**
      * Watches every prepared statement on a MySQL Preview connection for the errors that end the Preview
-     * transaction (see {@see WatchedStatement}), and answers the closure that puts the connection's own
-     * statement class back. A connection that already uses a custom statement class keeps it; there only
-     * the savepoint check before the rollback catches a deadlock, after a retry may already have committed.
+     * transaction (see {@see WatchedStatement}), and answers the closure that puts PDO's own statement
+     * class back. A connection with the application's own statement class fails closed: the Preview
+     * doesn't start (the middleware refuses it earlier, with {@see unavailableReason()}).
      *
      * @return Closure(): void|null
+     * @throws \RuntimeException for a connection with its own statement class
      */
     private function watchStatements(Connection $connection): ?Closure
     {
@@ -174,9 +213,8 @@ class EloquentPreviewProvider implements PreviewProvider, DescribesDatabaseSyste
             return null;
         }
         $pdo = $connection->getPdo();
-        $previous = $pdo->getAttribute(\PDO::ATTR_STATEMENT_CLASS);
-        if (($previous[0] ?? \PDOStatement::class) !== \PDOStatement::class) {
-            return null;
+        if (self::customStatementClass($pdo)) {
+            throw new \RuntimeException(self::CUSTOM_STATEMENT_CLASS_REASON);
         }
         $recorder = $this->recorder;
         $key = self::endedKey($connection);
