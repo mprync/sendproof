@@ -1,0 +1,19 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+# The three Test Bench gems are developed together and resolved from this checkout.
+gem "testbench-core", path: "testbench"
+gem "testbench-activerecord", path: "testbench-activerecord"
+gem "testbench-rails", path: "testbench-rails"
+
+# Tested against Rails 8.0 (Ruby 3.4).
+gem "rails", "~> 8.0.0"
+gem "sqlite3", ">= 2.1"
+gem "puma", ">= 6.4"
+
+group :development, :test do
+  gem "rake", "~> 13.2"
+  gem "minitest", "~> 5.25"
+  gem "rack-test", "~> 2.1"
+end

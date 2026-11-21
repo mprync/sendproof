@@ -1,0 +1,9 @@
+# frozen_string_literal: true
+
+module TestBench
+  # RubyGems version of every Test Bench Ruby gem.
+  VERSION = "0.1.0.alpha.1"
+
+  # The same release expressed as SemVer, as expected by tools/pack-ui.mjs.
+  UI_VERSION = "0.1.0-alpha.1"
+end
