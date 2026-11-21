@@ -472,6 +472,14 @@ func (s *scope) execKeyed(ctx context.Context, target conn, inTx bool, info stat
 		source = own
 	}
 	statement, problem := s.planKeyed(ctx, source, text, info, args, false)
+	if statement == nil && s.preview && problem != "" {
+		// The before-read may have failed because the database ended the transaction (a MySQL deadlock,
+		// a SQL Server deadlock victim). The write must not then run outside it and commit on its own.
+		s.checkAlive(ctx, errors.New(problem))
+		if err := s.failed(); err != nil {
+			return nil, err
+		}
+	}
 	if statement == nil {
 		if info.procedure {
 			problem = "a procedure call, whose writes keyed capture cannot read"

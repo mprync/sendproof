@@ -374,6 +374,84 @@ func TestCancellationRunsTheWholeCleanup(t *testing.T) {
 	})
 }
 
+// TestADeadlockedPreviewRefusesEveryLaterStatement covers spec/data-stores.md: a
+// MySQL deadlock (1213) or SQL Server deadlock victim (1205) rolls the whole
+// preview transaction back, so a retried write would run with autocommit and
+// commit for real. Every later statement is refused, and the preview answers 500.
+func TestADeadlockedPreviewRefusesEveryLaterStatement(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		if e.name != "mysql" && e.name != "sqlserver" {
+			t.Skip("PostgreSQL keeps the transaction after an error, and SQLite previews take turns")
+		}
+		db := newItems(t, e, pool)
+		exec(t, pool, "INSERT INTO items (id, name) VALUES ('a', 'A'), ('b', 'B')")
+		// The other transaction changes many rows, so the database picks the preview as the victim.
+		for n := range 300 {
+			exec(t, pool, fmt.Sprintf("INSERT INTO items (id, name) VALUES ('filler%d', 'F')", n))
+		}
+		written, resume := make(chan struct{}), make(chan struct{})
+		var deadlock, retry error
+		handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			if result, err := db.ExecContext(ctx, "UPDATE items SET name = 'Preview' WHERE id = 'a'"); err != nil {
+				t.Errorf("the first update: %v", err)
+			} else if rows, _ := result.RowsAffected(); rows != 1 {
+				t.Errorf("the first update changed %d rows", rows)
+			}
+			close(written)
+			<-resume
+			// The other transaction holds b and waits for a: InnoDB and SQL Server roll back
+			// the preview, which changed fewer rows. On MySQL the deadlock surfaces in the
+			// keyed capture's before-read, which must not let the update run without it.
+			_, deadlock = db.ExecContext(ctx, "UPDATE items SET name = 'Preview' WHERE id = 'b'")
+			_, retry = db.ExecContext(ctx, "INSERT INTO items (id, name) VALUES ('retried', 'x')")
+			w.WriteHeader(201)
+		})
+		done := make(chan int, 1)
+		var envelope map[string]any
+		go func() {
+			var status int
+			status, envelope = preview(t, handler, "/run")
+			done <- status
+		}()
+		<-written
+		other, err := pool.BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := other.Exec("UPDATE items SET name = 'Other' WHERE id = 'b' OR id LIKE 'filler%'"); err != nil {
+			t.Fatal(err)
+		}
+		waited := make(chan error, 1)
+		go func() {
+			_, err := other.Exec("UPDATE items SET name = 'Other' WHERE id = 'a'")
+			_ = other.Rollback()
+			waited <- err
+		}()
+		time.Sleep(300 * time.Millisecond)
+		close(resume)
+		status := <-done
+		if deadlock == nil {
+			var name string
+			_ = pool.QueryRow("SELECT name FROM items WHERE id = 'a'").Scan(&name)
+			t.Fatalf("the preview (status %d, %v) was not the deadlock victim; the other transaction got %v; a is %q", status, envelope, <-waited, name)
+		}
+		if status != 500 {
+			t.Errorf("a deadlocked preview answered %d", status)
+		}
+		if retry == nil {
+			t.Error("the retried write ran after the deadlock")
+		}
+		if err := <-waited; err != nil {
+			t.Fatal(err)
+		}
+		var retried int
+		if err := pool.QueryRow("SELECT COUNT(*) FROM items WHERE id = 'retried'").Scan(&retried); err != nil || retried != 0 {
+			t.Errorf("the retried write committed: %d, %v", retried, err)
+		}
+	})
+}
+
 // cancelKey carries the request's cancel function to the handler of TestCancellationRunsTheWholeCleanup.
 type cancelKey struct{}
 
