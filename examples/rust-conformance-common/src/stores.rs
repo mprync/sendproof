@@ -8,8 +8,8 @@
 
 use std::time::Duration;
 
-use aws_sdk_dynamodb::{Client as DynamoClient, config::Region, types::AttributeValue};
 use aws_credential_types::Credentials;
+use aws_sdk_dynamodb::{Client as DynamoClient, config::Region, types::AttributeValue};
 use mongodb::{
     bson::{Bson, Document, doc},
     options::ClientOptions,
@@ -45,7 +45,9 @@ pub struct Stores {
 }
 
 fn text(value: Option<&Value>) -> Option<&str> {
-    value.and_then(Value::as_str).filter(|text| !text.is_empty() && text.len() <= 150)
+    value
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty() && text.len() <= 150)
 }
 
 fn failed(error: impl std::fmt::Display) -> Outcome {
@@ -57,17 +59,33 @@ impl Stores {
     /// Connects to the stores whose variables are set.
     pub async fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         let env = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-        let mut stores = Self { prefix: env("BENCH_REDIS_PREFIX").unwrap_or_default(), ..Self::default() };
+        let mut stores = Self {
+            prefix: env("BENCH_REDIS_PREFIX").unwrap_or_default(),
+            ..Self::default()
+        };
         if let Some(url) = env("BENCH_MONGODB_URL") {
             let options = ClientOptions::parse(&url).await?;
-            let database = options.default_database.clone().unwrap_or_else(|| "test".into());
-            stores.mongo = Some(MongoStore::builder(options, database).name("catalog")?.build()?);
+            let database = options
+                .default_database
+                .clone()
+                .unwrap_or_else(|| "test".into());
+            stores.mongo = Some(
+                MongoStore::builder(options, database)
+                    .name("catalog")?
+                    .build()?,
+            );
         }
         if let Some(url) = env("BENCH_REDIS_URL") {
-            let connection = redis::Client::open(url)?.get_multiplexed_async_connection().await?;
-            stores.redis = Some(RedisFixture { store: RedisStore::new().connection(connection).name("cache")? });
+            let connection = redis::Client::open(url)?
+                .get_multiplexed_async_connection()
+                .await?;
+            stores.redis = Some(RedisFixture {
+                store: RedisStore::new().connection(connection).name("cache")?,
+            });
         }
-        if let (Some(endpoint), Some(table)) = (env("BENCH_DYNAMODB_URL"), env("BENCH_DYNAMODB_TABLE")) {
+        if let (Some(endpoint), Some(table)) =
+            (env("BENCH_DYNAMODB_URL"), env("BENCH_DYNAMODB_TABLE"))
+        {
             let store = DynamoStore::new().name("orders")?;
             let credentials = Credentials::new(
                 env("AWS_ACCESS_KEY_ID").unwrap_or_default(),
@@ -79,12 +97,22 @@ impl Stores {
             let config = aws_sdk_dynamodb::Config::builder()
                 .behavior_version_latest()
                 .endpoint_url(endpoint)
-                .region(Region::new(env("AWS_REGION").unwrap_or_else(|| "us-east-1".into())))
+                .region(Region::new(
+                    env("AWS_REGION").unwrap_or_else(|| "us-east-1".into()),
+                ))
                 .credentials_provider(credentials)
                 .interceptor(store.interceptor())
-                .timeout_config(aws_sdk_dynamodb::config::timeout::TimeoutConfig::builder().operation_timeout(Duration::from_secs(20)).build())
+                .timeout_config(
+                    aws_sdk_dynamodb::config::timeout::TimeoutConfig::builder()
+                        .operation_timeout(Duration::from_secs(20))
+                        .build(),
+                )
                 .build();
-            stores.dynamo = Some(DynamoFixture { store, client: DynamoClient::from_conf(config), table });
+            stores.dynamo = Some(DynamoFixture {
+                store,
+                client: DynamoClient::from_conf(config),
+                table,
+            });
         }
         Ok(stores)
     }
@@ -94,24 +122,52 @@ impl Stores {
     pub fn configure(&self, mut config: ConfigBuilder) -> ConfigBuilder {
         if let Some(mongo) = &self.mongo {
             config = config.data_store(mongo.clone());
-            for (method, path) in [("GET", "/documents/{id}"), ("POST", "/documents"), ("PATCH", "/documents/{id}"), ("POST", "/documents/archive")] {
+            for (method, path) in [
+                ("GET", "/documents/{id}"),
+                ("POST", "/documents"),
+                ("PATCH", "/documents/{id}"),
+                ("POST", "/documents/archive"),
+            ] {
                 config = config.preview_operation(method, path);
             }
-            config = config.preview_unavailable_for("DELETE", "/documents/{id}", "Preview unavailable: this operation writes to MongoDB", ["mongodb"]);
+            config = config.preview_unavailable_for(
+                "DELETE",
+                "/documents/{id}",
+                "Preview unavailable: this operation writes to MongoDB",
+                ["mongodb"],
+            );
         }
         if let Some(redis) = &self.redis {
             config = config.data_store(redis.store.clone());
-            for (method, path) in [("GET", "/counters/{key}"), ("POST", "/counters/{key}"), ("POST", "/counters/{key}/take")] {
+            for (method, path) in [
+                ("GET", "/counters/{key}"),
+                ("POST", "/counters/{key}"),
+                ("POST", "/counters/{key}/take"),
+            ] {
                 config = config.preview_operation(method, path);
             }
-            config = config.preview_unavailable_for("DELETE", "/counters/{key}", "Preview unavailable: this operation writes to Redis", ["redis"]);
+            config = config.preview_unavailable_for(
+                "DELETE",
+                "/counters/{key}",
+                "Preview unavailable: this operation writes to Redis",
+                ["redis"],
+            );
         }
         if let Some(dynamo) = &self.dynamo {
             config = config.data_store(dynamo.store.clone());
-            for (method, path) in [("GET", "/orders/{id}"), ("POST", "/orders/{id}/touch"), ("POST", "/orders/{id}/cancel")] {
+            for (method, path) in [
+                ("GET", "/orders/{id}"),
+                ("POST", "/orders/{id}/touch"),
+                ("POST", "/orders/{id}/cancel"),
+            ] {
                 config = config.preview_operation(method, path);
             }
-            config = config.preview_unavailable_for("DELETE", "/orders/{id}", "Preview unavailable: this operation writes to DynamoDB", ["dynamodb"]);
+            config = config.preview_unavailable_for(
+                "DELETE",
+                "/orders/{id}",
+                "Preview unavailable: this operation writes to DynamoDB",
+                ["dynamodb"],
+            );
         }
         if self.redis.is_some() || self.dynamo.is_some() {
             config = config.preview_operation("POST", "/items/{id}/remember");
@@ -126,13 +182,20 @@ impl Stores {
     // ---- MongoDB ----
 
     fn shape(document: &Document) -> Value {
-        let city = document.get_document("profile").ok().and_then(|profile| profile.get_str("city").ok());
+        let city = document
+            .get_document("profile")
+            .ok()
+            .and_then(|profile| profile.get_str("city").ok());
         json!({ "id": document.get("_id").map(Bson::to_string).map(|id| id.trim_matches('"').to_owned()), "name": document.get_str("name").ok(), "city": city })
     }
 
     /// `GET /documents/{id}`.
     pub async fn document_get(&self, mongo: &Mongo, id: &str) -> Outcome {
-        match mongo.collection::<Document>("documents").find_one(doc! { "_id": id }).await {
+        match mongo
+            .collection::<Document>("documents")
+            .find_one(doc! { "_id": id })
+            .await
+        {
             Ok(Some(document)) => Outcome::new(200, Self::shape(&document)),
             Ok(None) => Outcome::empty(404),
             Err(error) => failed(error),
@@ -141,13 +204,20 @@ impl Stores {
 
     /// `POST /documents`.
     pub async fn document_create(&self, mongo: &Mongo, body: &Value) -> Outcome {
-        let (Some(id), Some(name), Some(city), Some(password)) =
-            (text(body.get("id")), text(body.get("name")), text(body.get("city")), text(body.get("password")))
-        else {
+        let (Some(id), Some(name), Some(city), Some(password)) = (
+            text(body.get("id")),
+            text(body.get("name")),
+            text(body.get("city")),
+            text(body.get("password")),
+        ) else {
             return Outcome::empty(400);
         };
         let document = doc! { "_id": id, "name": name, "profile": { "city": city }, "password_hash": format!("hashed:{password}") };
-        if let Err(error) = mongo.collection::<Document>("documents").insert_one(&document).await {
+        if let Err(error) = mongo
+            .collection::<Document>("documents")
+            .insert_one(&document)
+            .await
+        {
             return failed(error);
         }
         capture::record_log("Information", &format!("created-document:{id}"));
@@ -172,7 +242,10 @@ impl Stores {
             return Outcome::empty(400);
         }
         let documents = mongo.collection::<Document>("documents");
-        match documents.update_one(doc! { "_id": id }, doc! { "$set": set }).await {
+        match documents
+            .update_one(doc! { "_id": id }, doc! { "$set": set })
+            .await
+        {
             Ok(result) if result.matched_count == 0 => Outcome::empty(404),
             Ok(_) => match documents.find_one(doc! { "_id": id }).await {
                 Ok(Some(document)) => Outcome::new(200, Self::shape(&document)),
@@ -185,7 +258,11 @@ impl Stores {
 
     /// `POST /documents/archive`: an aggregation that writes with `$out`.
     pub async fn document_archive(&self, mongo: &Mongo) -> Outcome {
-        match mongo.collection::<Document>("documents").aggregate([doc! { "$match": {} }, doc! { "$out": "documents_archive" }]).await {
+        match mongo
+            .collection::<Document>("documents")
+            .aggregate([doc! { "$match": {} }, doc! { "$out": "documents_archive" }])
+            .await
+        {
             Ok(_) => Outcome::empty(204),
             Err(error) => failed(error),
         }
@@ -193,7 +270,11 @@ impl Stores {
 
     /// `DELETE /documents/{id}` (`preview: false`).
     pub async fn document_delete(&self, mongo: &Mongo, id: &str) -> Outcome {
-        match mongo.collection::<Document>("documents").delete_one(doc! { "_id": id }).await {
+        match mongo
+            .collection::<Document>("documents")
+            .delete_one(doc! { "_id": id })
+            .await
+        {
             Ok(_) => Outcome::empty(204),
             Err(error) => failed(error),
         }
@@ -201,7 +282,10 @@ impl Stores {
 
     // ---- Redis ----
 
-    fn redis_connection(&self, redis: &Redis) -> sendproof_redis::GuardedConnection<sendproof_redis::SharedConnection> {
+    fn redis_connection(
+        &self,
+        redis: &Redis,
+    ) -> sendproof_redis::GuardedConnection<sendproof_redis::SharedConnection> {
         redis.connection()
     }
 
@@ -215,7 +299,11 @@ impl Stores {
     /// `GET /counters/{key}`.
     pub async fn counter_get(&self, redis: &Redis, key: &str) -> Outcome {
         let mut connection = self.redis_connection(redis);
-        match redis::cmd("GET").arg(self.counter(key)).query_async::<Option<i64>>(&mut connection).await {
+        match redis::cmd("GET")
+            .arg(self.counter(key))
+            .query_async::<Option<i64>>(&mut connection)
+            .await
+        {
             Ok(value) => Self::counter_reply(key, value),
             Err(error) => failed(error),
         }
@@ -224,7 +312,11 @@ impl Stores {
     /// `POST /counters/{key}`.
     pub async fn counter_incr(&self, redis: &Redis, key: &str) -> Outcome {
         let mut connection = self.redis_connection(redis);
-        match redis::cmd("INCR").arg(self.counter(key)).query_async::<i64>(&mut connection).await {
+        match redis::cmd("INCR")
+            .arg(self.counter(key))
+            .query_async::<i64>(&mut connection)
+            .await
+        {
             Ok(value) => Self::counter_reply(key, Some(value)),
             Err(error) => failed(error),
         }
@@ -234,14 +326,23 @@ impl Stores {
     /// not the response, decides a Preview.
     pub async fn counter_take(&self, redis: &Redis, key: &str) -> Outcome {
         let mut connection = self.redis_connection(redis);
-        let value = redis::cmd("GETDEL").arg(self.counter(key)).query_async::<Option<i64>>(&mut connection).await.ok().flatten();
+        let value = redis::cmd("GETDEL")
+            .arg(self.counter(key))
+            .query_async::<Option<i64>>(&mut connection)
+            .await
+            .ok()
+            .flatten();
         Self::counter_reply(key, value)
     }
 
     /// `DELETE /counters/{key}` (`preview: false`).
     pub async fn counter_delete(&self, redis: &Redis, key: &str) -> Outcome {
         let mut connection = self.redis_connection(redis);
-        match redis::cmd("DEL").arg(self.counter(key)).query_async::<i64>(&mut connection).await {
+        match redis::cmd("DEL")
+            .arg(self.counter(key))
+            .query_async::<i64>(&mut connection)
+            .await
+        {
             Ok(_) => Outcome::empty(204),
             Err(error) => failed(error),
         }
@@ -250,20 +351,37 @@ impl Stores {
     // ---- DynamoDB ----
 
     fn dynamo(&self) -> &DynamoFixture {
-        self.dynamo.as_ref().expect("DynamoDB routes exist only when DynamoDB is hooked")
+        self.dynamo
+            .as_ref()
+            .expect("DynamoDB routes exist only when DynamoDB is hooked")
     }
 
     fn order(item: &std::collections::HashMap<String, AttributeValue>) -> Value {
         let string = |name: &str| item.get(name).and_then(|value| value.as_s().ok()).cloned();
-        let hits = item.get("hits").and_then(|value| value.as_n().ok()).and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+        let hits = item
+            .get("hits")
+            .and_then(|value| value.as_n().ok())
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
         json!({ "id": string("id"), "status": string("status"), "hits": hits })
     }
 
     /// `GET /orders/{id}`.
     pub async fn order_get(&self, id: &str) -> Outcome {
         let dynamo = self.dynamo();
-        match dynamo.client.get_item().table_name(&dynamo.table).key("id", AttributeValue::S(id.into())).consistent_read(true).send().await {
-            Ok(output) => output.item().map_or_else(|| Outcome::empty(404), |item| Outcome::new(200, Self::order(item))),
+        match dynamo
+            .client
+            .get_item()
+            .table_name(&dynamo.table)
+            .key("id", AttributeValue::S(id.into()))
+            .consistent_read(true)
+            .send()
+            .await
+        {
+            Ok(output) => output.item().map_or_else(
+                || Outcome::empty(404),
+                |item| Outcome::new(200, Self::order(item)),
+            ),
             Err(error) => failed(aws_sdk_dynamodb::error::DisplayErrorContext(error)),
         }
     }
@@ -284,7 +402,10 @@ impl Stores {
             .send()
             .await;
         match result {
-            Ok(output) => output.attributes().map_or_else(|| Outcome::empty(404), |item| Outcome::new(200, Self::order(item))),
+            Ok(output) => output.attributes().map_or_else(
+                || Outcome::empty(404),
+                |item| Outcome::new(200, Self::order(item)),
+            ),
             Err(error) => failed(aws_sdk_dynamodb::error::DisplayErrorContext(error)),
         }
     }
@@ -292,8 +413,18 @@ impl Stores {
     /// `POST /orders/{id}/cancel`: a PartiQL `UPDATE`, which travels through `ExecuteStatement`.
     pub async fn order_cancel(&self, id: &str) -> Outcome {
         let dynamo = self.dynamo();
-        let statement = format!("UPDATE \"{}\" SET status = 'cancelled' WHERE id = ?", dynamo.table);
-        match dynamo.client.execute_statement().statement(statement).parameters(AttributeValue::S(id.into())).send().await {
+        let statement = format!(
+            "UPDATE \"{}\" SET status = 'cancelled' WHERE id = ?",
+            dynamo.table
+        );
+        match dynamo
+            .client
+            .execute_statement()
+            .statement(statement)
+            .parameters(AttributeValue::S(id.into()))
+            .send()
+            .await
+        {
             Ok(_) => Outcome::new(200, json!({ "id": id, "status": "cancelled" })),
             Err(error) => failed(aws_sdk_dynamodb::error::DisplayErrorContext(error)),
         }
@@ -302,7 +433,14 @@ impl Stores {
     /// `DELETE /orders/{id}` (`preview: false`).
     pub async fn order_delete(&self, id: &str) -> Outcome {
         let dynamo = self.dynamo();
-        match dynamo.client.delete_item().table_name(&dynamo.table).key("id", AttributeValue::S(id.into())).send().await {
+        match dynamo
+            .client
+            .delete_item()
+            .table_name(&dynamo.table)
+            .key("id", AttributeValue::S(id.into()))
+            .send()
+            .await
+        {
             Ok(_) => Outcome::empty(204),
             Err(error) => failed(aws_sdk_dynamodb::error::DisplayErrorContext(error)),
         }
@@ -310,15 +448,28 @@ impl Stores {
 
     /// The write half of `POST /items/{id}/remember`: `INCR` for Redis, or the `touch` update on item
     /// `item-<id>` for DynamoDB. `None` when `store` names neither.
-    pub async fn remember(&self, redis: Option<&Redis>, store: &str, id: &str) -> Option<Result<(), Outcome>> {
+    pub async fn remember(
+        &self,
+        redis: Option<&Redis>,
+        store: &str,
+        id: &str,
+    ) -> Option<Result<(), Outcome>> {
         match store {
             "redis" => {
                 let outcome = self.counter_incr(redis?, &format!("item-{id}")).await;
-                Some(if outcome.status == 200 { Ok(()) } else { Err(outcome) })
+                Some(if outcome.status == 200 {
+                    Ok(())
+                } else {
+                    Err(outcome)
+                })
             }
             "dynamodb" if self.dynamo.is_some() => {
                 let outcome = self.order_touch(&format!("item-{id}")).await;
-                Some(if outcome.status == 200 { Ok(()) } else { Err(outcome) })
+                Some(if outcome.status == 200 {
+                    Ok(())
+                } else {
+                    Err(outcome)
+                })
             }
             _ => None,
         }

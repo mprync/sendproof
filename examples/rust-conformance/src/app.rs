@@ -22,13 +22,13 @@ use rust_conformance_common::{
     setup,
     stores::Stores,
 };
-use serde_json::Value;
-use sqlx::Pool;
 use sendproof_axum::{Sendproof, SendproofRouterExt};
 use sendproof_core::{Enrollment, Headers, PreviewRequired};
 use sendproof_mongodb::{Mongo, MongoStore};
 use sendproof_redis::{Redis, RedisStore};
 use sendproof_sqlx::{Backend, Db, DbError};
+use serde_json::Value;
+use sqlx::Pool;
 
 pub struct AppState<B: Backend> {
     pool: Pool<B>,
@@ -54,13 +54,23 @@ impl<B: Backend> Clone for AppState<B> {
 // provisioned it, so these are never asked for an absent store.
 impl<B: Backend> FromRef<AppState<B>> for MongoStore {
     fn from_ref(state: &AppState<B>) -> Self {
-        state.stores.mongo.clone().expect("MongoDB routes exist only when MongoDB is hooked")
+        state
+            .stores
+            .mongo
+            .clone()
+            .expect("MongoDB routes exist only when MongoDB is hooked")
     }
 }
 
 impl<B: Backend> FromRef<AppState<B>> for RedisStore {
     fn from_ref(state: &AppState<B>) -> Self {
-        state.stores.redis.as_ref().expect("Redis routes exist only when Redis is hooked").store.clone()
+        state
+            .stores
+            .redis
+            .as_ref()
+            .expect("Redis routes exist only when Redis is hooked")
+            .store
+            .clone()
     }
 }
 
@@ -117,7 +127,9 @@ where
         base: base.into(),
         stores: stores.clone(),
     };
-    let bench = Sendproof::new(setup::config(scenario, base, pool, label, sessions, &stores)?);
+    let bench = Sendproof::new(setup::config(
+        scenario, base, pool, label, sessions, &stores,
+    )?);
 
     let mut items = Router::new()
         .route("/items", post(create::<B>))
@@ -176,15 +188,19 @@ where
         )
         .route(
             "/items/{id}/commit",
-            post(|db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
-                items::commit(&db, &id, &body).await.map(reply)
-            }),
+            post(
+                |db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
+                    items::commit(&db, &id, &body).await.map(reply)
+                },
+            ),
         )
         .route(
             "/items/{id}/escape",
-            post(|db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
-                items::escape(&db, &id, &body).await.map(reply)
-            }),
+            post(
+                |db: Db<B>, Path(id): Path<String>, Json(body): Json<Value>| async move {
+                    items::escape(&db, &id, &body).await.map(reply)
+                },
+            ),
         );
     items = store_routes(items, &stores);
     let items = items
@@ -298,7 +314,10 @@ async fn delete<B: Backend>(db: Db<B>, Path(id): Path<String>) -> Result<Respons
 }
 
 /// The data-store routes, for the stores the runner provisioned.
-fn store_routes<B: Backend>(mut router: Router<AppState<B>>, stores: &Stores) -> Router<AppState<B>> {
+fn store_routes<B: Backend>(
+    mut router: Router<AppState<B>>,
+    stores: &Stores,
+) -> Router<AppState<B>> {
     if stores.mongo.is_some() {
         router = router
             .route("/documents", post(|State(state): State<AppState<B>>, mongo: Mongo, Json(body): Json<Value>| async move {
@@ -321,37 +340,73 @@ fn store_routes<B: Backend>(mut router: Router<AppState<B>>, stores: &Stores) ->
             );
     }
     if stores.redis.is_some() {
-        router = router
-            .route("/counters/{key}/take", post(|State(state): State<AppState<B>>, redis: Redis, Path(key): Path<String>| async move {
-                reply(state.stores.counter_take(&redis, &key).await)
-            }))
-            .route(
-                "/counters/{key}",
-                get(|State(state): State<AppState<B>>, redis: Redis, Path(key): Path<String>| async move {
-                    reply(state.stores.counter_get(&redis, &key).await)
-                })
-                .post(|State(state): State<AppState<B>>, redis: Redis, Path(key): Path<String>| async move {
-                    reply(state.stores.counter_incr(&redis, &key).await)
-                })
-                .delete(|State(state): State<AppState<B>>, redis: Redis, Path(key): Path<String>| async move {
-                    reply(state.stores.counter_delete(&redis, &key).await)
-                }),
-            );
+        router =
+            router
+                .route(
+                    "/counters/{key}/take",
+                    post(
+                        |State(state): State<AppState<B>>,
+                         redis: Redis,
+                         Path(key): Path<String>| async move {
+                            reply(state.stores.counter_take(&redis, &key).await)
+                        },
+                    ),
+                )
+                .route(
+                    "/counters/{key}",
+                    get(
+                        |State(state): State<AppState<B>>,
+                         redis: Redis,
+                         Path(key): Path<String>| async move {
+                            reply(state.stores.counter_get(&redis, &key).await)
+                        },
+                    )
+                    .post(
+                        |State(state): State<AppState<B>>,
+                         redis: Redis,
+                         Path(key): Path<String>| async move {
+                            reply(state.stores.counter_incr(&redis, &key).await)
+                        },
+                    )
+                    .delete(
+                        |State(state): State<AppState<B>>,
+                         redis: Redis,
+                         Path(key): Path<String>| async move {
+                            reply(state.stores.counter_delete(&redis, &key).await)
+                        },
+                    ),
+                );
     }
     if stores.dynamo.is_some() {
         router = router
-            .route("/orders/{id}/touch", post(|State(state): State<AppState<B>>, Path(id): Path<String>| async move {
-                reply(state.stores.order_touch(&id).await)
-            }))
-            .route("/orders/{id}/cancel", post(|State(state): State<AppState<B>>, Path(id): Path<String>| async move {
-                reply(state.stores.order_cancel(&id).await)
-            }))
+            .route(
+                "/orders/{id}/touch",
+                post(
+                    |State(state): State<AppState<B>>, Path(id): Path<String>| async move {
+                        reply(state.stores.order_touch(&id).await)
+                    },
+                ),
+            )
+            .route(
+                "/orders/{id}/cancel",
+                post(
+                    |State(state): State<AppState<B>>, Path(id): Path<String>| async move {
+                        reply(state.stores.order_cancel(&id).await)
+                    },
+                ),
+            )
             .route(
                 "/orders/{id}",
-                get(|State(state): State<AppState<B>>, Path(id): Path<String>| async move { reply(state.stores.order_get(&id).await) })
-                    .delete(|State(state): State<AppState<B>>, Path(id): Path<String>| async move {
+                get(
+                    |State(state): State<AppState<B>>, Path(id): Path<String>| async move {
+                        reply(state.stores.order_get(&id).await)
+                    },
+                )
+                .delete(
+                    |State(state): State<AppState<B>>, Path(id): Path<String>| async move {
                         reply(state.stores.order_delete(&id).await)
-                    }),
+                    },
+                ),
             );
     }
     if stores.redis.is_some() || stores.dynamo.is_some() {
@@ -374,7 +429,11 @@ async fn remember<B: Backend>(
     Query(Store { store }): Query<Store>,
     Json(body): Json<Value>,
 ) -> Result<Response, DbError> {
-    let Some(name) = body.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) else {
+    let Some(name) = body
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+    else {
         return Ok(status(400));
     };
     if store != "redis" && store != "dynamodb" {
@@ -382,10 +441,19 @@ async fn remember<B: Backend>(
     }
     items::insert(&db, &id, name).await?;
     let redis = state.stores.redis.as_ref().and_then(|redis| {
-        redis.store.from_enrollment(parts.extensions.get::<Enrollment>(), parts.extensions.get::<PreviewRequired>().is_some()).ok()
+        redis
+            .store
+            .from_enrollment(
+                parts.extensions.get::<Enrollment>(),
+                parts.extensions.get::<PreviewRequired>().is_some(),
+            )
+            .ok()
     });
     match state.stores.remember(redis.as_ref(), &store, &id).await {
-        Some(Ok(())) => Ok(reply(Outcome::new(201, serde_json::json!({ "id": id, "name": name })))),
+        Some(Ok(())) => Ok(reply(Outcome::new(
+            201,
+            serde_json::json!({ "id": id, "name": name }),
+        ))),
         Some(Err(outcome)) => Ok(reply(outcome)),
         None => Ok(status(400)),
     }

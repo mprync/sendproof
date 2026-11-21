@@ -355,7 +355,9 @@ impl ConfigBuilder {
             }
         }
         for operation in &config.unavailable {
-            let known = |store: &String| store.starts_with(|c: char| c.is_ascii_lowercase()) && store.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+            let known = |store: &String| {
+                store.starts_with(|c: char| c.is_ascii_lowercase()) && store.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            };
             if operation.reason.trim().is_empty() || operation.reason.chars().count() > 512 {
                 return Err(ConfigError(format!(
                     "the reason for {} {} must be a sentence of at most 512 characters",
@@ -365,7 +367,9 @@ impl ConfigBuilder {
             if !operation.stores.iter().all(known) {
                 return Err(ConfigError(format!("list the stores {} {} writes as ids such as `redis`", operation.method, operation.path)));
             }
-            if !operation.path.starts_with('/') || config.operations.iter().any(|op| op.method == operation.method && op.path == operation.path) {
+            if !operation.path.starts_with('/')
+                || config.operations.iter().any(|op| op.method == operation.method && op.path == operation.path)
+            {
                 return Err(ConfigError(format!(
                     "{} {} is both a preview operation and marked unavailable, or is not a path",
                     operation.method, operation.path

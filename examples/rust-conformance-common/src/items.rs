@@ -2,9 +2,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use serde_json::{Value, json};
 use sendproof_core::capture::{self, EmailEffect};
 use sendproof_sqlx::{Backend, Db, DbConn, DbError, RowsAffected};
+use serde_json::{Value, json};
 
 /// What an operation answers with.
 pub struct Outcome {
@@ -220,17 +220,27 @@ pub async fn ordinary<B: Backend>(db: &Db<B>, id: &str) -> Result<Outcome, DbErr
 /// `POST /accounts`: stores the password as the literal `hashed:<password>` (test data, so the runner can
 /// search captures for it). Used by the `secret-columns` shared rule.
 pub async fn create_account<B: Backend>(db: &Db<B>, body: &Value) -> Result<Outcome, DbError> {
-    let text = |field: &str| body.get(field).and_then(Value::as_str).filter(|v| !v.is_empty());
-    let (Some(id), Some(email), Some(password)) = (text("id"), text("email"), text("password")) else {
-        return Ok(Outcome::problem(400, "An account needs an id, an email and a password."));
+    let text = |field: &str| {
+        body.get(field)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+    };
+    let (Some(id), Some(email), Some(password)) = (text("id"), text("email"), text("password"))
+    else {
+        return Ok(Outcome::problem(
+            400,
+            "An account needs an id, an email and a password.",
+        ));
     };
     let mut conn = db.acquire().await?;
-    conn.query("INSERT INTO accounts (id, email, password_hash) VALUES (:id, :email, :password_hash)")
-        .bind("id", id)
-        .bind("email", email)
-        .bind("password_hash", format!("hashed:{password}").as_str())
-        .execute()
-        .await?;
+    conn.query(
+        "INSERT INTO accounts (id, email, password_hash) VALUES (:id, :email, :password_hash)",
+    )
+    .bind("id", id)
+    .bind("email", email)
+    .bind("password_hash", format!("hashed:{password}").as_str())
+    .execute()
+    .await?;
     Ok(Outcome::new(201, json!({ "id": id, "email": email })))
 }
 
@@ -241,7 +251,11 @@ where
     usize: sqlx::ColumnIndex<B::Row>,
 {
     let mut conn = db.acquire().await?;
-    let email = conn.query("SELECT email FROM accounts WHERE id = :id").bind("id", id).fetch_scalar::<String>().await?;
+    let email = conn
+        .query("SELECT email FROM accounts WHERE id = :id")
+        .bind("id", id)
+        .fetch_scalar::<String>()
+        .await?;
     Ok(match email {
         Some(email) => Outcome::new(200, json!({ "id": id, "email": email })),
         None => Outcome::empty(404),
@@ -279,15 +293,28 @@ pub async fn escape<B: Backend>(db: &Db<B>, id: &str, body: &Value) -> Result<Ou
     if B::SYSTEM != "mysql" {
         return Ok(Outcome::empty(404));
     }
-    let Some(name) = body.get("name").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+    let Some(name) = body
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+    else {
         return Ok(Outcome::problem(400, "An item needs a name."));
     };
     let statement = match body.get("via").and_then(Value::as_str) {
-        Some("ddl") if !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+        Some("ddl")
+            if !id.is_empty()
+                && id.len() <= 40
+                && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
             format!("CREATE TABLE sendproof_escape_{id} (n INT)")
         }
         Some("call") => "CALL sendproof_commit_probe()".to_owned(),
-        _ => return Ok(Outcome::problem(400, "`via` must be \"ddl\" or \"call\", with a word id.")),
+        _ => {
+            return Ok(Outcome::problem(
+                400,
+                "`via` must be \"ddl\" or \"call\", with a word id.",
+            ));
+        }
     };
     insert(db, id, name).await?;
     let mut conn = db.acquire().await?;
@@ -299,7 +326,11 @@ pub async fn escape<B: Backend>(db: &Db<B>, id: &str, body: &Value) -> Result<Ou
 /// `POST /items/{id}/commit`: inserts the item, then executes a raw `COMMIT` on the same connection and
 /// answers 201. Used by the `raw-commit` shared rule: a Preview must answer 500 without confirming.
 pub async fn commit<B: RawCommit>(db: &Db<B>, id: &str, body: &Value) -> Result<Outcome, DbError> {
-    let Some(name) = body.get("name").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+    let Some(name) = body
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+    else {
         return Ok(Outcome::problem(400, "An item needs a name."));
     };
     insert(db, id, name).await?;

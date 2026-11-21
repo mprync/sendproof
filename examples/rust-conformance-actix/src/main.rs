@@ -21,13 +21,13 @@ use rust_conformance_common::{
     setup::{self, Database},
     stores::Stores,
 };
-use serde_json::Value;
-use sqlx::Pool;
 use sendproof_actix::Sendproof;
 use sendproof_core::{Enrollment, Headers, PreviewRequired};
 use sendproof_mongodb::Mongo;
 use sendproof_redis::Redis;
 use sendproof_sqlx::{Backend, Db, DbError};
+use serde_json::Value;
+use sqlx::Pool;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 struct Fixture {
@@ -224,11 +224,19 @@ where
     items::read_account(&db, &id).await.map(reply)
 }
 
-async fn commit<B: RawCommit>(db: Db<B>, id: Path<String>, body: Json<Value>) -> Result<HttpResponse, DbError> {
+async fn commit<B: RawCommit>(
+    db: Db<B>,
+    id: Path<String>,
+    body: Json<Value>,
+) -> Result<HttpResponse, DbError> {
     items::commit(&db, &id, &body).await.map(reply)
 }
 
-async fn escape<B: Backend>(db: Db<B>, id: Path<String>, body: Json<Value>) -> Result<HttpResponse, DbError> {
+async fn escape<B: Backend>(
+    db: Db<B>,
+    id: Path<String>,
+    body: Json<Value>,
+) -> Result<HttpResponse, DbError> {
     items::escape(&db, &id, &body).await.map(reply)
 }
 
@@ -242,7 +250,12 @@ async fn document_create(fixture: Data<Fixture>, mongo: Mongo, body: Json<Value>
     reply(fixture.stores.document_create(&mongo, &body).await)
 }
 
-async fn document_patch(fixture: Data<Fixture>, mongo: Mongo, id: Path<String>, body: Json<Value>) -> HttpResponse {
+async fn document_patch(
+    fixture: Data<Fixture>,
+    mongo: Mongo,
+    id: Path<String>,
+    body: Json<Value>,
+) -> HttpResponse {
     reply(fixture.stores.document_patch(&mongo, &id, &body).await)
 }
 
@@ -295,7 +308,11 @@ async fn remember<B: Backend>(
     query: Query<std::collections::HashMap<String, String>>,
     body: Json<Value>,
 ) -> Result<HttpResponse, DbError> {
-    let Some(name) = body.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) else {
+    let Some(name) = body
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+    else {
         return Ok(status(400));
     };
     let store = query.get("store").map(String::as_str).unwrap_or_default();
@@ -305,13 +322,24 @@ async fn remember<B: Backend>(
     items::insert(&db, &id, name).await?;
     let redis = fixture.stores.redis.as_ref().and_then(|redis| {
         let extensions = request.extensions();
-        redis.store.from_enrollment(extensions.get::<Enrollment>(), extensions.get::<PreviewRequired>().is_some()).ok()
+        redis
+            .store
+            .from_enrollment(
+                extensions.get::<Enrollment>(),
+                extensions.get::<PreviewRequired>().is_some(),
+            )
+            .ok()
     });
-    Ok(match fixture.stores.remember(redis.as_ref(), store, &id).await {
-        Some(Ok(())) => reply(Outcome::new(201, serde_json::json!({ "id": id.as_str(), "name": name }))),
-        Some(Err(outcome)) => reply(outcome),
-        None => status(400),
-    })
+    Ok(
+        match fixture.stores.remember(redis.as_ref(), store, &id).await {
+            Some(Ok(())) => reply(Outcome::new(
+                201,
+                serde_json::json!({ "id": id.as_str(), "name": name }),
+            )),
+            Some(Err(outcome)) => reply(outcome),
+            None => status(400),
+        },
+    )
 }
 
 async fn ready() -> impl Responder {
@@ -342,8 +370,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // MongoDB, Redis and DynamoDB are hooked only when the runner provisions them.
     let stores = Stores::from_env().await?;
     match &database {
-        Database::Sqlite { pool, .. } => serve(pool.clone(), label, port, base, scenario, stores).await?,
-        Database::Postgres(pool) => serve(pool.clone(), label, port, base, scenario, stores).await?,
+        Database::Sqlite { pool, .. } => {
+            serve(pool.clone(), label, port, base, scenario, stores).await?
+        }
+        Database::Postgres(pool) => {
+            serve(pool.clone(), label, port, base, scenario, stores).await?
+        }
         Database::MySql(pool) => serve(pool.clone(), label, port, base, scenario, stores).await?,
     }
     database.close().await;
@@ -384,8 +416,13 @@ where
         "rust-conformance (actix, {label}) listening on http://127.0.0.1:{port}{base} ({scenario:?})"
     );
     HttpServer::new({
-        let (bench, pool, fixture, base, stores) =
-            (bench.clone(), pool.clone(), fixture.clone(), base.clone(), stores.clone());
+        let (bench, pool, fixture, base, stores) = (
+            bench.clone(),
+            pool.clone(),
+            fixture.clone(),
+            base.clone(),
+            stores.clone(),
+        );
         move || {
             // Each item resource is gated, then wrapped by authorization (the last `wrap` runs first),
             // so a preview is only enrolled once the request is authorized.
@@ -446,10 +483,15 @@ where
                 mount = mount
                     .service(item("/orders/{id}/touch").route(web::post().to(order_touch)))
                     .service(item("/orders/{id}/cancel").route(web::post().to(order_cancel)))
-                    .service(item("/orders/{id}").route(web::get().to(order_get)).route(web::delete().to(order_delete)));
+                    .service(
+                        item("/orders/{id}")
+                            .route(web::get().to(order_get))
+                            .route(web::delete().to(order_delete)),
+                    );
             }
             if stores.redis.is_some() || stores.dynamo.is_some() {
-                mount = mount.service(item("/items/{id}/remember").route(web::post().to(remember::<B>)));
+                mount = mount
+                    .service(item("/items/{id}/remember").route(web::post().to(remember::<B>)));
             }
             let mut app = App::new()
                 .wrap(bench.middleware())

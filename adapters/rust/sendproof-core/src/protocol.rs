@@ -390,7 +390,18 @@ mod tests {
     #[test]
     fn validates_targets() {
         assert!(is_valid_target("/items/12"));
-        for bad in ["", "//evil", "/sendproof/x", "/SENDPROOF/_preview/x", "/%73endproof/x", "/Sendproof", "/%2e%2e/x", "/a/../b", "/a%5Cb", "/%2F/x"] {
+        for bad in [
+            "",
+            "//evil",
+            "/sendproof/x",
+            "/SENDPROOF/_preview/x",
+            "/%73endproof/x",
+            "/Sendproof",
+            "/%2e%2e/x",
+            "/a/../b",
+            "/a%5Cb",
+            "/%2F/x",
+        ] {
             assert!(!is_valid_target(bad), "{bad:?} must be rejected");
         }
     }

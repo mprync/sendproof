@@ -8,8 +8,8 @@ use std::{
     },
 };
 
-use serde::Serialize;
 use sendproof_core::{Headers, Identity};
+use serde::Serialize;
 
 /// The name of the session cookie.
 pub const COOKIE: &str = "bench_session";

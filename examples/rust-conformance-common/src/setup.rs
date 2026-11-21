@@ -2,14 +2,14 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use sendproof_core::{Config, ConfigBuilder};
+use sendproof_sqlx::{Backend, SqlxProvider};
 use sqlx::{
     MySqlPool, PgPool, Pool, SqlitePool,
     mysql::MySqlPoolOptions,
     postgres::PgPoolOptions,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use sendproof_core::{Config, ConfigBuilder};
-use sendproof_sqlx::{Backend, SqlxProvider};
 
 use crate::{
     auth::Sessions,
@@ -109,9 +109,11 @@ impl Database {
                     .await?;
                 // The `mysql-escape` shared rule (spec/conformance/fixture.md): a procedure that commits. The
                 // provider declares no procedure safe. CREATE PROCEDURE needs the text protocol.
-                sqlx::raw_sql("CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END")
-                    .execute(&pool)
-                    .await?;
+                sqlx::raw_sql(
+                    "CREATE PROCEDURE IF NOT EXISTS sendproof_commit_probe() BEGIN COMMIT; END",
+                )
+                .execute(&pool)
+                .await?;
                 Self::MySql(pool)
             }
             other => {
