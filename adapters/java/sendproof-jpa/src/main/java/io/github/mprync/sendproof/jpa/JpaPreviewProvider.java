@@ -4,7 +4,10 @@ import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
 import io.github.mprync.sendproof.core.PreviewSession;
 import io.github.mprync.sendproof.core.PreviewTurns;
+import io.github.mprync.sendproof.core.TransactionControl;
 import jakarta.persistence.EntityManagerFactory;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -25,6 +28,7 @@ public final class JpaPreviewProvider implements PreviewProvider {
     private final Supplier<String> database;
     private final Supplier<String> system;
     private final PreviewTurns turns = new PreviewTurns();
+    private volatile Set<String> safeProcedures = Set.of();
 
     /**
      * Creates the provider.
@@ -57,6 +61,23 @@ public final class JpaPreviewProvider implements PreviewProvider {
         }
     }
 
+    /**
+     * Declares stored procedures that never commit, so a Preview on MySQL or MariaDB may {@code CALL} them. Every other
+     * {@code CALL} is refused during a Preview, because a procedure can run {@code COMMIT} or an implicitly committing
+     * statement inside the Preview transaction. Spring Boot sets this from {@code sendproof.sql.safe-procedures}.
+     *
+     * <p><b>Warning:</b> this is your statement that the procedures never commit. Sendproof trusts it: a listed procedure
+     * that does commit persists the Preview's writes. Names match exactly ({@code audit_touch} or
+     * {@code reports.refresh_totals}), case-insensitively, with no wildcards.
+     *
+     * @return this provider
+     * @throws IllegalArgumentException for a blank name or one with a wildcard
+     */
+    public JpaPreviewProvider safeProcedures(String... names) {
+        this.safeProcedures = TransactionControl.safeProcedures(List.of(names));
+        return this;
+    }
+
     @Override
     public boolean isAvailable() {
         return transactions != null;
@@ -78,12 +99,13 @@ public final class JpaPreviewProvider implements PreviewProvider {
      */
     @Override
     public PreviewSession begin() {
-        if (!PreviewTurns.needed(system.get())) {
-            return new JpaPreviewSession(transactions, entityManagerFactory);
+        String id = system.get();
+        if (!PreviewTurns.needed(id)) {
+            return new JpaPreviewSession(transactions, entityManagerFactory, id, safeProcedures);
         }
         turns.acquire();
         try {
-            return turns.holding(new JpaPreviewSession(transactions, entityManagerFactory));
+            return turns.holding(new JpaPreviewSession(transactions, entityManagerFactory, id, safeProcedures));
         } catch (RuntimeException | Error failure) {
             turns.release();
             throw failure;

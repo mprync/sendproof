@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.jpa;
 
 import io.github.mprync.sendproof.spring.SendproofEnabledCondition;
 import jakarta.persistence.EntityManagerFactory;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import javax.sql.DataSource;
@@ -18,6 +19,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
 import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
@@ -57,10 +60,16 @@ public class SendproofJpaAutoConfiguration {
     @ConditionalOnMissingBean(JpaPreviewProvider.class)
     JpaPreviewProvider sendproofJpaPreviewProvider(PlatformTransactionManager transactions,
                                                    ObjectProvider<EntityManagerFactory> entityManagerFactory,
-                                                   ObjectProvider<DataSource> dataSource) {
+                                                   ObjectProvider<DataSource> dataSource, Environment environment) {
         DataSource unique = dataSource.getIfUnique();
         return new JpaPreviewProvider(transactions, entityManagerFactory.getIfUnique(), DatabaseLabel.lazy(unique),
-                DatabaseLabel.lazySystem(unique));
+                DatabaseLabel.lazySystem(unique)).safeProcedures(safeProcedures(environment));
+    }
+
+    /** {@code sendproof.sql.safe-procedures}: stored procedures the host declares never commit (exact names). */
+    static String[] safeProcedures(Environment environment) {
+        return Binder.get(environment).bind("sendproof.sql.safe-procedures", Bindable.listOf(String.class))
+                .orElse(List.of()).toArray(String[]::new);
     }
 
     /** Whether bound SQL values may be shown (secrets are always redacted regardless). */

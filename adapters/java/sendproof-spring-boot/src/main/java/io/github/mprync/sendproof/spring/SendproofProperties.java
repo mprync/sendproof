@@ -208,6 +208,21 @@ public class SendproofProperties {
         /** Show bound values. Defaults to true only for development-like environments; secrets are always redacted. */
         private Boolean includeParameterValues;
 
+        /**
+         * MySQL and MariaDB stored procedures that never commit, which a Preview may {@code CALL}; every other
+         * {@code CALL} is refused during a Preview. Exact names only. Sendproof trusts the list: a listed procedure that
+         * commits persists the Preview's writes.
+         */
+        private List<String> safeProcedures = new ArrayList<>();
+
+        public List<String> getSafeProcedures() {
+            return safeProcedures;
+        }
+
+        public void setSafeProcedures(List<String> safeProcedures) {
+            this.safeProcedures = safeProcedures;
+        }
+
         public Boolean getIncludeParameterValues() {
             return includeParameterValues;
         }

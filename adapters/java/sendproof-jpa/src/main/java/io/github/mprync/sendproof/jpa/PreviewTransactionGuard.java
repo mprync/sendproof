@@ -1,5 +1,9 @@
 package io.github.mprync.sendproof.jpa;
 
+import io.github.mprync.sendproof.core.PreviewSavepoint;
+import java.sql.SQLException;
+import java.sql.Savepoint;
+import java.util.Set;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 
@@ -30,13 +34,32 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
     static final class Scope implements AutoCloseable {
         private final Runnable flush;
         private final Scope previous;
+        private final Set<String> safeProcedures;
+        private String system;
+        private PreviewSavepoint savepoint;
         private boolean starting = true;
         private boolean finishing;
         private RuntimeException violation;
 
-        private Scope(Runnable flush, Scope previous) {
+        private Scope(Runnable flush, Scope previous, String system, Set<String> safeProcedures) {
             this.flush = flush;
             this.previous = previous;
+            this.system = system;
+            this.safeProcedures = safeProcedures == null ? Set.of() : safeProcedures;
+        }
+
+        /** The SQL provider id the refusals follow, once known (from the provider or the Preview's connection). */
+        String system() {
+            return system;
+        }
+
+        void system(String resolved) {
+            system = resolved;
+        }
+
+        /** Remembers the MySQL backstop savepoint made in the Preview transaction. */
+        void savepoint(PreviewSavepoint made) {
+            savepoint = made;
         }
 
         /** Marks the outer transaction as started; further new transactions are violations. */
@@ -73,9 +96,71 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
 
     /** Begins guarding the current thread; call {@link Scope#started()} once the outer transaction exists. */
     static Scope enter(Runnable flush) {
-        Scope scope = new Scope(flush, CURRENT.get());
+        return enter(flush, null, Set.of());
+    }
+
+    /**
+     * Begins guarding the current thread with the database's refusals.
+     *
+     * @param system         the SQL provider id, or {@code null} to read it from each statement's connection
+     * @param safeProcedures procedures the host declared never commit, normalised by {@code TransactionControl}
+     */
+    static Scope enter(Runnable flush, String system, Set<String> safeProcedures) {
+        Scope scope = new Scope(flush, CURRENT.get(), system, safeProcedures);
         CURRENT.set(scope);
         return scope;
+    }
+
+    /** The guarding preview's SQL provider id, or {@code null} when it is unknown or no preview guards this thread. */
+    static String system() {
+        Scope scope = CURRENT.get();
+        return scope == null ? null : scope.system;
+    }
+
+    /** The guarding preview's declared safe procedures. */
+    static Set<String> safeProcedures() {
+        Scope scope = CURRENT.get();
+        return scope == null ? Set.of() : scope.safeProcedures;
+    }
+
+    /**
+     * Records that the handler rolled the whole transaction back. Nothing escapes a rollback, but it erases the MySQL
+     * backstop savepoint, so it is made again; failing that, the Preview can't be confirmed.
+     */
+    static void handlerRolledBack() {
+        Scope scope = CURRENT.get();
+        if (scope == null || scope.savepoint == null || !isHandling()) {
+            return;
+        }
+        try {
+            scope.savepoint.reopen();
+        } catch (SQLException failure) {
+            violation(new EnrollmentException("The Preview's MySQL savepoint couldn't be restored after the handler's "
+                    + "rollback, so the operation can't be confirmed."));
+        }
+    }
+
+    /**
+     * Refuses a JDBC savepoint call naming the backstop savepoint ({@code setSavepoint(name)},
+     * {@code releaseSavepoint(sp)}, {@code rollback(sp)}), which the driver sends past the SQL capture.
+     */
+    static RuntimeException refuseSavepointCall(String method, Object[] args) {
+        Scope scope = CURRENT.get();
+        if (scope == null || scope.savepoint == null || args == null || args.length != 1) {
+            return null;
+        }
+        String name = null;
+        if (args[0] instanceof String text) {
+            name = text;
+        } else if (args[0] instanceof Savepoint point) {
+            try {
+                name = point.getSavepointName();
+            } catch (SQLException | RuntimeException unnamed) {
+                return null;
+            }
+        }
+        return name != null && name.replace("`", "").equalsIgnoreCase(PreviewSavepoint.NAME)
+                ? refuseWhileHandling("Connection." + method + "() of the Preview's savepoint") : null;
     }
 
     /** Flushes the preview in progress on this thread, if any. Called when a transactional method completes. */
