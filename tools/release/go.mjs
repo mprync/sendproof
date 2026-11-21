@@ -18,6 +18,8 @@ import { isWindows, removeDir, require, root, run, which } from './lib.mjs';
 export const title = 'Go modules';
 
 const GO = join(root, 'adapters', 'go');
+/** Released modules: core, chi, gin, echo, gorm, and the redisbench, dynamobench and mongobench store modules. */
+const MODULE_COUNT = 8;
 
 /** Git for Windows' bash (never the WSL launcher in System32), or bash on PATH elsewhere. */
 export function bash() {
@@ -45,10 +47,10 @@ export async function pack(ctx) {
   const version = registryVersion(ctx.versions);
   await run(bash(), [join(GO, 'scripts', 'package.sh'), version, ctx.out], { cwd: root, label: 'go' });
   const tags = (await readFile(join(ctx.out, 'tags.txt'), 'utf8')).trim().split('\n');
-  require(tags[0] === `adapters/go/${version}` && tags.length === 5, `unexpected tags.txt: ${tags.join(', ')}`);
+  require(tags[0] === `adapters/go/${version}` && tags.length === MODULE_COUNT, `unexpected tags.txt: ${tags.join(', ')}`);
   ctx.log(`tags to push, core first: ${tags.join(' ')}`);
   const zips = (await readdir(ctx.out)).filter(name => name.endsWith('.zip')).sort();
-  require(zips.length === 5, `expected five module zips, found ${zips.length}`);
+  require(zips.length === MODULE_COUNT, `expected ${MODULE_COUNT} module zips, found ${zips.length}`);
   return ['tags.txt', ...zips];
 }
 

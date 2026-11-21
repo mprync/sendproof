@@ -16,9 +16,12 @@ import (
 
 	"{{BASE}}/chi"
 	"{{BASE}}/dbsql"
+	"{{BASE}}/dynamobench"
 	"{{BASE}}/echo"
 	"{{BASE}}/gin"
 	"{{BASE}}/gorm"
+	"{{BASE}}/mongobench"
+	"{{BASE}}/redisbench"
 	"{{BASE}}/sendproof"
 )
 
@@ -34,6 +37,10 @@ func main() {
 	_ = echosendproof.Preview(bench, http.MethodPost, "/items/:id")
 	_ = gormsendproof.NewPool
 	_ = dbsql.Wrap
+	// The data-store modules pull in their client libraries, so building proves those resolve too.
+	_ = redisbench.Hook()
+	_ = dynamobench.Middleware()
+	_ = mongobench.New()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "pong") })
