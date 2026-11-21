@@ -1,0 +1,48 @@
+{
+  "name": "@sendproof/redis",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof write guard for Redis: ioredis and node-redis",
+  "license": "MIT",
+  "keywords": [
+    "redis",
+    "ioredis",
+    "sendproof"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "engines": {
+    "node": ">=22.14"
+  },
+  "dependencies": {
+    "@ioredis/commands": "^1.2.0",
+    "@sendproof/core": "0.1.0-alpha.1"
+  },
+  "peerDependencies": {
+    "ioredis": "^5.0.0",
+    "redis": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": {
+      "optional": true
+    },
+    "redis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "ioredis": "^5.11.1",
+    "redis": "^5.12.4"
+  }
+}
