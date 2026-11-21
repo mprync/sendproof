@@ -192,6 +192,38 @@ func TestToChangesSkipsUnchangedUpdates(t *testing.T) {
 	}
 }
 
+// TestMySQLEscapesAreRefused covers spec/data-stores.md "Transaction-control
+// statements from the handler" on MySQL: CALL except to declared procedures,
+// SQL-level prepared statements, MariaDB's SET STATEMENT ... FOR, and the
+// savepoint behind the commit backstop.
+func TestMySQLEscapesAreRefused(t *testing.T) {
+	safe, err := safeProcedureSet([]string{"audit_read", "`app`.`lookup`"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := []string{"CALL p()", "CALL other.audit_read()", "CALL AUDIT_READ()", "CALL audit_read_all()", "CALL lookup(1)", `CALL "audit_read"()`,
+		"PREPARE s FROM 'COMMIT'", "EXECUTE s", "SET STATEMENT max_statement_time = 1 FOR COMMIT",
+		"SET STATEMENT max_statement_time = 1 FOR CREATE TABLE t (n INT)", "SET sql_mode = '', autocommit = 1",
+		"SAVEPOINT sendproof_preview", "RELEASE SAVEPOINT sendproof_preview", "ROLLBACK TO SAVEPOINT `sendproof_preview`", "ROLLBACK WORK TO SENDPROOF_PREVIEW"}
+	allowed := []string{"CALL audit_read()", "CALL `audit_read`", "CALL app.lookup(1)", "CALL `app` . `lookup`()",
+		"SET STATEMENT max_statement_time = 1 FOR SELECT 1", "DEALLOCATE PREPARE s", "SAVEPOINT sp1", "RELEASE SAVEPOINT sp1"}
+	for _, statement := range refused {
+		if err := previewSafeWith(statement, analyze(statement, DialectMySQL), DialectMySQL, safe); !errors.Is(err, ErrUnsafeStatement) {
+			t.Errorf("MySQL must refuse %q, got %v", statement, err)
+		}
+	}
+	for _, statement := range allowed {
+		if err := previewSafeWith(statement, analyze(statement, DialectMySQL), DialectMySQL, safe); err != nil {
+			t.Errorf("MySQL must allow %q: %v", statement, err)
+		}
+	}
+	for _, name := range []string{"", "p%", "p*", "a.b.c", "p()", "p q"} {
+		if _, err := safeProcedureSet([]string{name}); err == nil {
+			t.Errorf("a safe procedure name must be exact: %q was accepted", name)
+		}
+	}
+}
+
 func TestPreviewGuardSeesThroughQuotingAndComments(t *testing.T) {
 	refused := map[Dialect][]string{
 		// MySQL runs the body of /*! */ and /*M! */ comments, and "--" without a

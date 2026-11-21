@@ -129,8 +129,27 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 		if _, err := s.tx.ExecContext(ctx, "INSERT INTO "+s.sentinel+" VALUES (1)"); err != nil {
 			return nil, err
 		}
+		// The commit backstop: finishPreview releases this savepoint, which any commit erases.
+		if _, err := s.tx.ExecContext(ctx, "SAVEPOINT "+previewSavepoint); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
+}
+
+// neverCommitted is the MySQL backstop of spec/data-stores.md "Transaction-control
+// statements from the handler": it releases the savepoint open() set when the
+// preview started. Any commit, explicit or implicit, erases every savepoint, so
+// a failure means something committed the preview transaction, even under
+// autocommit=0, where MySQL opens a new transaction implicitly after a commit.
+func (s *scope) neverCommitted(ctx context.Context) error {
+	if s.dialect != DialectMySQL || s.tx == nil {
+		return nil
+	}
+	if _, err := s.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+previewSavepoint); err != nil {
+		return fmt.Errorf("dbsql: the savepoint set when the preview started was gone, so something committed the MySQL transaction: %w", err)
+	}
+	return nil
 }
 
 // registerHooks installs the SQLite hooks on the dedicated connection.
@@ -353,7 +372,7 @@ func (s *scope) exec(ctx context.Context, target conn, inTx bool, text string, a
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := previewSafe(text, info, s.dialect); err != nil {
+		if err := previewSafeWith(text, info, s.dialect, s.db.cfg.safeProcedures); err != nil {
 			s.fail(err) // a refused statement is never confirmed as a rollback
 			return nil, err
 		}
@@ -550,7 +569,7 @@ func (s *scope) withQuery(ctx context.Context, target conn, inTx bool, text stri
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := previewSafe(text, info, s.dialect); err != nil {
+		if err := previewSafeWith(text, info, s.dialect, s.db.cfg.safeProcedures); err != nil {
 			s.fail(err) // a refused statement is never confirmed as a rollback
 			return err
 		}
@@ -610,7 +629,7 @@ func (s *scope) prepare(ctx context.Context, target conn, text string) (*sql.Stm
 	}
 	info := analyze(text, s.dialect)
 	if s.preview {
-		if err := previewSafe(text, info, s.dialect); err != nil {
+		if err := previewSafeWith(text, info, s.dialect, s.db.cfg.safeProcedures); err != nil {
 			s.fail(err) // a refused statement is never confirmed as a rollback
 			return nil, err
 		}
@@ -722,7 +741,9 @@ func (s *scope) finishPreview(ctx context.Context) ([]sendproof.Change, bool, er
 	if failure == nil {
 		changes, truncated, captureErr = s.capturePreview(ctx)
 	}
-	return changes, truncated, errors.Join(failure, captureErr, s.release(ctx))
+	// Checked even after a failure, so every path still releases the connection below.
+	committed := s.neverCommitted(ctx)
+	return changes, truncated, errors.Join(failure, captureErr, committed, s.release(ctx))
 }
 
 func (s *scope) capturePreview(ctx context.Context) ([]sendproof.Change, bool, error) {

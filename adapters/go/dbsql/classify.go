@@ -196,73 +196,192 @@ var sqlServerStatements = map[string]bool{
 	"WITH": true, "WRITETEXT": true,
 }
 
-// previewSafe refuses a text that could end the preview transaction. MySQL and
+// previewSavepoint is the savepoint a MySQL preview sets when it starts and
+// releases before it rolls back. Any commit erases every savepoint, so a missing
+// one proves the preview transaction was committed (spec/data-stores.md). No ORM
+// generates this name, and the handler may not set, release or roll back to it.
+const previewSavepoint = "sendproof_preview"
+
+// previewSafe refuses a text that could end the preview transaction, with no
+// procedure declared safe.
+func previewSafe(text string, info statementInfo, dialect Dialect) error {
+	return previewSafeWith(text, info, dialect, nil)
+}
+
+// previewSafeWith refuses a text that could end the preview transaction. A MySQL
+// CALL is allowed only to a procedure in safe (see WithSafeProcedures). MySQL and
 // PostgreSQL texts are checked under both readings of their string literals,
 // because a session setting the provider cannot see decides whether a backslash
 // escapes a quote; refusing when either reading is unsafe keeps the guard sound.
-func previewSafe(text string, info statementInfo, dialect Dialect) error {
-	if err := checkPreviewSafe(info, dialect); err != nil {
+func previewSafeWith(text string, info statementInfo, dialect Dialect, safe map[string]bool) error {
+	if err := checkPreviewSafeWith(text, info, dialect, safe); err != nil {
 		return err
 	}
 	if dialect == DialectMySQL || dialect == DialectPostgres {
-		return checkPreviewSafe(analyzeTokens(lexWith(text, dialect, true), dialect), dialect)
+		return checkPreviewSafeWith(text, analyzeTokens(lexWith(text, dialect, true), dialect), dialect, safe)
 	}
 	return nil
 }
 
 // checkPreviewSafe refuses statements that could commit or end the preview
-// transaction. Savepoint statements are allowed: the journal follows them.
+// transaction, with no procedure declared safe.
 func checkPreviewSafe(info statementInfo, dialect Dialect) error {
+	return checkPreviewSafeWith("", info, dialect, nil)
+}
+
+// checkPreviewSafeWith refuses statements that could commit or end the preview
+// transaction. Savepoint statements are allowed: the journal follows them. text
+// is the source of info's tokens, read for the case of a called procedure's name.
+func checkPreviewSafeWith(text string, info statementInfo, dialect Dialect, safe map[string]bool) error {
 	refuse := func(statement []token, why string) error {
 		words := strings.Join(leadingWords(statement, 3), " ")
 		return fmt.Errorf("%w: %s (%s)", ErrUnsafeStatement, words, why)
 	}
 	for _, statement := range info.statements {
-		words := leadingWords(statement, 4)
-		if len(words) == 0 {
-			continue
-		}
-		if _, ok := savepointStatement(statement, words, dialect); ok {
-			continue
-		}
-		switch words[0] {
-		case "COMMIT", "ROLLBACK", "ABORT":
-			return refuse(statement, "transaction control; use BeginTx for application transactions")
-		case "END":
-			if dialect != DialectSQLServer {
-				return refuse(statement, "transaction control")
-			}
-		case "BEGIN", "START":
-			if dialect != DialectSQLServer || len(words) > 1 && (words[1] == "TRAN" || words[1] == "TRANSACTION" || words[1] == "DISTRIBUTED") {
-				return refuse(statement, "transaction control; use BeginTx for application transactions")
-			}
-		case "PREPARE":
-			if len(words) > 1 && words[1] == "TRANSACTION" {
-				return refuse(statement, "two-phase commit")
-			}
-		}
-		switch dialect {
-		case DialectSQLite:
-			switch words[0] {
-			case "ATTACH", "DETACH", "VACUUM":
-				return refuse(statement, "it changes databases outside the preview transaction")
-			}
-		case DialectMySQL:
-			if mysqlImplicitCommit[words[0]] && !temporaryTable(words) || mysqlImplicitCommitPhrase(words) {
-				return refuse(statement, "MySQL commits the open transaction before this statement")
-			}
-			if words[0] == "SET" && containsWord(statement, "AUTOCOMMIT", "@@AUTOCOMMIT", "@@SESSION.AUTOCOMMIT") {
-				return refuse(statement, "changing autocommit commits the transaction")
-			}
-		case DialectSQLServer:
-			if words[0] == "EXEC" || words[0] == "EXECUTE" {
-				return refuse(statement, "a procedure can commit the preview transaction")
-			}
-			if words[0] == "SET" && containsWord(statement, "IMPLICIT_TRANSACTIONS") {
-				return refuse(statement, "implicit transactions change commit behavior")
-			}
+		if err := checkStatement(text, statement, dialect, safe, refuse); err != nil {
+			return err
 		}
 	}
+	return checkSQLServerBatch(info, dialect, refuse)
+}
+
+// checkStatement refuses one statement that could commit or end the preview
+// transaction.
+func checkStatement(text string, statement []token, dialect Dialect, safe map[string]bool, refuse func([]token, string) error) error {
+	words := leadingWords(statement, 4)
+	if len(words) == 0 {
+		return nil
+	}
+	if op, ok := savepointStatement(statement, words, dialect); ok {
+		if dialect == DialectMySQL && op.name == strings.ToUpper(previewSavepoint) {
+			return refuse(statement, "the preview's own savepoint proves nothing committed it")
+		}
+		return nil
+	}
+	switch words[0] {
+	case "COMMIT", "ROLLBACK", "ABORT":
+		return refuse(statement, "transaction control; use BeginTx for application transactions")
+	case "END":
+		if dialect != DialectSQLServer {
+			return refuse(statement, "transaction control")
+		}
+	case "BEGIN", "START":
+		if dialect != DialectSQLServer || len(words) > 1 && (words[1] == "TRAN" || words[1] == "TRANSACTION" || words[1] == "DISTRIBUTED") {
+			return refuse(statement, "transaction control; use BeginTx for application transactions")
+		}
+	case "PREPARE":
+		if len(words) > 1 && words[1] == "TRANSACTION" {
+			return refuse(statement, "two-phase commit")
+		}
+	}
+	switch dialect {
+	case DialectSQLite:
+		switch words[0] {
+		case "ATTACH", "DETACH", "VACUUM":
+			return refuse(statement, "it changes databases outside the preview transaction")
+		}
+	case DialectMySQL:
+		if len(words) > 1 && words[0] == "SET" && words[1] == "STATEMENT" {
+			// MariaDB's SET STATEMENT var = value FOR <statement> runs the inner statement.
+			for index, tok := range statement {
+				if tok.word("FOR") {
+					return checkStatement(text, statement[index+1:], dialect, safe, refuse)
+				}
+			}
+			return refuse(statement, "SET STATEMENT without FOR")
+		}
+		if words[0] == "CALL" {
+			if name, ok := calledProcedure(text, statement); ok && safe[name] {
+				return nil
+			}
+			return refuse(statement, "a procedure can commit the preview transaction; declare procedures that never commit with WithSafeProcedures")
+		}
+		if words[0] == "PREPARE" || words[0] == "EXECUTE" {
+			return refuse(statement, "a prepared SQL statement can commit the preview transaction")
+		}
+		if mysqlImplicitCommit[words[0]] && !temporaryTable(words) || mysqlImplicitCommitPhrase(words) {
+			return refuse(statement, "MySQL commits the open transaction before this statement")
+		}
+		if words[0] == "SET" && containsWord(statement, "AUTOCOMMIT", "@@AUTOCOMMIT", "@@SESSION.AUTOCOMMIT") {
+			return refuse(statement, "changing autocommit commits the transaction")
+		}
+	case DialectSQLServer:
+		if words[0] == "EXEC" || words[0] == "EXECUTE" {
+			return refuse(statement, "a procedure can commit the preview transaction")
+		}
+		if words[0] == "SET" && containsWord(statement, "IMPLICIT_TRANSACTIONS") {
+			return refuse(statement, "implicit transactions change commit behavior")
+		}
+	}
+	return nil
+}
+
+// calledProcedure reads the procedure a MySQL CALL names, as `name` or
+// `schema.name` with the case written, from bare or backtick-quoted identifiers.
+// It reports false when the name can't be read, or something other than an
+// argument list follows it, so the call is refused.
+func calledProcedure(text string, statement []token) (string, bool) {
+	name, next, ok := procedureName(text, statement)
+	if !ok || next < len(statement) && !statement[next].is(tokPunct, "(") {
+		return "", false
+	}
+	return name, true
+}
+
+// procedureName reads the name after CALL and the index of the token after it.
+func procedureName(text string, statement []token) (string, int, bool) {
+	index := 0
+	for index < len(statement) && !statement[index].word("CALL") {
+		index++
+	}
+	part := func(at int) (string, bool) {
+		if at >= len(statement) {
+			return "", false
+		}
+		tok := statement[at]
+		switch {
+		case tok.kind == tokIdent && tok.end <= len(text) && strings.HasPrefix(text[tok.start:tok.end], "`"):
+			return tok.value, true
+		case tok.kind == tokWord && tok.end <= len(text):
+			return text[tok.start:tok.end], true
+		}
+		return "", false
+	}
+	first, ok := part(index + 1)
+	if !ok {
+		return "", 0, false
+	}
+	name, next := first, index+2
+	if next < len(statement) && statement[next].is(tokPunct, ".") {
+		second, ok := part(next + 1)
+		if !ok {
+			return "", 0, false
+		}
+		name, next = first+"."+second, next+2
+	}
+	return name, next, true
+}
+
+// safeProcedureSet checks and copies the names WithSafeProcedures declares:
+// exact `name` or `schema.name`, optionally backtick-quoted, with nothing else,
+// so no wildcards or argument lists.
+func safeProcedureSet(names []string) (map[string]bool, error) {
+	set := make(map[string]bool, len(names))
+	for _, raw := range names {
+		source := "CALL " + strings.TrimSpace(raw)
+		tokens := lex(source, DialectMySQL)
+		name, next, ok := procedureName(source, tokens)
+		if !ok || next != len(tokens) {
+			return nil, fmt.Errorf("dbsql: safe procedure names are exact names, such as \"name\" or \"schema.name\": %q", raw)
+		}
+		set[name] = true
+	}
+	return set, nil
+}
+
+// checkSQLServerBatch refuses a T-SQL batch that could commit or end the preview
+// transaction anywhere in it.
+func checkSQLServerBatch(info statementInfo, dialect Dialect, refuse func([]token, string) error) error {
 	if dialect == DialectSQLServer {
 		if first := firstToken(info.tokens); first.kind == tokIdent || first.kind == tokWord && !sqlServerStatements[first.value] {
 			return refuse(info.tokens, "a batch that starts with a name calls that procedure, which can commit the preview transaction")

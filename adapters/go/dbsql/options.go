@@ -12,6 +12,33 @@ type Option func(*config) error
 type config struct {
 	label   string
 	dialect Dialect
+	// safeProcedures are the MySQL procedures a preview may CALL.
+	safeProcedures map[string]bool
+}
+
+// WithSafeProcedures declares MySQL and MariaDB stored procedures that never
+// commit, by exact name ("name" or "schema.name", optionally backtick-quoted, no
+// wildcards). During a preview every other CALL is refused, because a procedure
+// can run COMMIT or an implicitly committing statement inside the preview
+// transaction.
+//
+// Warning: declaring a procedure is your statement that it never commits. One
+// that does would commit the handler's writes; the preview still fails, because
+// the savepoint it set when it started is gone, but the writes stay.
+func WithSafeProcedures(names ...string) Option {
+	return func(c *config) error {
+		set, err := safeProcedureSet(names)
+		if err != nil {
+			return err
+		}
+		if c.safeProcedures == nil {
+			c.safeProcedures = map[string]bool{}
+		}
+		for name := range set {
+			c.safeProcedures[name] = true
+		}
+		return nil
+	}
 }
 
 // WithDatabaseLabel sets the database name shown in the workbench. Use a public

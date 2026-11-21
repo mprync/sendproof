@@ -252,6 +252,84 @@ func TestTransactionControlIsRefused(t *testing.T) {
 	})
 }
 
+// TestMySQLCommitBackstop checks the MySQL rules of spec/data-stores.md
+// "Transaction-control statements from the handler": an undeclared CALL is
+// refused before sending, and a procedure wrongly declared safe that commits
+// still fails the preview, because the savepoint set when it started is gone.
+// The last part runs with autocommit=0, where MySQL opens a new transaction
+// after the commit, so only a savepoint set at the start can tell.
+func TestMySQLCommitBackstop(t *testing.T) {
+	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
+		if e.name != "mysql" {
+			t.Skip("MySQL only")
+		}
+		// One connection, so the session setting below holds for every statement.
+		pool.SetMaxOpenConns(1)
+		pool.SetMaxIdleConns(1)
+		exec(t, pool, fmt.Sprintf("CREATE TABLE items (id %s PRIMARY KEY, name %s NOT NULL)", e.text, e.text))
+		exec(t, pool, "CREATE PROCEDURE sendproof_commit_probe() BEGIN COMMIT; END")
+		run := func(db *dbsql.DB, id string, after bool) (int, map[string]any, error) {
+			var callErr error
+			handler := app(t, db, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES (?, 'Preview')", id)
+				_, callErr = db.ExecContext(r.Context(), "CALL sendproof_commit_probe()")
+				if after {
+					_, _ = db.ExecContext(r.Context(), "INSERT INTO items (id, name) VALUES (?, 'After')", id+"-after")
+				}
+			})
+			status, envelope := preview(t, handler, "/run")
+			return status, envelope, callErr
+		}
+
+		guarded, err := dbsql.Wrap(pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status, envelope, callErr := run(guarded, "refused", false); status != 500 || envelope["rolledBack"] == true || !errors.Is(callErr, dbsql.ErrUnsafeStatement) {
+			t.Fatalf("an undeclared CALL: status %d, %v, %v", status, envelope, callErr)
+		}
+		if count(t, pool, "items") != 0 {
+			t.Fatal("a refused CALL left rows behind")
+		}
+
+		trusting, err := dbsql.Wrap(pool, dbsql.WithSafeProcedures("sendproof_commit_probe"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status, envelope, callErr := run(trusting, "declared", false); status != 500 || envelope["rolledBack"] == true || callErr != nil {
+			t.Fatalf("a declared procedure that commits: status %d, %v, %v", status, envelope, callErr)
+		}
+
+		exec(t, pool, "SET autocommit = 0")
+		var autocommit int
+		if err := pool.QueryRow("SELECT @@autocommit").Scan(&autocommit); err != nil || autocommit != 0 {
+			t.Fatalf("autocommit = %d, %v", autocommit, err)
+		}
+		if status, envelope, callErr := run(trusting, "manual", true); status != 500 || envelope["rolledBack"] == true || callErr != nil {
+			t.Fatalf("a declared procedure that commits under autocommit=0: status %d, %v, %v", status, envelope, callErr)
+		}
+		exec(t, pool, "COMMIT") // end the read snapshot autocommit=0 keeps open
+		var ids []string
+		rows, err := pool.Query("SELECT id FROM items ORDER BY id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			_ = rows.Scan(&id)
+			ids = append(ids, id)
+		}
+		// The procedure committed what came before it; the backstop can only refuse to confirm.
+		if strings.Join(ids, ",") != "declared,manual" {
+			t.Errorf("rows after the previews: %v", ids)
+		}
+		if _, err := dbsql.Wrap(pool, dbsql.WithSafeProcedures("p%")); err == nil {
+			t.Error("a wildcard procedure name was accepted")
+		}
+	})
+}
+
 func TestSecretColumnsAndSessionsAreRedacted(t *testing.T) {
 	eachEngine(t, func(t *testing.T, e engine, pool *sql.DB) {
 		exec(t, pool, fmt.Sprintf("CREATE TABLE creds (reset_token %s PRIMARY KEY, password_hash %s NOT NULL, name %s NOT NULL)", e.text, e.text, e.text))
