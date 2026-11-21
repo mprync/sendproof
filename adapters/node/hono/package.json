@@ -3,12 +3,38 @@
   "version": "0.1.0-alpha.1",
   "description": "Test Bench integration for Hono",
   "license": "MIT",
+  "keywords": [
+    "hono",
+    "openapi",
+    "swagger-ui",
+    "api-testing",
+    "test-bench"
+  ],
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "prepack": "tsc -b" },
-  "engines": { "node": ">=22.14" },
-  "dependencies": { "@test-bench/core": "0.1.0-alpha.1" },
-  "peerDependencies": { "hono": "^4.0.0" },
-  "devDependencies": { "hono": "^4.0.0", "@hono/node-server": "^1.0.0" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "engines": {
+    "node": ">=22.14"
+  },
+  "dependencies": {
+    "@test-bench/core": "0.1.0-alpha.1"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.0.0"
+  }
 }

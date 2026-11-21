@@ -3,6 +3,12 @@
   "version": "0.1.0-alpha.1",
   "description": "Test Bench rollback and automatic row capture for Drizzle on PostgreSQL, MySQL and SQLite",
   "license": "MIT",
+  "keywords": [
+    "drizzle",
+    "drizzle-orm",
+    "rollback",
+    "test-bench"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -10,6 +16,7 @@
       "default": "./dist/index.js"
     }
   },
+  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],

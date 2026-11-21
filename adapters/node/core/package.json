@@ -3,6 +3,13 @@
   "version": "0.1.0-alpha.1",
   "description": "Test Bench workbench protocol and shared UI for Node",
   "license": "MIT",
+  "keywords": [
+    "openapi",
+    "api-testing",
+    "workbench",
+    "swagger",
+    "rollback"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -14,6 +21,7 @@
       "default": "./dist/node-http.js"
     }
   },
+  "types": "./dist/index.d.ts",
   "files": [
     "dist",
     "assets"

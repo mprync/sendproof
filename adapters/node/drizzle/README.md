@@ -33,7 +33,7 @@ const database = drizzlePreview(new SQLiteDatabase('app.db'), { schema: { items 
 
 Use `client` for every query in operations that support Preview. Inside a Preview or a `client.transaction()` callback, each query runs on that transaction, including queries made through the outer `client`. `client.transaction()` inside a Preview, or nested in another transaction, becomes a savepoint. A failed savepoint rolls back on its own, and the capture drops the changes it undid. A statement that runs after its transaction's callback has settled is refused rather than run outside it.
 
-Preview owns the outermost transaction. A statement that would end it is refused during Preview: `COMMIT`, `ROLLBACK` without `TO`, and `BEGIN`, plus MySQL statements that commit implicitly, such as DDL. On PostgreSQL the provider confirms the transaction is still open before it rolls back. Preview resolves only after the database acknowledges the rollback. If the rollback fails, or the session is lost, Preview rejects, and the transport withholds confirmation.
+Preview owns the outermost transaction. A statement that would end it is refused during Preview: `COMMIT`, `ROLLBACK` without `TO`, and `BEGIN`, plus MySQL statements that commit implicitly, such as DDL, including statements hidden in MySQL executable comments (`/*! ... */`). A Preview with a refused statement fails even if the operation catches the error. On PostgreSQL the provider confirms the transaction is still open before it rolls back. Preview resolves only after the database acknowledges the rollback. If the rollback fails, or the session is lost, Preview rejects, and the transport withholds confirmation.
 
 ## Change capture
 
@@ -66,7 +66,7 @@ MySQL derives keys for a multi-row `INSERT … VALUES` from the first generated 
 
 ## SQL log and redaction
 
-Statements are logged with their text, duration and rows affected. Drizzle sends positional parameters, which are logged as `$1`, `$2` and so on, and redacted because their names say nothing. Name them for one call with `withParameterNames(['fixture_secret'], () => client.execute(...))`. The capture then redacts secret-looking names and, unless parameter values are enabled, every value. `withParameterNames` has no effect on SQLite, whose connection logs its own statements.
+Statements are logged with their text, duration and rows affected. Drizzle sends positional parameters, which are logged as `$1`, `$2` and so on, and redacted because their names say nothing. Name them for one call with `withParameterNames(['fixture_secret'], () => client.execute(...))`. The capture then redacts secret-looking names, every value of a statement whose text names a secret, and, unless parameter values are enabled, every value. `withParameterNames` has no effect on SQLite, whose connection logs its own statements.
 
 ## API changes from 0.1.0-alpha.1
 
