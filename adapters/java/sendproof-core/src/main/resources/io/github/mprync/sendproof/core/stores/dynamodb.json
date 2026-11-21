@@ -1,0 +1,23 @@
+{
+  "$comment": "Write-guard classification for DynamoDB, shared by every binding. Operation names are the API action names (the X-Amz-Target suffix). Anything not listed is a write. See spec/data-stores.md.",
+  "store": "dynamodb",
+  "version": 1,
+  "source": "Amazon DynamoDB API reference, DynamoDB_20120810",
+  "default": "write",
+  "read": [
+    "BatchGetItem", "DescribeContinuousBackups", "DescribeContributorInsights", "DescribeEndpoints", "DescribeGlobalTable",
+    "DescribeGlobalTableSettings", "DescribeKinesisStreamingDestination", "DescribeLimits", "DescribeTable",
+    "DescribeTableReplicaAutoScaling", "DescribeTimeToLive", "GetItem", "GetResourcePolicy", "ListBackups",
+    "ListContributorInsights", "ListExports", "ListGlobalTables", "ListImports", "ListTables", "ListTagsOfResource",
+    "Query", "Scan", "TransactGetItems"
+  ],
+  "partiql": {
+    "operations": ["ExecuteStatement", "BatchExecuteStatement", "ExecuteTransaction"],
+    "rule": "A read only when every statement in the request is a SELECT: after skipping whitespace, -- line comments and /* */ block comments, the first word, compared case-insensitively, is SELECT. Any other statement (INSERT, UPDATE, DELETE, EXISTS checks inside a write transaction, or text that can't be parsed) makes the whole request a write."
+  },
+  "notes": {
+    "UpdateItem": "Always a write, whatever its ReturnValues or condition.",
+    "PutItem, DeleteItem": "Always writes, including conditional writes whose condition fails.",
+    "TransactWriteItems, BatchWriteItem": "Always writes; a ConditionCheck-only transaction is still classified as a write."
+  }
+}

@@ -27,7 +27,14 @@ public final class CaptureModels {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PreviewLog(String level, String message, String category, EventId eventId, Double offsetMs,
                              Double elapsedMs, Map<String, String> properties, CapturedException exception,
-                             CapturedSql sql) {
+                             CapturedSql sql, CapturedDb db) {
+
+        /** Creates a log without a data-store command. */
+        public PreviewLog(String level, String message, String category, EventId eventId, Double offsetMs,
+                          Double elapsedMs, Map<String, String> properties, CapturedException exception,
+                          CapturedSql sql) {
+            this(level, message, category, eventId, offsetMs, elapsedMs, properties, exception, sql, null);
+        }
 
         /** Creates a log with only the required members. */
         public static PreviewLog of(String level, String message) {
@@ -45,6 +52,11 @@ public final class CaptureModels {
             }
             if (exception != null) {
                 size += exception.type().length() + exception.message().length();
+            }
+            if (db != null) {
+                size += db.system().length() + db.operation().length() + (db.target() == null ? 0 : db.target().length())
+                        + (db.namespace() == null ? 0 : db.namespace().length())
+                        + (db.statement() == null ? 0 : db.statement().length());
             }
             if (sql != null) {
                 size += sql.text().length();
@@ -68,6 +80,15 @@ public final class CaptureModels {
     /** One executed SQL command. */
     public record CapturedSql(String text, List<SqlParameter> parameters,
                               @JsonInclude(JsonInclude.Include.NON_NULL) Integer rowsAffected) {
+    }
+
+    /**
+     * One command sent to a non-SQL store, the {@code db} member of a {@code Db} log entry. Members follow the
+     * OpenTelemetry database conventions; absent ones are omitted.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CapturedDb(String system, String namespace, String operation, String target, String statement,
+                             Integer rowsAffected, Boolean blocked, String error) {
     }
 
     /** A bound SQL parameter; the value is a string, {@code null} or {@code "[REDACTED]"}. */

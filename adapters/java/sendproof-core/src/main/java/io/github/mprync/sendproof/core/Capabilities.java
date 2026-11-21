@@ -18,11 +18,46 @@ import java.util.List;
  * @param previewOperations operations that may be previewed or observed
  * @param observedSend      whether {@code Prefer: trace} is supported for the preview operations
  * @param documents         every OpenAPI document
+ * @param dataStores        the data stores the binding has hooked and how Preview treats each
+ * @param previewUnavailable operations marked {@code preview: false}, each with the reason the workbench shows
+ * @param binding           the language and framework serving the workbench, or {@code null}
  */
 public record Capabilities(int protocolVersion, String openApiUrl, List<String> fieldModules, String apiName,
-                           String environment, String database, Identity identity, List<AuthProvider> authProviders,
+                           String environment, Object database, Identity identity, List<AuthProvider> authProviders,
                            List<PreviewOperation> previewOperations, boolean observedSend,
-                           List<OpenApiDocument> documents) {
+                           List<OpenApiDocument> documents,
+                           @JsonInclude(JsonInclude.Include.NON_EMPTY) List<DataStore.Description> dataStores,
+                           @JsonInclude(JsonInclude.Include.NON_EMPTY) List<PreviewUnavailable> previewUnavailable,
+                           @JsonInclude(JsonInclude.Include.NON_NULL) Binding binding) {
+
+    /** Creates capabilities with no data stores, no unavailable operations and no binding. */
+    public Capabilities(int protocolVersion, String openApiUrl, List<String> fieldModules, String apiName,
+                        String environment, Object database, Identity identity, List<AuthProvider> authProviders,
+                        List<PreviewOperation> previewOperations, boolean observedSend,
+                        List<OpenApiDocument> documents) {
+        this(protocolVersion, openApiUrl, fieldModules, apiName, environment, database, identity, authProviders,
+                previewOperations, observedSend, documents, List.of(), List.of(), null);
+    }
+
+    /**
+     * The SQL database as shown in the workbench.
+     *
+     * @param name   a short non-secret display name, or {@code null}
+     * @param system the SQL provider id, such as {@code h2}, {@code postgresql}, {@code mysql}, {@code mssql} or
+     *               {@code sqlite}, so the workbench shows that provider's mark
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Database(String name, String system) {
+    }
+
+    /** The binding that serves the workbench, so guidance is written in the host's own language. */
+    public record Binding(String language, String framework) {
+    }
+
+    /** An operation marked {@code preview: false}, with the reason the workbench shows before anyone tries it. */
+    public record PreviewUnavailable(String method, String path, String reason,
+                                     @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> stores) {
+    }
 
     /** The authenticated identity shown in the workbench. */
     public record Identity(String name, @JsonInclude(JsonInclude.Include.NON_NULL) String role) {

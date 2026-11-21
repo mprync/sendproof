@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.core;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.mprync.sendproof.core.CaptureModels.CaptureSnapshot;
 import io.github.mprync.sendproof.core.CaptureModels.CaptureTiming;
+import io.github.mprync.sendproof.core.CaptureModels.CapturedDb;
 import io.github.mprync.sendproof.core.CaptureModels.CapturedException;
 import io.github.mprync.sendproof.core.CaptureModels.CapturedSql;
 import io.github.mprync.sendproof.core.CaptureModels.PreviewEffect;
@@ -30,6 +31,131 @@ public final class RequestCapture {
     private double dbMs;
     private int queries;
     private double serializeMs;
+    private BlockedWrite blocked;
+    private Throwable fault;
+    private boolean changesTruncated;
+    private final List<PreviewChange> storeChanges = new ArrayList<>();
+
+    /**
+     * Returns whether this capture belongs to a rollback-only Preview, including after it finished, so a write that
+     * arrives late is still refused. False for an observed send and for a capture that never began.
+     */
+    public boolean inPreviewScope() {
+        synchronized (gate) {
+            return rollback;
+        }
+    }
+
+    /**
+     * Records the first write the guard refused. Later ones are ignored, and a capture that is not a Preview ignores
+     * them all.
+     */
+    public void block(BlockedWrite write) {
+        synchronized (gate) {
+            if (rollback && blocked == null) {
+                blocked = new BlockedWrite(CaptureLimits.clip(write.store(), CaptureLimits.NAME),
+                        CaptureLimits.clip(write.operation(), CaptureLimits.NAME), CaptureLimits.clip(write.detail()));
+            }
+        }
+    }
+
+    /** Returns the first refused write, or {@code null}. */
+    public BlockedWrite blocked() {
+        synchronized (gate) {
+            return blocked;
+        }
+    }
+
+    /**
+     * Records a transaction-control refusal: something that would end or escape the Preview transaction. The first one
+     * is kept, and it withholds confirmation whatever the handler returns.
+     */
+    public void refuse(Throwable failure) {
+        synchronized (gate) {
+            if (rollback && fault == null) {
+                fault = failure;
+            }
+        }
+    }
+
+    /** Returns the first transaction-control refusal, or {@code null}. */
+    public Throwable fault() {
+        synchronized (gate) {
+            return fault;
+        }
+    }
+
+    /**
+     * Records a change to a document, item or key of a data store. Secret-named fields are redacted at any depth when
+     * the envelope is built.
+     */
+    public void change(PreviewChange change) {
+        synchronized (gate) {
+            if (!active) {
+                return;
+            }
+            if (storeChanges.size() >= CaptureLimits.CHANGES + 1) {
+                changesTruncated = true;
+                return;
+            }
+            storeChanges.add(change);
+        }
+    }
+
+    /** Marks the store changes as cut short, for example when too many candidates were found. */
+    public void truncateChanges() {
+        synchronized (gate) {
+            changesTruncated = true;
+        }
+    }
+
+    /** The data-store changes recorded so far. Kept after {@link #finish()} so the envelope can read them. */
+    public List<PreviewChange> storeChanges() {
+        synchronized (gate) {
+            return List.copyOf(storeChanges);
+        }
+    }
+
+    /** Whether the data-store changes were cut short. */
+    public boolean storeChangesTruncated() {
+        synchronized (gate) {
+            return changesTruncated;
+        }
+    }
+
+    /**
+     * Records a command sent to a non-SQL store as a {@code Db} log entry. A command the guard refused is logged but not
+     * counted as a query.
+     */
+    public void db(DbEntry entry) {
+        synchronized (gate) {
+            if (!active) {
+                return;
+            }
+            if (!entry.blocked()) {
+                dbMs += entry.elapsedMs() == null ? 0 : entry.elapsedMs();
+                queries = queries < Integer.MAX_VALUE ? queries + 1 : queries;
+            }
+            if (!hasLogRoom()) {
+                return;
+            }
+            try {
+                String operation = clip(entry.operation(), CaptureLimits.NAME);
+                String target = entry.target() == null ? null : clip(entry.target(), CaptureLimits.NAME);
+                String statement = entry.statement() == null ? null : clip(entry.statement(), CaptureLimits.TEXT);
+                var db = new CapturedDb(clip(entry.system(), CaptureLimits.NAME),
+                        entry.namespace() == null ? null : clip(entry.namespace(), CaptureLimits.NAME), operation, target,
+                        statement, entry.rowsAffected() != null && entry.rowsAffected() >= 0 ? entry.rowsAffected() : null,
+                        entry.blocked() ? Boolean.TRUE : null,
+                        entry.error() == null ? null : clip(entry.error(), CaptureLimits.NAME));
+                double elapsed = entry.elapsedMs() == null ? 0 : entry.elapsedMs();
+                addLog(new PreviewLog("Db", target == null ? operation : operation + " " + target, null, null,
+                        Math.max(0, offsetMs() - elapsed), entry.elapsedMs(), null, null, null, db));
+            } catch (RuntimeException error) {
+                logsTruncated = true;
+            }
+        }
+    }
 
     /** Returns whether a rollback-only preview is capturing. */
     public boolean isPreview() {

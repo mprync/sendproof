@@ -2,7 +2,9 @@ package io.github.mprync.sendproof.core;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.mprync.sendproof.core.CaptureModels.CaptureSnapshot;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -25,6 +27,7 @@ public final class PreviewExecution {
     private final long started;
     private final RequestCapture capture = new RequestCapture();
     private final CaptureClock clock;
+    private final List<DataStoreSession> storeSessions = new ArrayList<>();
     private PreviewSession session;
     private boolean invoked;
     private boolean completed;
@@ -51,13 +54,34 @@ public final class PreviewExecution {
      * @throws Exception whatever the provider throws; the preview is then not confirmed
      */
     public void begin(PreviewProvider provider) throws Exception {
+        begin(provider, List.of());
+    }
+
+    /**
+     * Starts the SQL provider's session (when there is one), the capture, and each data store's session. Call exactly
+     * once, immediately before invoking the handler, with the capture current on this thread.
+     *
+     * @param provider the SQL provider, or {@code null} when the application has only data stores
+     * @param stores   the hooked data stores
+     * @throws Exception whatever a provider or store throws; the preview is then not confirmed, and {@link #finish}
+     *                   still rolls back whatever had begun
+     */
+    public void begin(PreviewProvider provider, List<? extends DataStore> stores) throws Exception {
         invoked = true;
         clock.startHandler();
-        session = provider.begin();
-        if (session == null) {
-            throw new IllegalStateException("The preview provider returned no session.");
+        if (provider != null) {
+            session = provider.begin();
+            if (session == null) {
+                throw new IllegalStateException("The preview provider returned no session.");
+            }
         }
         capture.begin(true, started);
+        for (DataStore store : stores) {
+            DataStoreSession storeSession = store.begin(capture);
+            if (storeSession != null) {
+                storeSessions.add(storeSession);
+            }
+        }
     }
 
     /** Records that the handler returned normally. */
@@ -66,34 +90,68 @@ public final class PreviewExecution {
     }
 
     /**
-     * Rolls back, disposes and builds the outcome.
+     * Rolls back, disposes and builds the outcome. The order is fixed by {@code spec/data-stores.md}: abort the stores'
+     * transactions and roll back SQL; if anything failed or a transaction-control fault was recorded, answer 500 without
+     * confirmation; otherwise, if a guarded store refused a write, answer 409; otherwise confirm.
      *
      * @param response the buffered inner response
      * @param failure  an exception the handler or its callbacks threw, or {@code null}
      */
     public PreviewOutcome finish(CapturedResponse response, Throwable failure) {
-        PreviewEnvelope envelope = null;
-        if (session != null) {
+        // Failures of the rollback machinery outrank a block and the handler's own failure.
+        Throwable internal = null;
+        for (int i = storeSessions.size() - 1; i >= 0; i--) {
             try {
-                session.rollback();
-                if (failure == null && completed && !response.exceededLimit()) {
-                    envelope = createEnvelope(response, session, capture.finish());
-                }
+                storeSessions.get(i).finish(capture);
             } catch (Throwable error) {
-                failure = combine(failure, error);
-            } finally {
-                if (capture.isActive()) {
-                    capture.finish();
+                internal = combine(internal, error);
+            }
+        }
+        PreviewEnvelope envelope = null;
+        try {
+            if (session != null) {
+                session.rollback();
+            }
+            if (internal == null && failure == null && completed && !response.exceededLimit()) {
+                envelope = createEnvelope(response, session, capture);
+            }
+        } catch (Throwable error) {
+            internal = combine(internal, error);
+        } finally {
+            if (capture.isActive()) {
+                capture.finish();
+            }
+            for (int i = storeSessions.size() - 1; i >= 0; i--) {
+                try {
+                    storeSessions.get(i).close();
+                } catch (Throwable error) {
+                    internal = combine(internal, error);
                 }
+            }
+            if (session != null) {
                 try {
                     session.close();
                 } catch (Throwable error) {
-                    failure = combine(failure, error);
+                    internal = combine(internal, error);
                 }
             }
         }
         clock.endHandler();
 
+        Throwable fault = capture.fault();
+        if (internal != null || fault != null) {
+            LOG.error("A Sendproof preview failed.", internal != null ? internal : fault);
+            return PreviewOutcome.rejected(500, "The preview could not be completed safely.", null);
+        }
+        BlockedWrite blocked = capture.blocked();
+        if (blocked != null) {
+            try {
+                return PreviewOutcome.blocked(blocked);
+            } catch (JsonProcessingException error) {
+                LOG.error("A Sendproof blocked preview could not be serialized.", error);
+                return PreviewOutcome.rejected(500, "The preview could not be completed safely.", null);
+            }
+        }
         if (response.exceededLimit()) {
             return PreviewOutcome.rejected(413, TOO_LARGE, null);
         }
@@ -150,8 +208,12 @@ public final class PreviewExecution {
     }
 
     private static PreviewEnvelope createEnvelope(CapturedResponse response, PreviewSession session,
-                                                  CaptureSnapshot snapshot) {
-        var bounded = CaptureLimits.snapshotChanges(session.changes());
+                                                  RequestCapture capture) {
+        var changes = new ArrayList<PreviewChange>(session == null ? List.of() : session.changes());
+        changes.addAll(capture.storeChanges());
+        boolean changesCut = capture.storeChangesTruncated() || (session != null && session.changesTruncated());
+        CaptureSnapshot snapshot = capture.finish();
+        var bounded = CaptureLimits.snapshotChanges(changes);
         Map<String, String> headers = new LinkedHashMap<>();
         for (var header : response.headers().entrySet()) {
             String name = header.getKey().toLowerCase(Locale.ROOT);
@@ -162,7 +224,7 @@ public final class PreviewExecution {
             headers.put(name, CaptureLimits.clip(String.join(", ", header.getValue())));
         }
         return new PreviewEnvelope(response.status(), headers, response.body(), bounded.changes(), snapshot.effects(),
-                snapshot.logs(), true, ObservedTrace.flag(bounded.truncated() || session.changesTruncated()),
+                snapshot.logs(), true, ObservedTrace.flag(bounded.truncated() || changesCut),
                 ObservedTrace.flag(snapshot.effectsTruncated()), ObservedTrace.flag(snapshot.logsTruncated()));
     }
 

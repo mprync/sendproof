@@ -107,10 +107,12 @@ public final class CaptureLimits {
             // A table whose name marks it as secret (api_tokens, user_credentials) hides every value; otherwise each
             // column whose name looks secret (password_hash, refreshToken) is hidden. The key keeps ordinary columns
             // so the row stays identifiable.
-            boolean secretTable = change.table() != null && SqlRedaction.looksSecret(change.table());
-            JsonNode key = change.key() == null ? null : snapshot(redact(change.key(), false));
-            JsonNode before = change.before() == null ? null : snapshot(redact(change.before(), secretTable));
-            JsonNode after = change.after() == null ? null : snapshot(redact(change.after(), secretTable));
+            // Data-store documents nest, so their secret-named fields are hidden at every depth.
+            boolean store = change.store() != null;
+            boolean secretTable = !store && change.table() != null && SqlRedaction.looksSecret(change.table());
+            JsonNode key = change.key() == null ? null : deep(snapshot(redact(change.key(), false)), store);
+            JsonNode before = change.before() == null ? null : deep(snapshot(redact(change.before(), secretTable)), store);
+            JsonNode after = change.after() == null ? null : deep(snapshot(redact(change.after(), secretTable)), store);
             String operation = clip(change.operation(), NAME);
             String table = clip(change.table(), NAME);
             remaining -= size(key) + size(before) + size(after) + operation.length() + table.length();
@@ -121,9 +123,14 @@ public final class CaptureLimits {
             truncated |= (key == null && change.key() != null) || (before == null && change.before() != null)
                     || (after == null && change.after() != null) || !operation.equals(change.operation())
                     || !table.equals(change.table());
-            result.add(new PreviewChange(operation, table, key, before, after));
+            result.add(new PreviewChange(operation, table, key, before, after, change.store(),
+                    change.namespace() == null ? null : clip(change.namespace(), NAME), change.via()));
         }
         return new BoundedChanges(List.copyOf(result), truncated);
+    }
+
+    private static JsonNode deep(JsonNode value, boolean store) {
+        return store ? io.github.mprync.sendproof.core.stores.StoreRedaction.redactDeep(value) : value;
     }
 
     /**

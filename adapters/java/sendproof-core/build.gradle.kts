@@ -13,3 +13,15 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.slf4j:slf4j-simple")
 }
+
+// The data-store classification tables are embedded unchanged from spec/data-stores/. StoreTablesTest fails when the
+// copies in src/main/resources differ from the spec; this task refreshes them.
+val syncStoreTables by tasks.registering(Copy::class) {
+    description = "Copies spec/data-stores/{redis,mongodb,dynamodb}.json into the embedded resources."
+    from(rootDir.resolve("../../spec/data-stores")) { include("redis.json", "mongodb.json", "dynamodb.json") }
+    into(layout.projectDirectory.dir("src/main/resources/io/github/mprync/sendproof/core/stores"))
+}
+
+tasks.test {
+    systemProperty("sendproof.spec.dir", rootDir.resolve("../../spec").canonicalPath)
+}
