@@ -1,6 +1,6 @@
 # Security review: sign-in, Preview and observed Send
 
-Review date: 21 November 2026. Scope: the protocol in `spec/`, the shared conformance suite in `tests/conformance/`, and all eight bindings (.NET, Node, Python, JVM, Go, PHP, Ruby, Rust) with their fixtures and the Treasury example.
+Review date: 21 November 2026. Scope: the protocol in `spec/`, the shared conformance suite in `tests/conformance/`, and all eight bindings (.NET, Node, Python, JVM, Go, PHP, Ruby, Rust) with their fixtures and the Acme Store example.
 
 ## Summary
 
@@ -13,7 +13,7 @@ Two problems appeared in almost every binding:
 
 | Binding | High | Medium | Low |
 | --- | --- | --- | --- |
-| .NET (ASP.NET Core, EF Core, Treasury example) | 1 | 1 | 1 |
+| .NET (ASP.NET Core, EF Core, Acme Store example) | 1 | 1 | 1 |
 | Node (Express, Fastify, Hono, NestJS; SQLite, Knex, TypeORM, Prisma, Drizzle) | 3 | 4 | 3 |
 | Python (FastAPI, Flask, Django; SQLAlchemy, Django ORM) | 3 | 4 | 4 |
 | Go (net/http, chi, Gin, Echo; database/sql, GORM) | 3 | 4 | 6 |
@@ -72,7 +72,7 @@ Workbench users see change snapshots and captured logs, and in hosted developmen
 
 | ID | Sev | Binding | Location | Issue | Fix | Test |
 | --- | --- | --- | --- | --- | --- | --- |
-| NET-2 | High | .NET EF Core | `adapters/dotnet/Sendproof.EntityFrameworkCore/EntityFrameworkChangeCapture.cs:119` | Change snapshots carried `PasswordHash`, `ApiKey` and similar properties in plain text. The Treasury example's `DemoUser.PasswordHash` was one of them. | Properties whose name or column name looks secret are redacted in key, before and after. | `tests/Sendproof.EntityFrameworkCore.Tests/PreviewProviderTests.cs::ChangeSnapshotsRedactSecretNamedColumnsInEveryEnvironment` |
+| NET-2 | High | .NET EF Core | `adapters/dotnet/Sendproof.EntityFrameworkCore/EntityFrameworkChangeCapture.cs:119` | Change snapshots carried `PasswordHash`, `ApiKey` and similar properties in plain text. The Acme Store example's `DemoUser.PasswordHash` was one of them. | Properties whose name or column name looks secret are redacted in key, before and after. | `tests/Sendproof.EntityFrameworkCore.Tests/PreviewProviderTests.cs::ChangeSnapshotsRedactSecretNamedColumnsInEveryEnvironment` |
 | NODE-5 | Medium | Node core (SQLite, Drizzle) | `adapters/node/core/src/capture.ts:121`, `secrets.ts:21` | The secret-word list was missing `pwd`, `passwd`, `hash`, `salt` and the qualified `…key` names. There was no rule to hide every value of a statement that names a secret column. | Ported the reference whole-word rule and the statement-level rule. | `core-protocol.test.mjs` "secret names…", "SQL values are hidden…"; `sqlite.test.mts` "SQL capture redacts…" |
 | NODE-6 | Medium | Node (all four ORMs) | `adapters/node/core/src/capture.ts:84` | Change snapshots exposed secret columns and secret primary keys. | Redacted in core, which every change path goes through. | `core-protocol.test.mjs` "change snapshots never carry…" |
 | PY-4 | Medium | Python (all) | `adapters/python/core/src/sendproof_core/workbench.py:64,174` | Change snapshots exposed `password_hash`, `*_token` and secret primary keys. | Redacted in key, before and after. | `test_core.py::test_change_snapshots_*`; `test_fastapi_security.py::test_secret_columns_*` |
@@ -113,7 +113,7 @@ A Preview must run exactly the operation that was checked, through the host's ow
 | ID | Sev | Binding | Location | Issue | Fix | Test |
 | --- | --- | --- | --- | --- | --- | --- |
 | PY-2 | High | Django, FastAPI | `adapters/python/django/.../middleware.py`, `fastapi/.../middleware.py` | Session changes made during a Preview were saved and sent as `Set-Cookie` on the real response, because `request.session` and `scope["session"]` were shared with the inner request. | The inner request gets its own session and state. | FastAPI and Django `test_preview_session_changes_*` |
-| NET-1 | Medium | Treasury example | `examples/TreasuryApi/Endpoints/AuthenticationEndpoints.cs:35` | Anonymous callers could list every seeded user and sign in as any of them, including the admin, without a password. This worked from any machine that could reach a Development server, and a cross-site page could force a browser into a seeded account (login CSRF). | A `PersonaGuard` filter lets anonymous callers switch only from loopback, and requires every caller to be same-origin. Signed-in users may still switch. | `examples/TreasuryApi/tests/TreasuryFlowTests.cs::Persona_switching_is_local_and_same_origin_for_anonymous_callers` |
+| NET-1 | Medium | Acme Store example | `examples/StoreApi/Endpoints/AuthenticationEndpoints.cs:35` | Anonymous callers could list every seeded user and sign in as any of them, including the admin, without a password. This worked from any machine that could reach a Development server, and a cross-site page could force a browser into a seeded account (login CSRF). | A `PersonaGuard` filter lets anonymous callers switch only from loopback, and requires every caller to be same-origin. Signed-in users may still switch. | `examples/StoreApi/tests/StoreFlowTests.cs::Persona_switching_is_local_and_same_origin_for_anonymous_callers` |
 | FIX-1 | Low | Rust conformance fixture | `examples/rust-conformance-common/src/auth.rs:45` | Fixture session tokens were `s<counter>-<pid>`: predictable, and often under 8 characters. | 128-bit tokens from the standard library's OS-seeded SipHash keys, without adding a dependency. | shared suite: `assertNoCredential` in `protocol.mjs` |
 
 ### Trace ownership, IDs and storage
@@ -222,7 +222,7 @@ These areas were checked in the reference and in every binding, and were either 
 
 | Binding | Local tests | Conformance |
 | --- | --- | --- |
-| .NET | `dotnet build Sendproof.slnx -c Release -warnaserror` clean. `dotnet test`: EF Core 19, ASP.NET Core 30, Treasury 7 passed. | dotnet-aspnetcore 11/11, dotnet-treasury 7/7 |
+| .NET | `dotnet build Sendproof.slnx -c Release -warnaserror` clean. `dotnet test`: EF Core 19, ASP.NET Core 30, Acme Store 7 passed. | dotnet-aspnetcore 11/11, dotnet-store 7/7 |
 | Node | `npm test`: 170 passed, 2 skipped (they need server URLs); 285/285 with PostgreSQL and MySQL | all 8 SQLite profiles 11/11; Knex, TypeORM, Drizzle and Prisma on PostgreSQL and MySQL 11/11; node-express-knex-sqlserver 11/11 |
 | Python | `pytest adapters/python`: 104 passed | fastapi, django, flask, flask-sqlalchemy 11/11; flask-sqlalchemy on PostgreSQL and MySQL 11/11 |
 | Go | module path tests 15/15; `scripts/test.sh` (vet and race) passed; engine tests on PostgreSQL, MySQL and SQL Server passed | all 11 Go profiles, including server databases, 11/11 |
@@ -238,4 +238,4 @@ These areas were checked in the reference and in every binding, and were either 
   - A route whose handler issues a raw `COMMIT`. It must get 500 with nothing persisted.
 
   Each binding covers both with local tests for now.
-- **Workbench UI and the Treasury persona guard.** The UI offers "seeded accounts" to anonymous users (`ui/signin.js`, `ui/seeded-menu.js`). Opened from another machine, the Treasury example now answers 403 for that list, and the UI should then hide the persona panel and point to password sign-in rather than show an error. `ui/` is owned by another change, so this needs a UI follow-up.
+- **Workbench UI and the Acme Store persona guard.** The UI offers "seeded accounts" to anonymous users (`ui/signin.js`, `ui/seeded-menu.js`). Opened from another machine, the Acme Store example now answers 403 for that list, and the UI should then hide the persona panel and point to password sign-in rather than show an error. `ui/` is owned by another change, so this needs a UI follow-up.

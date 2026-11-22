@@ -19,7 +19,7 @@ For an API already using the built-in OpenAPI endpoint and EF Core:
 
 ```csharp
 builder.Services.AddSendproof()
-    .AddEntityFrameworkCore<TreasuryDbContext>();
+    .AddEntityFrameworkCore<StoreDbContext>();
 
 // With the application's ordinary API routes:
 app.MapSendproof();
@@ -32,12 +32,12 @@ Applications can register separate v1 and v2 documents in the existing API picke
 ```csharp
 builder.Services.AddSendproof()
     .InEnvironments("Development", "HostedDevelopment")
-    .WithApiName("Treasury API")
+    .WithApiName("Store API")
     .WithOpenApiUrl("/swagger/v2/swagger.json")
     .WithOpenApiDocument("Version 1", "/swagger/v1/swagger.json")
     .WithAuthProvider("Company SSO", "oidc", "/account/sign-in")
     .RequireAuthorization("ApiDevelopers")
-    .AddEntityFrameworkCore<TreasuryDbContext>();
+    .AddEntityFrameworkCore<StoreDbContext>();
 ```
 
 The environment list replaces the default. The named policy and sign-in route belong to the host. A protected workbench needs a host challenge or sign-in route that the developer can reach before entering it. Registration examples and a runnable SQLite API are in the [quick start](README.md).

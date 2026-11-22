@@ -16,12 +16,12 @@ First prerelease of Sendproof. The two .NET NuGet packages share the same versio
 - Visible copy feedback everywhere, with an inline notice and the text selected when the clipboard is blocked.
 - Sign-in explains failures: a 401 is "Wrong email or password", a 5xx says what to try and shows the technical details. The page has a way back to the workbench.
 - Localised interface in English, German and Arabic (right to left), with `Intl` numbers, dates, units, lists and plurals, Latin or Arabic-Indic digits, and platform shortcut glyphs. Captured data is always shown exactly as stored.
-- The Treasury example keeps its cookie keys beside its database (`treasury-demo.keys/`), so sign-in no longer depends on the machine-wide key ring, and documents its security, roles and error responses in OpenAPI.
+- The Acme Store example keeps its cookie keys beside its database (`store-demo.keys/`), so sign-in no longer depends on the machine-wide key ring, and documents its security, roles and error responses in OpenAPI.
 - Workbench v4 navigation: one stable three-column shell for Try it, Docs, Models and the overview; breadcrumbs and a single Back control (⌥←) with real hash routes, history and scroll restoration; sidebar groups that start open and are remembered per API; a signed-out notice with lock markers; one property-row anatomy with inline `$ref` and `oneOf` expansion; and JSON that opens fully expanded.
 - Extend the workbench through the framework protocol, preview provider interfaces and field renderer registration.
-- Run the Treasury example with a seeded SQLite database.
+- Run the Acme Store example, an online store with seeded data, on SQLite with optional Redis, MongoDB and DynamoDB.
 - Pack the shared workbench UI as a versioned SHA-256 bundle for language packages.
-- Run the same protocol conformance checks over HTTP across bindings, with a separate profile for the Treasury example.
+- Run the same protocol conformance checks over HTTP across bindings, with a separate profile for the Acme Store example.
 - Add Express, Fastify, Hono and NestJS bindings backed by the shared Node core, with SQLite, Drizzle, Knex, TypeORM and Prisma providers.
 - Add FastAPI, Django and Flask bindings with SQLAlchemy and Django ORM providers.
 - Add Spring Boot with JPA/Hibernate, Ktor with JDBC, Go with database/sql and GORM, Laravel with Eloquent, Symfony with Doctrine, Rails with ActiveRecord, and Axum and Actix Web with SQLx.

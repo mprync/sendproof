@@ -4,7 +4,7 @@ import { probePersonas, resolvePersonaAccess } from "./personas.js";
 import { showSignIn } from "./signin.js";
 
 const provider = { kind: "personas", label: "People", url: "/auth/personas" };
-const capabilities = () => ({ apiName: "Treasury", authProviders: [{ kind: "cookie", label: "Session", url: "/auth/login" }, { ...provider }] });
+const capabilities = () => ({ apiName: "Store", authProviders: [{ kind: "cookie", label: "Session", url: "/auth/login" }, { ...provider }] });
 
 /** Runs `body` with `fetch` answering `answer`, then restores the real one. */
 async function withFetch(answer, body) {

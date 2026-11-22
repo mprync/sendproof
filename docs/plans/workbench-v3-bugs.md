@@ -25,17 +25,17 @@ Line numbers refer to the current working tree.
 - Control: wrong credentials return 401 from the same host (the password check is fine).
 - Control: the same DLL started with `DemoKeyDirectory=/tmp/x/keys` returns 200 plus a `Set-Cookie` for the same request. It sets `DemoKeyDirectory`, so the only difference is the key store.
 
-**Root cause.** The server exception, in `artifacts/treasury-5189.log` (e.g. around line 3130):
+**Root cause.** The server exception, in `artifacts/store-5189.log` (e.g. around line 3130):
 ```
 System.Security.Cryptography.CryptographicException: An error occurred while trying to encrypt the provided data.
  ---> System.UnauthorizedAccessException: Access to the path '/Users/michaelprince/.aspnet/DataProtection-Keys/key-18031b98-….xml' is denied.
    at KeyRingBasedDataProtector.Protect → CookieAuthenticationHandler.HandleSignInAsync
-   at TreasuryApi.AuthenticationEndpoints… in AuthenticationEndpoints.cs
+   at StoreApi.AuthenticationEndpoints… in AuthenticationEndpoints.cs
 ```
 - `~/.aspnet/DataProtection-Keys/key-18031b98-c166-4906-8402-8ed8cb9ea120.xml` is owned by `root:wheel`, mode `0600` (created Jun 2023). The app runs as `michaelprince` and cannot read it.
 - `FileSystemXmlRepository.GetAllElements` throws on the unreadable file, so the key ring cannot load. The log also shows "Key ring failed to load during application startup".
-- Cookie issuance therefore fails in `await SignInAsync(...)` at `examples/TreasuryApi/AuthenticationEndpoints.cs:21` (password login) and `:44` (persona switch). Both reach `context.SignInAsync` at `:58`.
-- The example only isolates the key ring when `DemoKeyDirectory` is set (`examples/TreasuryApi/TreasuryApplication.cs:33-34`). `tools/browser-host.mjs` sets it, which is why the browser test suite passes. A plain `dotnet run` or DLL launch uses the shared user-profile ring, so it breaks on a machine with a bad key file.
+- Cookie issuance therefore fails in `await SignInAsync(...)` at `examples/StoreApi/AuthenticationEndpoints.cs:21` (password login) and `:44` (persona switch). Both reach `context.SignInAsync` at `:58`.
+- The example only isolates the key ring when `DemoKeyDirectory` is set (`examples/StoreApi/StoreApplication.cs:33-34`). `tools/browser-host.mjs` sets it, which is why the browser test suite passes. A plain `dotnet run` or DLL launch uses the shared user-profile ring, so it breaks on a machine with a bad key file.
 - UI side: `ui/signin.js:162` shows only the HTTP status (`Sign in failed (${response.status})`) and discards the response body. A 401 shows "Sign in failed (401)" with no hint.
 
 **Suggested fix.** Environment: delete or `chown` the root-owned key file (`sudo rm ~/.aspnet/DataProtection-Keys/key-18031b98-….xml`). Example hardening: default the key directory to a folder next to `DemoDatabasePath` when `DemoKeyDirectory` is unset, so the demo never depends on `~/.aspnet`. In `signin.js`, map 401 to "Wrong email or password" and show a short server message for 5xx.
@@ -164,7 +164,7 @@ All segmented groups use `role="group"` and `aria-pressed`. Only the request and
 3. Copy URL and Copy code failures replace the whole result pane with "Unable to complete request" via `showError` (`app.js:456-458`, `:463-465`).
 4. `copyFailedRequest` (`results.js:170-174`) and the matching handler `app.js:427-433` hand any clipboard rejection to `showError`, which replaces the result pane.
 5. Console messages seen: only `Failed to load resource` for the expected 401 and the 500s. No page errors, no failed (network-level) requests, no other broken buttons found in the paths exercised (nav, autofill menu, Preview, Send, confirm, Database/Effects/Logs/Headers tabs on a successful preview).
-6. Stale log: `artifacts/treasury-5189.log` shows `Cookies was not authenticated. Failure message: Unprotect ticket failed` on every request after the key-ring failure, so `/auth/me` also never recognises a session on `:5189`.
+6. Stale log: `artifacts/store-5189.log` shows `Cookies was not authenticated. Failure message: Unprotect ticket failed` on every request after the key-ring failure, so `/auth/me` also never recognises a session on `:5189`.
 
 ## Open questions
 

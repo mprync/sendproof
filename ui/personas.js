@@ -1,5 +1,5 @@
 // Whether the host lets this browser use its `personas` (seeded accounts) source. A host may
-// refuse it, for example the Treasury example answers 403 when the workbench is opened from another
+// refuse it, for example the Acme Store example answers 403 when the workbench is opened from another
 // machine. A refusal (401, 403, 404) means "this option does not exist here": every place that
 // offers seeded accounts hides it and points to password sign-in instead, with no error. Any other
 // failure (network error, 5xx) says nothing about access, so those places keep their own handling.

@@ -31,4 +31,4 @@ adapters/php/dist/
 .phpunit.cache/
 
 # Demo cookie keys, kept beside the demo database
-treasury-demo.keys/
+store-demo.keys/

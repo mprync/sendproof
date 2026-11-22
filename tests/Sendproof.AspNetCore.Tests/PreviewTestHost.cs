@@ -152,7 +152,7 @@ internal sealed class PreviewTestHost(WebApplication app, HttpClient client, Pre
 
         app.MapPost("/session", async (HttpContext context, string? subject) =>
         {
-            const string roleType = "treasury-role";
+            const string roleType = "store-role";
             var identity = new ClaimsIdentity(
                 [new Claim(ClaimTypes.Name, "Robin"), new Claim(ClaimTypes.Role, "Ignored"),
                     new Claim(ClaimTypes.NameIdentifier, subject ?? "robin"),

@@ -30,7 +30,7 @@ const after = {
   approvals: [{ by: 'ada.admin@acme.dev', signatureToken: '[REDACTED]' }], release: { rail: 'SEPA' },
   audit: { updatedAt: date('2026-11-21T14:02:11Z'), updatedBy: 'ada.admin@acme.dev', version: 4 },
 };
-const update = { operation: 'update', store: 'mongodb', namespace: 'treasury', table: 'payments', key: { _id: before._id }, before, after };
+const update = { operation: 'update', store: 'mongodb', namespace: 'store', table: 'payments', key: { _id: before._id }, before, after };
 
 test('the document diff walks objects in order, compares arrays by index and counts changes per branch', () => {
   const rows = diffRows(before, after);
@@ -80,8 +80,8 @@ test('an update opens on Diff with Changes only off; inserts, upserts, replaceme
 
 const sqlRow = { operation: 'update', table: 'Payments', key: { Id: '7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13' }, before: { Status: 'PendingApproval' }, after: { Status: 'Approved' } };
 const capabilities = {
-  environment: 'Development', database: 'treasury-demo.db', identity: { name: 'Ada Admin' },
-  dataStores: [{ system: 'mongodb', name: 'treasury', mode: 'preview' }, { system: 'redis', name: 'cache', mode: 'guard' }, { system: 'aws.dynamodb', name: 'idempotency', mode: 'guard' }],
+  environment: 'Development', database: 'store-demo.db', identity: { name: 'Ada Admin' },
+  dataStores: [{ system: 'mongodb', name: 'store', mode: 'preview' }, { system: 'redis', name: 'cache', mode: 'guard' }, { system: 'aws.dynamodb', name: 'idempotency', mode: 'guard' }],
 };
 
 test('one Preview groups its changes by store, SQL first, with a jump strip, read-only stores and coverage', () => {
@@ -95,14 +95,14 @@ test('one Preview groups its changes by store, SQL first, with a jump strip, rea
   assert.match(html, /These are the changes this request would write to SQLite and MongoDB as Ada Admin/);
   assert.match(html, /data-store-jump="mongodb"[^]*1 document/);
   assert.match(html, /Read, not written:[^]*Redis/);
-  assert.match(html, /<h3 id="store-group-mongodb">MongoDB<\/h3><code class="ltr">treasury<\/code>/);
+  assert.match(html, /<h3 id="store-group-mongodb">MongoDB<\/h3><code class="ltr">store<\/code>/);
   assert.match(html, /Transaction aborted/);
   assert.match(html, /<span class="k">Id<\/span> <span class="ltr">7d2e41a0…9f13<\/span>/, 'a grouped row card shows its key');
   assert.match(html, /Covered in <strong>Development<\/strong>:|Covered in Development:/);
-  assert.match(html, /SQLite and MongoDB <code class="ltr">treasury<\/code> roll back; Redis <code class="ltr">cache<\/code> and DynamoDB <code class="ltr">idempotency<\/code> block writes/);
+  assert.match(html, /SQLite and MongoDB <code class="ltr">store<\/code> roll back; Redis <code class="ltr">cache<\/code> and DynamoDB <code class="ltr">idempotency<\/code> block writes/);
   assert.match(coverageNote(capabilities), /aren’t covered/);
   // Without stores the tab is the classic list of row cards (mocks 01 and 49 are unchanged).
-  const classic = databaseMarkup({ preview: true, status: 201, changes: [sqlRow], effects: [], logs: [] }, { database: 'treasury.db' });
+  const classic = databaseMarkup({ preview: true, status: 201, changes: [sqlRow], effects: [], logs: [] }, { database: 'store.db' });
   assert.doesNotMatch(classic, /class="sg"|data-store-jump|class="cov"/);
   assert.match(classic, /1 row/);
 });
@@ -110,7 +110,7 @@ test('one Preview groups its changes by store, SQL first, with a jump strip, rea
 const dbLogs = [
   { level: 'Information', category: 'Microsoft.AspNetCore.Hosting.Diagnostics', message: 'Request starting', offsetMs: 0 },
   { level: 'Sql', message: 'SELECT 1', offsetMs: 1, elapsedMs: 0.5, sql: { text: 'SELECT 1', parameters: [] } },
-  { level: 'Db', message: 'update payments', offsetMs: 2, elapsedMs: 1.8, db: { system: 'mongodb', namespace: 'treasury', operation: 'update', target: 'payments', statement: '{"update":"payments","updates":[{"q":{"_id":"?"}}]}', rowsAffected: 1, parameters: [{ name: 'updates[0].signatureToken', value: '[REDACTED]' }] } },
+  { level: 'Db', message: 'update payments', offsetMs: 2, elapsedMs: 1.8, db: { system: 'mongodb', namespace: 'store', operation: 'update', target: 'payments', statement: '{"update":"payments","updates":[{"q":{"_id":"?"}}]}', rowsAffected: 1, parameters: [{ name: 'updates[0].signatureToken', value: '[REDACTED]' }] } },
   { level: 'Db', message: 'INCRBY', offsetMs: 3, elapsedMs: 0.2, db: { system: 'redis', operation: 'INCRBY', target: 'limits:fx', statement: 'INCRBY limits:fx ?', blocked: true } },
   { level: 'Db', message: 'GetItem keys', offsetMs: 4, db: { system: 'aws.dynamodb', operation: 'GetItem', target: 'keys' } },
 ];
@@ -144,15 +144,15 @@ test('discovery: hooked stores, operations marked preview: false and the blocked
   assert.equal(authorReason('quotes are cached'), 'Quotes are cached');
   assert.equal(blockedPreview(409, { code: 'conflict' }), undefined, 'an ordinary 409 stays an ordinary response');
   assert.equal(blockedPreview(409, { code: 'preview_unavailable', store: 'redis', operation: 'INCRBY', detail: 'x' }).operation, 'INCRBY');
-  assert.equal(sqlSystem({ database: 'treasury-demo.db' }), 'sqlite');
+  assert.equal(sqlSystem({ database: 'store-demo.db' }), 'sqlite');
   assert.equal(storeName(sqlSystem({ database: 'orders' })), 'SQL database');
   // database.system, when the binding reports it, beats the file-name guess.
-  assert.equal(sqlSystem({ database: { name: 'treasury-demo.db', system: 'postgresql' } }), 'postgresql');
+  assert.equal(sqlSystem({ database: { name: 'store-demo.db', system: 'postgresql' } }), 'postgresql');
   assert.equal(sqlSystem({ database: { name: 'orders', system: 'mssql' } }), 'sqlserver', 'the OpenTelemetry spelling maps to SQL Server');
   assert.equal(sqlSystem({ database: { name: 'orders', system: 'MariaDB' } }), 'mariadb');
   assert.equal(sqlSystem({ database: { name: 'orders', system: 'oracle' } }), 'oracle', 'an id without a mark is still the provider');
   assert.equal(sqlSystem({ database: { name: 'orders', system: 'mongodb' } }), 'sql', 'a document store is not a SQL provider');
-  assert.equal(sqlSystem({ database: { name: 'treasury-demo.db' } }), 'sqlite', 'the guess stays the fallback');
+  assert.equal(sqlSystem({ database: { name: 'store-demo.db' } }), 'sqlite', 'the guess stays the fallback');
   assert.equal(sqlSystem({ database: null }), 'sql');
   assert.match(storeMark(sqlSystem({ database: { name: 'orders', system: 'postgresql' } })), /mk-postgresql/);
   assert.equal(recordCount('redis', 2), '2 keys');
@@ -193,8 +193,8 @@ test('Preview unavailable, caught mid-request: a designed amber state, store by 
   assert.match(html, /The handler sent <code class="ltr">INCRBY<\/code> to Redis/);
   assert.match(html, /Nothing was written/);
   assert.match(html, /Redis <code class="ltr">cache<\/code>[^]*INCRBY<\/code> refused, never sent/);
-  assert.match(html, /SQLite <code class="ltr">treasury-demo\.db<\/code>[^]*Rolled back/);
-  assert.match(html, /MongoDB <code class="ltr">treasury<\/code>[^]*Transaction aborted/);
+  assert.match(html, /SQLite <code class="ltr">store-demo\.db<\/code>[^]*Rolled back/);
+  assert.match(html, /MongoDB <code class="ltr">store<\/code>[^]*Transaction aborted/);
   assert.match(html, /data-action="send"[^]*data-action="traced-on"/, 'Send for real, and Send with trace when it is off');
   assert.match(html, /\[SendproofPreview\(Enabled = false, Reason = &quot;This operation writes to Redis&quot;\)\]/);
   assert.match(html, /application\/problem\+json/);
@@ -227,7 +227,7 @@ test('execute returns the write guard’s 409 as a blocked result instead of a f
 test('the environment panel lists each hooked store with its mode, and says unhooked ones are not covered', () => {
   const html = coverageMarkup(capabilities);
   assert.match(html, /What Preview covers in Development/);
-  assert.match(html, /SQLite <code class="ltr">treasury-demo\.db<\/code>[^]*mode-pill is-preview/);
+  assert.match(html, /SQLite <code class="ltr">store-demo\.db<\/code>[^]*mode-pill is-preview/);
   assert.match(html, /Redis <code class="ltr">cache<\/code>[^]*Guard only/, 'a guarded store says Guard only');
   assert.doesNotMatch(html, />Guard</);
   assert.match(html, /neither rolled back nor blocked/);

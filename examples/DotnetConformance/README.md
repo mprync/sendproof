@@ -1,6 +1,6 @@
 # .NET conformance fixture
 
-A disposable ASP.NET Core minimal API that implements the shared [conformance fixture contract](../../spec/conformance/fixture.md) with the `Sendproof.AspNetCore` and `Sendproof.EntityFrameworkCore` packages. The shared runner drives it over real HTTP; it is not a sample application (see `examples/TreasuryApi` for that).
+A disposable ASP.NET Core minimal API that implements the shared [conformance fixture contract](../../spec/conformance/fixture.md) with the `Sendproof.AspNetCore` and `Sendproof.EntityFrameworkCore` packages. The shared runner drives it over real HTTP; it is not a sample application (see `examples/StoreApi` for that).
 
 Requirements: .NET SDK 10 (`net10.0`), NuGet access for the first restore, and a loopback port.
 

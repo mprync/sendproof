@@ -29,6 +29,6 @@ Register `AddSendproof()` with the application's services, add `.AddEntityFramew
 
 ## Check the installation
 
-Open an authenticated read operation and send it. For a transaction test, choose a write operation the host marked with `.WithSendproofPreview()` or `[SendproofPreview]`. Preview it, inspect its database changes, then read the affected resource independently. Repeat with **Send** against disposable data to check persistence. The [Treasury example](../examples/TreasuryApi/README.md) implements this flow against SQLite.
+Open an authenticated read operation and send it. For a transaction test, choose a write operation the host marked with `.WithSendproofPreview()` or `[SendproofPreview]`. Preview it, inspect its database changes, then read the affected resource independently. Repeat with **Send** against disposable data to check persistence. The [Acme Store example](../examples/StoreApi/README.md) implements this flow against SQLite.
 
 If a route is missing from Preview, check its opt-in metadata and whether the provider resolves a relational context. If the API rejects the request, check the signed-in user's permissions. External calls and writes through separate connections need application-specific handling. The [EF provider guide](../adapters/dotnet/Sendproof.EntityFrameworkCore/README.md) describes these boundaries.

@@ -14,13 +14,13 @@ public sealed class PreviewProviderTests
     public void DatabaseLabelUsesOnlySqliteFileName()
     {
         var services = new ServiceCollection();
-        services.AddDbContext<ExampleContext>(options => options.UseSqlite("Data Source=/private/secret/treasury.db"));
+        services.AddDbContext<ExampleContext>(options => options.UseSqlite("Data Source=/private/secret/store.db"));
         services.AddSendproof().AddEntityFrameworkCore<ExampleContext>();
         using var root = services.BuildServiceProvider();
         using var scope = root.CreateScope();
         var provider = scope.ServiceProvider.GetRequiredService<IPreviewProvider>();
         Assert.True(provider.IsAvailable);
-        Assert.Equal("treasury.db", provider.Database);
+        Assert.Equal("store.db", provider.Database);
     }
 
     [Fact]

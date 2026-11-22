@@ -221,7 +221,7 @@ Found while redesigning; each is in the v5 screens.
 
 ## 10. Spec changes in the example API
 
-`examples/TreasuryApi` must emit these; `mocks/v5-spec.js` adds them to the snapshot until it does. After the change, run `node tools/mock-spec.mjs` and delete the patch from `v5-spec.js`.
+`examples/StoreApi` must emit these; `mocks/v5-spec.js` adds them to the snapshot until it does. After the change, run `node tools/mock-spec.mjs` and delete the patch from `v5-spec.js`.
 
 ```yaml
 /api/v2/accounts/{id}/balance:

@@ -1,6 +1,6 @@
 # Workbench v3: first-use review
 
-A review of the live workbench (`http://127.0.0.1:5189/sendproof/`, Treasury example, signed out and signed in as Ada Admin) from the point of view of a developer opening it for the first time, without docs. It also covers the v2 mocks where the live app follows them. Each issue names the standard it breaks and the v3 mock that fixes it. The mocks were drafted in `mocks/v3/` and, once approved, became the reference set in `mocks/`; their screen list is in [`mocks/README.md`](../../mocks/README.md).
+A review of the live workbench (`http://127.0.0.1:5189/sendproof/`, Acme Store example, signed out and signed in as Ada Admin) from the point of view of a developer opening it for the first time, without docs. It also covers the v2 mocks where the live app follows them. Each issue names the standard it breaks and the v3 mock that fixes it. The mocks were drafted in `mocks/v3/` and, once approved, became the reference set in `mocks/`; their screen list is in [`mocks/README.md`](../../mocks/README.md).
 
 How the review was done:
 

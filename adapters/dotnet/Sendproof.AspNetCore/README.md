@@ -6,7 +6,7 @@ Register the ASP.NET Core adapter alongside the host's OpenAPI and authenticatio
 using Sendproof.AspNetCore;
 
 builder.Services.AddSendproof()
-    .WithApiName("Treasury API")
+    .WithApiName("Store API")
     .WithOpenApiUrl("/openapi/v1.json")
     .WithOpenApiDocument("Previous version", "/openapi/v0.json")
     .WithAuthProvider("Company sign in", "login", "/account/sign-in");
