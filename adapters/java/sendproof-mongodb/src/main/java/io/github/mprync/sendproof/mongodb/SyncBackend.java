@@ -106,6 +106,12 @@ final class SyncBackend implements MongoBackend {
     }
 
     @Override
+    public BsonDocument command(String database, BsonDocument command, long timeoutMs) {
+        return databases.apply(database).withTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .runCommand(command, BsonDocument.class);
+    }
+
+    @Override
     public List<BsonDocument> find(String database, String collection, BsonDocument filter, BsonDocument projection,
                                    int limit, Object session) {
         MongoCollection<BsonDocument> target = databases.apply(database).getCollection(collection, BsonDocument.class);

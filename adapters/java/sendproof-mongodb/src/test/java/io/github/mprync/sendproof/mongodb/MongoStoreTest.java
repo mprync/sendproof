@@ -644,6 +644,72 @@ class MongoStoreTest {
     }
 
     @Test
+    void aPreviewWhoseAbortAloneIsLostStillCapturesThenAnswers500AndReleasesItsLocks() throws Exception {
+        raw.getDatabase(databaseName).getCollection("documents").updateOne(Filters.eq("_id", "seeded"), Updates.set("n", 0));
+        var succeeded = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        var failed = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        try (Proxy proxy = new Proxy(URL)) {
+            MongoStore proxied = MongoStore.builder().build();
+            MongoClient through = MongoClients.create(MongoClientSettings.builder()
+                    .applyConnectionString(new ConnectionString("mongodb://127.0.0.1:" + proxy.port() + "/?directConnection=true"))
+                    .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(1, java.util.concurrent.TimeUnit.SECONDS))
+                    .addCommandListener(proxied.commandListener())
+                    .addCommandListener(new com.mongodb.event.CommandListener() {
+                        @Override
+                        public void commandSucceeded(com.mongodb.event.CommandSucceededEvent event) {
+                            succeeded.add(event.getCommandName());
+                        }
+
+                        @Override
+                        public void commandFailed(com.mongodb.event.CommandFailedEvent event) {
+                            failed.add(event.getCommandName());
+                        }
+                    }).build());
+            extra.add(through);
+            MongoClient guarded = proxied.sync(through);
+            assertThat(proxied.describe().mode()).isEqualTo("preview");
+            long[] armed = new long[1];
+            PreviewOutcome outcome = Harness.preview(() -> {
+                guarded.getDatabase(databaseName).getCollection("documents").updateOne(Filters.eq("_id", "seeded"), Updates.inc("n", 1));
+                // Only the abort is lost: the proxy closes the connection on it, and every other command goes through.
+                proxy.dropAborts(true);
+                succeeded.clear();
+                armed[0] = System.nanoTime();
+            }, proxied);
+            assertThat(Duration.ofNanos(System.nanoTime() - armed[0])).isLessThan(Duration.ofSeconds(6));
+            assertThat(succeeded).as("change capture read through the proxy").contains("find");
+            assertThat(failed).contains("abortTransaction");
+            assertThat(outcome.status()).isEqualTo(500);
+            assertThat(outcome.confirmed()).as("a rollback the server never acknowledged is never claimed").isFalse();
+            // The network is fine, so killSessions ends the transaction straight away.
+            long released = System.nanoTime();
+            java.util.concurrent.CompletableFuture.runAsync(() -> raw.getDatabase(databaseName).getCollection("documents")
+                    .updateOne(Filters.eq("_id", "seeded"), Updates.inc("n", 10))).get(20, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(Duration.ofNanos(System.nanoTime() - released)).isLessThan(Duration.ofSeconds(5));
+            assertThat(succeeded).contains("killSessions");
+            Document seeded = raw.getDatabase(databaseName).getCollection("documents").find(Filters.eq("_id", "seeded")).first();
+            assertThat(seeded.getInteger("n")).as("nothing of the Preview was committed").isEqualTo(10);
+        }
+    }
+
+    @Test
+    void aKillSessionsTryAgainstAnUnreachableServerNeverHoldsTheRetryWindowOpen() throws Exception {
+        // Nothing listens here, and the client keeps the driver's default 30-second server selection timeout.
+        MongoStore nowhere = MongoStore.builder().build();
+        MongoClient unreachable = MongoClients.create(MongoClientSettings.builder()
+                .applyConnectionString(new ConnectionString("mongodb://127.0.0.1:1/?directConnection=true"))
+                .addCommandListener(nowhere.commandListener()).build());
+        extra.add(unreachable);
+        nowhere.sync(unreachable);
+        long started = System.nanoTime();
+        String failure = nowhere.engine().killSession(new BsonDocument("id",
+                new org.bson.BsonBinary(UUID.randomUUID(), org.bson.UuidRepresentation.STANDARD)));
+        Duration took = Duration.ofNanos(System.nanoTime() - started);
+        assertThat(failure).contains("couldn't be reached");
+        assertThat(took).as("the whole retry window").isBetween(Duration.ofSeconds(9), Duration.ofSeconds(13));
+    }
+
+    @Test
     void aNormalPreviewSendsNoKillSessions() throws Exception {
         var names = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
         MongoStore watched = MongoStore.builder().build();
@@ -671,6 +737,7 @@ class MongoStoreTest {
         private final java.net.ServerSocket listener;
         private final List<java.net.Socket> open = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         private volatile boolean down;
+        private volatile boolean dropAborts;
 
         Proxy(String url) throws java.io.IOException {
             var upstream = new com.mongodb.ServerAddress(new ConnectionString(url).getHosts().get(0));
@@ -686,7 +753,7 @@ class MongoStoreTest {
                         java.net.Socket server = new java.net.Socket(upstream.getHost(), upstream.getPort());
                         open.add(client);
                         open.add(server);
-                        pump(client, server);
+                        forward(client, server);
                         pump(server, client);
                     } catch (java.io.IOException closed) {
                         // The listener closed, or the upstream refused this connection.
@@ -699,6 +766,55 @@ class MongoStoreTest {
 
         int port() {
             return listener.getLocalPort();
+        }
+
+        /** While set, a connection that carries an {@code abortTransaction} is closed instead, before it reaches the server. */
+        void dropAborts(boolean drop) {
+            dropAborts = drop;
+        }
+
+        /** Copies the driver's requests to the server message by message, so an abort can be recognised and lost. */
+        private void forward(java.net.Socket client, java.net.Socket server) {
+            Thread thread = new Thread(() -> {
+                try {
+                    var in = new java.io.DataInputStream(new java.io.BufferedInputStream(client.getInputStream()));
+                    var out = server.getOutputStream();
+                    while (true) {
+                        byte[] header = new byte[4];
+                        in.readFully(header);
+                        int length = java.nio.ByteBuffer.wrap(header).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                        byte[] message = java.util.Arrays.copyOf(header, length);
+                        in.readFully(message, 4, length - 4);
+                        if (dropAborts && isAbort(message)) {
+                            return;
+                        }
+                        out.write(message);
+                        out.flush();
+                    }
+                } catch (java.io.IOException cut) {
+                    // A cut connection.
+                } finally {
+                    try {
+                        client.close();
+                        server.close();
+                    } catch (java.io.IOException ignored) {
+                        // Already closed.
+                    }
+                }
+            });
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        /** Whether a wire message is an OP_MSG whose body (section kind 0) starts with {@code abortTransaction}. */
+        private static boolean isAbort(byte[] message) {
+            byte[] name = "abortTransaction\0".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            // Header (16 bytes, opCode at 12), flag bits (4), section kind (1), document length (4), element type (1).
+            int at = 26;
+            return message.length >= at + name.length
+                    && java.nio.ByteBuffer.wrap(message, 12, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt() == 2013
+                    && message[20] == 0
+                    && java.util.Arrays.equals(message, at, at + name.length, name, 0, name.length);
         }
 
         private static void pump(java.net.Socket from, java.net.Socket to) {
@@ -832,6 +948,11 @@ class MongoStoreTest {
         @Override
         public BsonDocument command(String database, BsonDocument command, Object session) {
             return delegate.command(database, command, session);
+        }
+
+        @Override
+        public BsonDocument command(String database, BsonDocument command, long timeoutMs) {
+            return delegate.command(database, command, timeoutMs);
         }
 
         @Override

@@ -108,6 +108,8 @@ final class MongoEngine {
     private static final long KILL_RETRY_LIMIT_MS = 10_000;
     private static final long KILL_FIRST_DELAY_MS = 100;
     private static final long KILL_MAX_DELAY_MS = 2_000;
+    /** The most one {@code killSessions} try may take, server selection included. */
+    private static final long KILL_TRY_TIMEOUT_MS = 2_000;
 
     /** Runs {@code killSessions} after a lost abort, so the Preview's reply never waits for the network. */
     private static final java.util.concurrent.ExecutorService KILLERS = Executors.newCachedThreadPool(task -> {
@@ -829,7 +831,7 @@ final class MongoEngine {
      * Ends the Preview transaction with {@code killSessions} after an abort the server never answered (the connection
      * dropped), retrying with backoff while the server can't be reached. A final failure is logged with the session id:
      * the server ends the transaction at its lifetime limit. The session stays open until then, so the driver can't hand
-     * its id to another operation meanwhile. Each try waits at most the client's server selection timeout.
+     * its id to another operation meanwhile.
      */
     private void kill(PreviewState state) {
         String failure;
@@ -837,24 +839,7 @@ final class MongoEngine {
             var session = ((com.mongodb.session.ClientSession) state.session).getServerSession();
             // The id may still name a transaction on the server: never let the driver's pool reuse it.
             session.markDirty();
-            var command = new BsonDocument("killSessions", new BsonArray(List.of(session.getIdentifier())));
-            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(KILL_RETRY_LIMIT_MS);
-            long delay = KILL_FIRST_DELAY_MS;
-            while (true) {
-                try {
-                    internal(() -> backend.command("admin", command, null));
-                    return;
-                } catch (com.mongodb.MongoSocketException | com.mongodb.MongoTimeoutException unreachable) {
-                    // A network error or no server to select: try again shortly.
-                    long left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
-                    if (left <= 0) {
-                        failure = "MongoDB couldn't be reached for " + KILL_RETRY_LIMIT_MS / 1000 + " s";
-                        break;
-                    }
-                    Thread.sleep(Math.min(delay, left));
-                    delay = Math.min(delay * 2, KILL_MAX_DELAY_MS);
-                }
-            }
+            failure = killSession(session.getIdentifier());
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             failure = "interrupted";
@@ -863,8 +848,41 @@ final class MongoEngine {
         } finally {
             close(state);
         }
-        LOG.warn("Couldn't end the transaction of MongoDB Preview session {} ({}); the server ends it, and releases its "
-                + "locks, at transactionLifetimeLimitSeconds.", state.lsid, failure);
+        if (failure != null) {
+            LOG.warn("Couldn't end the transaction of MongoDB Preview session {} ({}); the server ends it, and releases its "
+                    + "locks, at transactionLifetimeLimitSeconds.", state.lsid, failure);
+        }
+    }
+
+    /**
+     * Sends {@code killSessions} for one session id, retrying with backoff while the server can't be reached, for about
+     * {@link #KILL_RETRY_LIMIT_MS} in all.
+     *
+     * @return {@code null} once the server ended the session, or why it couldn't be ended
+     */
+    String killSession(BsonDocument identifier) throws InterruptedException {
+        var command = new BsonDocument("killSessions", new BsonArray(List.of(identifier)));
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(KILL_RETRY_LIMIT_MS);
+        long delay = KILL_FIRST_DELAY_MS;
+        while (true) {
+            // Each try has its own short limit, so one that waits for a server never holds the window open.
+            long timeout = Math.max(1, Math.min(KILL_TRY_TIMEOUT_MS,
+                    TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+            try {
+                internal(() -> backend.command("admin", command, timeout));
+                return null;
+            } catch (com.mongodb.MongoSocketException | com.mongodb.MongoTimeoutException unreachable) {
+                // A network error or no server to select: try again shortly.
+                long left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+                if (left <= 0) {
+                    return "MongoDB couldn't be reached for " + KILL_RETRY_LIMIT_MS / 1000 + " s";
+                }
+                Thread.sleep(Math.min(delay, left));
+                delay = Math.min(delay * 2, KILL_MAX_DELAY_MS);
+            } catch (RuntimeException refused) {
+                return refused.getMessage();
+            }
+        }
     }
 
     /**

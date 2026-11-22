@@ -46,6 +46,12 @@ interface MongoBackend {
     /** Runs a command on a database, in the session's transaction when one is given. */
     BsonDocument command(String database, BsonDocument command, Object session);
 
+    /**
+     * Runs a command on a database outside any session, giving up after {@code timeoutMs}, server selection included
+     * (the driver's {@code timeoutMS}), whatever the client's own server selection timeout.
+     */
+    BsonDocument command(String database, BsonDocument command, long timeoutMs);
+
     /** Finds documents with {@code find}, in the session's transaction when one is given. */
     List<BsonDocument> find(String database, String collection, BsonDocument filter, BsonDocument projection, int limit,
                             Object session);

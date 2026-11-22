@@ -205,6 +205,11 @@ public final class MongoStore implements DataStore {
         return engine != null;
     }
 
+    /** The engine of the attached client, or {@code null}. */
+    MongoEngine engine() {
+        return engine;
+    }
+
     synchronized void attach(MongoBackend backend, SessionBinder sessionBinder) {
         if (engine != null) {
             throw new IllegalStateException("This MongoStore is already attached to a MongoDB client.");
