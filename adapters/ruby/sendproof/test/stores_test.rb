@@ -17,6 +17,8 @@ class StoresTest < Minitest::Test
   # that unwind through the handler but aren't StandardErrors.
   Interrupted = Class.new(Exception) # rubocop:disable Lint/InheritException
   Classify = Sendproof::Stores::Classify
+  # Threads the /late-thread handler left running, with the queue that releases each one.
+  LATE = Queue.new
 
   # A guarded store with no server behind it: its "client" calls the guard the way a real hook does,
   # then records what would have been sent.
@@ -62,7 +64,7 @@ class StoresTest < Minitest::Test
     @config.use(@provider)
     @config.data_store(@store)
     @config.preview_operations = [%w[GET /read], %w[POST /write], %w[POST /swallow], %w[POST /crash], %w[POST /late],
-                                  %w[POST /interrupt], %w[POST /spawn], %w[POST /spawn-detached]]
+                                  %w[POST /interrupt], %w[POST /spawn], %w[POST /spawn-detached], %w[POST /late-thread]]
   end
 
   def app
@@ -95,6 +97,20 @@ class StoresTest < Minitest::Test
             nil
           end.join
           [200, {}, ["spawned"]]
+        end
+      # A thread the handler starts and leaves running: it writes only after the response was sent.
+      when ["POST", "/late-thread"]
+        handled.call do
+          go = Queue.new
+          worker = Thread.new do
+            go.pop
+            store.send_command("INCR", "late")
+            :sent
+          rescue Sendproof::PreviewWriteBlocked => e
+            e
+          end
+          LATE << [go, worker]
+          [200, {}, ["started"]]
         end
       when ["POST", "/spawn-detached"]
         handled.call { Thread.new { Sendproof.detached { store.send_command("INCR", "k") } }.join; [200, {}, ["detached"]] }
@@ -297,6 +313,34 @@ class StoresTest < Minitest::Test
     preview("/spawn")
     assert_blocked
     assert_empty @store.sent, "A guarded store can't roll back, so the write must never be sent"
+  end
+
+  # A thread the handler started carries the Preview's context, which stays a Preview after it ends: a write
+  # it sends after the response is refused before it is sent, however long after (spec/data-stores.md).
+  def test_a_thread_the_handler_started_that_writes_after_the_response_is_refused
+    preview("/late-thread")
+    assert_equal 200, last_response.status, last_response.body
+    refute_nil last_response["preference-applied"], "nothing was written during the Preview, so it confirmed"
+    go, worker = LATE.pop
+    go << true
+    result = worker.value
+    assert_kind_of Sendproof::PreviewWriteBlocked, result, "No Preview is open any more, but the write carries an ended Preview"
+    assert_equal %w[redis INCR], [result.store, result.operation]
+    assert_match(/ended/, result.message)
+    assert_empty @store.sent, "the late write must never be sent"
+  end
+
+  # Only a Preview's context marks a thread: a thread an observed send started writes normally, and a
+  # Preview's thread that marks its own work detached is background work.
+  def test_threads_of_other_requests_and_detached_work_are_not_refused_after_the_request
+    Sendproof::Capture.with(Sendproof::Recorder.new(rollback: false)) { Thread.new { @store.send_command("INCR", "observed") }.join }
+    recorder = Sendproof::Recorder.new(rollback: true)
+    worker = Sendproof::Capture.with(recorder) { Thread.new { Thread.stop; Sendproof.detached { @store.send_command("INCR", "detached") } } }
+    recorder.finish
+    sleep 0.01 until worker.stop?
+    worker.run
+    worker.join
+    assert_equal [%w[INCR observed], %w[INCR detached]], @store.sent
   end
 
   def test_a_write_marked_detached_never_fails_a_preview

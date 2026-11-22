@@ -35,7 +35,12 @@ Details per store are below. In short:
 
 A hook finds the request through thread- and fiber-local state, so a write sent from a thread or fiber the handler started (`Thread.new`, a `Fiber`, an external `Enumerator`), or from a client's own background threads, carries no request, and MongoDB can't put it in the Preview transaction. While a Preview is open, any store write that belongs to no request is therefore treated as that Preview's write: it is refused before it is sent, with `Sendproof::PreviewWriteBlocked`, and every open Preview answers 409. On a MongoDB replica set (`preview` mode) the write is refused with `Sendproof::PreviewTransactionControl` and every open Preview answers 500. Either way no Preview confirms a rollback that didn't happen.
 
-The same applies to any thread in the server process that isn't handling a request: an in-process job worker (ActiveJob's `:async` adapter), Action Cable channel actions, a scheduler. Their writes are refused while someone runs a Preview, until you mark them as detached.
+A thread or fiber the handler starts (`Thread.new`, `Fiber.new`, an external `Enumerator`) also inherits the Preview's mark through Ruby's fiber storage, and keeps it after the Preview ends. Its writes are that Preview's: refused while the Preview runs (the Preview answers 409, or 500 on a MongoDB replica set), and refused before they are sent for as long as the thread lives once the Preview has ended, so a thread left running can't write after the response.
+
+- A thread pool that creates a worker thread while a Preview's handler posts to it (a lazily started `Concurrent` executor, for example) gives that worker the mark too, and the worker's later writes are refused. Start pools at boot, or mark their tasks detached.
+- A task handed to a thread that already existed before the Preview, such as a worker of a pool started at boot, carries no mark. While a Preview is open its write is refused as unattributed, but once every Preview has ended it can't be told apart from background work and runs. Don't hand writes to such threads from a previewed handler.
+
+The same refusal applies to any thread in the server process that isn't handling a request: an in-process job worker (ActiveJob's `:async` adapter), Action Cable channel actions, a scheduler. Their writes are refused while someone runs a Preview, until you mark them as detached.
 
 A write is attributed, and never refused this way, when it runs inside a request that passed through `Sendproof::Middleware` (Sends included), inside a Preview or observed Send, or inside `Sendproof.detached`. Mark background work that runs in the server process, such as an in-process job worker or a scheduled task, as detached:
 

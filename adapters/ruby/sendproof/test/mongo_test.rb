@@ -425,11 +425,29 @@ class MongoHookTest < Minitest::Test
       Thread.new { assert_raises(Sendproof::PreviewTransactionControl) { @raw[:documents].insert_one(_id: "threaded") } }.join
     end
     refute_nil recorder.fault
-    assert_match(/outside any request/, recorder.fault.message)
+    assert_match(/thread or fiber the Preview's handler started/, recorder.fault.message)
     assert_empty stored(_id: "threaded"), "the unattributed write never reached MongoDB"
     detached = preview([@store]) { |_| Thread.new { Sendproof.detached { @raw[:documents].insert_one(_id: "worker") } }.join }
     assert_nil detached.fault
     assert_equal 1, stored(_id: "worker").length
+  end
+
+  # A thread the handler leaves running carries the ended Preview: its late write is refused, never sent.
+  def test_a_thread_the_handler_started_that_writes_after_the_preview_ended_is_refused
+    go = Queue.new
+    worker = nil
+    preview([@store]) do |_|
+      worker = Thread.new do
+        go.pop
+        @raw[:documents].insert_one(_id: "late")
+        :sent
+      rescue Sendproof::PreviewTransactionControl, Sendproof::PreviewWriteBlocked => e
+        e
+      end
+    end
+    go << true
+    assert_kind_of Exception, worker.value, "the late write must be refused"
+    assert_empty stored(_id: "late")
   end
 
   # In guard mode (a standalone server) the same write is refused before it is sent and blocks the Preview.

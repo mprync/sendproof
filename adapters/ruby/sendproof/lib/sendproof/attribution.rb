@@ -51,6 +51,9 @@ module Sendproof
       def refuse_unattributed(store, operation, fault: false)
         return if attributed?
 
+        inherited = Capture.inherited_preview
+        return refuse_inherited(inherited, store, operation, fault) if inherited
+
         open = @lock.synchronize { @open.keys }
         return if open.empty?
 
@@ -71,6 +74,30 @@ module Sendproof
       end
 
       private
+
+      # A write from a thread or fiber a Preview's handler started: it is that Preview's write. While the
+      # Preview is open it blocks it (or, with +fault+, fails it with 500); once it ended, it is refused
+      # for as long as the thread lives, since nothing could take it back.
+      def refuse_inherited(recorder, store, operation, fault)
+        reason = Stores::Guard.write_reason(store)
+        if recorder.active?
+          why = "A #{Stores::Guard.store_name(store)} #{operation} was sent from a thread or fiber the Preview's handler started, " \
+                "outside the Preview's own session, so Sendproof refused it."
+          if fault
+            recorder.refuse(PreviewTransactionControl.new(why))
+            raise PreviewTransactionControl, why
+          end
+          recorder.block(store: store, operation: operation, detail: reason)
+          recorder.db(system: store, operation: operation, blocked: true)
+          raise PreviewWriteBlocked.new(store, operation, reason)
+        end
+
+        why = "A #{Stores::Guard.store_name(store)} #{operation} was sent from a thread or fiber a Preview's handler started, " \
+              "after that Preview ended, so Sendproof refused it. Mark background work with Sendproof.detached."
+        raise PreviewTransactionControl, why if fault
+
+        raise PreviewWriteBlocked.new(store, operation, "#{reason}. #{why}")
+      end
 
       def mark(kind)
         previous = Thread.current[KEY]
