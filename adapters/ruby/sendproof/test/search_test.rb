@@ -43,6 +43,7 @@ class FakeSearchServer
             when *INFO_PATHS then INFO
             when /_search\z/ then '{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"title":"A"}}]}}'
             when /_doc\/missing\z/ then return [404, { "content-type" => "application/json" }, ['{"error":{"type":"not_found"},"status":404}']]
+            when /_string_error\z/ then return [405, { "content-type" => "application/json" }, ['{"error":"Incorrect HTTP method","status":405}']]
             else '{"result":"updated","updated":1}'
             end
     [200, { "content-type" => "application/json", "x-elastic-product" => "Elasticsearch" }, [reply]]
@@ -203,14 +204,41 @@ module SearchHookTests
     assert_nil built
   end
 
-  def test_a_write_from_a_thread_the_handler_started_fails_the_preview
+  def test_a_write_from_a_thread_the_handler_started_is_refused_before_it_is_sent
     new_store
     client = new_client
-    recorder = preview { |_| Thread.new { client.index(index: "articles", id: "t", body: {}) }.join }
-    refute_nil recorder.fault
-    assert_match(/outside any request/, recorder.fault.message)
+    recorder = preview do |_|
+      Thread.new { assert_raises(Sendproof::PreviewWriteBlocked) { client.index(index: "articles", id: "t", body: {}) } }.join
+    end
+    assert_equal [system_id, "index"], [recorder.blocked&.store, recorder.blocked&.operation]
+    assert_nil recorder.fault
+    assert_empty sent, "the unattributed write never reached the server"
     detached = preview { |_| Thread.new { Sendproof.detached { client.index(index: "articles", id: "w", body: {}) } }.join }
+    assert_nil detached.blocked
     assert_nil detached.fault
+    assert_equal ["PUT /articles/_doc/w"], sent
+  end
+
+  # Some errors carry a string, not an object, as +error+ (a 405, for example). Logging the reply must not
+  # turn a request that was already sent into an exception.
+  def test_a_reply_whose_error_is_a_string_is_logged_and_returned
+    new_store
+    client = new_client
+    recorder = observe do |_|
+      error = assert_raises(StandardError) { client.perform_request("GET", "/articles/_string_error") }
+      refute_kind_of TypeError, error
+    end
+    assert_equal "405", db_entries(recorder, "GET /{}/_string_error").fetch(0)[:db][:error]
+  end
+
+  # A body that isn't valid UTF-8 has no statement; it must not stop the request.
+  def test_a_body_that_is_not_valid_utf8_is_sent_without_a_statement
+    new_store
+    client = new_client
+    recorder = observe { |_| client.perform_request("POST", "/articles/_doc", {}, "{\"a\":1}\n\xff\xfe".dup.force_encoding("UTF-8")) }
+    entry = db_entries(recorder, "index").fetch(0)
+    assert_nil entry[:db][:statement]
+    assert_equal ["POST /articles/_doc"], sent
   end
 
   # A timeout that unwinds the handler mid-request propagates as it would without Sendproof, leaves no

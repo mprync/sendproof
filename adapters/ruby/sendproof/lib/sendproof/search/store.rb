@@ -131,7 +131,7 @@ module Sendproof
           raise
         end
         parsed = parse(response.body)
-        error = response.status.to_i >= 400 ? (parsed.is_a?(Hash) && parsed.dig("error", "type")) || response.status.to_s : nil
+        error = response.status.to_i >= 400 ? error_type(parsed) || response.status.to_s : nil
         recorder.db(**entry, rows_affected: error ? nil : rows_of(parsed), error: error, duration_ms: Clock.elapsed_ms(started))
         response
       end
@@ -144,7 +144,7 @@ module Sendproof
         when Hash, Array then lines_of([body])
         when String then lines_of(body.each_line.map(&:strip).reject(&:empty?).map { |line| JSON.parse(line) })
         end
-      rescue JSON::ParserError, EncodingError
+      rescue JSON::ParserError, EncodingError, ArgumentError # ArgumentError: a String that isn't valid UTF-8
         nil
       end
 
@@ -185,8 +185,15 @@ module Sendproof
         return nil unless body.is_a?(String) && body.bytesize <= 1_048_576 && body.lstrip.start_with?("{")
 
         JSON.parse(body)
-      rescue JSON::ParserError, EncodingError
+      rescue JSON::ParserError, EncodingError, ArgumentError
         nil
+      end
+
+      # The engine's error type: +error.type+ of an error object. Some replies (a 405, say) carry a string.
+      def error_type(parsed)
+        error = parsed["error"] if parsed.is_a?(Hash)
+        type = error["type"] if error.is_a?(Hash)
+        type if type.is_a?(String)
       end
 
       # Documents returned, updated or deleted, when the reply says so.
