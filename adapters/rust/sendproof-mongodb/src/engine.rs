@@ -158,14 +158,19 @@ impl Engine {
     /// The driver ignores abort errors, as the transactions specification requires: an unacknowledged
     /// abort still commits nothing, because no `commitTransaction` is ever sent for the Preview
     /// session. But the server then keeps the transaction, and its locks, until its 60-second
-    /// lifetime limit, so when no reply acknowledged the abort the engine kills the session instead.
-    pub async fn end(&self, state: &PreviewState, from_timer: bool) {
-        let Some(session) = &state.session else { return };
-        let mut session = session.lock().await;
+    /// lifetime limit. So when a command was sent on the session and no reply acknowledged the abort,
+    /// this returns `false` at once (the Preview answers 500) and kills the session in the background.
+    pub async fn end(self: &Arc<Self>, state: &PreviewState, from_timer: bool) -> bool {
+        let Some(session) = &state.session else { return true };
+        // Already ended: return without waiting for the lock, which a background kill may still hold.
+        if state.data().finished {
+            return true;
+        }
+        let mut session = session.clone().lock_owned().await;
         let opened = {
             let mut data = state.data();
             if data.finished {
-                return;
+                return true;
             }
             data.finished = true;
             // The timer must not cancel itself while it aborts.
@@ -178,17 +183,24 @@ impl Engine {
         };
         let acknowledged = Arc::new(AtomicBool::new(false));
         let _ = INTERNAL.scope((), ABORTING.scope(acknowledged.clone(), async { session.abort_transaction().await })).await;
-        // The session stays locked meanwhile, so the driver can't hand its id to another operation.
-        if opened && !acknowledged.load(Ordering::SeqCst) {
-            self.kill(state).await;
+        if !opened || acknowledged.load(Ordering::SeqCst) {
+            return true;
         }
+        if let Some(lsid) = state.lsid.clone() {
+            let engine = self.clone();
+            tokio::spawn(async move {
+                engine.kill(&lsid).await;
+                // Held until here, so the driver can't hand the session id to another operation meanwhile.
+                drop(session);
+            });
+        }
+        false
     }
 
     /// Ends the Preview transaction with `killSessions` after an abort no reply acknowledged (the
     /// connection dropped), retrying with backoff while the server can't be reached. A final failure
     /// is logged with the session id: the server ends the transaction at its lifetime limit.
-    async fn kill(&self, state: &PreviewState) {
-        let Some(lsid) = &state.lsid else { return };
+    async fn kill(&self, lsid: &Document) {
         let attempts = async {
             let mut delay = KILL_FIRST_DELAY;
             loop {
@@ -328,7 +340,8 @@ pub(crate) struct MongoSession {
 
 impl PreviewSession for MongoSession {
     /// Captures document changes, then aborts the transaction. A capture read that fails for any reason
-    /// but an already-ended transaction fails, after the abort, so the Preview answers 500. Nothing the
+    /// but an already-ended transaction fails, after the abort, so the Preview answers 500, as does an
+    /// abort the server never acknowledged. Nothing the
     /// Preview wrote is ever committed: no `commitTransaction` is ever sent for the Preview session.
     fn rollback(&mut self) -> BoxFuture<'_, Result<(), BoxError>> {
         Box::pin(async move {
@@ -347,7 +360,11 @@ impl PreviewSession for MongoSession {
                     Err(error) => failure = Some(error.into()),
                 }
             }
-            engine.end(&state, false).await;
+            if !engine.end(&state, false).await && failure.is_none() {
+                // The server may still hold the transaction's locks; the session is killed in the background.
+                failure =
+                    Some("MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.".into());
+            }
             match failure {
                 Some(error) => Err(error),
                 None => Ok(()),

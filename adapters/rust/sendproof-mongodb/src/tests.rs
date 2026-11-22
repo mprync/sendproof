@@ -559,13 +559,9 @@ impl Proxy {
     }
 }
 
-#[tokio::test]
-async fn a_preview_dropped_while_the_connection_is_down_still_releases_its_locks() {
-    let fixture = fixture!();
-    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
-    let proxy = Arc::new(Proxy::start().await);
-    // A store that reaches MongoDB only through the proxy, and gives up quickly when it can't: the
-    // driver's own abort fails, and the driver hides that failure.
+/// A store on the fixture's database that reaches MongoDB only through `proxy`, and gives up quickly
+/// when it can't: when the connection is cut the driver's own abort fails, and the driver hides that.
+async fn proxied(fixture: &Fixture, proxy: &Proxy) -> (MongoStore, Arc<Core>) {
     let mut options = ClientOptions::parse(format!("mongodb://{}/?directConnection=true", proxy.address)).await.unwrap();
     options.server_selection_timeout = Some(Duration::from_secs(1));
     let store = MongoStore::builder(options, fixture.database.clone()).build().unwrap();
@@ -579,6 +575,57 @@ async fn a_preview_dropped_while_the_connection_is_down_still_releases_its_locks
             .build()
             .unwrap(),
     );
+    (store, core)
+}
+
+/// Whether the fixture's reader can update the seeded document within `limit`: the proof that no
+/// Preview transaction still holds its write lock.
+async fn lock_released_within(fixture: &Fixture, limit: Duration) -> bool {
+    let documents = fixture.reader.database(&fixture.database).collection::<Document>("documents");
+    let result =
+        tokio::time::timeout(limit, async { documents.update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 10 } }).await }).await;
+    matches!(result, Ok(Ok(_)))
+}
+
+#[tokio::test]
+async fn a_preview_whose_abort_is_lost_answers_500_at_once_and_still_releases_its_locks() {
+    let fixture = fixture!();
+    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
+    let proxy = Arc::new(Proxy::start().await);
+    let (store, core) = proxied(&fixture, &proxy).await;
+    let state = PreviewState::new(&core, Instant::now());
+    let enrollment = state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+    let mongo = store.from_enrollment(Some(&enrollment), true).unwrap();
+    let result = capture::scope(state.recorder(), async {
+        mongo.collection::<Document>("documents").update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 1 } }).await.unwrap();
+        Ok::<_, Failure>(Inner { status: 200, headers: Headers::new(), body: Vec::new() })
+    })
+    .await;
+    // The network fails after the handler, before the Preview finishes, and stays down for 8 seconds.
+    proxy.cut();
+    let restorer = proxy.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(8)).await;
+        restorer.restore();
+    });
+    let started = Instant::now();
+    state.complete();
+    let reply = state.finish(result).await;
+    assert!(started.elapsed() < Duration::from_secs(6), "the reply waited for the network: {:?}", started.elapsed());
+    assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+    assert!(!confirmed(&reply), "a rollback the server never acknowledged is never claimed");
+    // The session is killed in the background once the network is back.
+    assert!(lock_released_within(&fixture, Duration::from_secs(20)).await, "the Preview still holds its transaction");
+    assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_preview_dropped_while_the_connection_is_down_still_releases_its_locks() {
+    let fixture = fixture!();
+    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
+    let proxy = Arc::new(Proxy::start().await);
+    let (store, core) = proxied(&fixture, &proxy).await;
     {
         let state = PreviewState::new(&core, Instant::now());
         let enrollment = state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
@@ -597,12 +644,7 @@ async fn a_preview_dropped_while_the_connection_is_down_still_releases_its_locks
         restorer.restore();
     });
     // Without retries the transaction holds its write lock until the server's 60-second lifetime limit.
-    let documents = fixture.reader.database(&fixture.database).collection::<Document>("documents");
-    let result = tokio::time::timeout(Duration::from_secs(15), async {
-        documents.update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 10 } }).await
-    })
-    .await;
-    assert!(matches!(result, Ok(Ok(_))), "the dropped Preview still holds its transaction: {result:?}");
+    assert!(lock_released_within(&fixture, Duration::from_secs(15)).await, "the dropped Preview still holds its transaction");
     assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
     fixture.cleanup().await;
 }
