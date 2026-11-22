@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "22e224e1c0e1409d8f88c363b4288c36dbe796e0065ef250685ed089a7cbbe93",
+  "bundleHash": "83fbf840a5580c44f0f8729da8ed97b0262b952c39017a99c763417684ac5567",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -18,8 +18,8 @@
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
-      "sha256": "d4dbd8b8a464c064886542c86040d2bc45ec18eefba315652bb1a86e35e24e3f",
-      "bytes": 35672,
+      "sha256": "eb3c7d0fcaa1464382fdbf4b45ed7bc2d99c6c92e0f2a8d7918836a8ffb3232a",
+      "bytes": 35671,
       "contentType": "text/javascript; charset=utf-8"
     },
     "autofill.js": {
@@ -86,6 +86,16 @@
       "sha256": "08f7cb5e961bde25b732d2f79f4876f61eed990f56e97d7de1f45d29ec1168c1",
       "bytes": 24257,
       "contentType": "text/javascript; charset=utf-8"
+    },
+    "favicon.png": {
+      "sha256": "7daae16eb6003b54d0a7fef079d251c1a3c6ba210264cc0e7d51c25a41165b9d",
+      "bytes": 916,
+      "contentType": "image/png"
+    },
+    "favicon.svg": {
+      "sha256": "cad96fe1f53a1e02f39289a8ffc650287af6aaa84f2bd38d0009c544ec46d264",
+      "bytes": 369,
+      "contentType": "image/svg+xml"
     },
     "field-help.js": {
       "sha256": "d04699b9b2cc37119c1e30666f3725f15e813acab745e28f39c037397dd6d729",
@@ -188,13 +198,13 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "icons.js": {
-      "sha256": "6eef73e8f60fe564e17e45d64c4fbf20bb843b24599f1f3bb2f424037cca4a92",
-      "bytes": 7960,
+      "sha256": "47f62c105a85e4382ac04f38f0a72aebe1efeaf7b68552483d91e8c69c0fa1ca",
+      "bytes": 8188,
       "contentType": "text/javascript; charset=utf-8"
     },
     "index.html": {
-      "sha256": "2b47f818ee7c133f67c38caac0e9a6f219bf692589099fb559829e16466f8084",
-      "bytes": 6752,
+      "sha256": "7f1b211e71bd6899dbad9f2be4b28235beb9892ead9c544d936af8a78b586539",
+      "bytes": 6889,
       "contentType": "text/html; charset=utf-8"
     },
     "issues.js": {
@@ -688,8 +698,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "personas.js": {
-      "sha256": "6dc10e30e67d30fad5f0ba84aeb4e8a795d84d59eb73f5e808763d942c55aadc",
-      "bytes": 3001,
+      "sha256": "1f2a7f1fe6c72c8ad6a6c95e2fedec19fde3bb035ee2fddb82cfb5132a1323e5",
+      "bytes": 3003,
       "contentType": "text/javascript; charset=utf-8"
     },
     "popover.js": {
@@ -808,8 +818,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "signin.js": {
-      "sha256": "44d1d1ca41bc2a805d02f2b1b6a23f66a270040d73590edf6b353b90c93f0c8b",
-      "bytes": 16509,
+      "sha256": "94fa0e7ef58bc4c1449faa7b9533c8203674499a92ce3f11ab579027c3bbb8de",
+      "bytes": 16508,
       "contentType": "text/javascript; charset=utf-8"
     },
     "snippets.js": {
@@ -828,8 +838,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "styles.css": {
-      "sha256": "bf2d9c8a767f45e715d7d53217d734402d460262ea795da39265b825bb1b03e8",
-      "bytes": 75027,
+      "sha256": "e3b0d306379d9ea46f3cc43c5418f3e0fc1eab2334df1c4820d7301ef8e49703",
+      "bytes": 75276,
       "contentType": "text/css; charset=utf-8"
     },
     "toggletip.js": {
@@ -843,8 +853,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "view.js": {
-      "sha256": "4e44c244890cbc12015863e89a6b2618c40e1ddef18932c630cdd5a43f437e82",
-      "bytes": 7961,
+      "sha256": "466a2c6ecb310d8b025eeb5129b461e5924c0c564f33de72dcaf8371e5083346",
+      "bytes": 7960,
       "contentType": "text/javascript; charset=utf-8"
     },
     "views.css": {

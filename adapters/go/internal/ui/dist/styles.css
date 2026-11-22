@@ -43,6 +43,9 @@
   --accent-text: oklch(0.45 0.19 268);
   --on-accent:   oklch(0.99 0.003 268);
   --focus:       oklch(0.55 0.2 268);
+  /* The brand mark (docs/images/logo): the solid dart, and the opacity of the faint preview dart. */
+  --mark:        var(--accent);
+  --mark-ghost:  0.4;
 
   --ok:          oklch(0.48 0.13 155);  --ok-soft:     oklch(0.96 0.03 155);
   --warn:        oklch(0.50 0.12 70);   --warn-soft:   oklch(0.965 0.04 85);
@@ -144,6 +147,9 @@
   --accent-soft: oklch(0.28 0.05 268);
   --accent-text: oklch(0.80 0.11 268);
   --focus:       oklch(0.72 0.15 268);
+  /* Lighter than --accent and a stronger preview dart, so both darts read on the dark top bar. */
+  --mark:        oklch(0.68 0.16 268);
+  --mark-ghost:  0.5;
   --ok:          oklch(0.78 0.13 155);  --ok-soft:     oklch(0.26 0.04 155);
   --warn:        oklch(0.82 0.12 80);   --warn-soft:   oklch(0.27 0.04 80);
   --danger:      oklch(0.76 0.14 25);   --danger-soft: oklch(0.25 0.045 25);
@@ -322,8 +328,8 @@ svg.i-sm { inline-size: var(--icon-sm); block-size: var(--icon-sm); }
   border-block-end: 1px solid var(--line); background: var(--panel);
 }
 .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: var(--fs-base); white-space: nowrap; }
-.brand-mark { inline-size: 1.5rem; block-size: 1.5rem; border-radius: 0.4rem; background: var(--text); color: var(--bg); display: grid; place-items: center; flex: none; }
-.brand-mark svg { inline-size: 0.9375rem; block-size: 0.9375rem; stroke-width: 2; }
+.brand-mark { inline-size: 1.5rem; block-size: 1.5rem; color: var(--mark); display: grid; place-items: center; flex: none; }
+.brand-mark svg { inline-size: 1.25rem; block-size: 1.25rem; }
 .crumb-sep { color: var(--line-strong); }
 .api-switch {
   display: flex; min-inline-size: 0; white-space: nowrap; align-items: center; gap: 0.5rem; block-size: var(--btn-sm-h); padding-inline: 0.55rem; border-radius: var(--r);

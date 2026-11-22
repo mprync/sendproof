@@ -177,7 +177,7 @@ function showBootError(error) {
   const url = error.url || state.cap?.openApiUrl;
   const details = `${error.message}${url ? `\nGET ${url}` : ''}`;
   root.innerHTML = `<div class="app">
-    <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">${icon('bench')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
+    <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">${icon('mark')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
       <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="api-switch"><span class="name" lang="en">${esc(state.cap?.apiName || '')}</span></span><span class="spacer"></span></header>
     <div class="workspace">
       <nav class="sidebar" aria-label="${esc(t('side.operations'))}"><div class="nav">${stateBlock({ glyph: 'list', compact: true, title: esc(t('boot.noOperations')), body: esc(t('boot.noOperationsBody')) })}</div><div class="pane-bar side-bar"></div></nav>
