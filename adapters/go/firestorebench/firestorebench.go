@@ -34,7 +34,14 @@
 // call made with context.Background() are not guarded; the last one, while a Preview
 // is open, is refused before it is sent and blocks every open Preview. So is a
 // write from the client's own goroutine, such as a BulkWriter created with a
-// background context (mark background work with sendproof.Detached).
+// background context (mark background work with sendproof.Detached). A call
+// carrying the context of a Preview that has ended is refused too.
+//
+// A BulkWriter queues writes and sends them later with its own context, so use
+// NewBulkWriter: its Create, Set, Update and Delete take the caller's context and
+// refuse a write when it is queued. A raw client.BulkWriter is guarded only when it
+// sends, with the context it was created with: a writer created with a Detached
+// context sends what a Preview's handler queued.
 package firestorebench
 
 import (
