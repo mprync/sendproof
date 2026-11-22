@@ -6,6 +6,8 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using MongoDB.Driver.Core.Configuration;
 using MongoDB.Driver.Core.Events;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sendproof.AspNetCore;
 
 namespace Sendproof.MongoDB;
@@ -33,6 +35,12 @@ internal sealed class MongoEngine
     /// <summary>The reason a standalone server, or any reply the binding doesn't recognise, runs in guard mode.</summary>
     internal const string StandaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions";
 
+    /// <summary>
+    /// The reason when the detection <c>hello</c> can't be sent or answered: whether the server supports transactions is
+    /// unknown, so the store runs in guard mode for now and asks again next time.
+    /// </summary>
+    internal const string UnreachableReason = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode";
+
     /// <summary>The reason a client whose command monitoring isn't installed runs in guard mode.</summary>
     internal const string UnmonitoredReason = "Preview unavailable: Sendproof's command monitoring isn't installed on this MongoDB client";
 
@@ -41,6 +49,15 @@ internal sealed class MongoEngine
 
     /// <summary>Most candidate documents read back for change capture in one Preview.</summary>
     private const int CandidateLimit = 1000;
+
+    /// <summary><c>NoSuchTransaction</c>: the server has no such transaction, so nothing holds its locks.</summary>
+    private const int NoSuchTransaction = 251;
+
+    // How long the engine keeps trying to end a Preview transaction whose abort the server never acknowledged, and the
+    // backoff between tries. Well inside the server's 60-second transaction lifetime.
+    private static readonly TimeSpan KillRetryLimit = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan KillFirstDelay = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan KillMaxDelay = TimeSpan.FromSeconds(2);
 
     // Commands the monitoring specification marks security-sensitive: never logged.
     private static readonly HashSet<string> Sensitive = new(
@@ -64,6 +81,11 @@ internal sealed class MongoEngine
     private readonly ConditionalWeakTable<SendproofPreview, string> _modes = new();
     private readonly ConditionalWeakTable<SendproofPreview, PreviewState> _states = new();
     private readonly ConcurrentDictionary<int, Pending> _pending = new();
+
+    // Each Preview whose session is still open, by the hex of its lsid, and the Preview of each abortTransaction sent and
+    // not yet answered, by request id.
+    private readonly ConcurrentDictionary<string, PreviewState> _byLsid = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<int, PreviewState> _aborts = new();
 
     // Set while the engine itself talks to the server, so monitoring ignores those commands.
     private readonly AsyncLocal<bool> _internal = new();
@@ -106,6 +128,9 @@ internal sealed class MongoEngine
     /// <summary>The capture slot of this host.</summary>
     internal CaptureContext Capture => _capture;
 
+    /// <summary>Where a transaction the engine couldn't end is reported.</summary>
+    internal ILogger? Logger { get; set; }
+
     /// <summary>The state of one <c>preview</c>-mode Preview.</summary>
     internal sealed class PreviewState(IClientSessionHandle session, string lsid)
     {
@@ -117,8 +142,20 @@ internal sealed class MongoEngine
 
         internal string Lsid { get; } = lsid;
 
-        /// <summary>Set once a command carried the session to the server.</summary>
+        /// <summary>Set once a write carried the session to the server.</summary>
         internal bool Used { get; set; }
+
+        private volatile bool _sent;
+        private volatile bool _abortAcknowledged;
+
+        /// <summary>
+        /// Set once any command carried the session to the server: from then on the server may hold the transaction, and
+        /// its locks, until an abort reaches it.
+        /// </summary>
+        internal bool Sent { get => _sent; set => _sent = value; }
+
+        /// <summary>Set when the server answered the abort: acknowledged it, or said the transaction no longer exists.</summary>
+        internal bool AbortAcknowledged { get => _abortAcknowledged; set => _abortAcknowledged = value; }
 
         internal bool Finished { get; set; }
 
@@ -232,8 +269,10 @@ internal sealed class MongoEngine
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
+            // Guard mode for now, and ask again next time. A server that answered with an error is a reply this doesn't
+            // recognise; one that couldn't be reached proves nothing about transactions, and says so.
             LastDetectionError = error;
-            return ("guard", StandaloneReason, false);
+            return ("guard", error is MongoServerException ? StandaloneReason : UnreachableReason, false);
         }
     }
 
@@ -271,6 +310,7 @@ internal sealed class MongoEngine
             state = new PreviewState(session, lsid);
             state.Handle = GuardedSession.Create(this, state, preview);
             _states.Add(preview, state);
+            _byLsid[lsid] = state;
 
             // A handler still running at the limit loses its transaction: later commands fail, nothing commits, and the
             // Preview answers 500 when it ends.
@@ -357,6 +397,20 @@ internal sealed class MongoEngine
             commentText.Value.StartsWith(ProbePrefix, StringComparison.Ordinal))
         {
             _probesSeen[commentText.Value] = 0;
+        }
+
+        // Before the internal check: the engine sends the abort itself.
+        if (!_byLsid.IsEmpty && command.TryGetValue("lsid", out var sessionValue) && sessionValue is BsonDocument sessionDocument &&
+            HexOf(sessionDocument) is { } sessionId && _byLsid.TryGetValue(sessionId, out var own))
+        {
+            if (started.CommandName == "abortTransaction")
+            {
+                _aborts[started.RequestId] = own;
+            }
+            else
+            {
+                own.Sent = true;
+            }
         }
 
         if (_internal.Value)
@@ -487,6 +541,11 @@ internal sealed class MongoEngine
 
     private void OnSucceeded(CommandSucceededEvent succeeded)
     {
+        if (_aborts.TryRemove(succeeded.RequestId, out var aborted))
+        {
+            aborted.AbortAcknowledged = true;
+        }
+
         if (!_pending.TryRemove(succeeded.RequestId, out var pending))
         {
             return;
@@ -539,6 +598,13 @@ internal sealed class MongoEngine
 
     private void OnFailed(CommandFailedEvent failed)
     {
+        // NoSuchTransaction: the server has no such transaction, so nothing holds its locks. A network error proves
+        // nothing reached the server, and any other answer leaves the transaction in doubt.
+        if (_aborts.TryRemove(failed.RequestId, out var aborted) && (failed.Failure as MongoCommandException)?.Code == NoSuchTransaction)
+        {
+            aborted.AbortAcknowledged = true;
+        }
+
         if (!_pending.TryRemove(failed.RequestId, out var pending))
         {
             return;
@@ -616,9 +682,14 @@ internal sealed class MongoEngine
     }
 
     /// <summary>
-    /// Aborts the Preview transaction and ends its session, once. The driver ignores abort errors, as the transactions
-    /// specification requires; an unacknowledged abort still commits nothing, because no <c>commitTransaction</c> is ever
-    /// sent for the Preview session.
+    /// Aborts the Preview transaction and ends its session, once.
+    /// <para>
+    /// The driver ignores abort errors, as the transactions specification requires: an unacknowledged abort still commits
+    /// nothing, because no <c>commitTransaction</c> is ever sent for the Preview session. But the server then keeps the
+    /// transaction, and its locks, until its 60-second lifetime limit. So when a command was sent on the session and the
+    /// server didn't answer the abort, this returns a failure at once (the Preview answers 500) and kills the session in
+    /// the background.
+    /// </para>
     /// </summary>
     private async Task<Exception?> EndAsync(PreviewState state)
     {
@@ -647,7 +718,7 @@ internal sealed class MongoEngine
                     await state.Session.AbortTransactionAsync().ConfigureAwait(false);
                     // A handler command that passed the guard just before the end must not autocommit on the ended
                     // session: open a fresh transaction (client-side only) that is never committed and is aborted when
-                    // the session is disposed below.
+                    // the session is disposed.
                     state.Session.StartTransaction(new TransactionOptions(ReadConcern.Snapshot, writeConcern: WriteConcern.WMajority));
                 }
             }
@@ -657,17 +728,83 @@ internal sealed class MongoEngine
                 failure = error;
             }
 
-            try
+            if (state.Sent && !state.AbortAcknowledged)
             {
-                state.Session.Dispose();
-            }
-            catch (Exception error) when (error is not OutOfMemoryException)
-            {
-                failure ??= error;
+                // The server may still hold the transaction's locks. The session stays open until the kill is over.
+                _ = Task.Run(() => KillAsync(state));
+                return failure ?? new InvalidOperationException(
+                    "MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.");
             }
 
-            return failure;
+            return Close(state) ?? failure;
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>Ends the session, after which the driver may hand its id to another operation.</summary>
+    private Exception? Close(PreviewState state)
+    {
+        _byLsid.TryRemove(new KeyValuePair<string, PreviewState>(state.Lsid, state));
+        try
+        {
+            state.Session.Dispose();
+            return null;
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            return error;
+        }
+    }
+
+    /// <summary>
+    /// Ends the Preview transaction with <c>killSessions</c> after an abort the server never answered (the connection
+    /// dropped), retrying with backoff while the server can't be reached. A final failure is logged with the session id:
+    /// the server ends the transaction at its lifetime limit. The session stays open until then, so the driver can't hand
+    /// its id to another operation meanwhile. Each try waits at most the client's server selection timeout.
+    /// </summary>
+    private async Task KillAsync(PreviewState state)
+    {
+        string failure;
+        try
+        {
+            // The id may still name a transaction on the server: never let the driver's pool reuse it.
+            state.Session.WrappedCoreSession.MarkDirty();
+            var command = new BsonDocument("killSessions", new BsonArray { state.Session.WrappedCoreSession.ServerSession.Id.DeepClone() });
+            var started = Stopwatch.GetTimestamp();
+            var delay = KillFirstDelay;
+            while (true)
+            {
+                try
+                {
+                    await InternalAsync(() => Client.GetDatabase("admin").RunCommandAsync<BsonDocument>(command)).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception unreachable) when (unreachable is MongoConnectionException or TimeoutException)
+                {
+                    // A network error or no server to select: try again shortly.
+                    var left = KillRetryLimit - Stopwatch.GetElapsedTime(started);
+                    if (left <= TimeSpan.Zero)
+                    {
+                        failure = $"MongoDB couldn't be reached for {KillRetryLimit.TotalSeconds:0} s";
+                        break;
+                    }
+
+                    await Task.Delay(delay < left ? delay : left).ConfigureAwait(false);
+                    delay = delay * 2 < KillMaxDelay ? delay * 2 : KillMaxDelay;
+                }
+            }
+        }
+        catch (Exception refused) when (refused is not OutOfMemoryException)
+        {
+            failure = refused.Message;
+        }
+        finally
+        {
+            _ = Close(state);
+        }
+
+        (Logger ?? NullLogger.Instance).LogWarning(
+            "Couldn't end the transaction of MongoDB Preview session {Session} ({Failure}); the server ends it, and releases its locks, at transactionLifetimeLimitSeconds.",
+            state.Lsid, failure);
     }
 
     /// <summary>

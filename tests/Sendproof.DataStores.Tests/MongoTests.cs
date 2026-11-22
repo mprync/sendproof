@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -24,6 +25,9 @@ public sealed class MongoTests
         internal TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>Runs at the end of <c>/lost-abort</c>, after its write.</summary>
+        internal Action? AfterWrite;
+
         internal void Reset()
         {
             Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -40,14 +44,22 @@ public sealed class MongoTests
         internal MongoEngine Engine => App.Services.GetServices<IPreviewDataStore>().OfType<MongoStore>().Single().Engine;
         internal IMongoCollection<BsonDocument> Documents => Raw.GetDatabase(Database).GetCollection<BsonDocument>("documents");
 
-        internal static async Task<Fixture> StartAsync(TimeSpan? timeout = null, Func<Task<BsonDocument>>? hello = null, Action<MongoStoreBuilder>? configure = null, bool monitored = true)
+        /// <param name="url">The server the app's client reaches; the fixture's own raw client always reaches the compose one.</param>
+        /// <param name="settings">Changes the settings of the app's client.</param>
+        internal static async Task<Fixture> StartAsync(TimeSpan? timeout = null, Func<Task<BsonDocument>>? hello = null, Action<MongoStoreBuilder>? configure = null, bool monitored = true,
+            string? url = null, Action<MongoClientSettings>? settings = null)
         {
             var database = Services.Fresh("tb");
             var raw = new MongoClient(Services.MongoUrl);
             var gates = new Gates();
             var app = await TestApp.StartAsync((services, bench) =>
             {
-                services.AddSingleton<IMongoClient>(_ => new MongoClient(Services.MongoUrl));
+                services.AddSingleton<IMongoClient>(_ =>
+                {
+                    var own = MongoClientSettings.FromConnectionString(url ?? Services.MongoUrl);
+                    settings?.Invoke(own);
+                    return new MongoClient(own);
+                });
                 bench.AddMongoDB(mongo =>
                 {
                     mongo.WithName("catalog");
@@ -281,6 +293,13 @@ public sealed class MongoTests
             await Documents(client, database).InsertOneAsync(new BsonDocument("_id", "hung"));
             gates.Started.TrySetResult();
             await Task.Delay(Timeout.Infinite, context.RequestAborted);
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/nothing", () => Results.Ok()).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/lost-abort", async (IMongoClient client) =>
+        {
+            await Documents(client, database).UpdateOneAsync(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Inc("n", 1));
+            gates.AfterWrite?.Invoke();
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/gridfs", async (IMongoClient client) =>
@@ -636,6 +655,53 @@ public sealed class MongoTests
     }
 
     [ServiceFact("mongodb")]
+    public async Task APreviewWhoseAbortIsLostAnswers500AtOnceAndStillReleasesItsLocks()
+    {
+        using var proxy = new Proxy(Services.MongoUrl);
+        // An app whose client reaches MongoDB only through the proxy and gives up quickly when it can't: when the
+        // connection is cut, the driver's own abort fails and the driver hides that.
+        await using var f = await Fixture.StartAsync(url: $"mongodb://127.0.0.1:{proxy.Port}/?directConnection=true&serverSelectionTimeoutMS=1000");
+        await f.SeedAsync();
+        await f.Documents.UpdateOneAsync(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Set("n", 0));
+        var store = Assert.Single((await f.App.CapabilitiesAsync()).GetProperty("dataStores").EnumerateArray());
+        Assert.Equal("preview", store.GetProperty("mode").GetString());
+        Task restored = Task.CompletedTask;
+        var cut = new System.Diagnostics.Stopwatch();
+        f.Gates.AfterWrite = () =>
+        {
+            // The network fails after the handler, before the Preview finishes, and stays down for 8 seconds.
+            proxy.Cut();
+            cut.Start();
+            restored = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ => proxy.Restore(), TaskScheduler.Default);
+        };
+        var response = await f.App.PreviewAsync("POST", "/lost-abort");
+        Assert.True(cut.Elapsed < TimeSpan.FromSeconds(6), $"The reply waited for the network: {cut.Elapsed}.");
+        Expect.Unconfirmed(response, HttpStatusCode.InternalServerError);
+
+        // The session is killed in the background once the network is back; without that the transaction holds its
+        // write lock until the server's 60-second lifetime limit.
+        await f.Documents.UpdateOneAsync(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Inc("n", 10)).WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.Equal(10, (await f.FindAsync("seeded"))!["n"].ToInt32());
+        await restored;
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ANormalPreviewSendsNoKillSessions()
+    {
+        var names = new ConcurrentQueue<string>();
+        await using var f = await Fixture.StartAsync(settings: settings => settings.ClusterConfigurator = builder =>
+            builder.Subscribe<global::MongoDB.Driver.Core.Events.CommandStartedEvent>(started => names.Enqueue(started.CommandName)));
+        await f.SeedAsync();
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument));
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("GET", "/documents/seeded"));
+        await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/nothing"));
+        await Task.Delay(500);
+        Assert.Contains("abortTransaction", names);
+        Assert.DoesNotContain("killSessions", names);
+        Assert.Null(await f.FindAsync("preview-doc"));
+    }
+
+    [ServiceFact("mongodb")]
     public async Task ACancelledRequestStillAbortsThePreviewTransaction()
     {
         await using var f = await Fixture.StartAsync();
@@ -793,5 +859,130 @@ public sealed class MongoTests
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/redetect"), "mongodb", "insert");
         Assert.Null(await f.FindAsync("redetected"));
         Assert.True(calls >= 2, "Detection must have run again during the Preview.");
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task AnUnreachableServerRunsInGuardModeWithItsOwnReasonAndIsAskedAgain()
+    {
+        const string unreachable = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode";
+        Assert.Equal(unreachable, MongoEngine.UnreachableReason);
+        Assert.NotEqual(MongoEngine.StandaloneReason, MongoEngine.UnreachableReason);
+
+        // Nothing listens here: the hello can't be sent, which says nothing about transactions.
+        await using (var f = await Fixture.StartAsync(url: "mongodb://127.0.0.1:1/?directConnection=true&serverSelectionTimeoutMS=300"))
+        {
+            var store = Assert.Single((await f.App.CapabilitiesAsync()).GetProperty("dataStores").EnumerateArray());
+            Assert.Equal("guard", store.GetProperty("mode").GetString());
+            Assert.Equal(unreachable, store.GetProperty("reason").GetString());
+        }
+
+        // Once the server answers, detection runs again and Preview is available.
+        var calls = 0;
+        await using var later = await Fixture.StartAsync(hello: () => ++calls == 1
+            ? Task.FromException<BsonDocument>(new TimeoutException("server not selected"))
+            : Task.FromResult(new BsonDocument { { "setName", "rs0" }, { "logicalSessionTimeoutMinutes", 30 } }));
+        var first = Assert.Single((await later.App.CapabilitiesAsync()).GetProperty("dataStores").EnumerateArray());
+        Assert.Equal(unreachable, first.GetProperty("reason").GetString());
+        var second = Assert.Single((await later.App.CapabilitiesAsync()).GetProperty("dataStores").EnumerateArray());
+        Assert.Equal("preview", second.GetProperty("mode").GetString());
+    }
+
+    /// <summary>A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network failing.</summary>
+    private sealed class Proxy : IDisposable
+    {
+        private readonly System.Net.Sockets.TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly List<System.Net.Sockets.TcpClient> _open = [];
+        private volatile bool _down;
+
+        internal Proxy(string url)
+        {
+            var upstream = MongoUrl.Create(url).Server;
+            _listener.Start();
+            _ = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    System.Net.Sockets.TcpClient client;
+                    try
+                    {
+                        client = await _listener.AcceptTcpClientAsync();
+                    }
+                    catch (Exception stopped) when (stopped is System.Net.Sockets.SocketException or ObjectDisposedException)
+                    {
+                        return; // The listener stopped.
+                    }
+
+                    if (_down)
+                    {
+                        client.Dispose();
+                        continue;
+                    }
+
+                    var server = new System.Net.Sockets.TcpClient();
+                    try
+                    {
+                        await server.ConnectAsync(upstream.Host, upstream.Port);
+                    }
+                    catch (System.Net.Sockets.SocketException)
+                    {
+                        client.Dispose();
+                        server.Dispose();
+                        continue;
+                    }
+
+                    lock (_open)
+                    {
+                        _open.Add(client);
+                        _open.Add(server);
+                    }
+
+                    _ = Pump(client, server);
+                    _ = Pump(server, client);
+                }
+            });
+        }
+
+        internal int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        private static async Task Pump(System.Net.Sockets.TcpClient from, System.Net.Sockets.TcpClient to)
+        {
+            try
+            {
+                await from.GetStream().CopyToAsync(to.GetStream());
+            }
+            catch (Exception cut) when (cut is IOException or ObjectDisposedException or InvalidOperationException or System.Net.Sockets.SocketException)
+            {
+                // A cut connection.
+            }
+            finally
+            {
+                from.Dispose();
+                to.Dispose();
+            }
+        }
+
+        /// <summary>Closes every open connection and refuses new ones until <see cref="Restore"/>.</summary>
+        internal void Cut()
+        {
+            _down = true;
+            lock (_open)
+            {
+                foreach (var socket in _open)
+                {
+                    socket.Client.Close(0);
+                    socket.Dispose();
+                }
+
+                _open.Clear();
+            }
+        }
+
+        internal void Restore() => _down = false;
+
+        public void Dispose()
+        {
+            _listener.Stop();
+            Cut();
+        }
     }
 }

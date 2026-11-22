@@ -90,6 +90,7 @@ public static class SendproofMongoExtensions
         {
             var registered = (IMongoClient)(original.ImplementationInstance ??
                 (original.ImplementationFactory is { } factory ? factory(provider) : ActivatorUtilities.CreateInstance(provider, original.ImplementationType!)));
+            engine.Logger = provider.GetService<Microsoft.Extensions.Logging.ILogger<MongoStore>>();
             return store.Decorate(registered);
         });
         // The store is only usable once the decorated client exists, so resolving the store resolves the client first.
