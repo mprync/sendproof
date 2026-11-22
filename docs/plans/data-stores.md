@@ -310,7 +310,7 @@ The unit is the CQL statement, so a hook at the statement API (above the driver'
 | Java and Kotlin | DataStax Java driver 4, Spring Data Cassandra | `java.lang.reflect.Proxy` over `CqlSession`; Spring: a `BeanPostProcessor` wraps the `CqlSession` bean, which `CqlTemplate` and repositories use. | Confirmed |
 | Go | `github.com/apache/cassandra-gocql-driver/v2` (gocql) | `Session` is a struct, so a wrapper type with `Query(...).Exec/Iter/Scan` and `Batch`; handlers use the wrapper. | Confirmed (wrapper) |
 | PHP, Ruby | none maintained | The DataStax PHP extension and Ruby gem are unmaintained. | Unsupported |
-| Rust | `scylla` | Wrapper over `Session` (`query_unpaged`, `execute_unpaged`, `batch`), like the existing extractors. | Confirmed (wrapper) |
+| Rust | `scylla` | Wrapper over `Session` (`query_*`, `execute_*`, `execute_bound_*`, `batch`), like the existing extractors; the store takes the `Session` by value, so no raw handle stays in reach. | Done and reviewed (2026-11-22); `rust-axum` and `rust-actix` list `cassandra` |
 
 ### Elasticsearch and OpenSearch
 
@@ -325,7 +325,7 @@ One hook per client, below the typed API, sees method, path and body. Classify w
 | Go | `go-elasticsearch` 8, `opensearch-go` 4 | An `http.RoundTripper` wrapper set as `Config.Transport`; it returns an error before the inner round trip. | Confirmed |
 | PHP | `elasticsearch/elasticsearch` 8, `opensearch-project/opensearch-php` 2 | A decorating PSR-18 client passed to `ClientBuilder::setHttpClient`. | Confirmed |
 | Ruby | `elasticsearch` 8, `opensearch-ruby` 3 | A Faraday middleware first in every connection's stack, added as the HTTP transport builds each connection (sniffing and reloads included); a client built before the store has its connection collection rebuilt; a client on another HTTP transport makes the store refuse to start, or fails as it is built. | Done and reviewed (2026-11-22); `ruby-rails` lists `opensearch` |
-| Rust | `elasticsearch`, `opensearch` crates | The `Transport` is a concrete struct with no middleware; typed calls can't be intercepted by a wrapper. | **Spike**: a custom `reqwest` client through `TransportBuilder`, or wrap `Elasticsearch::send` and expose only the wrapper |
+| Rust | `elasticsearch`, `opensearch` crates | The `Transport` is a concrete struct with no middleware; typed calls can't be intercepted by a wrapper. | Done and reviewed (2026-11-22): the spike found no layer under the typed builders that sees a request (neither crate takes a `reqwest` client; a `ConnectionPool` only picks a node), so the store owns the client and exposes only a guarded raw `send`, which classifies the path as the client resolves it. Typed builders are not available through the guard. `elasticsearch` is pinned to `=9.1.0-alpha.1`. `rust-axum` and `rust-actix` list `opensearch` |
 
 ### Cosmos DB
 
