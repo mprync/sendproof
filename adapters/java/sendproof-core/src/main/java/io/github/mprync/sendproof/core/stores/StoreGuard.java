@@ -21,9 +21,41 @@ import java.util.function.UnaryOperator;
  * 409.
  */
 public final class StoreGuard {
-    private static final Map<String, String> NAMES = Map.of("mongodb", "MongoDB", "redis", "Redis", "dynamodb", "DynamoDB");
+    private static final Map<String, String> NAMES = Map.of("mongodb", "MongoDB", "redis", "Redis", "dynamodb", "DynamoDB",
+            "cassandra", "Cassandra", "elasticsearch", "Elasticsearch", "opensearch", "OpenSearch", "cosmosdb", "Cosmos DB",
+            "firestore", "Firestore");
+
+    /** The Previews that are open now, as far as batch-two guard hooks know (see {@link GuardOnlyStore}). */
+    private static final Set<RequestCapture> OPEN = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private StoreGuard() {
+    }
+
+    /** Registers an open Preview until the returned handle closes; hooks that have no session of their own use it through {@link GuardOnlyStore}. */
+    static AutoCloseable openPreview(RequestCapture capture) {
+        OPEN.add(capture);
+        return () -> OPEN.remove(capture);
+    }
+
+    /**
+     * Like {@link #guard(String, String, CommandKind, String)}, for the batch-two hooks, with the attribution rule: a write
+     * on a thread with no request behind it while a Preview is open could be that Preview's own write, sent from a thread
+     * the capture didn't follow. Nothing can say it isn't, so it is refused and every open Preview fails with 500. Work
+     * that belongs to no request (a scheduler, a background worker) runs inside {@link CaptureContext#detached} to be
+     * exempt.
+     */
+    public static void guardCall(String store, String operation, CommandKind kind, String detail) {
+        RequestCapture preview = currentPreview();
+        if (preview == null && kind == CommandKind.WRITE && CaptureContext.current() == null && !CaptureContext.attributed()
+                && !OPEN.isEmpty()) {
+            String message = "A " + storeName(store) + " " + operation + " with no request attribution was sent while a Preview was open; "
+                    + "it may belong to that Preview, so the Preview can't be confirmed. Run background work inside CaptureContext.detached.";
+            for (RequestCapture open : OPEN) {
+                open.refuse(new PreviewTransactionControlException(message));
+            }
+            throw new PreviewTransactionControlException(message);
+        }
+        guard(preview, store, operation, kind, detail);
     }
 
     /** The display name of a store id; unknown ids are shown as given. */

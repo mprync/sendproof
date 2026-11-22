@@ -33,9 +33,81 @@ class StoreClassifierTest {
     @Test
     void embeddedTablesMatchSpecDataStores() throws IOException {
         // Refresh the copies with `gradle :sendproof-core:syncStoreTables` when this fails.
-        for (String store : List.of("redis", "mongodb", "dynamodb")) {
+        for (String store : List.of("redis", "mongodb", "dynamodb", "cassandra", "elasticsearch", "cosmosdb", "firestore")) {
             assertThat(StoreTables.raw(store)).as("embedded %s table", store).isEqualTo(spec(store + ".json"));
         }
+    }
+
+    private static String lower(CommandKind kind) {
+        return kind.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Every batch-two case: the kind and the {@code db.operation.name} must both match. */
+    @Test
+    void theBatchTwoClassifiersPassEverySharedVector() throws IOException {
+        JsonNode cases = spec("classification-cases.json");
+        int count = 0;
+        for (JsonNode item : cases.get("cassandra")) {
+            StoreClassifier.Classified result;
+            if (item.has("message")) {
+                result = StoreClassifier.cassandraMessage(item.get("message").asText(),
+                        item.has("statement") ? item.get("statement").asText() : null,
+                        item.has("prepared") ? item.get("prepared").asText() : null, null);
+            } else {
+                result = StoreClassifier.cassandra(item.get("statement").asText(), null);
+            }
+            assertThat(lower(result.kind())).as(item.toString()).isEqualTo(item.get("expect").asText());
+            assertThat(result.operation()).as(item.toString()).isEqualTo(item.get("operation").asText());
+            count++;
+        }
+        for (JsonNode item : cases.get("elasticsearch")) {
+            Object body = item.has("body") ? (item.get("body").isTextual() ? item.get("body").asText() : item.get("body")) : null;
+            var result = StoreClassifier.search(item.get("method").asText(), item.get("path").asText(), body, null);
+            assertThat(lower(result.kind())).as(item.toString()).isEqualTo(item.get("expect").asText());
+            assertThat(result.operation()).as(item.toString()).isEqualTo(item.get("operation").asText());
+            count++;
+        }
+        for (JsonNode item : cases.get("cosmosdb")) {
+            StoreClassifier.Classified result;
+            if (item.has("request")) {
+                JsonNode request = item.get("request");
+                result = StoreClassifier.cosmosRequest(request.get("method").asText(), request.get("path").asText(),
+                        map(request.get("headers")), null);
+            } else {
+                result = StoreClassifier.cosmos(item.get("operationType").asText(),
+                        item.has("triggers") && item.get("triggers").asBoolean(), null);
+            }
+            assertThat(lower(result.kind())).as(item.toString()).isEqualTo(item.get("expect").asText());
+            assertThat(result.operation()).as(item.toString()).isEqualTo(item.get("operation").asText());
+            count++;
+        }
+        for (JsonNode item : cases.get("firestore")) {
+            StoreClassifier.Classified result;
+            if (item.has("rest")) {
+                JsonNode rest = item.get("rest");
+                result = StoreClassifier.firestoreRest(rest.get("method").asText(), rest.get("path").asText(),
+                        rest.has("body") ? map(rest.get("body")) : null, null);
+            } else {
+                result = StoreClassifier.firestore(item.get("rpc").asText(), item.has("message") ? map(item.get("message")) : null, null);
+            }
+            assertThat(lower(result.kind())).as(item.toString()).isEqualTo(item.get("expect").asText());
+            assertThat(result.operation()).as(item.toString()).isEqualTo(item.get("operation").asText());
+            count++;
+        }
+        assertThat(count).isEqualTo(cases.get("cassandra").size() + cases.get("elasticsearch").size()
+                + cases.get("cosmosdb").size() + cases.get("firestore").size());
+    }
+
+    @Test
+    void hostDeclaredReadsReachBatchTwoWritesButNeverBatchesOrTriggeredCalls() {
+        assertThat(StoreClassifier.cassandra("MYSTMT x", Set.of("MYSTMT")).kind()).isEqualTo(CommandKind.READ);
+        assertThat(StoreClassifier.cassandra("BEGIN BATCH APPLY BATCH", Set.of("BATCH")).kind()).isEqualTo(CommandKind.WRITE);
+        assertThat(StoreClassifier.cassandra("MYSTMT x; DROP TABLE t", Set.of("MYSTMT")).kind()).isEqualTo(CommandKind.WRITE);
+        assertThat(StoreClassifier.search("POST", "/_x/_future", null, Set.of("POST /_x/_future")).kind()).isEqualTo(CommandKind.READ);
+        assertThat(StoreClassifier.cosmos("Execute", false, Set.of("Execute")).kind()).isEqualTo(CommandKind.READ);
+        assertThat(StoreClassifier.cosmos("Execute", true, Set.of("Execute")).kind()).isEqualTo(CommandKind.WRITE);
+        assertThat(StoreClassifier.firestore("/google.firestore.v1.Firestore/Future", (Integer) null, Set.of("Future")).kind())
+                .isEqualTo(CommandKind.READ);
     }
 
     @Test

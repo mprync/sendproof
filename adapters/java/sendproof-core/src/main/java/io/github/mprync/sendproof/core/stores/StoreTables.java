@@ -38,11 +38,116 @@ public final class StoreTables {
     public record Dynamo(Set<String> read, Set<String> partiql) {
     }
 
+    /**
+     * Cassandra: the keys (a statement's first keyword, {@code LIST} with its next word) that read, and the native
+     * protocol messages that carry no statement.
+     */
+    public record Cassandra(Set<String> read, Set<String> sessionMessages) {
+    }
+
+    /**
+     * One Elasticsearch or OpenSearch endpoint. {@code kind} is {@code read}, {@code write}, {@code session} or
+     * {@code sql}; {@code paths} are pre-split segment lists in which {@code {index}} and {@code {id}} are wildcards.
+     */
+    public record Endpoint(String kind, String name, Set<String> methods, List<List<String>> paths) {
+    }
+
+    /** Elasticsearch and OpenSearch: the ordered endpoints, the per-method default and the SQL read words. */
+    public record Search(List<Endpoint> endpoints, java.util.Map<String, String> methodDefault, String defaultKind,
+                         Set<String> sqlReadWords) {
+    }
+
+    /** Cosmos DB: operation names by lower-case spelling, and the reads. */
+    public record Cosmos(java.util.Map<String, String> canonical, Set<String> read) {
+    }
+
+    /** One Firestore service: its reads, allowed session methods, and the method prefixes that read (admin). */
+    public record FirestoreService(Set<String> read, Set<String> session, List<String> readPrefixes) {
+    }
+
+    /** Firestore: the known services and the REST verb names. */
+    public record Firestore(java.util.Map<String, FirestoreService> services, java.util.Map<String, String> restVerbs) {
+    }
+
     private static final Redis REDIS = loadRedis();
     private static final Mongo MONGO = loadMongo();
     private static final Dynamo DYNAMO = loadDynamo();
+    private static final Cassandra CASSANDRA = loadCassandra();
+    private static final Search SEARCH = loadSearch();
+    private static final Cosmos COSMOS = loadCosmos();
+    private static final Firestore FIRESTORE = loadFirestore();
 
     private StoreTables() {
+    }
+
+    /** The Cassandra table. */
+    public static Cassandra cassandra() {
+        return CASSANDRA;
+    }
+
+    /** The Elasticsearch and OpenSearch table. */
+    public static Search search() {
+        return SEARCH;
+    }
+
+    /** The Cosmos DB table. */
+    public static Cosmos cosmos() {
+        return COSMOS;
+    }
+
+    /** The Firestore table. */
+    public static Firestore firestore() {
+        return FIRESTORE;
+    }
+
+    private static Cassandra loadCassandra() {
+        JsonNode table = read("cassandra");
+        return new Cassandra(Set.copyOf(strings(table.get("read"), false)),
+                Set.copyOf(strings(table.get("protocol").get("session"), false)));
+    }
+
+    private static Search loadSearch() {
+        JsonNode table = read("elasticsearch");
+        var endpoints = new java.util.ArrayList<Endpoint>();
+        for (JsonNode entry : table.get("endpoints")) {
+            var paths = new java.util.ArrayList<List<String>>();
+            for (JsonNode path : entry.get("paths")) {
+                paths.add(StoreClassifier.segments(path.asText()));
+            }
+            endpoints.add(new Endpoint(entry.get("kind").asText(), entry.get("name").asText(),
+                    Set.copyOf(strings(entry.get("methods"), false)), List.copyOf(paths)));
+        }
+        var methodDefault = new java.util.LinkedHashMap<String, String>();
+        table.get("methodDefault").fields().forEachRemaining(field -> methodDefault.put(field.getKey(), field.getValue().asText()));
+        return new Search(List.copyOf(endpoints), java.util.Map.copyOf(methodDefault), table.get("default").asText(),
+                Set.copyOf(strings(table.get("sql").get("readWords"), false)));
+    }
+
+    private static Cosmos loadCosmos() {
+        JsonNode table = read("cosmosdb");
+        var canonical = new java.util.LinkedHashMap<String, String>();
+        for (String name : strings(table.get("read"), false)) {
+            canonical.put(name.toLowerCase(Locale.ROOT), name);
+        }
+        for (String name : strings(table.get("write"), false)) {
+            canonical.put(name.toLowerCase(Locale.ROOT), name);
+        }
+        return new Cosmos(java.util.Map.copyOf(canonical), Set.copyOf(strings(table.get("read"), false)));
+    }
+
+    private static Firestore loadFirestore() {
+        JsonNode table = read("firestore");
+        var services = new java.util.LinkedHashMap<String, FirestoreService>();
+        table.get("services").fields().forEachRemaining(entry -> {
+            JsonNode service = entry.getValue();
+            services.put(entry.getKey(), new FirestoreService(
+                    service.has("read") ? Set.copyOf(strings(service.get("read"), false)) : Set.of(),
+                    service.has("session") ? Set.copyOf(strings(service.get("session"), false)) : Set.of(),
+                    service.has("readPrefixes") ? List.copyOf(strings(service.get("readPrefixes"), false)) : List.of()));
+        });
+        var verbs = new java.util.LinkedHashMap<String, String>();
+        table.get("fromRest").get("verbs").fields().forEachRemaining(field -> verbs.put(field.getKey(), field.getValue().asText()));
+        return new Firestore(java.util.Map.copyOf(services), java.util.Map.copyOf(verbs));
     }
 
     /** The Redis table; reads include the module reads. */

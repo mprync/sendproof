@@ -11,6 +11,12 @@ slf4j = "2.0.18"
 mongodb = "5.5.2"
 awssdk = "2.31.78"
 lettuce = "6.6.0.RELEASE"
+cassandraDriver = "4.19.2"
+elasticsearchJava = "8.19.25"
+opensearchJava = "2.26.0"
+httpclient5 = "5.4.4"
+firestore = "3.53.0"
+azureCosmos = "4.78.0"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
@@ -24,6 +30,12 @@ mongodb-reactivestreams = { module = "org.mongodb:mongodb-driver-reactivestreams
 mongodb-kotlin = { module = "org.mongodb:mongodb-driver-kotlin-coroutine", version.ref = "mongodb" }
 awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk" }
 lettuce = { module = "io.lettuce:lettuce-core", version.ref = "lettuce" }
+cassandra-driver = { module = "org.apache.cassandra:java-driver-core", version.ref = "cassandraDriver" }
+elasticsearch-java = { module = "co.elastic.clients:elasticsearch-java", version.ref = "elasticsearchJava" }
+opensearch-java = { module = "org.opensearch.client:opensearch-java", version.ref = "opensearchJava" }
+httpclient5 = { module = "org.apache.httpcomponents.client5:httpclient5", version.ref = "httpclient5" }
+google-firestore = { module = "com.google.cloud:google-cloud-firestore", version.ref = "firestore" }
+azure-cosmos = { module = "com.azure:azure-cosmos", version.ref = "azureCosmos" }
 ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
 
 [plugins]

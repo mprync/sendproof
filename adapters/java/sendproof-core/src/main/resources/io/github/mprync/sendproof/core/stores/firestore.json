@@ -1,0 +1,50 @@
+{
+  "$comment": "Write-guard classification for Google Cloud Firestore (native mode), shared by every binding. Sourced from the Firestore RPC reference for google.firestore.v1.Firestore and google.firestore.admin.v1.FirestoreAdmin (cloud.google.com/firestore/docs/reference/rpc, firestore.proto and its google.api.http REST bindings). The unit is the RPC method name; a hook on the REST transport derives it with the rules under fromRest. Anything not listed is a write. See spec/data-stores.md.",
+  "store": "firestore",
+  "version": 1,
+  "source": "google.firestore.v1 and google.firestore.admin.v1 RPC reference",
+  "default": "write",
+  "keyFormat": "The RPC method name, case-sensitive, from the gRPC path /google.firestore.v1.Firestore/<Method>. A method of any other service is a write unless listed under services.",
+  "services": {
+    "google.firestore.v1.Firestore": {
+      "read": ["GetDocument", "ListDocuments", "BatchGetDocuments", "RunQuery", "RunAggregationQuery", "PartitionQuery", "Listen", "ListCollectionIds"],
+      "session": ["BeginTransaction", "Rollback"],
+      "write": ["CreateDocument", "UpdateDocument", "DeleteDocument", "Commit", "BatchWrite", "Write"]
+    },
+    "google.firestore.admin.v1.FirestoreAdmin": {
+      "readPrefixes": ["Get", "List"],
+      "rule": "A method whose name starts with Get or List is a read; every other admin method (CreateIndex, DeleteIndex, UpdateField, ExportDocuments, ImportDocuments, CreateDatabase, DeleteDatabase, RestoreDatabase, BulkDeleteDocuments and the rest) is a write."
+    }
+  },
+  "conditional": {
+    "Commit": "A write when its writes list has at least one entry. A Commit with no writes only ends a transaction that read and wrote nothing, so it is session. A hook that can't read the request message treats every Commit as a write."
+  },
+  "rules": [
+    "Listen and RunQuery are reads even when they stream for a long time, and RunQuery, BatchGetDocuments and RunAggregationQuery stay reads when they begin a transaction (new_transaction).",
+    "BeginTransaction and Rollback are allowed: they hold or release a transaction but change no data. Writes reach the database only through Commit, BatchWrite, Write and the document RPCs.",
+    "Write is a bidirectional stream. Opening it is a write, so the guard refuses the stream before its first message.",
+    "BatchWrite is a write even when every write in it would fail its precondition."
+  ],
+  "fromRest": {
+    "$comment": "For hooks on the REST transport (an SDK's REST fallback, or plain HTTP). Paths start /v1/projects/{project}/databases/{database}/documents.",
+    "verbs": {
+      "batchGet": "BatchGetDocuments", "beginTransaction": "BeginTransaction", "commit": "Commit", "rollback": "Rollback",
+      "runQuery": "RunQuery", "runAggregationQuery": "RunAggregationQuery", "partitionQuery": "PartitionQuery",
+      "write": "Write", "listen": "Listen", "listCollectionIds": "ListCollectionIds", "batchWrite": "BatchWrite"
+    },
+    "order": [
+      { "when": "the last path segment ends in :<verb>", "rpc": "the verbs entry for <verb>; an unknown verb is a write" },
+      { "when": "method GET on a document (an even number of segments after documents)", "rpc": "GetDocument" },
+      { "when": "method GET on a collection (an odd number of segments after documents)", "rpc": "ListDocuments" },
+      { "when": "method PATCH", "rpc": "UpdateDocument" },
+      { "when": "method DELETE", "rpc": "DeleteDocument" },
+      { "when": "method POST on a collection", "rpc": "CreateDocument" },
+      { "when": "anything else", "rpc": "the method name, which is a write" }
+    ],
+    "target": "db.collection.name is the collection id: the segment before the document id, or the last segment of a collection path. For a batch or query RPC it is the collection the request names (structuredQuery.from[0].collectionId), when there is one."
+  },
+  "notes": {
+    "Preview": "A Firestore transaction can be rolled back, but it must do every read before its first write and its reads don't see its own buffered writes. Arbitrary handlers break both rules, so Firestore runs in guard mode only.",
+    "Credentials": "OAuth access tokens, the authorization metadata and service-account keys are never captured."
+  }
+}

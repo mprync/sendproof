@@ -1,0 +1,45 @@
+{
+  "$comment": "Write-guard classification for Azure Cosmos DB for NoSQL, shared by every binding. Sourced from the Azure Cosmos DB REST API reference (learn.microsoft.com/rest/api/cosmos-db/: common request headers, documents, stored procedures, triggers, transactional batch, patch, change feed and query plan) and the operation types the SDKs expose (Node @azure/cosmos OperationType, .NET and Java OperationType). The unit is the operation type; a hook that sees only the HTTP request derives the operation type with the rules under fromRequest. Anything not listed is a write. See spec/data-stores.md.",
+  "store": "cosmosdb",
+  "version": 1,
+  "source": "Azure Cosmos DB REST API reference (x-ms-version 2018-12-31 and later); SDK OperationType enums",
+  "default": "write",
+  "keyFormat": "The operation type name, compared case-insensitively and reported with the spelling below: Node's @azure/cosmos spells them in lower case (read, query, execute). Node's Execute is .NET and Java's ExecuteJavaScript, and Node's Query covers .NET's SqlQuery. Node sends its query-plan request as a read and its change-feed request as a query; both are reads either way.",
+  "read": ["Read", "ReadFeed", "Query", "SqlQuery", "QueryPlan", "Head", "HeadFeed"],
+  "write": ["Create", "Upsert", "Replace", "Patch", "Delete", "Batch", "Execute", "ExecuteJavaScript"],
+  "rules": [
+    "A request that names a pre-trigger or post-trigger (x-ms-documentdb-pre-trigger-include or x-ms-documentdb-post-trigger-include, the SDKs' preTriggerInclude and postTriggerInclude options) is a write whatever its operation type: triggers run only around writes, and their code can write.",
+    "Executing a stored procedure (Execute, ExecuteJavaScript) is a write, even when the procedure only reads: the guard can't see its code.",
+    "Batch is a write. It covers transactional batches and the SDKs' bulk mode, which sends batch requests with x-ms-cosmos-batch-atomic: false.",
+    "Patch is a write, including a conditional patch whose filter predicate fails.",
+    "Query, ReadFeed (including the change feed) and QueryPlan are reads: the Cosmos DB query language can't write.",
+    "Reading or querying databases, containers, offers, partition key ranges, stored procedures, triggers and user-defined functions is a read. Creating, replacing or deleting any of them is a write.",
+    "x-ms-cosmos-allow-tentative-writes is sent on every request, reads included, and says nothing about the operation."
+  ],
+  "fromRequest": {
+    "$comment": "For hooks on the HTTP pipeline (Python and Go policies), which see the request rather than the SDK's operation type. Header names are case-insensitive; boolean header values compare case-insensitively with True.",
+    "path": "The resource path alternates resource types and ids: /dbs/{db}/colls/{coll}/docs/{doc}. A path with an even number of segments addresses one resource; an odd number addresses a feed of the last resource type. The root path / reads the database account.",
+    "order": [
+      { "when": "a trigger header is present", "operation": "the derived type below, classified as a write" },
+      { "when": "method GET, one resource", "operation": "Read" },
+      { "when": "method GET, a feed or the account root", "operation": "ReadFeed" },
+      { "when": "method HEAD, one resource", "operation": "Head" },
+      { "when": "method HEAD, a feed", "operation": "HeadFeed" },
+      { "when": "method POST and x-ms-cosmos-is-query-plan-request: True", "operation": "QueryPlan" },
+      { "when": "method POST and x-ms-documentdb-isquery: True, or Content-Type application/query+json", "operation": "Query" },
+      { "when": "method POST and x-ms-cosmos-is-batch-request: True", "operation": "Batch" },
+      { "when": "method POST on one resource under sprocs (/dbs/{db}/colls/{coll}/sprocs/{sproc})", "operation": "ExecuteJavaScript" },
+      { "when": "method POST and x-ms-documentdb-is-upsert: True", "operation": "Upsert" },
+      { "when": "method POST, otherwise", "operation": "Create" },
+      { "when": "method PUT", "operation": "Replace" },
+      { "when": "method PATCH", "operation": "Patch" },
+      { "when": "method DELETE", "operation": "Delete" },
+      { "when": "anything else", "operation": "the method name, which is a write" }
+    ],
+    "target": "db.collection.name is the container id: the segment after colls. db.namespace is the database id: the segment after dbs."
+  },
+  "notes": {
+    "Preview": "Cosmos DB can only roll back inside one logical partition, through a transactional batch the client builds up front. An arbitrary handler's writes can't be held back and discarded, so Cosmos DB runs in guard mode only.",
+    "Credentials": "The authorization header (a master-key signature or an Entra ID token) and the account key are never captured."
+  }
+}

@@ -46,11 +46,23 @@ public final class Partiql {
      * values instead of using {@code ?} parameters, and a value never appears in a {@code Db} entry.
      */
     public static String sanitize(String text) {
+        return sanitize(text, false);
+    }
+
+    /**
+     * Like {@link #sanitize(String)}; with {@code dollarStrings} a CQL {@code $$ … $$} string is replaced by {@code ?}
+     * too, so {@code Cassandra} statements use the same routine.
+     */
+    public static String sanitize(String text, boolean dollarStrings) {
         var out = new StringBuilder(text.length());
         int index = 0;
         while (index < text.length()) {
             char c = text.charAt(index);
-            if (c == '"') {
+            if (dollarStrings && text.startsWith("$$", index)) {
+                int end = text.indexOf("$$", index + 2);
+                out.append('?');
+                index = end < 0 ? text.length() : end + 2;
+            } else if (c == '"') {
                 int end = text.indexOf('"', index + 1);
                 int stop = end < 0 ? text.length() : end + 1;
                 out.append(text, index, stop);
