@@ -3,6 +3,7 @@ module github.com/mprync/sendproof/adapters/go/examples
 go 1.26.0
 
 require (
+	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.3
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.74.1
@@ -14,6 +15,7 @@ require (
 	github.com/labstack/echo/v4 v4.16.5
 	github.com/microsoft/go-mssqldb v1.12.0
 	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/cassandrabench v0.1.0-alpha.1
 	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.1
 	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.1
 	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1
@@ -21,6 +23,8 @@ require (
 	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1
 	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.1
 	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.1
+	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.1
+	github.com/opensearch-project/opensearch-go/v4 v4.8.1
 	github.com/redis/go-redis/v9 v9.23.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	gorm.io/driver/mysql v1.6.0
@@ -90,6 +94,7 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
+	gopkg.in/inf.v0 v0.9.1 // indirect
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect

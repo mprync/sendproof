@@ -61,7 +61,23 @@ func openAPI(stores *dataStores) map[string]any {
 		paths["/orders/{id}/touch"] = map[string]any{"post": operation("Touch an order", "id", ok("The order"))}
 		paths["/orders/{id}/cancel"] = map[string]any{"post": operation("Cancel an order with PartiQL", "id", ok("The order"))}
 	}
-	if stores != nil && (stores.redis != nil || stores.dynamo != nil) {
+	if stores != nil && stores.cassandra != nil {
+		paths["/tickets/{id}"] = map[string]any{
+			"get":    operation("Read a ticket", "id", ok("The ticket")),
+			"delete": operation("Delete a ticket (preview: false)", "id", map[string]any{"204": response("Deleted", nil)}),
+		}
+		paths["/tickets/{id}/touch"] = map[string]any{"post": operation("Touch a ticket", "id", ok("The ticket"))}
+		paths["/tickets/{id}/close"] = map[string]any{"post": operation("Close a ticket with a batch", "id", ok("The ticket"))}
+	}
+	if stores != nil && stores.opensearch != nil {
+		paths["/articles/{id}"] = map[string]any{
+			"get":    operation("Read an article", "id", ok("The article")),
+			"delete": operation("Delete an article (preview: false)", "id", map[string]any{"204": response("Deleted", nil)}),
+		}
+		paths["/articles/{id}/touch"] = map[string]any{"post": operation("Touch an article", "id", ok("The article"))}
+		paths["/articles/{id}/hide"] = map[string]any{"post": operation("Hide an article with update-by-query", "id", ok("The article"))}
+	}
+	if stores != nil && (stores.redis != nil || stores.dynamo != nil || stores.cassandra != nil || stores.opensearch != nil) {
 		paths["/items/{id}/remember"] = map[string]any{"post": operation("Insert an item and write a guarded store", "id", map[string]any{"201": response("Created", nil)})}
 	}
 	document := map[string]any{

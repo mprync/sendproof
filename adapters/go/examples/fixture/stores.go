@@ -16,11 +16,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go/middleware"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/mprync/sendproof/adapters/go/cassandrabench"
 	"github.com/mprync/sendproof/adapters/go/dynamobench"
 	"github.com/mprync/sendproof/adapters/go/mongobench"
 	"github.com/mprync/sendproof/adapters/go/redisbench"
@@ -41,6 +43,12 @@ type dataStores struct {
 
 	dynamo      *dynamodb.Client
 	dynamoTable string
+
+	// The heavy stores (stores_heavy.go): Cassandra through the guarded session and
+	// OpenSearch through a client whose transport is the guard.
+	cassandra       *cassandrabench.Session
+	opensearch      *opensearchapi.Client
+	opensearchIndex string
 }
 
 // openDataStores connects the stores whose variables are set. Call close to release them.
@@ -69,6 +77,9 @@ func openDataStores(ctx context.Context) (*dataStores, error) {
 		})
 		d.dynamoTable = os.Getenv("BENCH_DYNAMODB_TABLE")
 		d.registered = append(d.registered, dynamobench.Store("orders"))
+	}
+	if err := d.openHeavyStores(); err != nil {
+		return nil, err
 	}
 	return d, nil
 }
@@ -103,6 +114,7 @@ func (d *dataStores) close() {
 	if d.redis != nil {
 		_ = d.redis.Close()
 	}
+	d.closeHeavy()
 }
 
 // routes lists the data-store routes of the stores that are hooked. The
@@ -137,7 +149,8 @@ func (d *dataStores) routes() []route {
 			route{method: "DELETE", path: "/orders/{id}", admin: true, store: "dynamodb", handler: func(h *handlers) http.HandlerFunc { return h.stores.deleteOrder }},
 		)
 	}
-	if d.redis != nil || d.dynamo != nil {
+	list = append(list, d.heavyRoutes()...)
+	if d.redis != nil || d.dynamo != nil || d.cassandra != nil || d.opensearch != nil {
 		list = append(list, route{method: "POST", path: "/items/{id}/remember", admin: true, preview: true, handler: func(h *handlers) http.HandlerFunc { return h.remember }})
 	}
 	return list
@@ -394,8 +407,20 @@ func (h *handlers) remember(w http.ResponseWriter, r *http.Request) {
 		err = d.redis.Incr(ctx, d.redisPrefix+"counter:item-"+body.ID).Err()
 	case "dynamodb":
 		_, err = d.touch(ctx, "item-"+body.ID)
+	case "cassandra":
+		if d.cassandra == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cassandra is not configured"})
+			return
+		}
+		err = d.touchTicket(ctx, "item-"+body.ID)
+	case "opensearch":
+		if d.opensearch == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "opensearch is not configured"})
+			return
+		}
+		_, err = d.touchArticle(ctx, "item-"+body.ID)
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "store must be redis or dynamodb"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "store must be redis, dynamodb, cassandra or opensearch"})
 		return
 	}
 	if err != nil {

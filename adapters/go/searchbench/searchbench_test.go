@@ -393,7 +393,9 @@ func TestAPathPrefixIsRemovedBeforeClassifying(t *testing.T) {
 	}))
 	defer server.Close()
 	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(searchbench.Store("")),
-		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) { return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true }))
+		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {
+			return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true
+		}))
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{server.URL + "/proxy"}, DisableRetry: true,
 		Transport: searchbench.Transport(nil, searchbench.PathPrefix("/proxy")),
@@ -457,7 +459,9 @@ func TestARefusedWriteDoesNotMarkANodeDead(t *testing.T) {
 		t.Fatal(err)
 	}
 	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(searchbench.Store("")),
-		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) { return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true }))
+		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {
+			return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true
+		}))
 	var after []error
 	mux := http.NewServeMux()
 	bench.HandlePreview(mux, "POST /write", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
