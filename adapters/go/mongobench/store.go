@@ -330,6 +330,9 @@ const (
 	killRetryLimit = 10 * time.Second
 	killFirstDelay = 100 * time.Millisecond
 	killMaxDelay   = 2 * time.Second
+	// killTryLimit bounds one killSessions try (context.WithTimeout also stops at the
+	// window's own deadline, whichever comes first).
+	killTryLimit = 2 * time.Second
 )
 
 // abortKey marks the context of the engine's own abortTransaction. Its value is set
@@ -388,14 +391,31 @@ func (p *preview) end() bool {
 // hand its id to another operation meanwhile.
 func (p *preview) kill(session *mongo.Session) {
 	defer session.EndSession(internal(context.Background()))
+	p.store.killSession(session.ID(), p.lsid)
+}
+
+// killHooks are test hooks (see export_test.go); nil in production.
+var killHooks struct{ try func() }
+
+// killSession sends killSessions for the session id document id, retrying with
+// backoff for up to killRetryLimit while the server can't be reached. Each try
+// gives up after killTryLimit, or the time left, so a try never waits out the
+// driver's 30-second server selection timeout. It reports whether the server
+// killed the session; a final failure is logged with lsid.
+func (s *Store) killSession(id bson.Raw, lsid string) bool {
 	ctx, cancel := context.WithTimeout(internal(context.Background()), killRetryLimit)
 	defer cancel()
 	failure := fmt.Sprintf("MongoDB couldn't be reached for %s", killRetryLimit)
 	delay := killFirstDelay
 	for {
-		err := p.store.client.Database("admin").RunCommand(ctx, bson.D{{Key: "killSessions", Value: bson.A{session.ID()}}}).Err()
+		if hook := killHooks.try; hook != nil {
+			hook()
+		}
+		try, stop := context.WithTimeout(ctx, killTryLimit)
+		err := s.client.Database("admin").RunCommand(try, bson.D{{Key: "killSessions", Value: bson.A{id}}}).Err()
+		stop()
 		if err == nil {
-			return
+			return true
 		}
 		if serverAnswered(err) {
 			failure = err.Error()
@@ -414,7 +434,8 @@ func (p *preview) kill(session *mongo.Session) {
 		delay = min(delay*2, killMaxDelay)
 	}
 	slog.Warn("mongobench: couldn't end a MongoDB Preview transaction; the server ends it, and releases its locks, at transactionLifetimeLimitSeconds",
-		"session", p.lsid, "failure", failure)
+		"session", lsid, "failure", failure)
+	return false
 }
 
 // serverAnswered reports whether the server itself answered with err, rather than

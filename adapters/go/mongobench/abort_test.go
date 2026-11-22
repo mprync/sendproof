@@ -1,18 +1,22 @@
 package mongobench_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,9 +35,58 @@ type proxy struct {
 	mu       sync.Mutex
 	down     bool
 	links    map[net.Conn]bool
+	// dropAborts closes a connection on any abortTransaction request, so only the
+	// abort is lost; aborts counts them.
+	dropAborts bool
+	aborts     atomic.Int32
+}
+
+// commandOf is the command name of an OP_MSG request: the first key of its body
+// section (header 16 bytes, opCode 2013 at 12, flagBits, a kind-0 section holding
+// one BSON document whose first element is a type byte and the key).
+func commandOf(message []byte) string {
+	if len(message) < 27 || binary.LittleEndian.Uint32(message[12:]) != 2013 || message[20] != 0 {
+		return ""
+	}
+	end := bytes.IndexByte(message[26:], 0)
+	if end < 0 {
+		return ""
+	}
+	return string(message[26 : 26+end])
+}
+
+// forward copies requests from client to upstream message by message, closing both
+// on an abortTransaction.
+func (p *proxy) forward(upstream, client net.Conn) {
+	defer func() { _ = upstream.Close(); _ = client.Close() }()
+	header := make([]byte, 4)
+	for {
+		if _, err := io.ReadFull(client, header); err != nil {
+			return
+		}
+		length := int(binary.LittleEndian.Uint32(header))
+		if length < 4 {
+			return
+		}
+		message := append(append([]byte(nil), header...), make([]byte, length-4)...)
+		if _, err := io.ReadFull(client, message[4:]); err != nil {
+			return
+		}
+		if commandOf(message) == "abortTransaction" {
+			p.aborts.Add(1)
+			return
+		}
+		if _, err := upstream.Write(message); err != nil {
+			return
+		}
+	}
 }
 
 func startProxy(t *testing.T) *proxy {
+	return startDroppingProxy(t, false)
+}
+
+func startDroppingProxy(t *testing.T, dropAborts bool) *proxy {
 	t.Helper()
 	target, err := url.Parse(serverURL())
 	if err != nil {
@@ -43,7 +96,7 @@ func startProxy(t *testing.T) *proxy {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &proxy{listener: listener, links: map[net.Conn]bool{}}
+	p := &proxy{listener: listener, links: map[net.Conn]bool{}, dropAborts: dropAborts}
 	t.Cleanup(func() { _ = listener.Close(); p.cut() })
 	go func() {
 		for {
@@ -70,7 +123,11 @@ func startProxy(t *testing.T) *proxy {
 				_ = to.Close()
 				_ = from.Close()
 			}
-			go pipe(upstream, client)
+			if p.dropAborts {
+				go p.forward(upstream, client)
+			} else {
+				go pipe(upstream, client)
+			}
 			go pipe(client, upstream)
 		}
 	}()
@@ -100,16 +157,63 @@ func (p *proxy) restore() {
 
 // commandNames records the name of every command a client sends, the store's own included.
 type commandNames struct {
-	mu    sync.Mutex
-	names []string
+	mu        sync.Mutex
+	names     []string
+	succeeded []string
 }
 
 func (c *commandNames) monitor() *event.CommandMonitor {
-	return &event.CommandMonitor{Started: func(_ context.Context, e *event.CommandStartedEvent) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.names = append(c.names, e.CommandName)
-	}}
+	return &event.CommandMonitor{
+		Started: func(_ context.Context, e *event.CommandStartedEvent) {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.names = append(c.names, e.CommandName)
+		},
+		Succeeded: func(_ context.Context, e *event.CommandSucceededEvent) {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.succeeded = append(c.succeeded, e.CommandName)
+		},
+	}
+}
+
+func (c *commandNames) hasSucceeded(name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, done := range c.succeeded {
+		if done == name {
+			return true
+		}
+	}
+	return false
+}
+
+// lockedBuffer collects log output written from any goroutine.
+type lockedBuffer struct {
+	mu   sync.Mutex
+	text strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.text.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.text.String()
+}
+
+// captureLog sends the standard logger, behind slog's default handler, to a buffer
+// until the test ends.
+func captureLog(t *testing.T) *lockedBuffer {
+	buffer := &lockedBuffer{}
+	previous := log.Writer()
+	log.SetOutput(buffer)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	return buffer
 }
 
 func (c *commandNames) has(name string) bool {
@@ -237,6 +341,67 @@ func TestAPreviewWhoseAbortIsLostAnswers500AtOnceAndItsLocksAreReleased(t *testi
 	_ = a.docs.FindOne(context.Background(), bson.D{{Key: "_id", Value: "seeded"}}).Decode(&stored)
 	if stored["name"] != "Second" {
 		t.Errorf("nothing of the Preview may be committed: %v", stored)
+	}
+}
+
+func TestAPreviewWhoseCaptureSucceedsButWhoseAbortAloneIsLostAnswers500(t *testing.T) {
+	network := startDroppingProxy(t, true)
+	logged := captureLog(t)
+	a := newAbortApp(t, network.url, func() {})
+	assertUnconfirmed(t, a.preview("PATCH", "/documents/seeded"), 500)
+	if network.aborts.Load() == 0 {
+		t.Fatal("the proxy never dropped an abort")
+	}
+	if !a.sent.hasSucceeded("find") {
+		t.Error("change capture never read the documents")
+	}
+	if !strings.Contains(logged.String(), "didn't acknowledge the abort") {
+		t.Errorf("the failure must be the lost abort: %s", logged)
+	}
+	if !a.lockReleasedWithin(t, 10*time.Second) {
+		t.Fatal("the Preview still holds its transaction")
+	}
+	if !a.sent.has("killSessions") {
+		t.Error("the store never sent killSessions")
+	}
+	var stored bson.M
+	_ = a.docs.FindOne(context.Background(), bson.D{{Key: "_id", Value: "seeded"}}).Decode(&stored)
+	if stored["name"] != "Second" {
+		t.Errorf("nothing of the Preview may be committed: %v", stored)
+	}
+}
+
+func TestEachKillSessionsTryIsBoundedSoAnUnreachableServerIsRetried(t *testing.T) {
+	// Nothing listens on a closed listener's port, and the client keeps the driver's
+	// 30-second server selection timeout.
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := closed.Addr().String()
+	_ = closed.Close()
+	logged := captureLog(t)
+	store := mongobench.New()
+	client, err := store.Connect(options.Client().ApplyURI("mongodb://" + address + "/?directConnection=true"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	var tries atomic.Int32
+	t.Cleanup(mongobench.SetKillTryHook(func() { tries.Add(1) }))
+	id, _ := bson.Marshal(bson.D{{Key: "id", Value: bson.Binary{Subtype: bson.TypeBinaryUUID, Data: make([]byte, 16)}}})
+	started := time.Now()
+	if mongobench.KillSession(store, id, "feedface") {
+		t.Fatal("a kill against a server that can't be reached succeeded")
+	}
+	if elapsed := time.Since(started); elapsed > 12*time.Second {
+		t.Errorf("the kill outlasted its 10-second window: %s", elapsed)
+	}
+	if tries.Load() < 4 {
+		t.Errorf("each try must give up after about 2 s and be retried: %d tries", tries.Load())
+	}
+	if !strings.Contains(logged.String(), "feedface") {
+		t.Errorf("the final failure must be logged with the session id: %s", logged)
 	}
 }
 

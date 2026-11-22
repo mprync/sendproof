@@ -1,5 +1,7 @@
 package mongobench
 
+import "go.mongodb.org/mongo-driver/v2/bson"
+
 // ForceGuardMode makes the store behave as if hello had reported a standalone
 // server, so guard mode can be tested against the replica set the tests run on.
 func ForceGuardMode(s *Store) {
@@ -15,6 +17,19 @@ func ForceGuardMode(s *Store) {
 func SetWindowHooks(afterCheck, afterAbort func()) (restore func()) {
 	windowHooks.afterCheck, windowHooks.afterAbort = afterCheck, afterAbort
 	return func() { windowHooks.afterCheck, windowHooks.afterAbort = nil, nil }
+}
+
+// KillSession sends killSessions for the session id document id through the
+// store's client, as after a lost abort, and reports whether the server killed it.
+func KillSession(s *Store, id bson.Raw, lsid string) bool {
+	return s.killSession(id, lsid)
+}
+
+// SetKillTryHook runs try before each killSessions try. It returns a function
+// that removes it.
+func SetKillTryHook(try func()) (restore func()) {
+	killHooks.try = try
+	return func() { killHooks.try = nil }
 }
 
 // ForcePreviewMode makes later detections report a replica set, as when a server
