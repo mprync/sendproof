@@ -12,7 +12,7 @@ Nothing here has been done yet: no trusted publisher or secret exists. Placehold
 
 | Registry | Packages | GitHub environment | Credentials |
 | --- | --- | --- | --- |
-| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB` (+ symbols) | `nuget` | OIDC trusted publishing, secret `NUGET_USER` |
+| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB`, `Sendproof.Cassandra`, `Sendproof.Elasticsearch`, `Sendproof.OpenSearch`, `Sendproof.CosmosDb`, `Sendproof.Firestore` (+ symbols) | `nuget` | OIDC trusted publishing, secret `NUGET_USER` |
 | npmjs.com | thirteen `@sendproof/*` packages, with provenance | `npm` | OIDC trusted publishing |
 | PyPI | `sendproof-core`, `-sqlalchemy`, `-fastapi`, `-flask`, `-django` | `pypi` | OIDC trusted publishing, attestations |
 | Maven Central | `io.github.mprync:sendproof-{core,ui,jdbc,logback,spring-boot,jpa,ktor,redis,mongodb,dynamodb}` | `maven-central` | Central Portal token + GPG key (secrets) |
@@ -35,7 +35,7 @@ The names come from the rename recorded in [the rename plan](plans/rename-sendpr
 | crates.io | `sendproof-core`, `sendproof-axum`, `sendproof-actix`, `sendproof-sqlx`, `sendproof-redis`, `sendproof-dynamodb`, `sendproof-mongodb` | Not yet checked. |
 | RubyGems | `sendproof-core`, `sendproof-activerecord`, `sendproof-rails` | Not yet checked. |
 | Packagist | vendor `sendproof` (`sendproof/core`, `/laravel`, `/symfony`), mirror repositories `mprync/sendproof-*` | Not yet checked. |
-| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB` | Not yet checked; reserving the `Sendproof.` ID prefix may be refused if another owner holds a similar ID. |
+| nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB`, `Sendproof.Cassandra`, `Sendproof.Elasticsearch`, `Sendproof.OpenSearch`, `Sendproof.CosmosDb`, `Sendproof.Firestore` | Not yet checked; reserving the `Sendproof.` ID prefix may be refused if another owner holds a similar ID. |
 | GitHub | `github.com/mprync/sendproof` | `adapters/go/MODULE_PATH` names it. |
 
 ## Checklist

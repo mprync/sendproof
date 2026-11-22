@@ -15,7 +15,8 @@ import { findPython, require, root, run, which } from './lib.mjs';
 export const title = 'NuGet';
 
 // Dependency order: the host first; every other package depends on it.
-const PROJECTS = ['Sendproof.AspNetCore', 'Sendproof.EntityFrameworkCore', 'Sendproof.Redis', 'Sendproof.MongoDB', 'Sendproof.DynamoDB'];
+const PROJECTS = ['Sendproof.AspNetCore', 'Sendproof.EntityFrameworkCore', 'Sendproof.Redis', 'Sendproof.MongoDB', 'Sendproof.DynamoDB',
+  'Sendproof.Cassandra', 'Sendproof.Elasticsearch', 'Sendproof.OpenSearch', 'Sendproof.CosmosDb', 'Sendproof.Firestore'];
 
 export async function available() {
   if (!which('dotnet')) return 'the .NET SDK (dotnet) is not on PATH';

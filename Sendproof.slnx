@@ -5,6 +5,11 @@
     <Project Path="adapters/dotnet/Sendproof.MongoDB/Sendproof.MongoDB.csproj" />
     <Project Path="adapters/dotnet/Sendproof.Redis/Sendproof.Redis.csproj" />
     <Project Path="adapters/dotnet/Sendproof.DynamoDB/Sendproof.DynamoDB.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Cassandra/Sendproof.Cassandra.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Elasticsearch/Sendproof.Elasticsearch.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.OpenSearch/Sendproof.OpenSearch.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.CosmosDb/Sendproof.CosmosDb.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Firestore/Sendproof.Firestore.csproj" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples/TreasuryApi/TreasuryApi.csproj" />

@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HOST = "Sendproof.AspNetCore"
 EF = "Sendproof.EntityFrameworkCore"
 # Data-store guards: each depends on the host package and brings in the store's client library.
-STORES = ("Sendproof.Redis", "Sendproof.MongoDB", "Sendproof.DynamoDB")
+STORES = ("Sendproof.Redis", "Sendproof.MongoDB", "Sendproof.DynamoDB", "Sendproof.Cassandra", "Sendproof.Elasticsearch",
+          "Sendproof.OpenSearch", "Sendproof.CosmosDb", "Sendproof.Firestore")
 PACKAGES = (HOST, EF, *STORES)
 
 
