@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = ROOT / "spec" / "data-stores"
 OUTPUT = Path(__file__).resolve().parents[1] / "core" / "src" / "sendproof_core" / "stores" / "tables.py"
-STORES = ("redis", "mongodb", "dynamodb")
+STORES = ("redis", "mongodb", "dynamodb", "cassandra", "elasticsearch", "cosmosdb", "firestore")
 
 
 def main() -> int:
