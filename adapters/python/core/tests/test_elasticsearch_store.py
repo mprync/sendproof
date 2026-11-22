@@ -161,25 +161,66 @@ def test_the_async_client_is_guarded(articles):
 
 
 @needs("opensearch")
-def test_a_write_no_request_accounts_for_fails_every_open_preview(articles):
+def test_a_write_no_request_accounts_for_is_refused_before_it_is_sent(articles):
+    """A thread started without the request's context, or ``helpers.parallel_bulk``'s own thread pool,
+    carries no request: while a Preview is open the write is refused before sending and every open
+    Preview is blocked."""
+    from opensearchpy import helpers
+
     plain, index = articles
     client = OpenSearch(OPENSEARCH_URL)
     opensearch_store(client)
+    refused: list = []
 
     def in_thread(body):
-        thread = threading.Thread(target=body)
+        def run() -> None:
+            try:
+                body()
+            except PreviewWriteBlocked as error:
+                refused.append(error.operation)
+        thread = threading.Thread(target=run)
         thread.start()
         thread.join()
 
-    with active(preview_scope()) as scope:
+    with active(preview_scope()) as scope, active(preview_scope()) as other:
         in_thread(lambda: client.index(index, {"title": "T"}, id="thread"))
-        assert isinstance(scope.capture.fault, Exception) and "outside any request" in str(scope.capture.fault)
+        assert refused == ["index"]
+        assert scope.capture.blocked["operation"] == other.capture.blocked["operation"] == "index"
+    with active(preview_scope()) as scope:
+        with pytest.raises(PreviewWriteBlocked):
+            for _ in helpers.parallel_bulk(client, [{"_index": index, "_id": "pb", "title": "P"}], thread_count=2):
+                pass
+        assert scope.capture.blocked["operation"] == "bulk"
+    plain.indices.refresh(index)
+    assert stored(plain, index, "thread") is None and stored(plain, index, "pb") is None
     with active(preview_scope()) as scope:
         def marked() -> None:
             with detached():
-                client.index(index, {"title": "T"}, id="thread2")
+                client.index(index, {"title": "T"}, id="thread2", params={"refresh": "true"})
         in_thread(marked)
-        assert scope.capture.fault is None
+        assert scope.capture.fault is None and scope.capture.blocked is None
+    assert stored(plain, index, "thread2") is not None
+    client.close()
+
+
+@needs("opensearch")
+def test_the_bulk_helpers_are_refused_before_anything_is_sent(articles):
+    from opensearchpy import helpers
+
+    plain, index = articles
+    client = OpenSearch(OPENSEARCH_URL)
+    opensearch_store(client)
+    with active(preview_scope()):
+        for refuse in (
+            lambda: helpers.bulk(client, [{"_index": index, "_id": "hb", "title": "H"}]),
+            lambda: list(helpers.streaming_bulk(client, [{"_index": index, "_id": "sb", "title": "S"}])),
+            lambda: helpers.reindex(client, index, index + "-copy"),
+        ):
+            with pytest.raises(PreviewWriteBlocked):
+                refuse()
+        assert [hit["_id"] for hit in helpers.scan(client, index=index, query={"query": {"match_all": {}}})] == ["seeded"]
+    plain.indices.refresh(index)
+    assert stored(plain, index, "hb") is None and stored(plain, index, "sb") is None and not plain.indices.exists(index + "-copy")
     client.close()
 
 
@@ -194,16 +235,23 @@ def test_without_the_hook_the_same_write_lands(articles):
 
 # ------------------------------------------------------------------ Elasticsearch, over a stand-in node
 HEADERS = HttpHeaders({"content-type": "application/json", "x-elastic-product": "Elasticsearch"})
-REPLY = b'{"hits": {"hits": [{"_id": "1"}, {"_id": "2"}]}, "updated": 2}'
+REPLY = b'{"hits": {"hits": [{"_id": "1"}, {"_id": "2"}]}, "updated": 2, "errors": false, "items": []}'
 
 
 class FakeNode(BaseNode):
-    """An ``elastic_transport`` node that answers every request and remembers it."""
+    """An ``elastic_transport`` node that answers every request like an Elasticsearch 8 node and remembers it.
+
+    It sits below the client's whole request path: the typed API, the compatibility ``accept`` header
+    and the product check on every reply (``x-elastic-product``), so a write that slips past the
+    guard reaches ``seen`` exactly as it would reach a real node.
+    """
 
     seen: list[tuple[str, str]] = []
+    sent_headers: list[Any] = []
 
     def perform_request(self, method, target, body=None, headers=None, request_timeout=None):
         FakeNode.seen.append((method, target.split("?")[0]))
+        FakeNode.sent_headers.append(headers)
         return NodeApiResponse(ApiResponseMeta(status=200, http_version="1.1", headers=HEADERS, duration=0.0, node=self.config), REPLY)
 
     def close(self) -> None:
@@ -222,7 +270,57 @@ class FakeAsyncNode(BaseAsyncNode):
 @pytest.fixture
 def node():
     FakeNode.seen = []
+    FakeNode.sent_headers = []
     return FakeNode.seen
+
+
+def test_the_stand_in_node_sees_the_real_clients_requests_and_an_unhooked_write_reaches_it(node):
+    """The control for the stand-in node: without the hook the same typed writes arrive, sent the way
+    the client sends them to a real node (compatibility headers on, product check passed)."""
+    from elasticsearch import UnsupportedProductError, helpers
+
+    client = Elasticsearch("http://es.invalid:9200", node_class=FakeNode)
+    with active(preview_scope()):
+        client.index(index="a", id="1", document={"t": 1})
+        client.delete(index="a", id="1")
+        helpers.bulk(client, [{"_index": "a", "_id": "b", "t": 1}])
+    assert node == [("PUT", "/a/_doc/1"), ("DELETE", "/a/_doc/1"), ("PUT", "/_bulk")]
+    assert all("compatible-with=8" in str(headers.get("accept")) for headers in FakeNode.sent_headers)
+    # The client checks the product of every reply: a node that isn't Elasticsearch is refused, so the
+    # stand-in's answers pass through the same check as a real node's.
+    plain = HttpHeaders({"content-type": "application/json"})
+
+    class NotElasticsearch(FakeNode):
+        def perform_request(self, method, target, body=None, headers=None, request_timeout=None):
+            return NodeApiResponse(ApiResponseMeta(status=200, http_version="1.1", headers=plain, duration=0.0, node=self.config), REPLY)
+
+    with pytest.raises(UnsupportedProductError):
+        Elasticsearch("http://es.invalid:9200", node_class=NotElasticsearch).search(index="a")
+
+
+def test_the_elasticsearch_bulk_helpers_and_their_threads_are_refused_before_sending(node):
+    from elasticsearch import helpers
+
+    import time
+
+    client = Elasticsearch("http://es.invalid:9200", node_class=FakeNode)
+    elasticsearch_store(client)
+    began = time.monotonic()
+    with active(preview_scope()) as scope, active(preview_scope()) as other:
+        for refuse in (
+            lambda: helpers.bulk(client, [{"_index": "a", "_id": "b", "t": 1}]),
+            lambda: list(helpers.streaming_bulk(client, [{"_index": "a", "_id": "s", "t": 1}])),
+            lambda: list(helpers.parallel_bulk(client, [{"_index": "a", "_id": "p", "t": 1}], thread_count=2)),
+            # The helpers retry only answers the node sent (429), never a refusal: a retried refusal
+            # would wait out this backoff, and the timing check below would fail.
+            lambda: list(helpers.streaming_bulk(client, [{"_index": "a", "_id": "r", "t": 1}], max_retries=5, initial_backoff=30)),
+        ):
+            with pytest.raises(PreviewWriteBlocked) as blocked:
+                refuse()
+            assert blocked.value.operation == "bulk"
+        assert scope.capture.blocked["operation"] == "bulk"
+        assert other.capture.blocked["operation"] == "bulk"  # parallel_bulk's pool threads carry no request
+    assert [seen for seen in node if seen[0] != "GET"] == [] and time.monotonic() - began < 10
 
 
 def test_elasticsearch_client_reads_run_and_writes_never_reach_the_node(node):
@@ -295,6 +393,107 @@ def test_the_async_elasticsearch_client_is_guarded(node):
 
     asyncio.run(run())
     assert len(node) == 1
+
+
+def test_a_write_carrying_an_ended_previews_context_is_still_refused(node):
+    """A thread the handler started with its context, or an asyncio task it created, may write after the
+    response went out. Its context stays marked as that Preview, so the write is still refused."""
+    import contextvars
+
+    from store_support import arun_preview, run_preview, sync_bench
+
+    client = Elasticsearch("http://es.invalid:9200", node_class=FakeNode)
+    store = elasticsearch_store(client)
+    go, outcome, started = threading.Event(), [], []
+
+    def write_later() -> None:
+        go.wait(5)
+        try:
+            client.index(index="a", document={"t": 1})
+            outcome.append("sent")
+        except PreviewWriteBlocked:
+            outcome.append("refused")
+
+    def handler(scope):
+        thread = threading.Thread(target=contextvars.copy_context().run, args=(write_later,))
+        thread.start()
+        started.append(thread)
+        return 200, {}
+
+    assert run_preview(sync_bench(store), handler).status == 200  # the Preview ended before the write
+    go.set()
+    started[0].join()
+    assert outcome == ["refused"] and node == []
+
+    async def run() -> None:
+        tasks = []
+
+        async def later() -> None:
+            await asyncio.sleep(0.05)
+            try:
+                await aclient.index(index="a", document={"t": 1})
+                outcome.append("sent")
+            except PreviewWriteBlocked:
+                outcome.append("refused")
+
+        async def ahandler(scope) -> None:
+            tasks.append(asyncio.ensure_future(later()))  # a task copies the Preview's context
+
+        aclient = AsyncElasticsearch("http://es.invalid:9200", node_class=FakeAsyncNode)
+        astore = elasticsearch_store(aclient)
+        scope, error = await arun_preview([astore], ahandler)
+        assert error is None and scope.capture.blocked is None
+        await tasks[0]
+        await aclient.close()
+
+    asyncio.run(run())
+    assert outcome == ["refused", "refused"] and node == []
+
+
+def test_a_refused_write_never_marks_a_node_dead_or_retries_so_the_next_read_is_unaffected(node):
+    """The guard refuses in ``Transport.perform_request``, above node selection, mark-dead and retries.
+    A refusal at the node level would count as a failed node and take it out of rotation for everyone."""
+    from elastic_transport import ConnectionError as NodeConnectionError
+
+    nodes = ["http://es1.invalid:9200", "http://es2.invalid:9200"]
+    client = Elasticsearch(nodes, node_class=FakeNode, max_retries=3)
+    elasticsearch_store(client)
+    pool = client.transport.node_pool
+    with active(preview_scope()):
+        for _ in range(4):
+            with pytest.raises(PreviewWriteBlocked):
+                client.index(index="a", document={"t": 1})
+    assert node == [] and pool._dead_nodes.empty() and not pool._dead_consecutive_failures
+    for _ in range(4):  # ordinary traffic afterwards, on both nodes
+        assert client.search(index="a")["hits"]
+    assert len(node) == 4 and len({id(n) for n in pool.all()}) == 2 and pool._dead_nodes.empty()
+
+    class Failing(FakeNode):  # the control: a failure the pool does see marks the node dead
+        def perform_request(self, *args, **kwargs):
+            raise NodeConnectionError("refused at the node")
+
+    failing = Elasticsearch(nodes, node_class=Failing, max_retries=0)
+    with pytest.raises(NodeConnectionError):
+        failing.search(index="a")
+    assert not failing.transport.node_pool._dead_nodes.empty()
+
+
+@needs("opensearch")
+def test_a_refused_opensearch_write_never_marks_a_connection_dead(articles):
+    plain, index = articles
+    host = OPENSEARCH_URL.replace("127.0.0.1", "localhost")
+    client = OpenSearch([OPENSEARCH_URL, host], max_retries=3)
+    opensearch_store(client)
+    pool = client.transport.connection_pool
+    with active(preview_scope()):
+        for _ in range(4):
+            with pytest.raises(PreviewWriteBlocked):
+                client.index(index, {"title": "N"}, id="n")
+    assert pool.dead.empty() and pool.dead_count == {} and len(pool.connections) == 2
+    for _ in range(4):
+        assert client.get(index, "seeded")["found"]
+    assert pool.dead.empty() and stored(plain, index, "n") is None
+    client.close()
 
 
 def test_host_declared_reads_let_an_unlisted_post_through(node):
