@@ -14,7 +14,7 @@
 // checked, never rewritten. Because em follows the button's font size, one measurement holds at every
 // text size and density; rem padding is included at each density's real ratio.
 //
-// Env: BASE=<url> the running Treasury example (default http://127.0.0.1:5189).
+// Env: BASE=<url> the running Acme Store example (default http://127.0.0.1:5189).
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

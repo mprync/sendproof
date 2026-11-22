@@ -1,4 +1,4 @@
-"""Check the release archives and exercise the Treasury example as a NuGet consumer."""
+"""Check the release archives and exercise the Acme Store example as a NuGet consumer."""
 
 import argparse
 import os
@@ -63,14 +63,14 @@ def inspect_package(path):
 
 def copy_consumer(destination, version):
     # Use the same application and acceptance assertions contributors run from source.
-    shutil.copytree(ROOT / "examples/TreasuryApi", destination,
-                    ignore=shutil.ignore_patterns("bin", "obj", "*.db*", "TestResults"))
-    project = destination / "TreasuryApi.csproj"
+    shutil.copytree(ROOT / "examples/StoreApi", destination,
+                    ignore=shutil.ignore_patterns("bin", "obj", "*.db*", "*.keys", "TestResults"))
+    project = destination / "StoreApi.csproj"
     tree = ET.parse(project)
     found = set()
     for ref in tree.iter("ProjectReference"):
         package_id = Path(ref.attrib["Include"]).stem
-        # The sample also wires the optional data-store guards (Redis, MongoDB); each is restored from its archive.
+        # The sample also wires the optional data-store guards (Redis, MongoDB, DynamoDB); each is restored from its archive.
         require(package_id in PACKAGES, f"Unexpected sample project reference {package_id}")
         ref.tag = "PackageReference"
         ref.attrib = {"Include": package_id, "Version": f"[{version}]"}
@@ -149,11 +149,11 @@ def check(packages, dependencies):
             f"Expected {len(PACKAGES)} packages at one version, got {versions}")
     with tempfile.TemporaryDirectory(prefix="sendproof-consumer-") as directory:
         temp = Path(directory).resolve()
-        app = temp / "TreasuryApi"
+        app = temp / "StoreApi"
         copy_consumer(app, versions[HOST])
         config = temp / "NuGet.Config"
         write_config(config, packages, dependencies or "https://api.nuget.org/v3/index.json")
-        project = app / "tests/TreasuryApi.Tests.csproj"
+        project = app / "tests/StoreApi.Tests.csproj"
         # A private cache prevents a previously installed build with this version masking the archive.
         restore = ["dotnet", "restore", str(project), "--configfile", str(config),
                    "--packages", str(temp / "packages"), "-m:1"]
@@ -163,7 +163,7 @@ def check(packages, dependencies):
         subprocess.run(["dotnet", "build", str(project), "-c", "Release", "--no-restore",
                         "-m:1", "-nr:false", "-p:UseSharedCompilation=false", "-warnaserror"],
                        cwd=temp, check=True)
-        subprocess.run(["dotnet", str(app / "tests/bin/Release/net10.0/TreasuryApi.Tests.dll")],
+        subprocess.run(["dotnet", str(app / "tests/bin/Release/net10.0/StoreApi.Tests.dll")],
                        cwd=temp, check=True)
         stores = temp / "StoreConsumer"
         check_store_consumer(stores, versions[HOST])

@@ -3,7 +3,7 @@
 //
 // pack    `dotnet pack` with the release version and repository URL as MSBuild properties (the same
 //         properties CI always used), into ctx.out.
-// verify  tools/check-packages.py: inspects every package and its symbols, then restores the Treasury
+// verify  tools/check-packages.py: inspects every package and its symbols, then restores the Acme Store
 //         example from the archives only (private package cache, source mapping) and runs its tests,
 //         which start the application and exercise the workbench and its OpenAPI document. A second
 //         application registers all three data-store guards from the archives.

@@ -1,4 +1,4 @@
-// Screenshots of the request-sample picker and code samples from the running Treasury demo.
+// Screenshots of the request-sample picker and code samples from the running Acme Store demo.
 //
 //   node tools/shoot-samples.mjs              writes artifacts/v5-live/
 //
@@ -35,7 +35,7 @@ const choose = async (page, trigger, language) => {
 for (const theme of ['light', 'dark']) {
   const { context, page } = await open({ theme });
   const shot = name => page.screenshot({ path: join(out, `${name}-${theme}.png`) });
-  await page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#docs/OrdersController.Place`);
   await page.locator('#docs-code-picker').waitFor();
   await page.waitForTimeout(400);
   await page.locator('#docs-code-picker').click();
@@ -57,7 +57,7 @@ for (const theme of ['light', 'dark']) {
   await page.mouse.up();
   await shot('07-json-selection');
   // Try it: the Code panel shares the choice.
-  await page.goto(`${base}/sendproof/#op/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#op/OrdersController.Place`);
   await page.locator('[data-request-tab="Code"]').click();
   await page.locator('#editor-code-picker').waitFor();
   await page.waitForTimeout(300);
@@ -74,7 +74,7 @@ for (const language of ['de-DE', 'ar']) {
   }, { language });
   await context.request.post(`${base}/auth/login`, { data: { email: 'ada.admin@acme.dev', password: 'Demo123!' } });
   const page = await context.newPage();
-  await page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
+  await page.goto(`${base}/sendproof/#docs/OrdersController.Place`);
   await page.locator('#docs-code-picker').waitFor();
   await page.waitForTimeout(400);
   await page.locator('#docs-code-picker').click();
@@ -85,7 +85,7 @@ for (const language of ['de-DE', 'ar']) {
 
 // One phone width.
 const phone = await open({ theme: 'light', mobile: true });
-await phone.page.goto(`${base}/sendproof/#docs/PaymentsController.Create`);
+await phone.page.goto(`${base}/sendproof/#docs/OrdersController.Place`);
 await phone.page.locator('#docs-code-picker').waitFor({ state: 'attached' });
 await phone.page.locator('#docs-code-picker').scrollIntoViewIfNeeded();
 await phone.page.waitForTimeout(500);

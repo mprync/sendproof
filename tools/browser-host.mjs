@@ -23,11 +23,11 @@ export async function startHost() {
   const url = `http://127.0.0.1:${await freePort()}`;
   let output = '';
   const buildArgs = process.argv.includes('--no-build') ? ['--no-build', '--no-restore'] : [];
-  host = spawn('dotnet', ['run', '--project', 'examples/TreasuryApi', '-c', 'Release',
+  host = spawn('dotnet', ['run', '--project', 'examples/StoreApi', '-c', 'Release',
     ...buildArgs, '--no-launch-profile', '--urls', url], {
     cwd: root, env: {
       ...process.env, ASPNETCORE_ENVIRONMENT: 'Development',
-      DemoDatabasePath: join(temp, 'treasury.db'), DemoKeyDirectory: join(temp, 'keys'),
+      DemoDatabasePath: join(temp, 'store.db'), DemoKeyDirectory: join(temp, 'keys'),
     },
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],

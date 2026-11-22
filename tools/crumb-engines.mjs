@@ -5,7 +5,7 @@
 // a measurement, so it must hold in WebKit and Firefox as well as Chromium. This opens the Quote FX
 // rate Docs page in each engine Playwright has installed, at a roomy and at a tight width and at
 // 130% text, and reports the engines that ran and those that were skipped as not installed.
-// Run from browser-test.mjs, or alone: node tools/crumb-engines.mjs (starts the Treasury example).
+// Run from browser-test.mjs, or alone: node tools/crumb-engines.mjs (starts the Acme Store example).
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { chromium, firefox, webkit } from 'playwright';
@@ -36,7 +36,7 @@ export async function checkCrumbsInEngines(url) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
       await serveUiFromDirectory(context);
       const page = await context.newPage();
-      await page.goto(`${url}/sendproof/#docs/FxController.Quote`);
+      await page.goto(`${url}/sendproof/#docs/CartsController.Quote`);
       await page.waitForSelector('.ctx-bar .crumbs li:not(:last-child) a');
       // Measured after the row renders: --nat appears on the earlier crumb.
       await page.waitForFunction(() => document.querySelector('.ctx-bar .crumbs li:not(:last-child)')?.style.getPropertyValue('--nat'));

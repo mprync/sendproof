@@ -1,7 +1,7 @@
-// End-to-end test against the real Treasury example. Run after `npm ci --prefix tools`
+// End-to-end test against the real Acme Store example. Run after `npm ci --prefix tools`
 // and `npx --prefix tools playwright install chromium`. Run `node tools/browser-test.mjs`.
-// SENDPROOF_URL can be the root or /sendproof URL of an already-running Treasury example.
-// It MUST be disposable: this test commits one payment and reduces an account balance.
+// SENDPROOF_URL can be the root or /sendproof URL of an already-running Acme Store example.
+// It MUST be disposable: this test commits one order and reduces a stock level.
 // Without SENDPROOF_URL, a temporary host and new SQLite database are used and removed.
 // Local demo: SENDPROOF_URL=http://localhost:5080 node tools/browser-test.mjs
 // SENDPROOF_UI_DIR=ui serves the workbench from that directory (not the host's embedded copy), so
@@ -185,6 +185,42 @@ async function pickOption(page, field, name) {
   await page.locator('.lb').waitFor({ state: 'detached' });
 }
 
+/**
+ * Typed fields: the refund amount asks for a decimal keyboard and keeps an invalid draft editable; the estimated
+ * delivery date accepts a draft and explains a day that does not exist; a short enum is a radio group.
+ */
+async function verifyTypedFields(page) {
+  const issues = () => page.locator('#issues .issue-link').evaluateAll(rows => rows.map(row => ({
+    name: row.querySelector('.name').textContent, issue: row.querySelector('.why').textContent })));
+  await selectOperation(page, 'Refund payment');
+  const amount = page.getByLabel(/^Amount/i);
+  assert.equal(await amount.getAttribute('inputmode'), 'decimal', 'amount requests a decimal keyboard');
+  await amount.fill('g');
+  await page.locator('.actionbar [data-action="send"]').click();
+  assert.equal(await amount.inputValue(), 'g', 'invalid numeric draft stays editable');
+  assert.equal(await amount.getAttribute('aria-invalid'), 'true', 'letters fail numeric validation');
+  assert.equal(await page.locator('[data-action="confirm-send"]').count(), 0);
+  assert.match((await issues()).find(row => row.name === 'Amount')?.issue || '', /Enter a number, like 1,250\.00/);
+  await page.keyboard.press('Escape');
+  await amount.fill('1.23');
+  await pickOption(page, page.getByRole('combobox', { name: /^Currency$/i }), /^EUR\b/);
+  // Five values (one longer than twelve characters) are a select, not a radio group.
+  const reason = page.getByRole('combobox', { name: /^Reason/i });
+  await pickOption(page, reason, /^Damaged\b/);
+  assert.match(await reason.innerText(), /Damaged/);
+
+  await selectOperation(page, 'Create shipment');
+  const date = page.getByLabel(/^Estimated delivery/i);
+  assert.equal(await date.getAttribute('placeholder'), 'dd/mm/yyyy', 'date accepts an editable draft');
+  await date.fill('31/02/2026');
+  await page.locator('.actionbar [data-action="send"]').click();
+  const dateIssues = await issues();
+  assert.ok(dateIssues.some(row => /doesn’t exist/.test(row.issue)), `a day that does not exist is explained: ${JSON.stringify(dateIssues)}`);
+  await page.keyboard.press('Escape');
+  await date.fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+  assert.notEqual(await date.getAttribute('aria-invalid'), 'true', 'a real date is accepted');
+}
+
 async function verifyHeaders(page, mock) {
   await page.locator('[data-request-tab="Headers"]').click();
   const grid = page.getByRole('grid', { name: 'Request headers' });
@@ -343,7 +379,7 @@ async function assertAligned(page, label, expectedColumns) {
 async function verifyCodeSamples(page, url) {
   const LANGUAGES = ['cURL', 'JavaScript', 'Python', 'C#', 'Go', 'Java', 'Kotlin', 'PHP', 'Ruby', 'Rust', 'PowerShell'];
   await page.evaluate(() => localStorage.removeItem('sendproof-code-language'));
-  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#docs/OrdersController.Place`);
   const trigger = page.locator('#docs-code-picker');
   const sample = page.locator('[data-sample]');
   await trigger.waitFor();
@@ -441,7 +477,7 @@ async function verifyCodeSamples(page, url) {
   // The choice is remembered and shared: Rust here is Rust in Try it, and a change there shows in Docs.
   await trigger.click();
   await page.getByRole('option', { name: /^Rust\b/ }).click();
-  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
   await page.locator('[data-request-tab="Code"]').click();
   const editorTrigger = page.locator('#editor-code-picker');
   await editorTrigger.waitFor();
@@ -454,7 +490,7 @@ async function verifyCodeSamples(page, url) {
   for (const kind of ['kw', 'f', 's', 'k']) assert.ok(await page.locator(`#snippet .tok-${kind}`).count() > 0, `Python Code panel has .tok-${kind}`);
   const stored = await page.evaluate(() => localStorage.getItem('sendproof-code-language'));
   assert.equal(stored, 'python', 'the choice is stored');
-  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#docs/OrdersController.Place`);
   await trigger.waitFor();
   assert.match(await trigger.innerText(), /Python\s+requests/, 'Docs shows the language chosen in Try it');
   await page.reload();
@@ -500,7 +536,7 @@ async function verifyCodeSamples(page, url) {
   assert.ok(rows.every(row => !/^\d+$/.test(row.trim())), 'no copied line is only a number');
   await page.evaluate(() => getSelection().removeAllRanges());
   // Leave on Try it, where the rest of the run continues.
-  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
   await page.locator('[data-body-mode="JSON"]').waitFor();
 }
 
@@ -522,7 +558,7 @@ async function verifyReference(page, mock, url) {
 
   // One stable shell: columns, head line and bottom line are identical in Try it, Docs and Models,
   // also after dragging the divider, resizing the window and switching views.
-  await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
   await page.locator('#request .op-title').waitFor();
   const columns = (await assertAligned(page, 'Try it')).columns;
   await page.keyboard.press('d');
@@ -566,51 +602,51 @@ async function verifyReference(page, mock, url) {
   assert.equal(await page.locator('#result .code-view .fold[aria-expanded="false"]').count(), 0, 'Expand all opens everything again');
 
   // Docs → model → ⌥←: back on Docs, same scroll position; browser history and deep links work.
-  await page.goto(`${url}/sendproof/#docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#docs/OrdersController.Place`);
   await page.locator(reading).waitFor();
   await page.locator(scroller).evaluate(node => { node.scrollTop = 500; });
   const scrollBefore = await page.locator(scroller).evaluate(node => node.scrollTop);
   assert.ok(scrollBefore > 0, 'the Docs page scrolls');
   await page.locator('#doc-pane .type-link[data-model]').first().click();
   await page.locator('#model-title').waitFor();
-  assert.match(await page.evaluate(() => location.hash), /^#model\/\w+\?from=docs\/PaymentsController\.Create$/, 'the model address names its operation');
+  assert.match(await page.evaluate(() => location.hash), /^#model\/\w+\?from=docs\/OrdersController\.Place$/, 'the model address names its operation');
   assert.equal(await page.locator('#doc-pane .crumbs li').count(), 3, 'Tag › Operation › Model breadcrumbs');
   assert.equal(await page.locator('#doc-pane [data-action="model-back"]').count(), 1, 'one Back control');
   assert.equal(await page.locator('.pane-bar [data-action="model-back"]').count(), 0, 'no Back in the bottom bar');
   assert.equal(await page.locator('.nav-item.is-context[aria-current="location"]').count(), 1, 'the operation stays marked as context');
   assert.equal(await page.locator('#side-tab-operations').getAttribute('aria-selected'), 'true', 'the sidebar tab did not change');
-  assert.match(await page.locator('[data-action="model-back"]').innerText(), /^Back to Create payment/, 'Back names its target');
+  assert.match(await page.locator('[data-action="model-back"]').innerText(), /^Back to Place order/, 'Back names its target');
   await page.locator('[data-action="model-back"]').focus();
   await page.keyboard.press('Alt+ArrowLeft');
   await page.locator('#doc-title').waitFor();
-  assert.equal(await page.evaluate(() => location.hash), '#docs/PaymentsController.Create');
+  assert.equal(await page.evaluate(() => location.hash), '#docs/OrdersController.Place');
   assert.equal(await page.locator(scroller).evaluate(node => node.scrollTop), scrollBefore, 'Back restores the Docs scroll position');
   await page.goForward();
   await page.locator('#model-title').waitFor();
   await page.goBack();
   await page.locator('#doc-title').waitFor();
   assert.equal(await page.locator(scroller).evaluate(node => node.scrollTop), scrollBefore, 'browser Back restores it too');
-  await page.goto(`${url}/sendproof/#model/Payment?from=docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#model/Order?from=docs/OrdersController.Place`);
   await page.reload();
   await page.locator('#model-title').waitFor();
-  assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Payments Create payment Payment', 'a deep link reload shows the breadcrumbs');
+  assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Orders Place order Order', 'a deep link reload shows the breadcrumbs');
   await page.locator('#doc-pane [data-action="model-back"]').click();
   await page.locator('#doc-title').waitFor();
-  assert.equal(await page.evaluate(() => location.hash), '#docs/PaymentsController.Create', 'Back works after a reload, with no earlier entry');
+  assert.equal(await page.evaluate(() => location.hash), '#docs/OrdersController.Place', 'Back works after a reload, with no earlier entry');
   // A $ref followed from a model extends the trail.
-  await page.goto(`${url}/sendproof/#model/Payment?from=docs/PaymentsController.Create`);
+  await page.goto(`${url}/sendproof/#model/Order?from=docs/OrdersController.Place`);
   await page.locator('#model-title').waitFor();
   await page.locator('#doc-pane .attr-type.is-ref').first().click();
-  assert.match(await page.evaluate(() => location.hash), /via=Payment$/, 'following a $ref adds the model to the trail');
-  assert.match(await page.locator('[data-action="model-back"]').innerText(), /^Back to Payment/);
+  assert.match(await page.evaluate(() => location.hash), /via=Order$/, 'following a $ref adds the model to the trail');
+  assert.match(await page.locator('[data-action="model-back"]').innerText(), /^Back to Order/);
 
   // A model picked in the Models tab: Models › Group › Model and no Back.
-  await page.goto(`${url}/sendproof/#model/Payment`);
+  await page.goto(`${url}/sendproof/#model/Order`);
   await page.locator('#model-title').waitFor();
-  assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Models Resources Payment');
+  assert.equal((await page.locator('#doc-pane .crumbs').innerText()).replace(/\s+/g, ' ').trim(), 'Models Resources Order');
   assert.equal(await page.locator('#doc-pane [data-action="model-back"]').count(), 0, 'no Back for a model picked in the Models tab');
   assert.equal(await page.locator('#side-tab-models').getAttribute('aria-selected'), 'true');
-  await compareReading('27-model-payment', 'view=model&model=Payment&side=models');
+  await compareReading('27-model-payment', 'view=model&model=Order&side=models');
   await audit(page, 'model page');
 
   // Sidebar groups start open, collapse, and stay collapsed after a reload.
@@ -639,6 +675,8 @@ async function verifyReference(page, mock, url) {
 async function withSettings(page, url, hash, { language = 'en-IE', theme = 'light' } = {}) {
   await page.evaluate(([language, theme]) => localStorage.setItem('sendproof-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('sendproof-settings') || '{}'), language, theme })), [language, theme]);
   await page.goto(`${url}/sendproof/${hash}`);
+  // Moving to another route in the same page is not a navigation: reload so the new language and theme apply.
+  await page.reload();
   await page.locator('.sidebar .nav-heading').first().waitFor({ state: 'attached' });
   // A phone shows one pane at a time: start on the request.
   if (await page.locator('.mobile-switch [data-view="request"]').isVisible()) await page.locator('.mobile-switch [data-view="request"]').click();
@@ -658,11 +696,11 @@ const noPageScroll = async (page, label) => assert.equal(await page.evaluate(() 
  * horizontal page scroll. Each state gets an axe audit.
  */
 async function verifyV5Controls(page, url) {
-  await withSettings(page, url, '#op/AccountsController.List');
+  await withSettings(page, url, '#op/OrdersController.List');
   await page.locator('[data-request-tab="Params"]').click();
   await noPageScroll(page, 'Try it');
   // Select: ↓ opens, Home and End jump, type-ahead finds a value, Enter chooses, Esc returns focus.
-  const type = () => page.getByRole('combobox', { name: /^type$/i });
+  const type = () => page.getByRole('combobox', { name: /^status$/i });
   await type().focus();
   await page.keyboard.press('ArrowDown');
   assert.equal(await type().getAttribute('aria-expanded'), 'true', 'ArrowDown opens the select');
@@ -670,25 +708,26 @@ async function verifyV5Controls(page, url) {
   const control = await type().boundingBox();
   const list = await page.locator('.lb').boundingBox();
   assert.ok(Math.abs(list.x - control.x) <= 1, 'the listbox lines up with the control’s start edge');
-  assert.ok(list.width >= control.width - 1, 'the listbox is at least the control’s width');
+  // A listbox is never wider than 32rem (512 px), however wide the control is.
+  assert.ok(list.width >= Math.min(control.width, 512) - 1, 'the listbox is at least the control’s width, up to its maximum');
   assert.ok(list.y >= control.y + control.height || list.y + list.height <= control.y, 'the listbox never covers its control');
   await page.keyboard.press('End');
-  assert.equal(await activeOption(page), 'Escrow', 'End jumps to the last value');
+  assert.equal(await activeOption(page), 'Refunded', 'End jumps to the last value');
   await page.keyboard.press('Home');
   assert.equal(await activeOption(page), 'Any', 'Home jumps to "Any"');
   await page.keyboard.press('s');
-  assert.equal(await activeOption(page), 'Savings', 'type-ahead jumps to the value that starts with what was typed');
+  assert.equal(await activeOption(page), 'Shipped', 'type-ahead jumps to the value that starts with what was typed');
   assert.match(await page.locator('.lb [data-typed]').innerText(), /Typed\s+s/, 'the footer echoes what was typed');
   await page.keyboard.press('Enter');
   assert.equal(await page.locator('.lb').count(), 0, 'Enter chooses and closes');
-  assert.equal(await type().innerText(), 'Savings');
+  assert.equal(await type().innerText(), 'Shipped');
   assert.equal(await type().evaluate(node => node === document.activeElement), true, 'focus stays on the select');
-  assert.match(await page.locator('[data-parameter-name="type"] .assist').innerText(), /Sends type=Savings/, 'the status line says what will be sent');
+  assert.match(await page.locator('[data-parameter-name="status"] .assist').innerText(), /Sends status=Shipped/, 'the status line says what will be sent');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.lb').count(), 0, 'Escape closes the listbox');
   assert.equal(await type().evaluate(node => node === document.activeElement), true, 'Escape returns focus to the select');
-  await page.locator('[data-parameter-name="type"] .field-clear').click();
+  await page.locator('[data-parameter-name="status"] .field-clear').click();
   assert.match(await type().innerText(), /Any/, 'Clear unsets an optional select');
   // More than 8 values get a search box that matches values and descriptions.
   await page.getByRole('combobox', { name: /^currency$/i }).click();
@@ -700,27 +739,30 @@ async function verifyV5Controls(page, url) {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.lb').count(), 0);
   // Radio group: arrows move and choose, Delete clears an optional value.
-  const status = page.getByRole('radiogroup', { name: /^status$/i });
-  await status.getByRole('radio', { name: 'Open' }).click();
+  await withSettings(page, url, '#op/CustomersController.List');
+  await page.locator('[data-request-tab="Params"]').click();
+  const tier = page.getByRole('radiogroup', { name: /^tier$/i });
+  await tier.getByRole('radio', { name: 'Plus' }).click();
   await page.keyboard.press('ArrowRight');
-  assert.equal(await page.getByRole('radiogroup', { name: /^status$/i }).getByRole('radio', { name: 'Frozen' }).getAttribute('aria-checked'), 'true', 'ArrowRight chooses the next value');
+  assert.equal(await page.getByRole('radiogroup', { name: /^tier$/i }).getByRole('radio', { name: 'Vip' }).getAttribute('aria-checked'), 'true', 'ArrowRight chooses the next value');
   await page.keyboard.press('Delete');
-  assert.equal(await page.getByRole('radiogroup', { name: /^status$/i }).locator('[aria-checked="true"]').count(), 0, 'Delete clears an optional radio group');
+  assert.equal(await page.getByRole('radiogroup', { name: /^tier$/i }).locator('[aria-checked="true"]').count(), 0, 'Delete clears an optional radio group');
   await audit(page, 'radio group and selects');
 
   // RTL: the listbox anchors to the control's start edge, the right.
-  await withSettings(page, url, '#op/AccountsController.List', { language: 'he-IL' });
+  await withSettings(page, url, '#op/OrdersController.List', { language: 'he-IL' });
   await page.locator('[data-request-tab="Params"]').click();
-  const rtlType = page.locator('[data-parameter-name="type"] [role="combobox"]');
+  const rtlType = page.locator('[data-parameter-name="status"] [role="combobox"]');
   await rtlType.click();
   const [rtlControl, rtlList] = [await rtlType.boundingBox(), await page.locator('.lb').boundingBox()];
-  assert.ok(Math.abs(rtlList.x + rtlList.width - (rtlControl.x + rtlControl.width)) <= 1, 'in RTL the listbox lines up with the control’s right edge');
+  assert.ok(Math.abs(rtlList.x + rtlList.width - (rtlControl.x + rtlControl.width)) <= 1,
+    `in RTL the listbox lines up with the control’s right edge (control ${JSON.stringify(rtlControl)}, list ${JSON.stringify(rtlList)})`);
   await audit(page, 'select open, RTL');
   await page.keyboard.press('Escape');
   await noPageScroll(page, 'Hebrew Try it');
 
   // Language picker: 34 languages; search covers English names; an RTL row previews a field.
-  await withSettings(page, url, '#op/AccountsController.List');
+  await withSettings(page, url, '#op/CustomersController.List');
   await page.locator('#display-btn').click();
   await page.locator('#display-language').click();
   assert.equal(await page.locator('.lang-pop .lb-opt').count(), 34, 'the picker lists 34 languages');
@@ -734,23 +776,21 @@ async function verifyV5Controls(page, url) {
   assert.equal(await page.getByRole('dialog', { name: 'Display settings' }).count(), 1, 'Esc closes the picker and leaves Display settings open');
   await page.keyboard.press('Escape');
 
-  // Deprecation: "Open Get balance" opens the replacement with id carried over as accountId.
-  await withSettings(page, url, '#op/BalancesController.LegacyBalance');
+  // Deprecation: "Open List products" opens the replacement with term carried over as q.
+  await withSettings(page, url, '#op/ProductsController.LegacySearch');
   await page.locator('[data-request-tab="Params"]').click();
   const notice = page.locator('.request .dep');
-  assert.match(await notice.innerText(), /Stops working on 30 June 2027/);
-  assert.match(await notice.innerText(), /Carries over id as accountId/);
+  assert.match(await notice.innerText(), /Stops working on 31 March 2027/);
+  assert.match(await notice.innerText(), /Carries over term as q/);
   await audit(page, 'deprecation notice');
-  const legacyId = page.locator('[data-parameter-name="id"] [role="combobox"]');
-  await pickLookup(page, legacyId, /./);
-  const chosen = (await legacyId.locator('.picked .main').innerText()).trim();
+  const legacyTerm = page.locator('[data-parameter-name="term"] input').first();
+  await legacyTerm.fill('jacket');
   await page.locator('[data-replace-op]').click();
-  await page.waitForFunction(() => location.hash === '#op/BalancesController.Get');
-  await page.locator('[data-parameter-name="accountId"] .picked .main').waitFor();
-  assert.equal((await page.locator('[data-parameter-name="accountId"] .picked .main').innerText()).trim(), chosen, 'the replacement opens with id carried over as accountId');
+  await page.waitForFunction(() => location.hash === '#op/ProductsController.List');
+  assert.equal(await page.locator('[data-parameter-name="q"] input').first().inputValue(), 'jacket', 'the replacement opens with term carried over as q');
 
   // The response toolbar stays on one line at the narrowest result pane; the match sits in the status line.
-  await withSettings(page, url, '#op/AccountsController.List');
+  await withSettings(page, url, '#op/CustomersController.List');
   await page.locator('.actionbar [data-action="send"]').click();
   await page.locator('.resp-head .match').waitFor();
   const oneLine = () => page.locator('.response-viewer .viewer-bar.vb').evaluate(bar => {
@@ -781,9 +821,9 @@ async function verifyV5Controls(page, url) {
 
   // A phone: selects, the lookup and the language picker are bottom sheets.
   await page.setViewportSize({ width: 390, height: 844 });
-  await withSettings(page, url, '#op/AccountsController.List');
+  await withSettings(page, url, '#op/OrdersController.List');
   await page.locator('[data-request-tab="Params"]').click();
-  await page.getByRole('combobox', { name: /^type$/i }).click();
+  await page.getByRole('combobox', { name: /^status$/i }).click();
   const sheet = page.locator('.lb.is-sheet');
   await sheet.waitFor();
   assert.equal(await sheet.getAttribute('role'), 'dialog', 'the sheet is a dialog');
@@ -793,15 +833,15 @@ async function verifyV5Controls(page, url) {
   assert.ok((await sheet.locator('[data-sheet-close]').boundingBox()).height >= 44, 'Close is a 44 px target');
   await audit(page, 'select sheet');
   await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('combobox', { name: /^type$/i }).evaluate(node => node === document.activeElement), true, 'closing the sheet returns focus');
-  await withSettings(page, url, '#op/AccountsController.Get');
+  assert.equal(await page.getByRole('combobox', { name: /^status$/i }).evaluate(node => node === document.activeElement), true, 'closing the sheet returns focus');
+  await withSettings(page, url, '#op/CustomersController.Get');
   await page.locator('[data-parameter-name="id"] [role="combobox"]').click();
   await page.locator('.lb.is-sheet .lb-src').waitFor();
   await audit(page, 'lookup sheet');
   await page.keyboard.press('Escape');
   await noPageScroll(page, 'phone Try it');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await withSettings(page, url, '#op/AccountsController.List');
+  await withSettings(page, url, '#op/CustomersController.List');
 }
 
 /**
@@ -875,7 +915,7 @@ async function openIn(page, url, hash, language) {
 }
 
 /**
- * The host may refuse the seeded-account list (the Treasury example answers 403 when the workbench is
+ * The host may refuse the seeded-account list (the Acme Store example answers 403 when the workbench is
  * opened from another machine). Then the option is hidden everywhere, with no error and no layout
  * shift: the sidebar notice has no seeded button, the sign-in page shows a pointer to password
  * sign-in instead of the panel, and the notice does not move once the page has settled. A 500 keeps
@@ -896,7 +936,7 @@ async function verifyPersonaRefusal(browser, url) {
         if (notice) { const box = notice.getBoundingClientRect(); window.__noticeRects.push([box.top, box.height]); }
       }).observe(document, { childList: true, subtree: true });
     });
-    await view.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+    await view.goto(`${url}/sendproof/#op/OrdersController.Place`);
     await view.locator('.sidebar .auth-notice').waitFor();
     await view.waitForTimeout(600);
     shifts.push(...await view.evaluate(() => [...new Set(window.__noticeRects.map(rect => rect.join(':')))]));
@@ -949,7 +989,7 @@ async function verifyLocaleLayouts(browser, url) {
     assert.ok(languages.length >= 25, 'every catalogue is swept');
     const failures = [];
     for (const language of languages) {
-      await openIn(sweep, url, '#op/PaymentsController.Create', language);
+      await openIn(sweep, url, '#op/OrdersController.Place', language);
       for (const width of [320, 768, 1100, 1440]) {
         await sweep.setViewportSize({ width, height: 800 });
         for (const size of ['100%', '130%']) {
@@ -982,17 +1022,17 @@ async function verifyLocaleLayouts(browser, url) {
 async function verifyNoClipping(page, url) {
   await page.setViewportSize({ width: 320, height: 640 });
   for (const language of ['el-GR', 'ru-RU', 'uk-UA', 'ar']) {
-    for (const hash of ['#op/PaymentsController.Create', '#docs/PaymentsController.Create', '#model/Payment?from=docs/PaymentsController.Create']) {
+    for (const hash of ['#op/OrdersController.Place', '#docs/OrdersController.Place', '#model/Order?from=docs/OrdersController.Place']) {
       await openIn(page, url, hash, language);
       await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
       await page.waitForTimeout(150);
       assert.deepEqual(await page.evaluate(clipProblems), [], `${language} ${hash} at 320 px and 130% text`);
     }
-    await openIn(page, url, '#op/PaymentsController.Create', language);
+    await openIn(page, url, '#op/OrdersController.Place', language);
     await page.evaluate(async () => {
       document.documentElement.style.fontSize = '130%';
       const { confirmation } = await import('/sendproof/action-bar.js');
-      document.querySelector('.actionbar').innerHTML = confirmation('POST', '/api/v2/payments');
+      document.querySelector('.actionbar').innerHTML = confirmation('POST', '/api/v2/orders');
     });
     await page.waitForTimeout(150);
     assert.deepEqual(await page.evaluate(clipProblems), [], `${language} confirmation at 320 px and 130% text`);
@@ -1001,7 +1041,7 @@ async function verifyNoClipping(page, url) {
   // A crowded desktop pane: the switch wraps below the crumbs instead of squeezing them.
   await page.setViewportSize({ width: 1100, height: 800 });
   for (const language of ['el-GR', 'ru-RU']) {
-    await openIn(page, url, '#op/PaymentsController.Create', language);
+    await openIn(page, url, '#op/OrdersController.Place', language);
     await page.evaluate(() => { document.documentElement.style.fontSize = '130%'; });
     await page.waitForTimeout(150);
     // The response tabs scroll sideways inside their own pane; the page itself must never scroll sideways.
@@ -1010,7 +1050,7 @@ async function verifyNoClipping(page, url) {
 
   // Every catalogue's fixed Send and Preview widths hold the label, keycaps and padding.
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openIn(page, url, '#op/PaymentsController.Create', 'en-IE');
+  await openIn(page, url, '#op/OrdersController.Place', 'en-IE');
   const tooNarrow = await page.evaluate(async () => {
     const { LANGUAGES, CATALOGUES, configure, loadLanguage, runButtonWidths } = await import('/sendproof/i18n.js');
     const { updateSettings } = await import('/sendproof/settings.js');
@@ -1057,7 +1097,7 @@ async function verifyNoClipping(page, url) {
   });
   assert.deepEqual(tooNarrow, [], 'every catalogue’s Send and Preview width holds its label (node tools/measure-widths.mjs --write)');
   // Back to English at the default density (openIn stores the language alone).
-  await openIn(page, url, '#op/AccountsController.List', 'en-IE');
+  await openIn(page, url, '#op/CustomersController.List', 'en-IE');
 }
 
 try {
@@ -1079,7 +1119,7 @@ try {
   const documentUrl = new URL(capabilities.openApiUrl, `${url}/sendproof/`);
   const document = await context.request.get(documentUrl.href);
   assert.equal(document.status(), 200, `discovered OpenAPI document ${documentUrl.href}`);
-  assert.ok((await document.json()).paths['/api/v2/payments'], 'discovered document contains payments');
+  assert.ok((await document.json()).paths['/api/v2/orders'], 'discovered document contains orders');
   let releaseDiscovery;
   const pausedDiscovery = new Promise(resolve => { releaseDiscovery = resolve; });
   await page.route('**/sendproof/_api/capabilities', async route => {
@@ -1093,7 +1133,7 @@ try {
     }));
   let loadingBounds;
   try {
-    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
     assert.equal(await page.getByRole('status').textContent(), 'Loading API…');
     assert.equal(await page.getByRole('button').count(), 0, 'loading placeholders are non-interactive');
     loadingBounds = await shellBounds();
@@ -1105,7 +1145,7 @@ try {
   try { await runAccessibility(page); }
   catch (error) {
     layoutFailures.push(`accessibility: ${error.stack || error}`);
-    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
     await page.locator('.sidebar .nav-heading').first().waitFor();
   }
   await selectOperation(page, 'Sign in with a password');
@@ -1134,11 +1174,12 @@ try {
   assert.equal(identity.status(), 200, 'signed-in identity');
   assert.equal((await identity.json()).email, 'ada.admin@acme.dev');
 
-  await selectOperation(page, 'Create payment');
-  assert.match(await page.locator('h1.op-title').innerText(), /Create payment/i);
-  const debit = page.getByRole('combobox', { name: /^Debit account/i });
-  const counterparty = page.getByRole('combobox', { name: /^Counterparty/i });
-  assert.equal(await debit.locator('.placeholder').count(), 1, 'lookup initially has no selection');
+  await verifyTypedFields(page);
+
+  await selectOperation(page, 'Place order');
+  assert.match(await page.locator('h1.op-title').innerText(), /Place order/i);
+  const customer = page.getByRole('combobox', { name: /^Customer/i });
+  assert.equal(await customer.locator('.placeholder').count(), 1, 'lookup initially has no selection');
   await page.locator('#autofill').click();
   await compareShell(page, mock, '51-autofill', 'state=blank&overlay=autofill&rtab=response');
   assert.deepEqual(await page.locator('#result .steps [data-shortcut-hint="autofill-required"] .kbd').allTextContents(),
@@ -1146,23 +1187,21 @@ try {
   assert.equal(await page.locator('.response .tabs [role="tab"]').count(), 5, 'all five result tabs exist before a run');
   await page.keyboard.press('Escape');
   await page.locator('.actionbar [data-action="send"]').click();
-  for (const lookup of [debit, counterparty]) {
+  for (const lookup of [customer]) {
     assert.equal(await lookup.getAttribute('aria-invalid'), 'true');
     assert.equal(await lookup.evaluate(node => node.closest('.control').classList.contains('is-invalid')), true);
   }
-  const addPurpose = page.getByRole('button', { name: /^Add purposeCode\b/i });
-  const purposeCode = page.getByLabel(/^Purpose code/i);
-  assert.equal(await purposeCode.count(), 0, 'unused optional fields have a chip');
-  await addPurpose.press('Enter');
-  assert.equal(await purposeCode.evaluate(node => node === document.activeElement), true);
-  await purposeCode.fill('TEST');
-  await page.getByRole('button', { name: /^Remove Purpose code$/i }).click();
-  assert.equal(await purposeCode.count(), 0, 'removing the field clears its value');
-  assert.equal(await addPurpose.evaluate(node => node === document.activeElement), true);
-  await page.getByLabel(/^Amount/i).fill('g');
-  await page.getByLabel(/^Value date/i).fill('31/02/2026');
+  const addQuote = page.getByRole('button', { name: /^Add quoteId\b/i });
+  const quoteField = page.getByLabel(/^Price quote/i);
+  assert.equal(await quoteField.count(), 0, 'unused optional fields have a chip');
+  await addQuote.press('Enter');
+  assert.equal(await quoteField.evaluate(node => node === document.activeElement), true);
+  await quoteField.fill('TEST');
+  await page.getByRole('button', { name: /^Remove Price quote$/i }).click();
+  assert.equal(await quoteField.count(), 0, 'removing the field clears its value');
+  assert.equal(await addQuote.evaluate(node => node === document.activeElement), true);
   await pickOption(page, page.getByRole('combobox', { name: /^Currency$/i }), /^EUR\b/);
-  await page.getByLabel(/^Reference/i).fill('Invoice reference longer than thirty-five characters');
+  await page.getByLabel(/^Coupon code/i).fill('A coupon code that is far longer than thirty characters');
   await page.locator('.actionbar [data-action="send"]').click();
   const issueRows = await page.locator('#issues .issue-link').evaluateAll(rows => rows.map(row => {
     const target = document.getElementById(row.dataset.issueTarget);
@@ -1171,42 +1210,28 @@ try {
     return { name: row.querySelector('.name').textContent, issue: row.querySelector('.why').textContent,
       assistance, target: target?.id };
   }));
-  assert.ok(issueRows.length >= 4, 'invalid values are collected in the action bar');
+  assert.ok(issueRows.length >= 3, 'invalid values are collected in the action bar');
   const count = Number((await page.locator('#issues-title').textContent()).match(/^\d+/)?.[0]);
   assert.equal(issueRows.length, count, 'validation lists one issue per field');
   assert.equal(new Set(issueRows.map(row => row.target)).size, count, 'no field has duplicate issue rows');
   for (const row of issueRows) {
+    // An empty required list is reported on the list as a whole ("Add at least 1 item"): its target has no field error of its own.
+    if (row.assistance === undefined && /^Add at least/.test(row.issue)) continue;
     assert.deepEqual(row.assistance, [row.issue], `assistance matches issue for ${row.name}`);
     assert.doesNotMatch(row.issue, /required pattern|\[1-9\]|\\d/, 'the UI keeps regex internals out of errors');
   }
-  assert.match(issueRows.find(row => row.name === 'Amount')?.issue || '', /Enter a number, like 1,250\.00/);
+  assert.match(issueRows.find(row => row.name === 'Customer')?.issue || '', /Choose|required|Select/i);
   assert.equal(await page.locator('[data-request-tab="Body"] [data-tab-flag]:not([hidden])').count(), 1, 'the Body tab shows an issue dot');
-  assert.match(issueRows.find(row => row.name === 'Value date')?.issue || '', /doesn’t exist/);
   await page.locator('.request .pane-scroll').evaluate(pane => { pane.scrollTop = 0; });
   await compareShell(page, mock, '22-validation', 'state=validation&overlay=issues&rtab=response');
   await page.keyboard.press('Escape');
-  await page.getByLabel(/^Reference/i).fill('');
-  await pickLookup(page, debit, /^Operating EUR/);
-  assert.match(await debit.locator('.picked').innerText(), /Operating EUR/);
-  assert.equal(await counterparty.locator('.placeholder').count(), 1, 'counterparty initially has no selection');
-  await pickLookup(page, counterparty, /^Northwind Logistics GmbH/);
-  assert.match(await counterparty.locator('.picked').innerText(), /Northwind Logistics/);
-  const amount = page.getByLabel(/^Amount/i);
-  assert.equal(await amount.getAttribute('inputmode'), 'decimal', 'amount requests a decimal keyboard');
-  await amount.fill('g');
-  await page.locator('.actionbar [data-action="send"]').click();
-  assert.equal(await amount.inputValue(), 'g', 'invalid numeric draft stays editable');
-  assert.equal(await amount.getAttribute('aria-invalid'), 'true', 'letters fail numeric validation');
-  assert.equal(await page.locator('[data-action="confirm-send"]').count(), 0);
-  await amount.fill('1.23');
-  const date = page.getByLabel(/^Value date/i);
-  assert.equal(await date.getAttribute('placeholder'), 'dd/mm/yyyy', 'date accepts an editable draft');
-  await date.fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
-  await pickOption(page, page.getByRole('combobox', { name: /^Currency$/i }), /^EUR\b/);
+  await page.getByLabel(/^Coupon code/i).fill('');
+  await pickLookup(page, customer, /^Mia Customer/);
+  assert.match(await customer.locator('.picked').innerText(), /Mia Customer/);
   // A short enum is a radio group: every value visible, the chosen one filled.
-  const priority = page.getByRole('radiogroup', { name: /^Priority/i });
-  await priority.getByRole('radio', { name: /^Normal$/i }).click();
-  assert.equal(await page.getByRole('radiogroup', { name: /^Priority/i }).getByRole('radio', { name: /^Normal$/i }).getAttribute('aria-checked'), 'true');
+  const speed = page.getByRole('radiogroup', { name: /^Shipping speed/i });
+  await speed.getByRole('radio', { name: /^Express$/i }).click();
+  assert.equal(await page.getByRole('radiogroup', { name: /^Shipping speed/i }).getByRole('radio', { name: /^Express$/i }).getAttribute('aria-checked'), 'true');
   await page.locator('[data-request-tab="Headers"]').click();
   const idempotencyKey = await page.locator('[data-header-id="declared-header-Idempotency-Key"] [data-header-field="value"]').inputValue();
   assert.match(idempotencyKey, /^[0-9a-f-]{36}$/i, 'the required idempotency key is generated');
@@ -1214,28 +1239,29 @@ try {
   await page.locator('[data-body-mode="JSON"]').click();
   const editor = page.locator('#json');
   const body = JSON.parse(await editor.inputValue());
-  assert.equal(body.debitAccountId, '3f9c0000-0000-4000-8000-00000000a21e');
-  assert.equal(body.counterpartyId, '5b7c0000-0000-4000-8000-00000000b123');
-  assert.equal(body.amount, 1.23);
+  assert.equal(body.customerId, 'c0a10000-0000-4000-8000-000000000001');
   assert.equal(body.currency, 'EUR');
-  assert.equal(body.priority, 'Normal');
+  assert.equal(body.shippingSpeed, 'Express');
   const reference = `browser-${Date.now()}`;
-  body.reference = reference;
-  body.remittanceLines = ['Browser integration purchase order'];
+  // The lines and the payment are typed as JSON: they are arrays and a union, which the form edits one value at a time.
+  body.items = [{ sku: 'NPK-JKT-BLK-M', quantity: 1 }];
+  body.shippingAddress = { recipient: 'Mia Customer', line1: '14 Harcourt Street', city: 'Dublin', region: 'Co. Dublin', postalCode: 'D02 X285', country: 'IE' };
+  body.payment = { type: 'Card', token: 'tok_visa_4242', brand: 'Visa', holderName: 'Mia Customer' };
+  body.note = reference;
   await editor.fill(JSON.stringify(body));
-  const readPayments = async () => {
-    const response = await context.request.get(`${url}/api/v2/payments`);
-    assert.equal(response.status(), 200, 'independent payment read');
+  const readOrders = async () => {
+    const response = await context.request.get(`${url}/api/v2/orders`);
+    assert.equal(response.status(), 200, 'independent order read');
     return response.json();
   };
-  const readAccounts = async () => {
-    const response = await context.request.get(`${url}/api/v2/accounts?pageSize=100`);
-    assert.equal(response.status(), 200, 'independent account read');
+  const readStock = async () => {
+    const response = await context.request.get(`${url}/api/v2/stock/NPK-JKT-BLK-M`);
+    assert.equal(response.status(), 200, 'independent stock read');
     return response.json();
   };
-  const before = await readPayments();
-  const accountsBefore = await readAccounts();
-  const previewPattern = '**/sendproof/_preview/api/v2/payments';
+  const before = await readOrders();
+  const stockBefore = await readStock();
+  const previewPattern = '**/sendproof/_preview/api/v2/orders';
   // Abort only the preview transport to exercise the real network-error renderer.
   await page.route(previewPattern, route => route.abort('failed'));
   await page.locator('.actionbar [data-action="preview"]').click();
@@ -1245,7 +1271,7 @@ try {
   const previewGate = new Promise(resolve => { releasePreview = resolve; });
   await page.route(previewPattern, async route => { await previewGate; await route.continue(); });
   await page.locator('[data-body-mode="Form"]').click();
-  const previewResponse = page.waitForResponse(response => response.url().includes('/sendproof/_preview/api/v2/payments') && response.request().method() === 'POST');
+  const previewResponse = page.waitForResponse(response => response.url().includes('/sendproof/_preview/api/v2/orders') && response.request().method() === 'POST');
   await page.locator('.actionbar [data-action="preview"]').click();
   await page.locator('.response[aria-busy="true"] .sk').first().waitFor();
   const separator = page.getByRole('separator', { name: 'Resize operations sidebar' });
@@ -1271,8 +1297,8 @@ try {
   assert.match(preview.headers()['server-timing'], /handler;dur=/, 'preview returns timing from the API');
   assert.ok(previewBody.changes?.length, 'preview reports database changes');
   await page.locator('.response .banner').waitFor();
-  assert.deepEqual(await readPayments(), before, 'preview did not persist a payment');
-  assert.deepEqual(await readAccounts(), accountsBefore, 'preview did not persist the account debit');
+  assert.deepEqual(await readOrders(), before, 'preview did not persist an order');
+  assert.deepEqual(await readStock(), stockBefore, 'preview did not decrement stock');
 
   await page.locator('[data-body-mode="Form"]').click();
   await compareShell(page, mock, '01-request-default', 'state=filled&run=preview&rtab=database');
@@ -1287,30 +1313,30 @@ try {
   await verifyHeaders(page, mock);
 
   await page.locator('[data-body-mode="JSON"]').click();
-  const invalidBody = { ...body, amount: 999999999, valueDate: '2000-01-01' };
+  // Valid to the form, refused by the server: no such customer and no such SKU.
+  const invalidBody = { ...body, customerId: 'c0a10000-0000-4000-8000-0000000000ff', items: [{ sku: 'ZZZ-UNKNOWN-1', quantity: 1 }] };
   await editor.fill(JSON.stringify(invalidBody));
   await page.locator('.actionbar [data-action="send"]').click();
   await page.locator('.actionbar [data-action="confirm-send"]').waitFor();
-  await editor.fill(JSON.stringify({ ...invalidBody, reference: `${reference}-edit` }));
+  await editor.fill(JSON.stringify({ ...invalidBody, note: `${reference}-edit` }));
   assert.equal(await page.locator('.actionbar [data-action="confirm-send"]').count(), 0, 'editing cancels confirmation');
   await editor.fill(JSON.stringify(invalidBody));
   await page.locator('.actionbar [data-action="send"]').click();
-  const invalidResponse = page.waitForResponse(response => response.url().endsWith('/api/v2/payments') && response.request().method() === 'POST');
+  const invalidResponse = page.waitForResponse(response => response.url().endsWith('/api/v2/orders') && response.request().method() === 'POST');
   await page.locator('.actionbar [data-action="confirm-send"]').click();
   const invalid = await invalidResponse;
   assert.equal(invalid.status(), 400, 'invalid request returns validation 400');
   assert.equal(invalid.request().headers()['idempotency-key'], idempotencyKey, 'invalid request carries the prepared key');
   await page.locator('.resp-head .status-code.warn').waitFor(); // 4xx takes the warning hue
   await page.locator('.actionbar .issues-btn').waitFor();
-  assert.equal(await page.getByLabel(/^Amount/i).getAttribute('aria-invalid'), 'true', 'server validation marks the amount');
-  assert.equal(await page.getByLabel(/^Value date/i).getAttribute('aria-invalid'), 'true', 'server validation marks the date');
-  assert.deepEqual(await readPayments(), before, 'invalid request does not write');
-  assert.deepEqual(await readAccounts(), accountsBefore, 'invalid request does not debit account');
+  assert.equal(await customer.getAttribute('aria-invalid'), 'true', 'server validation marks the customer');
+  assert.deepEqual(await readOrders(), before, 'invalid request does not write');
+  assert.deepEqual(await readStock(), stockBefore, 'invalid request does not change stock');
 
   await page.locator('[data-body-mode="JSON"]').click();
   await editor.fill(JSON.stringify(body));
   await page.locator('.actionbar [data-action="send"]').click();
-  const sendResponse = page.waitForResponse(response => response.url().endsWith('/api/v2/payments') && response.request().method() === 'POST');
+  const sendResponse = page.waitForResponse(response => response.url().endsWith('/api/v2/orders') && response.request().method() === 'POST');
   const traceResponse = page.waitForResponse(response => response.url().includes('/sendproof/_api/traces/'));
   await page.locator('.actionbar [data-action="confirm-send"]').click();
   const sent = await sendResponse;
@@ -1325,22 +1351,21 @@ try {
   assert.ok(capture.effects?.length && capture.effects.every(effect => effect.delivered === true),
     'the trace acknowledges delivered effects');
   await page.locator('.resp-head .status-code').filter({ hasText: '201' }).waitFor();
-  // The database is seeded with payments, so compare with the count before and find the new payment by its reference.
-  const after = await readPayments();
-  assert.ok(before.totalItems >= 150, 'the demo database is seeded with payments');
-  assert.equal(after.totalItems, before.totalItems + 1, 'Send persists exactly one payment');
-  const found = await (await context.request.get(`${url}/api/v2/payments?reference=${encodeURIComponent(reference)}`)).json();
-  assert.equal(found.totalItems, 1, 'sent payment is independently readable');
-  assert.equal(found.items[0].reference, reference);
-  const accountsAfter = await readAccounts();
-  const accountId = body.debitAccountId;
-  const balance = accounts => accounts.items.find(account => account.id === accountId)?.availableBalance;
-  assert.ok(Math.abs(balance(accountsBefore) - balance(accountsAfter) - body.amount) < 0.00001, 'Send persists the account debit');
+  // The database is seeded with orders, so compare with the count before and find the new order by its ID.
+  const after = await readOrders();
+  assert.ok(before.totalItems >= 140, 'the demo database is seeded with orders');
+  assert.equal(after.totalItems, before.totalItems + 1, 'Send persists exactly one order');
+  const sentOrder = await sent.json();
+  const found = await (await context.request.get(`${url}/api/v2/orders/${sentOrder.id}`)).json();
+  assert.equal(found.note, reference, 'sent order is independently readable');
+  assert.equal(found.status, 'Paid');
+  const stockAfter = await readStock();
+  assert.equal(stockBefore.available - stockAfter.available, 1, 'Send persists the stock decrement');
   await verifyObservedCapture(page, mock);
 
   await page.getByRole('tablist', { name: 'Result' }).getByRole('tab', { name: 'Response', exact: true }).click();
-  await page.locator('#result [data-follow-up]').filter({ hasText: /Get payment/i }).first().click();
-  assert.match(await page.locator('h1.op-title').innerText(), /Get payment/i, 'follow-up loads the documented operation');
+  await page.locator('#result [data-follow-up]').filter({ hasText: /Get order/i }).first().click();
+  assert.match(await page.locator('h1.op-title').innerText(), /Get order/i, 'follow-up loads the documented operation');
   const sentBody = await sent.json();
   assert.ok(sentBody.id, 'the response supplies a record ID');
   await page.locator('[data-path-param]').click();
@@ -1350,7 +1375,7 @@ try {
   assert.ok(await search.getAttribute('aria-activedescendant'), 'lookup announces its active option');
   const lastResponse = page.locator('.lb .lb-group', { hasText: 'From your last request' });
   assert.equal(await lastResponse.isVisible(), true, 'the most recent response is offered first');
-  assert.match(await page.locator('.lb .lb-src').innerText(), /GET \/api\/v2\/payments/, 'the lookup’s source is in its footer');
+  assert.match(await page.locator('.lb .lb-src').innerText(), /GET \/api\/v2\/orders/, 'the lookup’s source is in its footer');
   await compareShell(page, mock, '52-id-lookup', 'op=get&tab=params&overlay=lookup&rtab=response');
   await search.press('Enter');
   assert.equal(await pathId.locator('.picked .placeholder').count(), 0, 'picking the response retains its ID');
@@ -1358,11 +1383,11 @@ try {
   await page.locator('[data-action="palette"]').click();
   const palette = page.getByRole('dialog', { name: 'Command palette' });
   // Use a real matching operation; the static design uses a different API fixture.
-  await palette.getByLabel('Search operations and commands').fill('payment');
+  await palette.getByLabel('Search operations and commands').fill('order');
   await palette.getByRole('option').first().waitFor();
-  await palette.getByLabel('Search operations and commands').fill('List payments');
-  await palette.getByRole('option').filter({ hasText: 'List payments' }).click();
-  assert.match(await page.locator('h1.op-title').innerText(), /List payments/i);
+  await palette.getByLabel('Search operations and commands').fill('List orders');
+  await palette.getByRole('option').filter({ hasText: 'List orders' }).click();
+  assert.match(await page.locator('h1.op-title').innerText(), /List orders/i);
   await verifyReference(page, mock, url);
   await verifyCodeSamples(page, url);
   await verifyV5Controls(page, url);
@@ -1372,22 +1397,21 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await mock.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-action="navigation"]').click();
-  await selectOperation(page, 'Create payment');
+  await selectOperation(page, 'Place order');
   // Selecting an operation clears its previous result; restore known valid data.
   await page.locator('[data-body-mode="JSON"]').click();
   await page.locator('#json').fill(JSON.stringify(body));
   await page.locator('[data-body-mode="Form"]').click();
-  for (const lookup of [debit, counterparty]) {
+  for (const lookup of [customer]) {
     await lookup.click();
     await lookup.press('Escape');
     await lookup.press('Backspace');
   }
-  await page.getByLabel(/^Amount/i).fill('g');
+  await page.getByLabel(/^Coupon code/i).fill('A coupon code that is far longer than thirty characters');
   await page.locator('.actionbar [data-action="send"]').click();
   await compareShell(page, mock, 'm01-request', 'state=filled', true);
-  await pickLookup(page, debit, /^Operating EUR/);
-  await pickLookup(page, counterparty, /^Northwind Logistics GmbH/);
-  await page.getByLabel(/^Amount/i).fill(String(body.amount));
+  await pickLookup(page, customer, /^Mia Customer/);
+  await page.getByLabel(/^Coupon code/i).fill('');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'mobile page has no horizontal overflow');
   await page.locator('.mobile-switch [data-view="response"]').click();
   assert.equal(await page.locator('.workspace').getAttribute('data-view'), 'result');

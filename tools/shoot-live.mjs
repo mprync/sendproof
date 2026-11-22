@@ -9,7 +9,7 @@
 //   SET=v5 node tools/shoot-live.mjs          every v5 state, into artifacts/v5-impl
 //   node tools/shoot-live.mjs 58 docs m1      only names containing "58", "docs" or "m1"
 //
-// Env: BASE=<url>      the running Treasury example (default http://127.0.0.1:5189)
+// Env: BASE=<url>      the running Acme Store example (default http://127.0.0.1:5189)
 //      OUT=<dir>       screenshots (default artifacts/v4-live or artifacts/v5-impl); composites go to <OUT>/compare
 //      DSF=1           render at 1× for quick looks (default 2)
 // Desktop is 1440×900, mobile 390×844. Signed-in states use the seeded Ada Admin account
@@ -33,7 +33,7 @@ const spec = await (await fetch(`${base}/openapi/v1.json`)).json();
 const ids = {};
 for (const [path, item] of Object.entries(spec.paths)) for (const [verb, op] of Object.entries(item)) if (op?.operationId) ids[op.summary] = { id: op.operationId, verb, path };
 const op = summary => ids[summary]?.id ?? (() => { throw new Error(`No operation "${summary}"`); })();
-const CREATE = 'PaymentsController.Create';
+const CREATE = 'OrdersController.Place';
 
 const click = async (page, selector) => { await page.locator(selector).first().click(); await page.waitForTimeout(250); };
 const run = async (page, action) => { await click(page, `.actionbar [data-action="${action}"]`); await page.waitForSelector('.response:not([aria-busy="true"]) .resp-head .status-code', { timeout: 15000 }); await page.waitForTimeout(300); };
@@ -44,60 +44,60 @@ const shots = [
   // Signed out, so the result is a public read: expanded JSON next to the sidebar's signed-out notice.
   { name: '57-shell-try-it', out: true, hash: `#op/${op('List development personas')}`, setup: async page => { await run(page, 'send'); } },
   { name: '58-shell-docs', out: true, hash: `#docs/${CREATE}` },
-  { name: '59-shell-model', out: true, hash: `#model/Payment?from=op/${CREATE}` },
+  { name: '59-shell-model', out: true, hash: `#model/Order?from=op/${CREATE}` },
   { name: '60-docs-inline-expand', out: true, hash: `#docs/${CREATE}`, setup: async page => { await click(page, '[data-response-toggle="201"][aria-expanded="false"]'); await scrollTo(page, '#doc-responses'); } },
-  { name: '61-model-nested-ref', out: true, hash: `#model/Approval?from=op/${CREATE}&via=Payment` },
-  { name: '62-models-tab', hash: '#model/Payment', setup: async page => { await click(page, '#side-tab-models'); } },
-  { name: '63-model-json-schema-dark', theme: 'dark', hash: '#model/Payment', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-aside="schema"]'); } },
-  { name: '64-model-expand-all', hash: '#model/Payment', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-tree-all]'); } },
-  { name: '65-model-no-description', hash: '#model/Account', setup: async page => { await click(page, '#side-tab-models'); } },
-  { name: '66-model-enum', hash: '#model/PaymentStatus', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: '61-model-nested-ref', out: true, hash: `#model/OrderLine?from=op/${CREATE}&via=Order` },
+  { name: '62-models-tab', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: '63-model-json-schema-dark', theme: 'dark', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-aside="schema"]'); } },
+  { name: '64-model-expand-all', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-tree-all]'); } },
+  { name: '65-model-no-description', hash: '#model/Address', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: '66-model-enum', hash: '#model/OrderStatus', setup: async page => { await click(page, '#side-tab-models'); } },
   { name: '67-signed-out-docs-dark', out: true, theme: 'dark', hash: `#docs/${CREATE}` },
   { name: '68-json-expanded', hash: `#op/${op('Get the current user')}`, setup: async page => { await run(page, 'send'); } },
-  { name: '69-json-large', hash: `#op/PaymentsController.List`, setup: async page => { await click(page, '[data-request-tab="Params"]'); await page.locator('[data-parameter-name="pageSize"] input').fill('100'); await run(page, 'send'); } },
-  { name: '70-sidebar-groups-remembered', nav: ['Authentication', 'Accounts', 'Balances'], hash: `#op/${CREATE}` },
-  { name: '74-docs-oneof-inline', hash: '#docs/CounterpartiesController.Create', setup: async page => { await scrollTo(page, '#doc-body'); } },
-  { name: '75-docs-list-parameters', theme: 'dark', hash: '#docs/PaymentsController.List' },
+  { name: '69-json-large', hash: `#op/OrdersController.List`, setup: async page => { await click(page, '[data-request-tab="Params"]'); await page.locator('[data-parameter-name="pageSize"] input').fill('100'); await run(page, 'send'); } },
+  { name: '70-sidebar-groups-remembered', nav: ['Authentication', 'Catalog', 'Inventory'], hash: `#op/${CREATE}` },
+  { name: '74-docs-oneof-inline', hash: '#docs/OrdersController.Place', setup: async page => { await scrollTo(page, '#doc-body'); } },
+  { name: '75-docs-list-parameters', theme: 'dark', hash: '#docs/OrdersController.List' },
   { name: 'm13-docs-signed-out', mobile: true, out: true, hash: `#docs/${CREATE}` },
-  { name: 'm14-model-from-docs', mobile: true, hash: `#model/Payment?from=docs/${CREATE}` },
+  { name: 'm14-model-from-docs', mobile: true, hash: `#model/Order?from=docs/${CREATE}` },
   { name: 'm15-drawer-signed-out', mobile: true, out: true, hash: `#op/${CREATE}`, setup: async page => { await click(page, '[data-action="navigation"]'); } },
   { name: 'm16-json-expanded-dark', mobile: true, theme: 'dark', hash: `#op/${op('Get the current user')}`, setup: async page => { await run(page, 'send'); await click(page, '.mobile-switch [data-view="response"]'); } },
-  { name: 'm17-model-130', mobile: true, text: 130, hash: '#model/BankDetails?from=docs/CounterpartiesController.Create&via=Counterparty' },
+  { name: 'm17-model-130', mobile: true, text: 130, hash: '#model/PaymentMethod?from=docs/OrdersController.Place&via=Order' },
 ];
 
 // v5: the field anatomy, selects, lookup, deprecation, attribute list, response viewer and
-// language picker. Fields are set the way the mocks show them (status Open, currency EUR).
+// language picker. Fields are set the way the mocks show them (tier Plus, currency EUR).
 const params = async page => { await click(page, '[data-request-tab="Params"]'); };
 const filled = async page => {
   await params(page);
-  await click(page, '[role="radiogroup"] [role="radio"][data-value="Open"]');
+  await click(page, '[role="radiogroup"] [role="radio"][data-value="Plus"]');
   await click(page, '[data-parameter-name="currency"] [role="combobox"]');
   await click(page, '.lb [role="option"]:has-text("EUR")');
 };
-const pickAccount = async page => { await params(page); await click(page, '[data-parameter-name="id"] [role="combobox"]'); await click(page, '.lb [role="option"] >> nth=1'); };
+const pickCustomer = async page => { await params(page); await click(page, '[data-parameter-name="id"] [role="combobox"]'); await click(page, '.lb [role="option"] >> nth=1'); };
 const v5 = [
-  { name: '76-v5-fields', hash: '#op/AccountsController.List', setup: filled },
-  { name: '78-v5-select-open', hash: '#op/AccountsController.List', setup: async page => { await filled(page); await scrollTo(page, '[data-parameter-name="status"] .field'); await click(page, '[data-parameter-name="type"] [role="combobox"]'); await page.keyboard.press('c'); } },
-  { name: '81-v5-lookup-open', hash: '#op/AccountsController.Get', setup: async page => { await params(page); await click(page, '[data-parameter-name="id"] [role="combobox"]'); await page.keyboard.press('ArrowDown'); } },
-  { name: '88-v5-deprecated-try-it', hash: '#op/BalancesController.LegacyBalance', setup: async page => { await params(page); await click(page, '[data-parameter-name="id"] [role="combobox"]'); await click(page, '.lb [role="option"] >> nth=0'); } },
-  { name: '91-v5-model-account', hash: '#model/Account', setup: async page => { await click(page, '#side-tab-models'); } },
-  { name: '93-v5-model-oneof-deep', hash: '#model/Counterparty', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-attr-toggle="address"][aria-expanded="true"]'); await scrollTo(page, '[data-path="address"]'); } },
-  { name: '97-v5-docs-params', hash: '#docs/AccountsController.List' },
-  { name: '100-v5-response-match', hash: '#op/AccountsController.Get', setup: async page => { await pickAccount(page); await run(page, 'send'); await click(page, '.resp-head .match'); } },
-  { name: '102-v5-response-schema', hash: '#op/AccountsController.Get', setup: async page => { await pickAccount(page); await run(page, 'send'); await click(page, '[data-response-mode="schema"]'); } },
-  { name: '104-v5-response-table', hash: '#op/AccountsController.List', setup: async page => { await run(page, 'send'); await click(page, '[data-response-mode="table"]'); } },
-  { name: '107-v5-language-picker', hash: '#op/AccountsController.List', setup: async page => { await click(page, '#display-btn'); await click(page, '#display-language'); } },
-  { name: 'm19-v5-select-130', mobile: true, text: 130, hash: '#op/AccountsController.List', setup: async page => { await filled(page); await click(page, '[data-parameter-name="type"] [role="combobox"]'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); } },
-  { name: 'm20-v5-rtl-he', mobile: true, lang: 'he-IL', hash: '#op/AccountsController.List', setup: async page => { await params(page); await click(page, '[data-parameter-name="currency"] [role="combobox"]'); } },
+  { name: '76-v5-fields', hash: '#op/CustomersController.List', setup: filled },
+  { name: '78-v5-select-open', hash: '#op/CustomersController.List', setup: async page => { await filled(page); await scrollTo(page, '[data-parameter-name="tier"] .field'); await click(page, '[data-parameter-name="currency"] [role="combobox"]'); await page.keyboard.press('c'); } },
+  { name: '81-v5-lookup-open', hash: '#op/CustomersController.Get', setup: async page => { await params(page); await click(page, '[data-parameter-name="id"] [role="combobox"]'); await page.keyboard.press('ArrowDown'); } },
+  { name: '88-v5-deprecated-try-it', hash: '#op/ProductsController.LegacySearch', setup: async page => { await params(page); await page.locator('[data-parameter-name="term"] input').first().fill('jacket'); } },
+  { name: '91-v5-model-account', hash: '#model/Customer', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: '93-v5-model-oneof-deep', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); await click(page, '[data-attr-toggle="shippingAddress"][aria-expanded="true"]'); await scrollTo(page, '[data-path="shippingAddress"]'); } },
+  { name: '97-v5-docs-params', hash: '#docs/CustomersController.List' },
+  { name: '100-v5-response-match', hash: '#op/CustomersController.Get', setup: async page => { await pickCustomer(page); await run(page, 'send'); await click(page, '.resp-head .match'); } },
+  { name: '102-v5-response-schema', hash: '#op/CustomersController.Get', setup: async page => { await pickCustomer(page); await run(page, 'send'); await click(page, '[data-response-mode="schema"]'); } },
+  { name: '104-v5-response-table', hash: '#op/CustomersController.List', setup: async page => { await run(page, 'send'); await click(page, '[data-response-mode="table"]'); } },
+  { name: '107-v5-language-picker', hash: '#op/CustomersController.List', setup: async page => { await click(page, '#display-btn'); await click(page, '#display-language'); } },
+  { name: 'm19-v5-select-130', mobile: true, text: 130, hash: '#op/CustomersController.List', setup: async page => { await filled(page); await click(page, '[data-parameter-name="currency"] [role="combobox"]'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); } },
+  { name: 'm20-v5-rtl-he', mobile: true, lang: 'he-IL', hash: '#op/CustomersController.List', setup: async page => { await params(page); await click(page, '[data-parameter-name="currency"] [role="combobox"]'); } },
   { name: 'v5-docs-colour', hash: `#docs/${CREATE}` },
   { name: 'v5-docs-colour-dark', theme: 'dark', hash: `#docs/${CREATE}` },
-  { name: 'v5-docs-responses', hash: '#docs/AccountsController.Get', setup: async page => { await scrollTo(page, '#doc-responses'); } },
-  { name: 'v5-model-colour', hash: '#model/Payment', setup: async page => { await click(page, '#side-tab-models'); } },
-  { name: 'v5-model-colour-dark', theme: 'dark', hash: '#model/Payment', setup: async page => { await click(page, '#side-tab-models'); } },
-  { name: 'v5-i18n-de', lang: 'de-DE', hash: '#op/PaymentsController.Create' },
-  { name: 'v5-i18n-fi', lang: 'fi-FI', hash: '#docs/AccountsController.List' },
-  { name: 'v5-i18n-ja', lang: 'ja-JP', hash: '#op/AccountsController.List', setup: async page => { await run(page, 'send'); await click(page, '[data-response-mode="table"]'); } },
-  { name: 'v5-i18n-zh-Hant', lang: 'zh-Hant', hash: '#model/Account', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: 'v5-docs-responses', hash: '#docs/CustomersController.Get', setup: async page => { await scrollTo(page, '#doc-responses'); } },
+  { name: 'v5-model-colour', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: 'v5-model-colour-dark', theme: 'dark', hash: '#model/Order', setup: async page => { await click(page, '#side-tab-models'); } },
+  { name: 'v5-i18n-de', lang: 'de-DE', hash: '#op/OrdersController.Place' },
+  { name: 'v5-i18n-fi', lang: 'fi-FI', hash: '#docs/CustomersController.List' },
+  { name: 'v5-i18n-ja', lang: 'ja-JP', hash: '#op/CustomersController.List', setup: async page => { await run(page, 'send'); await click(page, '[data-response-mode="table"]'); } },
+  { name: 'v5-i18n-zh-Hant', lang: 'zh-Hant', hash: '#model/Customer', setup: async page => { await click(page, '#side-tab-models'); } },
 ];
 // The mock PNGs are named with their slug ("76-v5-fields"); composites pair them by name.
 const list = set === 'v5' ? v5 : shots;

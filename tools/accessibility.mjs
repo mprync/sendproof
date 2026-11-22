@@ -70,8 +70,8 @@ export async function runAccessibility(page) {
   'present optional values show their descendants and validation errors');
 
   // Every view and the main overlays, in both themes and in a right-to-left language.
-  const views = [['API overview', '#overview'], ['Docs', '#docs/PaymentsController.Create'], ['model page', '#model/CreatePaymentRequest'],
-    ['model opened from Docs', '#model/Payment?from=docs/PaymentsController.Create'], ['union model', '#model/BankDetails'], ['enum model', '#model/PaymentStatus']];
+  const views = [['API overview', '#overview'], ['Docs', '#docs/OrdersController.Place'], ['model page', '#model/PlaceOrderRequest'],
+    ['model opened from Docs', '#model/Order?from=docs/OrdersController.Place'], ['union model', '#model/PaymentMethod'], ['enum model', '#model/OrderStatus']];
   for (const [name, hash] of views) {
     await page.evaluate(value => { location.hash = value; }, hash);
     await page.locator('#doc-pane:not([hidden]) h1').waitFor();
@@ -83,7 +83,7 @@ export async function runAccessibility(page) {
   await page.locator('#side-tab-operations').click();
   // The attribute list: child lists start open; each toggle is a button that says what it does,
   // and what the user closes stays closed after a reload (local storage, per API and list).
-  await page.evaluate(() => { location.hash = '#docs/CounterpartiesController.Create'; });
+  await page.evaluate(() => { location.hash = '#docs/OrdersController.Place'; });
   await page.locator('#doc-pane:not([hidden]) h1').waitFor();
   const list = page.locator('#doc-pane [data-body-card] .stree');
   const toggle = list.locator('.attr-toggle[aria-expanded="true"]').first();
@@ -100,7 +100,7 @@ export async function runAccessibility(page) {
   assert.equal(await page.locator(`#doc-pane [data-body-card] [data-attr-toggle="${path}"]`).getAttribute('aria-expanded'), 'false', 'the closed list is remembered');
   await page.locator(`#doc-pane [data-body-card] [data-attr-toggle="${path}"]`).click();
   await audit(page, 'docs property tree');
-  await page.evaluate(() => { location.hash = '#op/PaymentsController.Create'; });
+  await page.evaluate(() => { location.hash = '#op/OrdersController.Place'; });
   await page.locator('#request:not([hidden]) .op-title').waitFor();
   await page.locator('#display-btn').click();
   const display = page.getByRole('dialog', { name: 'Display settings' });
@@ -122,7 +122,7 @@ export async function runAccessibility(page) {
   await audit(page, 'Code tab, dark');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.locator('[data-request-tab="Body"]').click();
-  const info = page.getByRole('button', { name: 'About Amount' });
+  const info = page.getByRole('button', { name: 'About Customer' });
   await info.focus();
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('Tab');
@@ -137,7 +137,7 @@ export async function runAccessibility(page) {
     assert.equal(await page.locator('html').getAttribute('lang'), language);
     assert.equal(await page.locator('html').getAttribute('dir'), language === 'ar' ? 'rtl' : 'ltr');
     await audit(page, `workbench in ${language}`);
-    for (const [name, hash] of [['Docs', '#docs/CounterpartiesController.Create'], ['model page', '#model/Payment?from=docs/PaymentsController.Create']]) {
+    for (const [name, hash] of [['Docs', '#docs/OrdersController.Place'], ['model page', '#model/Order?from=docs/OrdersController.Place']]) {
       await page.evaluate(value => { location.hash = value; }, hash);
       await page.locator('#doc-pane:not([hidden]) h1').waitFor();
       await audit(page, `${name} in ${language}`);
@@ -157,7 +157,7 @@ export async function runAccessibility(page) {
         await page.keyboard.press('Escape');
       }
     }
-    await page.evaluate(() => { location.hash = '#op/PaymentsController.Create'; });
+    await page.evaluate(() => { location.hash = '#op/OrdersController.Place'; });
     await page.locator('#request:not([hidden]) .op-title').waitFor();
   }
   await page.evaluate(() => localStorage.removeItem('sendproof-settings'));
@@ -187,7 +187,7 @@ export async function runAccessibility(page) {
   }), 'none', 'spinner respects reduced motion');
   await audit(page, 'mobile workbench');
   // Docs and Models on a phone at 130% text: stacked columns, 44 px targets, no overflow.
-  for (const [name, hash] of [['Docs', '#docs/CounterpartiesController.Create'], ['model page', '#model/Payment?from=docs/PaymentsController.Create']]) {
+  for (const [name, hash] of [['Docs', '#docs/OrdersController.Place'], ['model page', '#model/Order?from=docs/OrdersController.Place']]) {
     await page.evaluate(value => { location.hash = value; }, hash);
     await page.locator('#doc-pane:not([hidden]) h1').waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `mobile ${name} has no document overflow`);
@@ -196,7 +196,7 @@ export async function runAccessibility(page) {
   await page.locator('[data-action="navigation"]').click();
   await audit(page, 'mobile sidebar drawer');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => { location.hash = '#op/PaymentsController.Create'; });
+  await page.evaluate(() => { location.hash = '#op/OrdersController.Place'; });
   await page.locator('#request:not([hidden]) .op-title').waitFor();
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await audit(page, 'mobile dark workbench');
@@ -214,7 +214,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
     await serveUiFromDirectory(context);
     const page = await context.newPage();
-    await page.goto(`${url}/sendproof/#op/PaymentsController.Create`);
+    await page.goto(`${url}/sendproof/#op/OrdersController.Place`);
     await page.locator('.sidebar .nav-heading').first().waitFor();
     await runAccessibility(page);
     console.log('PASS: axe in every view, both themes, Arabic and German; keyboard navigation, focus and large text');
