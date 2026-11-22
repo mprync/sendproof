@@ -16,7 +16,11 @@ from ..scope import RequestScope, attributed, current_scope, open_previews
 from .classify import WRITE
 
 #: Display names used in ``Preview unavailable: this operation writes to <Store>``.
-STORE_NAMES = {"mongodb": "MongoDB", "redis": "Redis", "dynamodb": "DynamoDB"}
+STORE_NAMES = {
+    "mongodb": "MongoDB", "redis": "Redis", "dynamodb": "DynamoDB",
+    "cassandra": "Cassandra", "elasticsearch": "Elasticsearch", "opensearch": "OpenSearch",
+    "cosmosdb": "Cosmos DB", "firestore": "Firestore",
+}
 
 
 def store_name(store: str) -> str:
@@ -97,6 +101,20 @@ def unattributed_write(store: str, operation: str) -> None:
             "in sendproof_core.detached()."))
 
 
+def check_command(store: str, operation: str, kind: str) -> Optional[RequestScope]:
+    """The one call a guard-only hook makes before it sends a command.
+
+    Refuses a write in a Preview (:func:`guard`), fails every open Preview when a write has no
+    request attribution (:func:`unattributed_write`), and returns the scope the command's ``Db``
+    entry belongs to (``None`` outside any request).
+    """
+    guard(store, operation, kind)
+    scope = current_scope()
+    if kind == WRITE and scope is None:
+        unattributed_write(store, operation)
+    return scope
+
+
 def refuse_in_preview(message: str) -> Optional[PreviewTransactionControl]:
     """Refuse something that would end or escape the Preview transaction.
 
@@ -141,13 +159,18 @@ def store_label(name: Optional[str]) -> Optional[str]:
     return name
 
 
-def read_set(names: Optional[Iterable[str]], transform=lambda name: name) -> Optional[frozenset[str]]:
-    """Normalize host-declared reads (``treat_as_read``) into an exact-match set, after ``transform``."""
+def read_set(names: Optional[Iterable[str]], transform=lambda name: name, allow_spaces: bool = False) -> Optional[frozenset[str]]:
+    """Normalize host-declared reads (``treat_as_read``) into an exact-match set, after ``transform``.
+
+    ``allow_spaces`` admits names that hold single spaces, such as the CQL key ``LIST ROLES`` or the
+    Elasticsearch operation ``POST /{}/_refresh``. Wildcards are never allowed.
+    """
     if names is None:
         return None
     if isinstance(names, str):
         raise TypeError("treat_as_read takes a list of exact command names.")
     items = list(names)
-    if any(not isinstance(item, str) or not item or re.search(r"[*?\s]", item) for item in items):
+    pattern = r"[*?]|\s{2,}|^\s|\s$|[^\S ]" if allow_spaces else r"[*?\s]"
+    if any(not isinstance(item, str) or not item or re.search(pattern, item) for item in items):
         raise ValueError("treat_as_read takes exact command names, without wildcards.")
     return frozenset(transform(item) for item in items)

@@ -1,7 +1,8 @@
 """The contract every data-store hook implements, and the stand-in provider for apps without SQL.
 
-A :class:`DataStore` is what ``redis_store(...)``, ``dynamodb_store(...)`` and ``mongo_store(...)``
-return. The framework adapters pass the list they were given (``data_stores=[...]``) to the
+A :class:`DataStore` is what ``redis_store(...)``, ``dynamodb_store(...)``, ``mongo_store(...)`` and the
+batch-two factories (``cassandra_store``, ``elasticsearch_store``, ``opensearch_store``,
+``cosmosdb_store``, ``firestore_store``) return. The framework adapters pass the list they were given (``data_stores=[...]``) to the
 Preview pipeline:
 
 1. ``begin(scope)`` runs before the handler. A ``preview``-mode store (MongoDB on a replica set)
@@ -25,7 +26,8 @@ from ..scope import RequestScope
 class DataStore:
     """A hooked data store. Subclasses override what they need; the defaults do nothing."""
 
-    #: Short store id: ``mongodb``, ``redis`` or ``dynamodb``.
+    #: Short store id: ``mongodb``, ``redis``, ``dynamodb``, ``cassandra``, ``elasticsearch``, ``opensearch``,
+    #: ``cosmosdb`` or ``firestore``.
     system: str = ""
 
     def describe(self) -> dict[str, Any]:
@@ -92,5 +94,6 @@ def validate_stores(stores: Any) -> list[DataStore]:
     """Check a ``data_stores`` argument and return it as a list."""
     items = list(stores or ())
     if any(not isinstance(item, DataStore) for item in items):
-        raise TypeError("data_stores takes stores made by redis_store, dynamodb_store or mongo_store.")
+        raise TypeError("data_stores takes stores made by redis_store, dynamodb_store, mongo_store, cassandra_store, "
+                        "elasticsearch_store, opensearch_store, cosmosdb_store or firestore_store.")
     return items

@@ -25,6 +25,9 @@ from sendproof_core.scope import RequestScope, activate, deactivate
 REDIS_URL = os.environ.get("BENCH_REDIS_SERVER_URL", "redis://:bench_redis_local@127.0.0.1:56379")
 MONGODB_URL = os.environ.get("BENCH_MONGODB_SERVER_URL", "mongodb://127.0.0.1:57017/?directConnection=true")
 DYNAMODB_URL = os.environ.get("BENCH_DYNAMODB_SERVER_URL", "http://127.0.0.1:58000")
+#: Batch two's heavy stores come from the compose ``heavy-stores`` profile.
+CASSANDRA_SERVER = os.environ.get("BENCH_CASSANDRA_SERVER", "127.0.0.1:59042")
+OPENSEARCH_URL = os.environ.get("BENCH_OPENSEARCH_SERVER_URL", "http://127.0.0.1:59200")
 
 # DynamoDB Local accepts any well-formed credentials; the secret is a marker that must never reach a capture.
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "benchlocal")
@@ -32,6 +35,7 @@ os.environ["AWS_SECRET_ACCESS_KEY"] = os.environ.get("AWS_SECRET_ACCESS_KEY", "b
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 REGION = os.environ["AWS_DEFAULT_REGION"]
 START = "docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb"
+START_HEAVY = "docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch"
 
 
 @functools.lru_cache(maxsize=None)
@@ -53,6 +57,19 @@ def available(store: str) -> bool:
             except urllib.error.HTTPError:  # any HTTP answer means the service is up
                 pass
             return True
+        if store == "cassandra":
+            from cassandra.cluster import Cluster
+
+            host, _, port = CASSANDRA_SERVER.partition(":")
+            cluster = Cluster([host], port=int(port or 9042), connect_timeout=3)
+            try:
+                cluster.connect().execute("SELECT release_version FROM system.local")
+            finally:
+                cluster.shutdown()
+            return True
+        if store == "opensearch":
+            urllib.request.urlopen(OPENSEARCH_URL + "/_cluster/health?wait_for_status=yellow&timeout=2s", timeout=4)
+            return True
     except Exception:
         return False
     raise ValueError(store)
@@ -60,7 +77,8 @@ def available(store: str) -> bool:
 
 def needs(store: str):
     """A pytest mark that skips a test when the compose service for ``store`` is down."""
-    return pytest.mark.skipif(not available(store), reason=f"{store} is not running: {START}")
+    start = START_HEAVY if store in ("cassandra", "opensearch") else START
+    return pytest.mark.skipif(not available(store), reason=f"{store} is not running: {start}")
 
 
 def fresh() -> str:
@@ -174,3 +192,43 @@ async def arun_preview(stores, handler):
         for store in reversed(begun):
             await store.afinish(scope)
     return scope, error
+
+
+# ------------------------------------------------------------------ batch two: Cassandra and OpenSearch
+@contextmanager
+def cassandra_keyspace() -> Iterator[tuple]:
+    """A fresh keyspace holding ``tickets (id text PRIMARY KEY, status text, hits int)``, dropped afterwards.
+
+    Yields ``(session, keyspace)`` of a plain, never-hooked ``cassandra-driver`` session.
+    """
+    from cassandra.cluster import Cluster
+
+    host, _, port = CASSANDRA_SERVER.partition(":")
+    cluster = Cluster([host], port=int(port or 9042))
+    session = cluster.connect()
+    keyspace = fresh()
+    session.execute(f"CREATE KEYSPACE {keyspace} WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': 1}}")
+    session.execute(f"CREATE TABLE {keyspace}.tickets (id text PRIMARY KEY, status text, hits int)")
+    try:
+        yield session, keyspace
+    finally:
+        try:
+            session.execute(f"DROP KEYSPACE {keyspace}")
+        finally:
+            cluster.shutdown()
+
+
+@contextmanager
+def opensearch_index() -> Iterator[tuple]:
+    """A fresh index with ``title``, ``views`` and ``hidden``, deleted afterwards. Yields ``(client, index)`` of a plain client."""
+    from opensearchpy import OpenSearch
+
+    client = OpenSearch(OPENSEARCH_URL)
+    index = fresh().replace("_", "-")
+    client.indices.create(index, body={"mappings": {"properties": {
+        "title": {"type": "keyword"}, "views": {"type": "integer"}, "hidden": {"type": "boolean"}}}})
+    try:
+        yield client, index
+    finally:
+        client.indices.delete(index, ignore_unavailable=True)
+        client.close()
