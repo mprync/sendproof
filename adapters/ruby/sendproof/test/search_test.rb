@@ -219,6 +219,24 @@ module SearchHookTests
     assert_equal ["PUT /articles/_doc/w"], sent
   end
 
+  # The refusal is not a connection error, so the transport's pool never marks the node dead, never retries
+  # the write on another node and never reloads: with two nodes, the reads after it still use both.
+  def test_a_refused_write_never_marks_a_node_dead_or_retries
+    other = FakeSearchServer.new
+    new_store
+    client = new_client(url: [@server.url, other.url], retry_on_failure: 3, reload_on_failure: true)
+    transport = transport_of(client)
+    assert_blocked_in_preview(system_id, "index") { client.index(index: "articles", id: "1", body: {}) }
+    assert_empty transport.connections.dead, "a refused write must not take a node out of rotation"
+    assert_equal 2, transport.connections.alive.length
+    preview { |_| 4.times { client.search(index: "articles", body: {}) } }
+    searches = [@server, other].map { |server| server.received.count { |method, path, _| method == "POST" && path.end_with?("_search") } }
+    assert_equal [2, 2], searches, "both nodes keep serving reads"
+    assert_empty(([@server, other].flat_map(&:received).reject { |_, path, _| path.end_with?("_search") }), "the write was never sent or retried")
+  ensure
+    other&.stop
+  end
+
   # Some errors carry a string, not an object, as +error+ (a 405, for example). Logging the reply must not
   # turn a request that was already sent into an exception.
   def test_a_reply_whose_error_is_a_string_is_logged_and_returned
