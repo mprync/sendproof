@@ -38,7 +38,7 @@
   },
   "scripts": {
     "build": "tsc -b && npm run pack-ui --workspace @sendproof/core",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs tests/*.test.mts",
+    "test": "tsc -b && node --experimental-strip-types --test tests/*.test.mjs tests/*.test.mts",
     "build:ts": "tsc -b",
     "build:fixtures": "npm run build && npm run generate-prisma-fixture",
     "typecheck": "tsc --noEmit -p tsconfig.types.json",
