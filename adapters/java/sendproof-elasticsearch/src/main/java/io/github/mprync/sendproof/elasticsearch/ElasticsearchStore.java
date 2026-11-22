@@ -107,10 +107,20 @@ public final class ElasticsearchStore extends GuardOnlyStore implements SearchSu
     /**
      * A bulk ingester that refuses an operation when it is queued. Build the ingester on a client made by this store
      * ({@link #client}); the returned handle guards {@code add} and delegates the rest.
+     *
+     * <p>The ingester runs its timed flushes and retries on a scheduler this store supplies (one set in {@code builder} is
+     * replaced), which sends only operations checked when they were queued: a flush there, or by a Preview handler that
+     * flushes a shared ingester, sends other requests' operations and is never refused as an unattributed write.
      */
     public <C> GuardedBulkIngester<C> bulkIngester(
             java.util.function.Function<BulkIngester.Builder<C>, BulkIngester.Builder<C>> builder) {
-        return new GuardedBulkIngester<>(this, BulkIngester.of(builder));
+        var scheduler = GuardedBulkIngester.scheduler();
+        try {
+            return new GuardedBulkIngester<>(this, BulkIngester.of(b -> builder.apply(b).scheduler(scheduler)), scheduler);
+        } catch (RuntimeException failure) {
+            scheduler.shutdownNow();
+            throw failure;
+        }
     }
 
     /** Guards an operation being queued on the calling thread: a bulk write. */

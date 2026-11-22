@@ -44,9 +44,12 @@ class ElasticsearchStoreTest {
         }
 
         @Override
+        @SuppressWarnings("unchecked")
         public <Q, S, E> CompletableFuture<S> performRequestAsync(Q request, Endpoint<Q, S, E> endpoint, TransportOptions options) {
             sent.add(endpoint.method(request) + " " + endpoint.requestUrl(request));
-            return CompletableFuture.completedFuture(null);
+            // A bulk ingester reads the reply; every other caller here ignores it.
+            return CompletableFuture.completedFuture(request instanceof co.elastic.clients.elasticsearch.core.BulkRequest
+                    ? (S) co.elastic.clients.elasticsearch.core.BulkResponse.of(r -> r.errors(false).took(1).items(List.of())) : null);
         }
 
         @Override
@@ -173,6 +176,37 @@ class ElasticsearchStoreTest {
         assertThat(outcome.blocked()).isTrue();
         assertThat(new String(outcome.problem())).contains("\"operation\":\"bulk\"");
         assertThat(sent).isEmpty();
+    }
+
+    @Test
+    void anIngesterSendsWhatAnOrdinaryRequestQueuedWhileAPreviewIsOpen() throws Exception {
+        var ingester = store.<Void>bulkIngester(b -> b.client(client).flushInterval(100, java.util.concurrent.TimeUnit.MILLISECONDS));
+        try (var request = io.github.mprync.sendproof.core.CaptureContext.enterAttributed()) {
+            ingester.add(op -> op.index(i -> i.index("articles").id("queued").document(Map.of("a", 1))));
+        }
+        // The ingester's own scheduler flushes while the Preview is open: a write checked when it was queued, not an
+        // unattributed one, so it is sent and the Preview isn't blocked.
+        PreviewOutcome outcome = Harness.preview(store, () -> {
+            long deadline = System.nanoTime() + 5_000_000_000L;
+            while (sent.isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(20);
+            }
+        });
+        assertThat(outcome.blocked()).isFalse();
+        assertThat(sent).containsExactly("POST /_bulk");
+        ingester.close();
+    }
+
+    @Test
+    void aPreviewThatFlushesASharedIngesterSendsTheOperationsOtherRequestsQueued() throws Exception {
+        var ingester = store.<Void>bulkIngester(b -> b.client(client));
+        try (var request = io.github.mprync.sendproof.core.CaptureContext.enterAttributed()) {
+            ingester.add(op -> op.index(i -> i.index("articles").id("queued").document(Map.of("a", 1))));
+        }
+        PreviewOutcome outcome = Harness.preview(store, ingester::flush);
+        assertThat(outcome.blocked()).isFalse();
+        assertThat(sent).containsExactly("POST /_bulk");
+        ingester.close();
     }
 
     @Test
