@@ -46,7 +46,8 @@ func main() {
 	_ = dynamobench.Middleware()
 	_ = mongobench.New()
 	_ = cassandrabench.Store("")
-	_ = searchbench.Transport(nil)
+	_ = searchbench.ElasticsearchTransport
+	_ = searchbench.OpenSearchBulkIndexer
 	_ = cosmosbench.Policy()
 	_ = firestorebench.DialOptions()
 

@@ -55,12 +55,12 @@ func TestAgainstARealOpenSearch(t *testing.T) {
 	for _, guarded := range []bool{true, false} {
 		index, plain := liveIndex(t)
 		config := opensearch.Config{Addresses: []string{openSearchURL()}, DisableRetry: true}
-		if guarded {
-			config.Transport = searchbench.Transport(nil, searchbench.OpenSearch())
-		}
 		client, err := opensearchapi.NewClient(opensearchapi.Config{Client: config})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if guarded {
+			client.Client.Transport = searchbench.OpenSearchTransport(client.Client.Transport)
 		}
 		bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(searchbench.Store("articles", searchbench.OpenSearch())),
 			sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {

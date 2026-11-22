@@ -25,7 +25,11 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 
 ### Calls without the request's context
 
-Go hands the request to a store call only through the context you pass. A hooked client called with `context.Background()` can't tell which request the call belongs to, so MongoDB can't put it in the Preview's transaction. The same holds for a client's own background goroutine, such as a Firestore `BulkWriter`, a bulk indexer or a goroutine your handler started without the context. While any Preview is open, such a write to a guarded store (Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore, a standalone MongoDB server) is taken to be that Preview's write: it is **refused before it is sent**, exactly like a write with the request's context, and every open Preview answers 409. For MongoDB in `preview` mode the monitor can only see the write after it was sent, so every open Preview answers 500 without confirmation instead.
+Go hands the request to a store call only through the context you pass. A hooked client called with `context.Background()` can't tell which request the call belongs to, so MongoDB can't put it in the Preview's transaction. The same holds for a client's own background goroutine, such as a Firestore `BulkWriter`, a bulk indexer or a goroutine your handler started without the context. While any Preview is open, such a write to a guarded store (Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore, a standalone MongoDB server) is taken to be that Preview's write: it is **refused before it is sent**, exactly like a write with the request's context, and every open Preview answers 409. MongoDB's guarded handles refuse such a write before sending too; in `preview` mode every open Preview then answers 500 without confirmation instead of 409. Only a raw `*mongo.Client` outside the guard is left to the monitor, which sees the write after it was sent and fails every open Preview with 500.
+
+A write that carries the context of a Preview that has **ended**, such as from a goroutine the handler started with `context.WithoutCancel(r.Context())` that is still running after the response, is refused before it is sent, for as long as the process runs: the context stays marked as a Preview. A goroutine that dropped the context and writes after every Preview has ended can't be told apart from background work, and is not refused.
+
+Clients that queue writes and send them later (a Firestore `BulkWriter`, an Elasticsearch or OpenSearch bulk indexer) must be refused when the write is queued, on the caller's goroutine, not when the batch is sent. Use `firestorebench.NewBulkWriter` and `searchbench.ElasticsearchBulkIndexer` / `OpenSearchBulkIndexer`, whose queueing methods take the caller's context and refuse there. An unwrapped one is refused only when it sends, while some Preview is open; the refusal is never retried, so its flush or close returns.
 
 Writes made with the context of any other request that passed through `bench.Middleware` are never refused for this reason. Background work that runs while Previews may be open, such as a job worker or a scheduled task writing through a hooked client, must mark its context, or it is refused while a Preview is open:
 
@@ -62,11 +66,11 @@ cluster.Keyspace = "inventory"
 tickets, _ := cassandrabench.Connect(cluster) // handlers use this
 defer tickets.Close()
 
-// Elasticsearch or OpenSearch: an http.RoundTripper set as the client's Transport.
-es, _ := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{esURL}, Transport: searchbench.Transport(nil)})
-os, _ := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{
-    Addresses: []string{osURL}, Transport: searchbench.Transport(nil, searchbench.OpenSearch()),
-}})
+// Elasticsearch or OpenSearch: wrap the client's Transport (its Perform interface).
+es, _ := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{esURL}})
+es.Transport = searchbench.ElasticsearchTransport(es.Transport)
+os, _ := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{Addresses: []string{osURL}}})
+os.Client.Transport = searchbench.OpenSearchTransport(os.Client.Transport)
 
 // Cosmos DB: an azcore per-call policy in the client options.
 cosmos, _ := azcosmos.NewClientFromConnectionString(connection, cosmosbench.ClientOptions(nil))
@@ -126,14 +130,15 @@ Use `sendproof.WithFramework("chi")` (or `"Gin"`, `"Echo"`) so the workbench wri
 
 ### Elasticsearch and OpenSearch
 
-go-elasticsearch (`elasticsearch.Config.Transport`) and opensearch-go (`opensearch.Config.Transport`) both take an `http.RoundTripper`, so one guard serves both: `searchbench.Transport(next, options...)` wraps `next` (`http.DefaultTransport` when it is nil), below the typed API, so the classic and typed clients, bulk indexers and `Perform` are all covered, and so is every client derived from the configured one. Wrap the transport you would have used anyway, so TLS and proxy settings still apply.
+go-elasticsearch (`Client`, `TypedClient` and `BaseClient`) and opensearch-go (`opensearch.Client`, which `opensearchapi.Client` holds) send every request through an exported `Transport` field, their Perform interface, which sits above the connection pool and the retry loop. The guard wraps that field: `es.Transport = searchbench.ElasticsearchTransport(es.Transport)`, `os.Client.Transport = searchbench.OpenSearchTransport(os.Client.Transport)`. The classic and typed APIs, bulk indexers, `Perform` and opensearch-go's `Stream` are covered, and so is every client that shares the wrapped Transport (`elasticsearch.NewTypedFrom` copies it, so wrap first). The wrapper forwards `Metrics`, `DiscoverNodes`, `Close` and instrumentation to the client's own transport; wrapping twice returns the same wrapper.
 
-- Pass `searchbench.OpenSearch()` to both `Transport` and `Store` so the store reports `opensearch` (the default is `elasticsearch`) in Db entries, the 409 body and discovery.
+- Because the refusal happens above the pool, a refused write never marks a node dead and is never retried: other requests, including ordinary traffic outside any Preview, keep every node in rotation (a two-node test checks both clients).
+- Pass `searchbench.OpenSearch()` to `Store` so the store reports `opensearch` (the default is `elasticsearch`) in discovery; `OpenSearchTransport` and `OpenSearchBulkIndexer` report `opensearch` in Db entries and the 409 body already.
+- A bulk indexer queues items and sends them later from its own goroutines, with its own context. Wrap it with `searchbench.ElasticsearchBulkIndexer(indexer)` or `searchbench.OpenSearchBulkIndexer(indexer)`: `Add` refuses an item during a Preview, or with no request while a Preview is open, on the caller's goroutine before it is queued (operation `bulk`), so nothing is left to flush and `Close` returns at once. An unwrapped indexer is guarded only when it flushes: the flush is refused while some Preview is open, without retries, so `Close` does not hang; a flush that runs after every Preview has ended is sent.
 - The shared table classifies by HTTP method and path: `GET` and `HEAD` read, a `POST` to `_search`, `_msearch`, `_count`, `_mget` or `_field_caps` is a read, and `_bulk`, `_update_by_query`, `_delete_by_query`, `_reindex`, every `PUT`, document writes, stored scripts and index, alias and template changes are writes. The SQL endpoints (`_sql`, `_plugins/_sql`) read only for one `SELECT`, `SHOW` or `DESCRIBE`, or the next page of a cursor; the guard reads that request's body (up to 1 MiB, gzip included) and a larger or unreadable one is a write.
-- `searchbench.PathPrefix("/proxy")` names a path prefix the client is configured with (a cluster behind a proxy). Without it a prefixed request matches no table entry: a `GET` still reads and everything else is a write, so a `POST _search` is refused.
+- A cluster behind a proxy path (`https://host/search`) needs nothing extra: the client adds the address's path after the guard has classified the request.
 - The Db entry's statement is the request body with every literal replaced by `"?"` (one line per document for `_bulk` and `_msearch`), and `target` is the first path segment that names an index. The path is not logged, because it can hold document ids.
-- The refusal is an error from the transport. The clients' connection pools count it as a failed node, so with several nodes configured a refused write takes one out of rotation until the client's resurrection timer, and default retries ask the guard again (every attempt is refused and nothing is sent). A refusal ends its Preview, so only the few requests that run before it are affected.
-- Other Go clients (olivere/elastic, a plain `http.Client`) work too if you set their transport to the guard, but they are not tested here.
+- Other Go clients (olivere/elastic, a plain `http.Client`) are not guarded.
 
 ### Cosmos DB
 
@@ -159,7 +164,7 @@ The Go client speaks gRPC only. `firestorebench.ClientOptions()` returns the two
 Everything the five batch-two stores' sections above do not name is not covered. In particular:
 
 - **Cassandra:** ScyllaDB's `scylladb/gocql` fork, and any driver but `cassandra-gocql-driver/v2`.
-- **Elasticsearch and OpenSearch:** none: any client that takes an `http.RoundTripper` can use `searchbench`, though only go-elasticsearch 8 and opensearch-go 4 are tested.
+- **Elasticsearch and OpenSearch:** only go-elasticsearch 8 and opensearch-go 4, whose clients expose their Perform interface as a `Transport` field.
 - **Cosmos DB:** the non-NoSQL APIs, and Gremlin or Table clients.
 - **Firestore:** the Datastore API, and a client built without `firestorebench.ClientOptions()`.
 

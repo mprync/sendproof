@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/mprync/sendproof/adapters/go/searchbench"
@@ -105,9 +107,6 @@ func newApp(t *testing.T, hooked bool, openSearch bool, routes map[string]operat
 func elastic(t *testing.T, c *cluster, hooked bool) (*elasticsearch.Client, *elasticsearch.TypedClient) {
 	t.Helper()
 	config := elasticsearch.Config{Addresses: []string{c.URL}, DisableRetry: true}
-	if hooked {
-		config.Transport = searchbench.Transport(nil)
-	}
 	client, err := elasticsearch.NewClient(config)
 	if err != nil {
 		t.Fatal(err)
@@ -116,18 +115,22 @@ func elastic(t *testing.T, c *cluster, hooked bool) (*elasticsearch.Client, *ela
 	if err != nil {
 		t.Fatal(err)
 	}
+	if hooked {
+		client.Transport = searchbench.ElasticsearchTransport(client.Transport)
+		typed.Transport = searchbench.ElasticsearchTransport(typed.Transport)
+	}
 	return client, typed
 }
 
 func opensearchClient(t *testing.T, c *cluster, hooked bool) *opensearchapi.Client {
 	t.Helper()
 	config := opensearch.Config{Addresses: []string{c.URL}, DisableRetry: true}
-	if hooked {
-		config.Transport = searchbench.Transport(nil, searchbench.OpenSearch())
-	}
 	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: config})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if hooked {
+		client.Client.Transport = searchbench.OpenSearchTransport(client.Client.Transport)
 	}
 	return client
 }
@@ -385,7 +388,10 @@ func TestSQLEndpointsReadOnlyForASingleSelect(t *testing.T) {
 	assertBlocked(t, current.preview("/delete"), "elasticsearch", "Elasticsearch", "sql.query")
 }
 
-func TestAPathPrefixIsRemovedBeforeClassifying(t *testing.T) {
+// TestAProxyPathPrefixIsNotClassified: the guard runs above the client's transport,
+// which adds the address's path prefix later, so a POST to _search behind a proxy
+// path is still a read.
+func TestAProxyPathPrefixIsNotClassified(t *testing.T) {
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Method+" "+r.URL.Path)
@@ -398,13 +404,11 @@ func TestAPathPrefixIsRemovedBeforeClassifying(t *testing.T) {
 		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {
 			return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true
 		}))
-	client, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{server.URL + "/proxy"}, DisableRetry: true,
-		Transport: searchbench.Transport(nil, searchbench.PathPrefix("/proxy")),
-	})
+	client, err := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{server.URL + "/proxy"}, DisableRetry: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.Transport = searchbench.ElasticsearchTransport(client.Transport)
 	mux := http.NewServeMux()
 	bench.HandlePreview(mux, "POST /read", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = discard(client.Search(client.Search.WithContext(r.Context()), client.Search.WithIndex("a"), client.Search.WithBody(strings.NewReader(`{}`))))
@@ -414,8 +418,8 @@ func TestAPathPrefixIsRemovedBeforeClassifying(t *testing.T) {
 	request.Header.Set("Prefer", "tx=rollback")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != 200 {
-		t.Errorf("a prefixed POST _search must be a read once the prefix is declared: %d %s", response.Code, response.Body)
+	if response.Code != 200 || len(seen) == 0 || seen[len(seen)-1] != "POST /proxy/a/_search" {
+		t.Errorf("a prefixed POST _search must be a read: %d %s %v", response.Code, response.Body, seen)
 	}
 }
 
@@ -455,50 +459,133 @@ func TestStoreRefusesAConnectionStringAsALabel(t *testing.T) {
 func TestARefusedWriteDoesNotMarkANodeDead(t *testing.T) {
 	first, second := newCluster(t), newCluster(t)
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{first.URL, second.URL}, DisableRetry: true, Transport: searchbench.Transport(nil),
+		Addresses: []string{first.URL, second.URL}, EnableMetrics: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.Transport = searchbench.ElasticsearchTransport(client.Transport)
+	assertARefusedWriteLeavesThePoolAlone(t, first, second, func(ctx context.Context) error {
+		return discard(client.Index("a", strings.NewReader(`{}`), client.Index.WithContext(ctx)))
+	}, func(ctx context.Context) error {
+		return discard(client.Search(client.Search.WithContext(ctx)))
+	}, func() (dead, failures int) {
+		metrics, err := client.Metrics()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, connection := range metrics.Connections {
+			if metric, ok := connection.(elastictransport.ConnectionMetric); ok && (metric.IsDead || metric.Failures > 0) {
+				dead++
+			}
+		}
+		return dead, metrics.Failures
+	})
+}
+
+// TestARefusedOpenSearchWriteDoesNotMarkANodeDead is the same check for opensearch-go.
+func TestARefusedOpenSearchWriteDoesNotMarkANodeDead(t *testing.T) {
+	first, second := newCluster(t), newCluster(t)
+	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{
+		Addresses: []string{first.URL, second.URL}, EnableMetrics: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Client.Transport = searchbench.OpenSearchTransport(client.Client.Transport)
+	assertARefusedWriteLeavesThePoolAlone(t, first, second, func(ctx context.Context) error {
+		_, err := client.Index(ctx, opensearchapi.IndexReq{Index: "a", Body: strings.NewReader(`{}`)})
+		return err
+	}, func(ctx context.Context) error {
+		_, err := client.Search(ctx, &opensearchapi.SearchReq{})
+		return err
+	}, func() (dead, failures int) {
+		metrics, err := client.Client.Metrics()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return metrics.DeadConnections + metrics.ConnectionsDemoted, metrics.Failures
+	})
+}
+
+// assertARefusedWriteLeavesThePoolAlone refuses one write in a Preview against a
+// two-node client, then proves no node was taken out of rotation, nothing was
+// retried, and the reads that follow (a Send outside any Preview) still reach both
+// nodes in turn.
+func assertARefusedWriteLeavesThePoolAlone(t *testing.T, first, second *cluster, write, read operation, pool func() (dead, failures int)) {
+	t.Helper()
 	bench, _ := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(searchbench.Store("")),
 		sendproof.WithPrincipal(func(*http.Request) (sendproof.Principal, bool) {
 			return sendproof.Principal{Subject: "a", Scheme: "cookie"}, true
 		}))
-	var after []error
+	var refused error
 	mux := http.NewServeMux()
 	bench.HandlePreview(mux, "POST /write", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for range 4 {
-			_ = discard(client.Index("a", strings.NewReader(`{}`), client.Index.WithContext(r.Context())))
-		}
-		for range 4 {
-			after = append(after, discard(client.Search(client.Search.WithContext(r.Context()))))
-		}
+		refused = write(r.Context())
 	}))
 	request := httptest.NewRequest("POST", "/sendproof/_preview/write", strings.NewReader(`{}`))
 	request.Header.Set("Prefer", "tx=rollback")
-	bench.Middleware(mux).ServeHTTP(httptest.NewRecorder(), request)
-	for _, err := range after {
-		if err != nil {
-			t.Errorf("a read after a refused write failed: %v", err)
+	response := httptest.NewRecorder()
+	bench.Middleware(mux).ServeHTTP(response, request)
+	var blocked *sendproof.PreviewWriteBlockedError
+	if response.Code != 409 || !errors.As(refused, &blocked) {
+		t.Fatalf("the write must be refused with the guard's error: %d %v", response.Code, refused)
+	}
+	if dead, failures := pool(); dead != 0 || failures != 0 {
+		t.Fatalf("a refused write counted against the pool: %d dead, %d failures", dead, failures)
+	}
+	for range 2 {
+		if err := read(context.Background()); err != nil {
+			t.Fatalf("a read after a refused write failed: %v", err)
 		}
+	}
+	if a, b := first.requests(), second.requests(); len(a) != 1 || len(b) != 1 {
+		t.Errorf("both nodes must stay in rotation and the write must never be sent: %v %v", a, b)
 	}
 }
 
-// TestRetriesNeverSendARefusedWrite: with go-elasticsearch's default retries the
-// client calls the transport again after an error; the guard refuses every attempt.
-func TestRetriesNeverSendARefusedWrite(t *testing.T) {
+// countingRoundTripper counts the attempts the client's pool makes.
+type countingRoundTripper struct {
+	mu       sync.Mutex
+	attempts int
+}
+
+func (c *countingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	c.attempts++
+	c.mu.Unlock()
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// TestARefusedWriteIsNeverRetried: with each client's default retries on, the
+// refusal happens above the retry loop, so the pool never makes an attempt.
+func TestARefusedWriteIsNeverRetried(t *testing.T) {
 	var current *app
+	es, osAttempts := &countingRoundTripper{}, &countingRoundTripper{}
 	current = newApp(t, true, false, map[string]operation{
 		"POST /index": func(ctx context.Context) error {
-			client, err := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{current.cluster.URL}, Transport: searchbench.Transport(nil)})
+			client, err := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{current.cluster.URL}, Transport: es})
 			if err != nil {
 				return err
 			}
+			client.Transport = searchbench.ElasticsearchTransport(client.Transport)
 			return discard(client.Index("articles", strings.NewReader(`{}`), client.Index.WithContext(ctx)))
+		},
+		"POST /os-index": func(ctx context.Context) error {
+			client, err := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{Addresses: []string{current.cluster.URL}, Transport: osAttempts}})
+			if err != nil {
+				return err
+			}
+			client.Client.Transport = searchbench.OpenSearchTransport(client.Client.Transport)
+			_, err = client.Index(ctx, opensearchapi.IndexReq{Index: "articles", Body: strings.NewReader(`{}`)})
+			return err
 		},
 	})
 	assertBlocked(t, current.preview("/index"), "elasticsearch", "Elasticsearch", "index")
-	if got := current.cluster.requests(); len(got) != 0 {
-		t.Errorf("a retried write reached the cluster: %v", got)
+	if response := current.preview("/os-index"); response.Code != 409 {
+		t.Errorf("OpenSearch index: %d %s", response.Code, response.Body)
+	}
+	if got := current.cluster.requests(); len(got) != 0 || es.attempts != 0 || osAttempts.attempts != 0 {
+		t.Errorf("a refused write reached the pool: %v es=%d os=%d", got, es.attempts, osAttempts.attempts)
 	}
 }

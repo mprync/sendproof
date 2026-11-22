@@ -45,15 +45,13 @@ func (d *dataStores) openCassandra(contactPoint, keyspace string) error {
 	return nil
 }
 
-// openOpenSearch builds the client with the guard as its transport.
+// openOpenSearch builds the client and guards its Transport, above the pool.
 func (d *dataStores) openOpenSearch(url, index string) error {
-	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{
-		Addresses: []string{url},
-		Transport: searchbench.Transport(nil, searchbench.OpenSearch()),
-	}})
+	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{Addresses: []string{url}}})
 	if err != nil {
 		return err
 	}
+	client.Client.Transport = searchbench.OpenSearchTransport(client.Client.Transport)
 	d.opensearch, d.opensearchIndex = client, index
 	d.registered = append(d.registered, searchbench.Store("articles", searchbench.OpenSearch()))
 	return nil
