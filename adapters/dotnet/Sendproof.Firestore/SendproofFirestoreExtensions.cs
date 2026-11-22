@@ -49,7 +49,7 @@ public static class SendproofFirestoreExtensions
     /// first write blocks the Preview before it is sent. Register the <see cref="FirestoreDb"/> first: this replaces that
     /// registration with a database over a client whose gRPC channel carries the guard, so everything resolved from the
     /// container is covered, and the host refuses to start when <see cref="FirestoreDb"/> is registered again afterwards. A
-    /// database the application creates some other way is not covered; pass it through <see cref="FirestoreStore.Guard"/>.
+    /// database the application creates some other way is not covered; pass it through <see cref="FirestoreStore.Guard(FirestoreDb)"/>.
     /// </summary>
     public static SendproofBuilder AddFirestore(this SendproofBuilder builder, Action<FirestoreStoreBuilder>? configure = null)
     {
