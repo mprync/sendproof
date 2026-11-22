@@ -4,7 +4,7 @@ Cassandra write guard for Sendproof (`guard` mode). Cassandra can't roll back, s
 
 ```rust
 let session = SessionBuilder::new().known_node("127.0.0.1:9042").build().await?;
-let store = CassandraStore::new(Arc::new(session)).name("tickets")?; // register with Config::builder(..).data_store(store.clone())
+let store = CassandraStore::new(session).name("tickets")?; // register with Config::builder(..).data_store(store.clone())
 // state: CassandraStore must be reachable from the handler (axum: `impl FromRef<AppState> for CassandraStore`)
 
 async fn ticket(cassandra: Cassandra) -> Result<Json<String>, StatusCode> {

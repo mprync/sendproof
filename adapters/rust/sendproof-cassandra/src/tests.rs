@@ -171,7 +171,7 @@ mod server {
         }
     }
 
-    async fn connect() -> Option<Arc<Session>> {
+    async fn connect() -> Option<Session> {
         let address = std::env::var("BENCH_CASSANDRA_SERVER").unwrap_or_else(|_| "127.0.0.1:59042".into());
         let published = address.to_socket_addrs().ok()?.next()?;
         let attempt = async { SessionBuilder::new().known_node(address).address_translator(Arc::new(Published(published))).build().await.ok() };
@@ -179,12 +179,12 @@ mod server {
         if session.is_none() {
             eprintln!("skipped: Cassandra isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra)");
         }
-        session.map(Arc::new)
+        session
     }
 
     /// A fresh keyspace with a `tickets` table, dropped when the test ends.
     struct Fixture {
-        raw: Arc<Session>,
+        raw: Session,
         keyspace: String,
     }
 
@@ -202,6 +202,13 @@ mod server {
             raw.query_unpaged("CREATE TABLE tickets (id text PRIMARY KEY, status text, hits int)", ()).await.unwrap();
             raw.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('seeded', 'open', 3)", ()).await.unwrap();
             Some(Self { raw, keyspace })
+        }
+
+        /// A store that owns a second session on the test's keyspace; `raw` stays the independent one.
+        async fn store(&self) -> CassandraStore {
+            let session = connect().await.expect("Cassandra answered a moment ago");
+            session.use_keyspace(&self.keyspace, false).await.unwrap();
+            CassandraStore::new(session)
         }
 
         /// An independent read through the unguarded session.
@@ -229,7 +236,7 @@ mod server {
     #[tokio::test]
     async fn no_write_path_reaches_the_server_during_a_preview() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let recorder = preview();
         capture::scope(recorder.clone(), async {
             let session = store.detached().session();
@@ -296,7 +303,7 @@ mod server {
     #[tokio::test]
     async fn writes_run_in_an_observed_send_and_are_logged_with_the_keyspace() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let observed = Recorder::new(Instant::now(), true);
         observed.begin(false);
         capture::scope(observed.clone(), async {
@@ -340,7 +347,7 @@ mod server {
     #[tokio::test]
     async fn a_swallowed_block_still_answers_409() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let reply = run_preview(&store, async {
             // The handler ignores the error and the response is 200: the mark decides.
             let _ = store.detached().session().query_unpaged("DELETE FROM tickets WHERE id = 'seeded'", ()).await;
@@ -356,7 +363,7 @@ mod server {
     #[tokio::test]
     async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let session = store.detached().session();
         let reply = run_preview(&store, async {
             // A spawned task has no request scope, like a client's own background writer: nothing can
@@ -379,7 +386,7 @@ mod server {
     #[tokio::test]
     async fn a_write_from_a_task_that_outlives_its_preview_is_still_refused() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let (release, released) = tokio::sync::oneshot::channel::<()>();
         let (finished, result) = tokio::sync::oneshot::channel();
         let reply = run_preview(&store, async {
@@ -402,7 +409,7 @@ mod server {
     #[tokio::test]
     async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
         let Some(fixture) = Fixture::new().await else { return };
-        let store = CassandraStore::new(fixture.raw.clone());
+        let store = fixture.store().await;
         let session = store.detached().session();
         let reply = run_preview(&store, async {
             tokio::spawn(sendproof_core::detached(async move {

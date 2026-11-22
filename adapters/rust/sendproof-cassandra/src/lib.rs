@@ -8,12 +8,11 @@
 //!
 //! ```no_run
 //! # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::sync::Arc;
 //! use sendproof_cassandra::{Cassandra, CassandraStore};
 //!
 //! let session = scylla::client::session_builder::SessionBuilder::new().known_node("127.0.0.1:9042").build().await?;
 //! // The store owns the session; keep only the store in application state.
-//! let store = CassandraStore::new(Arc::new(session)).name("tickets")?;
+//! let store = CassandraStore::new(session).name("tickets")?;
 //! // Register it: Config::builder("Inventory").data_store(store.clone())
 //!
 //! // In a handler, take the `Cassandra` extractor and use its guarded session:
@@ -106,10 +105,19 @@ pub struct CassandraStore {
 }
 
 impl CassandraStore {
-    /// A Cassandra store that owns `session`. It hands the session out only guarded, so give it the
-    /// session instead of keeping one in application state.
-    pub fn new(session: Arc<Session>) -> Self {
-        Self { settings: Arc::new(Settings { name: None, reads: Arc::default(), session, open: OpenPreviews::new() }) }
+    /// A Cassandra store that owns `session` and hands it out only guarded. It takes the `Session`
+    /// itself, which can't be cloned, so no unguarded copy stays in application reach:
+    ///
+    /// ```compile_fail
+    /// # fn keep(session: std::sync::Arc<scylla::client::session::Session>) {
+    /// // A shared session would leave a raw handle behind; the store doesn't take one.
+    /// let store = sendproof_cassandra::CassandraStore::new(session.clone());
+    /// # }
+    /// ```
+    ///
+    /// Run schema setup before handing the session over, or through `store.detached().session()`.
+    pub fn new(session: Session) -> Self {
+        Self { settings: Arc::new(Settings { name: None, reads: Arc::default(), session: Arc::new(session), open: OpenPreviews::new() }) }
     }
 
     fn with(self, change: impl FnOnce(&mut Settings)) -> Self {

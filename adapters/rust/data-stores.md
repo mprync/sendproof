@@ -98,11 +98,11 @@ Pipelines, including `atomic()` ones, are classified as a whole before the first
 
 ### Cassandra
 
-`sendproof-cassandra` works with the `scylla` driver, which also speaks to Apache Cassandra. `Session` is a concrete struct with no pre-send hook, so the guard is a wrapper. `CassandraStore::new(Arc<Session>)` is the store, and **it owns the session**; the `Cassandra` extractor gives each request's handle (Axum: `FromRef<AppState>` for `CassandraStore` and the `axum` feature; Actix: `web::Data::new(store)` and the `actix` feature), and `cassandra.session()` returns a `GuardedSession` that mirrors the driver's `query_unpaged`, `query_single_page`, `query_iter`, `execute_*`, `execute_bound_*`, `batch`, `prepare`, `prepare_batch` and `use_keyspace`.
+`sendproof-cassandra` works with the `scylla` driver, which also speaks to Apache Cassandra. `Session` is a concrete struct with no pre-send hook, so the guard is a wrapper. `CassandraStore::new(session)` is the store, and **it owns the session**: it takes the `Session` itself, which can't be cloned, so no unguarded handle stays behind (run schema setup before handing it over, or through `store.detached().session()`); the `Cassandra` extractor gives each request's handle (Axum: `FromRef<AppState>` for `CassandraStore` and the `axum` feature; Actix: `web::Data::new(store)` and the `actix` feature), and `cassandra.session()` returns a `GuardedSession` that mirrors the driver's `query_unpaged`, `query_single_page`, `query_iter`, `execute_*`, `execute_bound_*`, `batch`, `prepare`, `prepare_batch` and `use_keyspace`.
 
 ```rust
 let session = SessionBuilder::new().known_node("127.0.0.1:9042").build().await?;
-let tickets = CassandraStore::new(Arc::new(session)).name("tickets")?;
+let tickets = CassandraStore::new(session).name("tickets")?;
 
 async fn ticket(cassandra: Cassandra, Path(id): Path<String>) -> Result<Json<String>, StatusCode> {
     let result = cassandra.session().query_unpaged("SELECT status FROM tickets WHERE id = ?", (id,)).await;

@@ -185,7 +185,7 @@ impl Stores {
                 .build()
                 .await?;
             stores.cassandra = Some(CassandraFixture {
-                store: CassandraStore::new(Arc::new(session)).name("tickets")?,
+                store: CassandraStore::new(session).name("tickets")?,
                 select: OnceCell::new(),
             });
         }
