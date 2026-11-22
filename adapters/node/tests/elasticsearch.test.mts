@@ -10,7 +10,7 @@ import test from 'node:test';
 import { Client as ElasticClient } from '@elastic/elasticsearch';
 import { Client as OpenSearchClient } from '@opensearch-project/opensearch';
 import { elasticsearchStore, opensearchStore } from '@sendproof/elasticsearch';
-import { detached } from '@sendproof/core';
+import { Capture, detached } from '@sendproof/core';
 import { assertBlocked, assertUnconfirmed, dbEntries, fresh, handle, needs, services, startApp } from './support/stores.mts';
 
 /** The calls the routes make, written once against `client.transport.request`, which both libraries share. */
@@ -224,9 +224,14 @@ async function fakeElasticsearch(t: test.TestContext) {
   const received: string[] = [];
   const server = createServer((req, res) => {
     received.push(`${req.method} ${req.url!.split('?')[0]}`);
-    req.resume();
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
-      const reply = req.url!.includes('_search') ? { hits: { hits: [{ _id: 'seeded', _source: { title: 'Seeded', views: 1 } }] } } : { result: 'created', updated: 1 };
+      // A bulk reply has one item per action line (every other NDJSON line, for index actions).
+      const actions = Math.ceil(body.split('\n').filter(line => line.trim()).length / 2);
+      const reply = req.url!.includes('_search') ? { hits: { hits: [{ _id: 'seeded', _source: { title: 'Seeded', views: 1 } }] } }
+        : req.url!.split('?')[0]!.endsWith('_bulk') ? { took: 1, errors: false, items: Array.from({ length: actions }, () => ({ index: { status: 201, result: 'created' } })) }
+        : { result: 'created', updated: 1 };
       res.writeHead(200, { 'content-type': 'application/json', 'x-elastic-product': 'Elasticsearch' }).end(JSON.stringify(reply));
     });
   });
@@ -234,6 +239,53 @@ async function fakeElasticsearch(t: test.TestContext) {
   t.after(() => { server.closeAllConnections(); server.close(); });
   return { received, node: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
+
+test('the bulk helpers are refused when called, on the caller\'s context, before a document is queued or sent', async t => {
+  // A bulk helper queues documents and sends them later with its own retries and flush timer; a
+  // refusal at send time would be retried (spec/data-stores.md, "Writes the binding can't attribute to a request").
+  for (const system of ['elasticsearch', 'opensearch'] as const) {
+    const { received, node } = await fakeElasticsearch(t);
+    const client: any = system === 'elasticsearch' ? new ElasticClient({ node, maxRetries: 3 }) : new OpenSearchClient({ node, maxRetries: 3 });
+    t.after(() => client.close());
+    if (system === 'elasticsearch') elasticsearchStore(client); else opensearchStore(client);
+    let pulled = 0;
+    async function* documents() { for (let index = 0; index < 3; index++) { pulled++; yield { title: `t${index}` }; } }
+    const bulk = (on: any) => on.helpers.bulk({ datasource: documents(), onDocument: () => ({ index: { _index: 'articles' } }), flushInterval: 10, retries: 3, wait: 10 });
+    const isBlocked = (error: any) => error?.name === 'PreviewWriteBlockedError' && error.store === system && error.operation === 'bulk';
+    const preview = new Capture('preview');
+    await assert.rejects(preview.run(() => bulk(client)), isBlocked, `${system}: refused in a Preview`);
+    assert.equal(preview.blocked?.operation, 'bulk');
+    await assert.rejects(new Capture('preview').run(() => bulk(client.child({}))), isBlocked, `${system}: a child's helper is refused too`);
+    assert.equal(pulled, 0, `${system}: no document is queued`);
+    assert.equal(received.length, 0, `${system}: nothing is sent`);
+    // Outside a Preview the helper runs as usual.
+    const stats = await bulk(client);
+    assert.equal(stats.total, 3);
+    assert(received.some(line => line.endsWith('/_bulk')));
+  }
+});
+
+test('a refused write never marks a node dead or retries: with two nodes the next reads use both', async t => {
+  // The guard refuses above the transport's retry and connection-pool logic. A refusal raised where
+  // the pool sees it (a connection error) would take a node out of rotation for every request.
+  for (const system of ['elasticsearch', 'opensearch'] as const) {
+    const [first, second] = [await fakeElasticsearch(t), await fakeElasticsearch(t)];
+    const nodes = [first.node, second.node];
+    const client: any = system === 'elasticsearch' ? new ElasticClient({ nodes, maxRetries: 3 }) : new OpenSearchClient({ nodes, maxRetries: 3 });
+    t.after(() => client.close());
+    if (system === 'elasticsearch') elasticsearchStore(client); else opensearchStore(client);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await assert.rejects(new Capture('preview').run(() => client.index({ index: 'articles', id: 'x', body: { title: 'x' } })),
+        (error: any) => error?.name === 'PreviewWriteBlockedError', `${system}: the write is refused`);
+    }
+    assert.equal(first.received.length + second.received.length, 0, `${system}: a refused write is never sent or retried`);
+    const connections = [...(client.connectionPool.connections.values?.() ?? client.connectionPool.connections)];
+    assert.equal(connections.length, 2);
+    for (const connection of connections) assert.equal(connection.status, 'alive', `${system}: a refusal must not mark a node dead`);
+    for (let read = 0; read < 4; read++) await client.search({ index: 'articles', body: { query: { match_all: {} } } });
+    assert(first.received.length > 0 && second.received.length > 0, `${system}: both nodes stay in rotation (${first.received.length}/${second.received.length})`);
+  }
+});
 
 test('elasticsearch: reads pass, writes of every shape never reach the server, and children stay guarded', async t => {
   const { received, node } = await fakeElasticsearch(t);
@@ -294,7 +346,7 @@ test('elasticsearch: NDJSON bodies are logged one sanitized line each, and a str
   assert(!JSON.stringify(logs).match(/secret|hush/));
 });
 
-test('elasticsearch: a write outside any request fails an open Preview unless it is marked detached, and is sent either way', async t => {
+test('elasticsearch: a write outside any request is refused before it is sent while a Preview is open, unless it is marked detached', async t => {
   const { received, node } = await fakeElasticsearch(t);
   const client = new ElasticClient({ node, maxRetries: 0 });
   const store = elasticsearchStore(client);
@@ -303,6 +355,7 @@ test('elasticsearch: a write outside any request fails an open Preview unless it
   const released = new Promise<void>(resolve => { open = resolve; });
   let entered: () => void = () => {};
   const inside = new Promise<void>(resolve => { entered = resolve; });
+  t.after(() => open());
   const app = await startApp(t, [store], bench => {
     bench.operation('POST', '/hold', handle(async (_req, res) => { entered(); await released; res.json({ ok: true }); }));
   }, { sqlProvider: false });
@@ -312,9 +365,16 @@ test('elasticsearch: a write outside any request fails an open Preview unless it
   // Background work marked detached is attributed: it does not fail the Preview.
   await detached(write);
   assert.equal(received.length, 1);
-  // Unattributed work may be the Preview's own write that lost its async context: the Preview fails, and the write is not blocked.
-  await write();
+  // Unattributed work may be the Preview's own write that lost its async context: a guarded store
+  // can't roll it back, so it is refused before it is sent and the Preview is blocked.
+  await assert.rejects(write(), (error: any) => error?.name === 'PreviewWriteBlockedError' && error.store === 'elasticsearch' && error.operation === 'index');
+  assert.equal(received.length, 1, 'The unattributed write must not reach the server');
+  // A read outside any request is not a write: it is sent and leaves the Preview alone.
+  await client.search({ index: 'articles', query: { match_all: {} } });
   assert.equal(received.length, 2);
   open();
-  await assertUnconfirmed(await pending);
+  await assertBlocked(await pending, 'elasticsearch', 'index');
+  // With no Preview open, the same unattributed write is sent.
+  await write();
+  assert.equal(received.length, 3);
 });

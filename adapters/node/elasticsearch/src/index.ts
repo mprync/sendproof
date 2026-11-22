@@ -158,6 +158,24 @@ function hookClient(client: SearchClient, system: 'elasticsearch' | 'opensearch'
   };
   Object.defineProperty(transport, hooked, { value: true });
 
+  // The bulk helper queues documents and sends them later, with its own retries and flush timer: a
+  // refusal at send time would be retried and the documents pulled from the caller's datasource
+  // anyway. So the helper itself is refused when it is called, on the caller's context, before it
+  // reads a document (spec/data-stores.md, "Writes the binding can't attribute to a request").
+  const helpers = client.helpers as { bulk?: (...args: unknown[]) => unknown } | undefined;
+  if (helpers && typeof helpers.bulk === 'function') {
+    const bulk = helpers.bulk.bind(helpers);
+    helpers.bulk = function guardedBulkHelper(...args: unknown[]) {
+      try {
+        guard(system, 'bulk', 'write');
+      } catch (error) {
+        // The helper returns a promise with abort(); keep that shape for callers that hold on to it.
+        return Object.assign(Promise.reject(error), { abort() { return this; } });
+      }
+      return bulk(...args);
+    };
+  }
+
   if (typeof client.child === 'function') {
     const child = client.child.bind(client);
     client.child = (...args: unknown[]) => {
