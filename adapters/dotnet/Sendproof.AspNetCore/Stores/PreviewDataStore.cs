@@ -107,6 +107,11 @@ internal static class DataStoreGuard
         "mongodb" => "MongoDB",
         "redis" => "Redis",
         "dynamodb" => "DynamoDB",
+        "cassandra" => "Cassandra",
+        "elasticsearch" => "Elasticsearch",
+        "opensearch" => "OpenSearch",
+        "cosmosdb" => "Cosmos DB",
+        "firestore" => "Firestore",
         _ => store
     };
 

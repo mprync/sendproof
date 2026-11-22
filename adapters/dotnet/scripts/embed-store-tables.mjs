@@ -23,7 +23,7 @@ const lines = [
   'internal static class EmbeddedStoreTables',
   '{',
 ];
-for (const store of ['redis', 'mongodb', 'dynamodb']) {
+for (const store of ['redis', 'mongodb', 'dynamodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore']) {
   const json = JSON.stringify(JSON.parse(readFileSync(new URL(`${store}.json`, spec), 'utf8')), null, 2);
   if (json.includes('"""""')) throw new Error(`${store}.json contains a raw-string delimiter`);
   lines.push(

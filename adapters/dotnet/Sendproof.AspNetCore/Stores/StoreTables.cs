@@ -18,9 +18,116 @@ internal static class StoreTables
     /// <summary>The DynamoDB table: API action names.</summary>
     internal static DynamoTable Dynamo { get; } = new(Parse(EmbeddedStoreTables.Dynamodb));
 
+    /// <summary>The Cassandra table: the statement's first keyword (<c>LIST</c> with its next word), and the protocol messages.</summary>
+    internal static CassandraTable Cassandra { get; } = new(Parse(EmbeddedStoreTables.Cassandra));
+
+    /// <summary>The Elasticsearch and OpenSearch table: ordered endpoints, matched by HTTP method and path.</summary>
+    internal static ElasticsearchTable Elasticsearch { get; } = new(Parse(EmbeddedStoreTables.Elasticsearch));
+
+    /// <summary>The Cosmos DB table: operation types, compared case-insensitively.</summary>
+    internal static CosmosTable Cosmos { get; } = new(Parse(EmbeddedStoreTables.Cosmosdb));
+
+    /// <summary>The Firestore table: RPC methods per gRPC service.</summary>
+    internal static FirestoreTable Firestore { get; } = new(Parse(EmbeddedStoreTables.Firestore));
+
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     private static string[] Strings(JsonElement element) => [.. element.EnumerateArray().Select(item => item.GetString()!)];
+
+    /// <summary>The parsed Cassandra table.</summary>
+    internal sealed class CassandraTable
+    {
+        internal CassandraTable(JsonElement root)
+        {
+            Read = new HashSet<string>(Strings(root.GetProperty("read")), StringComparer.Ordinal);
+            var protocol = root.GetProperty("protocol");
+            Session = new HashSet<string>(Strings(protocol.GetProperty("session")), StringComparer.Ordinal);
+        }
+
+        /// <summary>Statement keys that only read: <c>SELECT</c>, <c>USE</c>, <c>DESCRIBE</c> and the <c>LIST …</c> forms.</summary>
+        internal HashSet<string> Read { get; }
+
+        /// <summary>Native-protocol messages that carry no statement, such as <c>STARTUP</c> and <c>PREPARE</c>.</summary>
+        internal HashSet<string> Session { get; }
+    }
+
+    /// <summary>One entry of the Elasticsearch table: the first entry whose method and path match decides.</summary>
+    /// <param name="Kind"><c>read</c>, <c>write</c>, <c>session</c> or <c>sql</c> (a read only for one read statement).</param>
+    /// <param name="Name">The endpoint id, which is <c>db.operation.name</c>.</param>
+    /// <param name="Methods">Upper-case HTTP methods.</param>
+    /// <param name="Paths">Path patterns, already split into segments (<c>{index}</c>, <c>{id}</c> or a literal).</param>
+    internal sealed record ElasticsearchEndpoint(string Kind, string Name, HashSet<string> Methods, string[][] Paths);
+
+    /// <summary>The parsed Elasticsearch and OpenSearch table.</summary>
+    internal sealed class ElasticsearchTable
+    {
+        internal ElasticsearchTable(JsonElement root)
+        {
+            Endpoints =
+            [
+                .. root.GetProperty("endpoints").EnumerateArray().Select(entry => new ElasticsearchEndpoint(
+                    entry.GetProperty("kind").GetString()!,
+                    entry.GetProperty("name").GetString()!,
+                    new HashSet<string>(Strings(entry.GetProperty("methods")), StringComparer.Ordinal),
+                    [.. Strings(entry.GetProperty("paths")).Select(path => path.Split('/', StringSplitOptions.RemoveEmptyEntries))]))
+            ];
+            MethodDefault = root.GetProperty("methodDefault").EnumerateObject().ToDictionary(item => item.Name, item => item.Value.GetString()!, StringComparer.Ordinal);
+            SqlReadWords = new HashSet<string>(Strings(root.GetProperty("sql").GetProperty("readWords")), StringComparer.Ordinal);
+        }
+
+        /// <summary>The endpoints in table order.</summary>
+        internal ElasticsearchEndpoint[] Endpoints { get; }
+
+        /// <summary>The kind of a method no endpoint matched: <c>GET</c> and <c>HEAD</c> read.</summary>
+        internal Dictionary<string, string> MethodDefault { get; }
+
+        /// <summary>The first words that make an SQL endpoint request a read.</summary>
+        internal HashSet<string> SqlReadWords { get; }
+    }
+
+    /// <summary>The parsed Cosmos DB table.</summary>
+    internal sealed class CosmosTable
+    {
+        internal CosmosTable(JsonElement root)
+        {
+            var read = Strings(root.GetProperty("read"));
+            Read = new HashSet<string>(read, StringComparer.Ordinal);
+            // Operation types compare case-insensitively (Node spells them in lower case) and are reported canonically.
+            Canonical = read.Concat(Strings(root.GetProperty("write"))).ToDictionary(name => name.ToLowerInvariant(), name => name, StringComparer.Ordinal);
+        }
+
+        /// <summary>Operation types that only read.</summary>
+        internal HashSet<string> Read { get; }
+
+        /// <summary>Lower-case operation type to its canonical spelling.</summary>
+        internal Dictionary<string, string> Canonical { get; }
+    }
+
+    /// <summary>One gRPC service of the Firestore table.</summary>
+    /// <param name="Read">Methods that only read.</param>
+    /// <param name="Session">Methods that change no data (<c>BeginTransaction</c>, <c>Rollback</c>).</param>
+    /// <param name="ReadPrefixes">For the admin service: a method starting with one of these reads.</param>
+    internal sealed record FirestoreService(HashSet<string> Read, HashSet<string> Session, string[] ReadPrefixes);
+
+    /// <summary>The parsed Firestore table.</summary>
+    internal sealed class FirestoreTable
+    {
+        internal FirestoreTable(JsonElement root)
+        {
+            Services = root.GetProperty("services").EnumerateObject().ToDictionary(service => service.Name, service => new FirestoreService(
+                service.Value.TryGetProperty("read", out var read) ? new HashSet<string>(Strings(read), StringComparer.Ordinal) : [],
+                service.Value.TryGetProperty("session", out var session) ? new HashSet<string>(Strings(session), StringComparer.Ordinal) : [],
+                service.Value.TryGetProperty("readPrefixes", out var prefixes) ? Strings(prefixes) : []), StringComparer.Ordinal);
+            var verbs = root.GetProperty("fromRest").GetProperty("verbs");
+            RestVerbs = verbs.EnumerateObject().ToDictionary(item => item.Name, item => item.Value.GetString()!, StringComparer.Ordinal);
+        }
+
+        /// <summary>The services by full name, such as <c>google.firestore.v1.Firestore</c>.</summary>
+        internal Dictionary<string, FirestoreService> Services { get; }
+
+        /// <summary>REST verb (<c>:commit</c>) to RPC method name.</summary>
+        internal Dictionary<string, string> RestVerbs { get; }
+    }
 
     /// <summary>The parsed Redis table.</summary>
     internal sealed class RedisTable
