@@ -25,9 +25,12 @@
 // context: pass r.Context() to every call. A raw *mongo.Client, a second client,
 // change streams and GridFS are not guarded. The monitor does see a write that a
 // raw client makes with the request's context, and fails the Preview with 500
-// instead of confirming a rollback it did not do. A write sent with
-// context.Background() while a Preview is open fails that Preview the same way
-// (see sendproof.ReportWrite and sendproof.Detached).
+// instead of confirming a rollback it did not do. A guarded handle's write sent
+// with context.Background() while a Preview is open is refused before it is sent:
+// in preview mode every open Preview answers 500 without confirmation, in guard
+// mode it is blocked with 409. Only a raw client's unattributed write is left to
+// the monitor, which fails every open Preview with 500 after it was sent (see
+// sendproof.RefuseUnattributedWrite, sendproof.ReportWrite and sendproof.Detached).
 package mongobench
 
 import (

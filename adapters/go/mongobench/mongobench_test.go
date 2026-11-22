@@ -196,7 +196,7 @@ func newApp(t *testing.T, o appOptions) *app {
 		reply(w, 200, map[string]any{"swallowed": err != nil})
 	}))
 	// escape/background writes through the guarded collection without the request's
-	// context: the wrapper can't see the Preview, so only the monitor can stop a confirmation.
+	// context: the wrapper can't see which request it belongs to, so it refuses it before sending.
 	bench.HandlePreview(mux, "POST /escape/background", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := a.docs.InsertOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
 		reply(w, 200, map[string]any{"swallowed": err != nil})
@@ -450,11 +450,22 @@ func TestAWriteWithoutThePreviewSessionFailsThePreviewWith500(t *testing.T) {
 	_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "escaped"}})
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: the guarded handle
+// sees a write that carries no request while a Preview is open and refuses it
+// before sending; in preview mode the Preview answers 500, in guard mode 409.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	for _, guard := range []bool{false, true} {
 		a := newApp(t, appOptions{monitor: true, guard: guard})
-		assertUnconfirmed(t, a.preview("POST", "/escape/background", `{}`), 500)
-		_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
+		response := a.preview("POST", "/escape/background", `{}`)
+		if guard {
+			assertUnconfirmed(t, response, 409)
+		} else {
+			assertUnconfirmed(t, response, 500)
+		}
+		if a.count(t, "background") != 0 {
+			_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
+			t.Errorf("guard=%v: the unattributed write reached the server", guard)
+		}
 	}
 }
 

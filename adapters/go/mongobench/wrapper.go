@@ -41,12 +41,21 @@ func noRelease() {}
 // none can reach the server after the abort, when the session has no transaction
 // and the command would commit on its own.
 func (s *Store) guardCall(ctx context.Context, database string, document stores.Doc) (context.Context, func(), error) {
-	if !sendproof.IsPreview(ctx) {
-		return ctx, noRelease, nil
-	}
 	name := ""
 	if len(document) > 0 {
 		name = document[0].Key
+	}
+	if !sendproof.IsPreview(ctx) {
+		// A write that carries no request while a Preview is open is taken to be
+		// that Preview's and refused before it is sent (spec/data-stores.md,
+		// "Writes the binding can't attribute to a request"). Attributed and
+		// Detached writes, and every write with no Preview open, go on.
+		if stores.ClassifyMongo(document, s.reads).Kind == stores.Write {
+			if err := s.refuseUnattributed(ctx, name); err != nil {
+				return nil, noRelease, err
+			}
+		}
+		return ctx, noRelease, nil
 	}
 	if endsTransaction(lower(name)) {
 		return nil, noRelease, sendproof.RefusePreview(ctx, "Preview owns the MongoDB transaction, so the handler's "+name+" cannot run during Preview.")
@@ -83,6 +92,19 @@ func (s *Store) guardCall(ctx context.Context, database string, document stores.
 		return nil, noRelease, err
 	}
 	return ctx, noRelease, nil
+}
+
+// refuseUnattributed refuses an unattributed write while a Preview is open: in
+// preview mode every open Preview answers 500 without confirmation, in guard mode
+// (or before the topology is known) it is blocked and answers 409.
+func (s *Store) refuseUnattributed(ctx context.Context, name string) error {
+	s.mu.Lock()
+	detected := s.detected
+	s.mu.Unlock()
+	if detected != nil && detected.mode == sendproof.ModePreview {
+		return sendproof.RefuseUnattributedWrite(ctx, system, name)
+	}
+	return sendproof.Guard(ctx, system, name, true, "")
 }
 
 // endedReason refuses a call from a Preview whose transaction is over.
