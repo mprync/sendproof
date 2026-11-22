@@ -20,10 +20,12 @@ use rust_conformance_common::{
     openapi,
     scenario::Scenario,
     setup,
-    stores::Stores,
+    stores::{Handles, Stores},
 };
 use sendproof_axum::{Sendproof, SendproofRouterExt};
+use sendproof_cassandra::{Cassandra, CassandraStore};
 use sendproof_core::{Enrollment, Headers, PreviewRequired};
+use sendproof_elasticsearch::{OpenSearch, OpenSearchStore};
 use sendproof_mongodb::{Mongo, MongoStore};
 use sendproof_redis::{Redis, RedisStore};
 use sendproof_sqlx::{Backend, Db, DbError};
@@ -69,6 +71,30 @@ impl<B: Backend> FromRef<AppState<B>> for RedisStore {
             .redis
             .as_ref()
             .expect("Redis routes exist only when Redis is hooked")
+            .store
+            .clone()
+    }
+}
+
+impl<B: Backend> FromRef<AppState<B>> for CassandraStore {
+    fn from_ref(state: &AppState<B>) -> Self {
+        state
+            .stores
+            .cassandra
+            .as_ref()
+            .expect("Cassandra routes exist only when Cassandra is hooked")
+            .store
+            .clone()
+    }
+}
+
+impl<B: Backend> FromRef<AppState<B>> for OpenSearchStore {
+    fn from_ref(state: &AppState<B>) -> Self {
+        state
+            .stores
+            .opensearch
+            .as_ref()
+            .expect("OpenSearch routes exist only when OpenSearch is hooked")
             .store
             .clone()
     }
@@ -409,7 +435,91 @@ fn store_routes<B: Backend>(
                 ),
             );
     }
-    if stores.redis.is_some() || stores.dynamo.is_some() {
+    if stores.cassandra.is_some() {
+        router = router
+            .route(
+                "/tickets/{id}/touch",
+                post(
+                    |State(state): State<AppState<B>>,
+                     cassandra: Cassandra,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.ticket_touch(&cassandra, &id).await)
+                    },
+                ),
+            )
+            .route(
+                "/tickets/{id}/close",
+                post(
+                    |State(state): State<AppState<B>>,
+                     cassandra: Cassandra,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.ticket_close(&cassandra, &id).await)
+                    },
+                ),
+            )
+            .route(
+                "/tickets/{id}",
+                get(
+                    |State(state): State<AppState<B>>,
+                     cassandra: Cassandra,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.ticket_get(&cassandra, &id).await)
+                    },
+                )
+                .delete(
+                    |State(state): State<AppState<B>>,
+                     cassandra: Cassandra,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.ticket_delete(&cassandra, &id).await)
+                    },
+                ),
+            );
+    }
+    if stores.opensearch.is_some() {
+        router = router
+            .route(
+                "/articles/{id}/touch",
+                post(
+                    |State(state): State<AppState<B>>,
+                     search: OpenSearch,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.article_touch(&search, &id).await)
+                    },
+                ),
+            )
+            .route(
+                "/articles/{id}/hide",
+                post(
+                    |State(state): State<AppState<B>>,
+                     search: OpenSearch,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.article_hide(&search, &id).await)
+                    },
+                ),
+            )
+            .route(
+                "/articles/{id}",
+                get(
+                    |State(state): State<AppState<B>>,
+                     search: OpenSearch,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.article_get(&search, &id).await)
+                    },
+                )
+                .delete(
+                    |State(state): State<AppState<B>>,
+                     search: OpenSearch,
+                     Path(id): Path<String>| async move {
+                        reply(state.stores.article_delete(&search, &id).await)
+                    },
+                ),
+            );
+    }
+    if stores.redis.is_some()
+        || stores.dynamo.is_some()
+        || stores.cassandra.is_some()
+        || stores.opensearch.is_some()
+    {
         router = router.route("/items/{id}/remember", post(remember::<B>));
     }
     router
@@ -436,20 +546,29 @@ async fn remember<B: Backend>(
     else {
         return Ok(status(400));
     };
-    if store != "redis" && store != "dynamodb" {
+    if !["redis", "dynamodb", "cassandra", "opensearch"].contains(&store.as_str()) {
         return Ok(status(400));
     }
     items::insert(&db, &id, name).await?;
-    let redis = state.stores.redis.as_ref().and_then(|redis| {
-        redis
-            .store
-            .from_enrollment(
-                parts.extensions.get::<Enrollment>(),
-                parts.extensions.get::<PreviewRequired>().is_some(),
-            )
-            .ok()
+    let enrollment = parts.extensions.get::<Enrollment>();
+    let required = parts.extensions.get::<PreviewRequired>().is_some();
+    let redis = state
+        .stores
+        .redis
+        .as_ref()
+        .and_then(|redis| redis.store.from_enrollment(enrollment, required).ok());
+    let cassandra = state.stores.cassandra.as_ref().and_then(|cassandra| {
+        cassandra.store.from_enrollment(enrollment, required).ok()
     });
-    match state.stores.remember(redis.as_ref(), &store, &id).await {
+    let opensearch = state.stores.opensearch.as_ref().and_then(|opensearch| {
+        opensearch.store.from_enrollment(enrollment, required).ok()
+    });
+    let handles = Handles {
+        redis: redis.as_ref(),
+        cassandra: cassandra.as_ref(),
+        opensearch: opensearch.as_ref(),
+    };
+    match state.stores.remember(handles, &store, &id).await {
         Some(Ok(())) => Ok(reply(Outcome::new(
             201,
             serde_json::json!({ "id": id, "name": name }),

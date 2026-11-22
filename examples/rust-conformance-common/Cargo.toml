@@ -13,6 +13,13 @@ sendproof-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] 
 sendproof-mongodb.workspace = true
 sendproof-redis.workspace = true
 sendproof-dynamodb.workspace = true
+sendproof-cassandra.workspace = true
+# OpenSearch is the engine the fixture runs against; the Elasticsearch client is not needed.
+sendproof-elasticsearch = { workspace = true, default-features = false, features = ["opensearch"] }
+opensearch.workspace = true
+scylla.workspace = true
+# The driver's `AddressTranslator` is an `async_trait`.
+async-trait = "0.1"
 mongodb.workspace = true
 redis = { workspace = true, features = ["aio", "tokio-comp"] }
 aws-sdk-dynamodb = { workspace = true, features = ["default-https-client", "rustls"] }
@@ -22,4 +29,4 @@ serde.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 tracing.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }

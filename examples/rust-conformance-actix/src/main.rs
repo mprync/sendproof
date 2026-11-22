@@ -19,10 +19,12 @@ use rust_conformance_common::{
     openapi,
     scenario::Scenario,
     setup::{self, Database},
-    stores::Stores,
+    stores::{Handles, Stores},
 };
 use sendproof_actix::Sendproof;
+use sendproof_cassandra::Cassandra;
 use sendproof_core::{Enrollment, Headers, PreviewRequired};
+use sendproof_elasticsearch::OpenSearch;
 use sendproof_mongodb::Mongo;
 use sendproof_redis::Redis;
 use sendproof_sqlx::{Backend, Db, DbError};
@@ -299,6 +301,38 @@ async fn order_delete(fixture: Data<Fixture>, id: Path<String>) -> HttpResponse 
     reply(fixture.stores.order_delete(&id).await)
 }
 
+async fn ticket_get(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.ticket_get(&cassandra, &id).await)
+}
+
+async fn ticket_touch(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.ticket_touch(&cassandra, &id).await)
+}
+
+async fn ticket_close(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.ticket_close(&cassandra, &id).await)
+}
+
+async fn ticket_delete(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.ticket_delete(&cassandra, &id).await)
+}
+
+async fn article_get(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.article_get(&search, &id).await)
+}
+
+async fn article_touch(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.article_touch(&search, &id).await)
+}
+
+async fn article_hide(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.article_hide(&search, &id).await)
+}
+
+async fn article_delete(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+    reply(fixture.stores.article_delete(&search, &id).await)
+}
+
 /// `POST /items/{id}/remember?store=<store>`: inserts the item, then writes the named guarded store.
 async fn remember<B: Backend>(
     fixture: Data<Fixture>,
@@ -316,22 +350,35 @@ async fn remember<B: Backend>(
         return Ok(status(400));
     };
     let store = query.get("store").map(String::as_str).unwrap_or_default();
-    if store != "redis" && store != "dynamodb" {
+    if !["redis", "dynamodb", "cassandra", "opensearch"].contains(&store) {
         return Ok(status(400));
     }
     items::insert(&db, &id, name).await?;
-    let redis = fixture.stores.redis.as_ref().and_then(|redis| {
+    let (redis, cassandra, opensearch) = {
         let extensions = request.extensions();
-        redis
-            .store
-            .from_enrollment(
-                extensions.get::<Enrollment>(),
-                extensions.get::<PreviewRequired>().is_some(),
-            )
-            .ok()
-    });
+        let enrollment = extensions.get::<Enrollment>();
+        let required = extensions.get::<PreviewRequired>().is_some();
+        (
+            fixture
+                .stores
+                .redis
+                .as_ref()
+                .and_then(|redis| redis.store.from_enrollment(enrollment, required).ok()),
+            fixture.stores.cassandra.as_ref().and_then(|cassandra| {
+                cassandra.store.from_enrollment(enrollment, required).ok()
+            }),
+            fixture.stores.opensearch.as_ref().and_then(|opensearch| {
+                opensearch.store.from_enrollment(enrollment, required).ok()
+            }),
+        )
+    };
+    let handles = Handles {
+        redis: redis.as_ref(),
+        cassandra: cassandra.as_ref(),
+        opensearch: opensearch.as_ref(),
+    };
     Ok(
-        match fixture.stores.remember(redis.as_ref(), store, &id).await {
+        match fixture.stores.remember(handles, store, &id).await {
             Some(Ok(())) => reply(Outcome::new(
                 201,
                 serde_json::json!({ "id": id.as_str(), "name": name }),
@@ -489,7 +536,31 @@ where
                             .route(web::delete().to(order_delete)),
                     );
             }
-            if stores.redis.is_some() || stores.dynamo.is_some() {
+            if stores.cassandra.is_some() {
+                mount = mount
+                    .service(item("/tickets/{id}/touch").route(web::post().to(ticket_touch)))
+                    .service(item("/tickets/{id}/close").route(web::post().to(ticket_close)))
+                    .service(
+                        item("/tickets/{id}")
+                            .route(web::get().to(ticket_get))
+                            .route(web::delete().to(ticket_delete)),
+                    );
+            }
+            if stores.opensearch.is_some() {
+                mount = mount
+                    .service(item("/articles/{id}/touch").route(web::post().to(article_touch)))
+                    .service(item("/articles/{id}/hide").route(web::post().to(article_hide)))
+                    .service(
+                        item("/articles/{id}")
+                            .route(web::get().to(article_get))
+                            .route(web::delete().to(article_delete)),
+                    );
+            }
+            if stores.redis.is_some()
+                || stores.dynamo.is_some()
+                || stores.cassandra.is_some()
+                || stores.opensearch.is_some()
+            {
                 mount = mount
                     .service(item("/items/{id}/remember").route(web::post().to(remember::<B>)));
             }
@@ -504,6 +575,12 @@ where
             }
             if let Some(redis) = &stores.redis {
                 app = app.app_data(Data::new(redis.store.clone()));
+            }
+            if let Some(cassandra) = &stores.cassandra {
+                app = app.app_data(Data::new(cassandra.store.clone()));
+            }
+            if let Some(opensearch) = &stores.opensearch {
+                app = app.app_data(Data::new(opensearch.store.clone()));
             }
             app
         }

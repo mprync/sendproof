@@ -13,6 +13,8 @@ sendproof-axum.workspace = true
 sendproof-core.workspace = true
 sendproof-mongodb = { workspace = true, features = ["axum"] }
 sendproof-redis = { workspace = true, features = ["axum"] }
+sendproof-cassandra = { workspace = true, features = ["axum"] }
+sendproof-elasticsearch = { workspace = true, default-features = false, features = ["opensearch", "axum"] }
 sendproof-sqlx = { workspace = true, features = ["axum", "sqlite", "postgres", "mysql"] }
 axum.workspace = true
 serde.workspace = true
