@@ -46,7 +46,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import threading
+import time
 import weakref
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -76,6 +78,10 @@ from .guard import (
 
 #: The reason a standalone server, or any reply the binding does not recognise, runs in ``guard`` mode.
 STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions"
+#: The reason when the detection ``hello`` could not be sent or answered: whether the server supports
+#: transactions is unknown, so the store runs in ``guard`` mode for now and detects again on the next Preview.
+UNREACHABLE_REASON = ("Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, "
+                      "so this Preview runs in guard mode")
 
 #: The default Preview time limit in seconds: below the server's 60-second
 #: ``transactionLifetimeLimitSeconds``, so the binding, not the server, ends a Preview whose handler
@@ -101,6 +107,15 @@ _CANDIDATE_LIMIT = 1000
 _ABSENT_AT_START = frozenset({26, 246})  # NamespaceNotFound, SnapshotUnavailable
 _SYSTEM_DATABASES = frozenset({"admin", "config", "local"})
 _EXTENSION = "sendproof.mongodb"
+#: ``NoSuchTransaction``: the server has no such transaction, so nothing holds its locks.
+_NO_SUCH_TRANSACTION = 251
+#: How long the engine keeps trying to end a Preview transaction whose abort the server never
+#: acknowledged, and the backoff between tries, in seconds: well inside the 60-second lifetime limit.
+_KILL_RETRY_LIMIT = 10.0
+_KILL_FIRST_DELAY = 0.1
+_KILL_MAX_DELAY = 2.0
+
+logger = logging.getLogger("sendproof")
 
 
 def _ends_transaction(name: str) -> bool:
@@ -182,11 +197,17 @@ class PreviewState:
     lsid: str
     #: What the handler sees as its session: transaction calls join, they never end the transaction.
     view: Any = None
-    #: Set once a command carried the session to the server.
+    #: Set once a write carried the session to the server.
     used: bool = False
+    #: Set once any command carried the session towards the server: from then on the server may hold
+    #: the transaction, and its locks, until an abort reaches it.
+    sent: bool = False
     finished: bool = False
     #: Set while the engine itself aborts, so the monitor does not mistake it for the handler's.
     aborting: bool = False
+    #: Set when the server answered the engine's ``abortTransaction``: acknowledged, or no such
+    #: transaction. The driver hides that outcome, so the monitor records it.
+    abort_acknowledged: bool = False
     #: Set when the Preview outlived its time limit: later commands are refused.
     expired: bool = False
     #: Candidate documents: key -> (namespace, collection, id, via).
@@ -214,6 +235,8 @@ _states: dict[str, PreviewState] = {}
 _states_lock = threading.Lock()
 #: Host-declared reads of every engine, for the monitor's write classification.
 _extra_reads: set[str] = set()
+#: Background ``killSessions`` tasks of async clients, kept so they aren't collected while they run.
+_background: set[Any] = set()
 
 
 def _state_of(lsid: Optional[str]) -> Optional[PreviewState]:
@@ -242,6 +265,8 @@ class MongoMonitor(monitoring.CommandListener):
 
     def __init__(self) -> None:
         self._pending: dict[tuple[Any, Any], _Pending] = {}
+        #: The engine's own ``abortTransaction`` commands in flight, and the Preview each ends.
+        self._aborts: dict[tuple[Any, Any], PreviewState] = {}
         self._lock = threading.Lock()
 
     # -- events
@@ -252,8 +277,16 @@ class MongoMonitor(monitoring.CommandListener):
         probe = _probe.get()
         if probe is not None and lower == "hello":
             probe.monitored = True  # the guarded client's own detection reached the listener
+        if lower == "killsessions" and _engine_call.get():
+            return  # the engine ending a Preview whose abort was lost
         lsid = _lsid_hex(command)
         state = _state_of(lsid)
+        if state is not None:
+            if lower == "aborttransaction" and state.aborting:
+                with self._lock:
+                    self._aborts[(event.request_id, event.connection_id)] = state
+            else:
+                state.sent = True  # the server may hold the transaction until an abort reaches it
         context = current_scope()
         scope = context if context is not None else (state.scope if state is not None else None)
         if scope is None:  # nothing to guard or log: the common case for an application's ordinary traffic
@@ -285,6 +318,7 @@ class MongoMonitor(monitoring.CommandListener):
             self._pending[(event.request_id, event.connection_id)] = pending
 
     def succeeded(self, event: Any) -> None:
+        self._abort_answered(event, acknowledged=True)
         pending = self._take(event)
         if pending is None:
             return
@@ -317,16 +351,26 @@ class MongoMonitor(monitoring.CommandListener):
         self._log(pending, event.duration_micros / 1000, rows, None)
 
     def failed(self, event: Any) -> None:
+        failure = event.failure if isinstance(event.failure, Mapping) else {}
+        # A network error (reported as ``errtype``, with no server code) proves nothing reached the
+        # server; only the server's own NoSuchTransaction counts.
+        self._abort_answered(event, acknowledged="errtype" not in failure and failure.get("code") == _NO_SUCH_TRANSACTION)
         pending = self._take(event)
         if pending is None:
             return
-        failure = event.failure if isinstance(event.failure, Mapping) else {}
         # The server refused something a transaction cannot do and applied nothing: a block, not a crash.
         if pending.state is not None and failure.get("code") == 263:
             pending.state.scope.capture.block("mongodb", pending.name, refused_reason(pending.name))
         self._log(pending, event.duration_micros / 1000, None, failure.get("codeName") or "Error")
 
     # -- helpers
+    def _abort_answered(self, event: Any, acknowledged: bool) -> None:
+        """Note on the engine's own abort whether the server answered that the transaction is over."""
+        with self._lock:
+            state = self._aborts.pop((event.request_id, event.connection_id), None)
+        if state is not None and acknowledged:
+            state.abort_acknowledged = True
+
     def _take(self, event: Any) -> Optional[_Pending]:
         with self._lock:
             return self._pending.pop((event.request_id, event.connection_id), None)
@@ -484,10 +528,11 @@ class MongoEngine:
         token = _probe.set(self)
         try:
             hello = yield (lambda: self.client["admin"].command({"hello": 1}))
-        except Exception:
-            # Unreachable or unrecognised: guard mode for now, and ask again next time.
+        except Exception as error:
+            # Guard mode for now, and ask again next time. A server that answered with an error is one
+            # the binding doesn't recognise; one that never answered may support transactions or not.
             self.mode = self.mode or "guard"
-            return "guard", STANDALONE_REASON
+            return "guard", STANDALONE_REASON if isinstance(error, OperationFailure) else UNREACHABLE_REASON
         finally:
             _probe.reset(token)
         transactions = bool((hello.get("setName") or hello.get("msg") == "isdbgrid")
@@ -514,7 +559,9 @@ class MongoEngine:
         mode, _ = yield from self._detect_steps()
         if scope.rollback is not True:
             return None
-        if not self.monitored:
+        # A server detection couldn't reach gave no chance for the proof; its Preview runs in guard mode,
+        # where the guarded handles refuse every write before it is sent.
+        if not self.monitored and (mode == "preview" or self._detected is not None):
             # Without the proof, a write that escaped the guarded handles could persist while the
             # Preview reports a rollback. Fail the Preview instead (500).
             raise RuntimeError(UNMONITORED)
@@ -673,10 +720,17 @@ class MongoEngine:
                 yield from self._capture_steps(scope, state)
         except Exception as error:
             # A failed command inside a transaction makes the server abort it: nothing to capture.
-            if getattr(error, "code", None) != 251 and getattr(error, "details", {}).get("codeName") != "NoSuchTransaction":
+            # A network error's ``details`` is a list, so only a server reply is read for its code name.
+            details = getattr(error, "details", None)
+            code_name = details.get("codeName") if isinstance(details, Mapping) else None
+            if getattr(error, "code", None) != _NO_SUCH_TRANSACTION and code_name != "NoSuchTransaction":
                 failure = error
         finally:
-            yield from self._end_steps(state)
+            ended = yield from self._end_steps(state)
+        if not ended and failure is None:
+            # The server may still hold the transaction's locks; the session is killed in the background.
+            failure = RuntimeError(
+                "MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.")
         if failure is not None:
             raise failure
 
@@ -693,26 +747,33 @@ class MongoEngine:
             await asyncio.to_thread(self.finish, scope)
 
     def _end_steps(self, state: PreviewState) -> Steps:
-        """Abort the Preview transaction and end its session, once. The driver ignores abort errors, as the
-        transactions specification requires; an unacknowledged abort still commits nothing, because no
-        ``commitTransaction`` is ever sent for the Preview session.
+        """Abort the Preview transaction and end its session, once. Returns whether the transaction is
+        known to be over.
+
+        The driver ignores abort errors, as the transactions specification requires: an unacknowledged
+        abort still commits nothing, because no ``commitTransaction`` is ever sent for the Preview
+        session. But the server then keeps the transaction, and its locks, until its 60-second lifetime
+        limit. So when a command was sent on the session and the server never answered the abort (the
+        connection dropped), this returns ``False`` at once, and the Preview answers 500, while the
+        session is killed in the background (see ``_kill_steps``).
 
         A guarded call still running when the Preview ends (a thread the handler left behind) holds the
         abort until it returns, so it never runs on a session without a transaction; ``release`` then
         aborts. The Preview can't list that call's write, so it answers 500."""
         with state.lock:  # the time limit and the end of the handler may race to abort
             if state.finished:
-                return
+                return True
             state.ending = True
             if state.inflight > 0:
                 if not state.expired:
                     state.scope.capture.refuse(PreviewTransactionControl(
                         "A MongoDB call was still running when the Preview ended; the Preview can't be confirmed."))
-                return
+                return True
             state.finished = True
             state.aborting = True
         timer = state.timer
         permission = _engine_call.set(True)  # the sealed session ends only for the engine
+        ended = True
         try:
             if timer is not None:
                 timer.cancel()
@@ -721,15 +782,72 @@ class MongoEngine:
                     yield (lambda: state.session.abort_transaction())
                 except Exception:
                     pass
+            ended = not state.sent or state.abort_acknowledged
+            if ended:
+                try:
+                    yield (lambda: state.session.end_session())
+                except Exception:
+                    pass
+        finally:
+            _engine_call.reset(permission)
+            state.aborting = False
+            with _states_lock:
+                _states.pop(state.lsid, None)
+        if not ended:
+            self._kill_in_background(state)
+        return ended
+
+    def _kill_in_background(self, state: PreviewState) -> None:
+        if self.is_async:
+            task = asyncio.ensure_future(_drive_async(self._kill_steps(state, asyncio.sleep)))
+            _background.add(task)
+            task.add_done_callback(_background.discard)
+        else:
+            threading.Thread(target=_drive_sync, args=(self._kill_steps(state, time.sleep),), daemon=True,
+                             name="sendproof-mongodb-kill").start()
+
+    def _bounded(self, seconds: float, call: Callable[[], Any]) -> Any:
+        """Run one server call, giving up after ``seconds`` even while no server can be selected."""
+        if self.is_async:
+            return asyncio.wait_for(call(), seconds)
+        import pymongo
+
+        with pymongo.timeout(seconds):
+            return call()
+
+    def _kill_steps(self, state: PreviewState, sleep: Callable[[float], Any]) -> Steps:
+        """End a Preview transaction whose abort the server never acknowledged with ``killSessions``,
+        retrying with backoff while the server can't be reached. A final failure is logged as a warning
+        with the session id: the server then ends the transaction at its lifetime limit. The session is
+        ended only afterwards, so the driver can't hand its id to another operation meanwhile."""
+        permission = _engine_call.set(True)
+        deadline = time.monotonic() + _KILL_RETRY_LIMIT
+        delay = _KILL_FIRST_DELAY
+        failure: Optional[str] = f"MongoDB couldn't be reached for {_KILL_RETRY_LIMIT:g} s"
+        command = {"killSessions": [state.session.session_id]}
+        try:
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    yield (lambda: self._bounded(remaining, lambda: self.client["admin"].command(command)))
+                    failure = None
+                    break
+                except OperationFailure as error:  # the server answered no: retrying won't help
+                    failure = str(error)
+                    break
+                except Exception:  # a network error or no server to select: try again shortly
+                    pass
+                pause = max(0.0, min(delay, deadline - time.monotonic()))
+                yield (lambda: sleep(pause))
+                delay = min(delay * 2, _KILL_MAX_DELAY)
+            if failure is not None:
+                logger.warning("Couldn't end a MongoDB Preview transaction (session %s): %s. The server ends it, "
+                               "and releases its locks, at transactionLifetimeLimitSeconds.", state.lsid, failure)
             try:
                 yield (lambda: state.session.end_session())
             except Exception:
                 pass
         finally:
             _engine_call.reset(permission)
-            state.aborting = False
-            with _states_lock:
-                _states.pop(state.lsid, None)
 
     async def _aend(self, state: PreviewState) -> None:
         try:

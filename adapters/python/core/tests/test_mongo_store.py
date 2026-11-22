@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 import time
 
 import pytest
+from pymongo import monitoring
 
 from sendproof_core.stores import PreviewWriteBlocked, mongo_store
 from sendproof_core.stores.guard import PreviewTransactionControl
@@ -956,3 +958,229 @@ async def test_an_async_preview_that_outlives_its_time_limit_is_aborted_and_neve
     assert scope.store_changes == []  # the transaction was aborted: nothing to report, nothing to confirm
     assert reader["documents"].count_documents({}) == 0
     await client.close()
+
+
+# ----------------------------------------------------------------- a lost abort, and an unreachable server
+class _Proxy:
+    """A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
+    failing in the middle of a Preview."""
+
+    def __init__(self) -> None:
+        from urllib.parse import urlparse
+
+        from store_support import MONGODB_URL
+
+        target = urlparse(MONGODB_URL)
+        self._target = (target.hostname, target.port or 27017)
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        self._lock = threading.Lock()
+        self._down = False
+        self._links: set[socket.socket] = set()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def url(self) -> str:
+        host, port = self._listener.getsockname()[:2]
+        return f"mongodb://{host}:{port}/?directConnection=true"
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                client, _ = self._listener.accept()
+            except OSError:
+                return
+            with self._lock:
+                if self._down:
+                    client.close()
+                    continue
+                try:
+                    upstream = socket.create_connection(self._target)
+                except OSError:
+                    client.close()
+                    continue
+                self._links.update((client, upstream))
+            for source, sink in ((client, upstream), (upstream, client)):
+                threading.Thread(target=self._pipe, args=(source, sink), daemon=True).start()
+
+    @staticmethod
+    def _close(link: socket.socket) -> None:
+        try:
+            link.shutdown(socket.SHUT_RDWR)  # wakes the thread blocked reading it
+        except OSError:
+            pass
+        link.close()
+
+    def _pipe(self, source: socket.socket, sink: socket.socket) -> None:
+        try:
+            while data := source.recv(65536):
+                sink.sendall(data)
+        except OSError:
+            pass
+        finally:
+            self._close(source)
+            self._close(sink)
+
+    def cut(self) -> None:
+        """Close every connection and refuse new ones until :meth:`restore`."""
+        with self._lock:
+            self._down = True
+            for link in self._links:
+                self._close(link)
+            self._links.clear()
+
+    def restore(self) -> None:
+        with self._lock:
+            self._down = False
+
+    def close(self) -> None:
+        self._listener.close()
+        self.cut()
+
+
+class _CommandNames(monitoring.CommandListener):
+    """The name of every command a client sends, the store's own included."""
+
+    def __init__(self) -> None:
+        self.names: list[str] = []
+
+    def started(self, event):
+        self.names.append(event.command_name)
+
+    def succeeded(self, event):
+        pass
+
+    def failed(self, event):
+        pass
+
+
+def lock_released_within(reader, seconds: float) -> bool:
+    """Whether a transaction on an independent client can write the seeded document within ``seconds``:
+    no Preview transaction still holds its lock."""
+    from pymongo.errors import OperationFailure
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        with reader.client.start_session() as session:
+            try:
+                with session.start_transaction():
+                    reader["documents"].update_one({"_id": "seeded"}, {"$set": {"name": "Second"}}, session=session)
+                return True
+            except OperationFailure as error:
+                if error.code != 112:  # WriteConflict: the Preview transaction still holds the document
+                    raise
+        time.sleep(0.2)
+    return False
+
+
+def _cut_after(proxy: _Proxy, restored: threading.Event) -> None:
+    """The network fails after the handler, before the Preview finishes, and stays down for 8 seconds."""
+    proxy.cut()
+
+    def restore() -> None:
+        proxy.restore()
+        restored.set()
+
+    threading.Timer(8, restore).start()
+
+
+def test_a_preview_whose_abort_is_lost_answers_500_at_once_and_its_locks_are_released(database, reader):
+    from pymongo import MongoClient
+
+    seed(reader, {"_id": "seeded", "name": "Seeded"})
+    proxy = _Proxy()
+    sent = _CommandNames()
+    # The store reaches MongoDB only through the proxy, and gives up quickly when it can't: when the
+    # connection is cut the driver's own abort fails, and the driver hides that failure.
+    client = MongoClient(proxy.url(), serverSelectionTimeoutMS=1000, event_listeners=[sent])
+    store = mongo_store(client, name="catalog")
+    documents = store.client[database]["documents"]
+    restored = threading.Event()
+
+    def handler(scope):
+        documents.update_one({"_id": "seeded"}, {"$set": {"name": "Preview"}})
+        _cut_after(proxy, restored)
+        return 200, {}
+
+    started = time.monotonic()
+    response = run_preview(sync_bench(store), handler)
+    assert time.monotonic() - started < 6, "the reply waited for the network"
+    assert response.status == 500 and b'"rolledBack":true' not in response.body
+    assert restored.wait(15)
+    # Without killSessions the transaction keeps its lock until the server's 60-second lifetime limit.
+    assert lock_released_within(reader, 15), "the Preview still holds its transaction"
+    assert "killSessions" in sent.names
+    assert reader["documents"].find_one({"_id": "seeded"})["name"] == "Second"  # nothing of the Preview committed
+    client.close()
+    proxy.close()
+
+
+async def test_an_async_preview_whose_abort_is_lost_fails_at_once_and_its_locks_are_released(database, reader):
+    from pymongo import AsyncMongoClient
+
+    seed(reader, {"_id": "seeded", "name": "Seeded"})
+    proxy = _Proxy()
+    sent = _CommandNames()
+    client = AsyncMongoClient(proxy.url(), serverSelectionTimeoutMS=1000, event_listeners=[sent])
+    store = mongo_store(client, name="catalog")
+    documents = store.client[database]["documents"]
+    restored = threading.Event()
+
+    async def handler(scope):
+        await documents.update_one({"_id": "seeded"}, {"$set": {"name": "Preview"}})
+        _cut_after(proxy, restored)
+
+    started = time.monotonic()
+    with pytest.raises(Exception):  # the pipeline answers 500 for a store that can't finish
+        await arun_preview([store], handler)
+    assert time.monotonic() - started < 6, "the Preview waited for the network"
+    assert await asyncio.to_thread(restored.wait, 15)
+    # The kill runs on this event loop, so the check runs beside it.
+    assert await asyncio.to_thread(lock_released_within, reader, 15), "the Preview still holds its transaction"
+    assert "killSessions" in sent.names
+    assert reader["documents"].find_one({"_id": "seeded"})["name"] == "Second"
+    await client.close()
+    proxy.close()
+
+
+def test_a_normal_preview_sends_no_kill_sessions(database, reader):
+    seed(reader, {"_id": "seeded", "name": "Seeded"})
+    sent = _CommandNames()
+    client = new_mongo(event_listeners=[sent])
+    store = mongo_store(client, name="catalog")
+    documents = store.client[database]["documents"]
+
+    def written(scope):
+        documents.update_one({"_id": "seeded"}, {"$set": {"name": "Preview"}})
+        return 200, {}
+
+    for handler in (written, lambda scope: (200, {})):
+        response = run_preview(sync_bench(store), handler)
+        assert response.status == 200, response.body
+    assert "abortTransaction" in sent.names  # the written Preview was aborted
+    assert "killSessions" not in sent.names, sent.names
+    assert reader["documents"].find_one({"_id": "seeded"})["name"] == "Seeded"
+    client.close()
+
+
+def test_a_server_detection_could_not_reach_runs_in_guard_mode_and_says_so(database):
+    from pymongo import MongoClient
+
+    from sendproof_core.stores.mongo_hook import STANDALONE_REASON, UNREACHABLE_REASON
+
+    assert UNREACHABLE_REASON == ("Preview unavailable: couldn't reach MongoDB to check whether it supports "
+                                  "transactions, so this Preview runs in guard mode")
+    assert UNREACHABLE_REASON != STANDALONE_REASON
+    closed = socket.create_server(("127.0.0.1", 0))  # nothing listens here once it is closed
+    port = closed.getsockname()[1]
+    closed.close()
+    client = MongoClient(f"mongodb://127.0.0.1:{port}/?directConnection=true", serverSelectionTimeoutMS=300)
+    store = mongo_store(client, name="catalog")
+    assert store.describe() == {"system": "mongodb", "name": "catalog", "mode": "guard", "reason": UNREACHABLE_REASON}
+    documents = store.client[database]["documents"]
+
+    def handler(scope):
+        documents.insert_one({"_id": "blocked"})
+        return 201, {}
+
+    status, body = outcome(run_preview(sync_bench(store), handler))
+    assert status == 409 and body["store"] == "mongodb" and body["operation"] == "insert"
+    client.close()
