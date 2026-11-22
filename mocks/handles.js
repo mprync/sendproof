@@ -3,6 +3,8 @@
 // v6 (?v6=1): the data-store layer loads here, after every pane is built. It's written in only
 // with v6, so the v3, v4 and v5 screens load exactly the scripts they always did.
 if (/[?&]v6=/.test(location.search)) document.write('<script src="v6-icons.js"><\/script><script src="v6-stores.js"><\/script>');
+// v7 (?v7=1, on top of v6): journeys. Written in the same way, so nothing changes without it.
+if (/[?&]v7=/.test(location.search)) document.write('<script src="v7-journeys.js"><\/script>');
 (function () {
   const ws = document.querySelector('.workspace');
   if (!ws || innerWidth <= 896) return;

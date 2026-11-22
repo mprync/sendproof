@@ -369,6 +369,8 @@
 
   /* ---------- Board builder access ---------- */
   window.SP = Object.assign(window.SP, { docCard, rowCard, docs, rows, val, s });
+  // v7 (journeys) builds its own scenes on these builders and marks.
+  if (q.v7) return;
 
   /* =====================================================================
      Workbench scenes
