@@ -276,24 +276,68 @@ public sealed class CosmosDbSdkTests
         return await response.Content.ReadAsStringAsync();
     }
 
-    private static Task<TestApp> StartBulkAsync(FakeCosmosGateway gateway, Gates gates) => TestApp.StartAsync(
+    /// <summary>A client the application built and keeps itself, outside the container's <see cref="CosmosClient"/> registrations.</summary>
+    private sealed class OwnClient(CosmosClient client)
+    {
+        internal CosmosClient Client => client;
+    }
+
+    /// <summary>
+    /// Starts a host with a bulk-mode client. <paramref name="registered"/> registers it as the container's
+    /// <see cref="CosmosClient"/>; otherwise the application keeps its own client and turns bulk mode on after adding the guard,
+    /// which the startup check can't see. <paramref name="release"/> and <paramref name="later"/> drive the <c>/later</c> route,
+    /// whose handler starts a bulk upsert it doesn't await.
+    /// </summary>
+    private static Task<TestApp> StartBulkAsync(FakeCosmosGateway gateway, Gates gates, bool registered = false,
+        TaskCompletionSource? release = null, TaskCompletionSource<string>? later = null) => TestApp.StartAsync(
         (services, bench) =>
         {
             bench.AddCosmosDb();
-            services.AddSingleton(provider => NewClient(gateway, new CosmosClientOptions { AllowBulkExecution = true }.WithSendproofGuard(provider)));
+            if (registered)
+            {
+                services.AddSingleton(provider => NewClient(gateway, new CosmosClientOptions { AllowBulkExecution = true }.WithSendproofGuard(provider)));
+            }
+            else
+            {
+                services.AddSingleton(provider =>
+                {
+                    var options = new CosmosClientOptions().WithSendproofGuard(provider);
+                    options.AllowBulkExecution = true;
+                    return new OwnClient(NewClient(gateway, options));
+                });
+            }
         },
         app =>
         {
-            app.MapPost("/orders/{id}/swallow", async (string id, CosmosClient client) =>
+            Container Orders(IServiceProvider services) =>
+                (services.GetService<OwnClient>()?.Client ?? services.GetRequiredService<CosmosClient>()).GetContainer("shop", "orders");
+            app.MapPost("/orders/{id}/swallow", async (string id, IServiceProvider services) =>
             {
-                try { await client.GetContainer("shop", "orders").CreateItemAsync(new Order(id, "new"), new PartitionKey(id)); } catch (PreviewWriteBlockedException) { }
+                try { await Orders(services).CreateItemAsync(new Order(id, "new"), new PartitionKey(id)); } catch (PreviewWriteBlockedException) { }
                 return Results.Ok();
             }).AllowAnonymous().WithSendproofPreview();
-            app.MapPost("/orders/{id}/outcome", async (string id, CosmosClient client) =>
+            app.MapPost("/orders/{id}/later", (string id, IServiceProvider services) =>
+            {
+                // Not awaited: the upsert is queued once the test releases it, after the Preview answered.
+                var orders = Orders(services);
+                _ = Task.Run(async () =>
+                {
+                    await release!.Task;
+                    try
+                    {
+                        await orders.UpsertItemAsync(new Order(id, "late"), new PartitionKey(id));
+                        later!.TrySetResult("created");
+                    }
+                    catch (PreviewWriteBlockedException) { later!.TrySetResult("refused"); }
+                    catch (CosmosException) { later!.TrySetResult("sent"); }
+                });
+                return Results.Ok();
+            }).AllowAnonymous().WithSendproofPreview();
+            app.MapPost("/orders/{id}/outcome", async (string id, IServiceProvider services) =>
             {
                 try
                 {
-                    await client.GetContainer("shop", "orders").CreateItemAsync(new Order(id, "new"), new PartitionKey(id));
+                    await Orders(services).CreateItemAsync(new Order(id, "new"), new PartitionKey(id));
                     return "created";
                 }
                 catch (PreviewWriteBlockedException) { return "refused"; }
@@ -303,39 +347,73 @@ public sealed class CosmosDbSdkTests
         });
 
     /// <summary>
-    /// Bulk mode queues item operations without passing them through the request handlers and sends them as one batch from the
-    /// SDK's dispatcher, in the context of whichever request created it. When an ordinary request created it, a Preview's bulk
-    /// write used to carry that request's context and be sent. Now the batch is refused while the Preview is open, the caller
-    /// gets the refusal at once instead of waiting on retries, nothing reaches the service, and the next ordinary bulk write is
-    /// sent as before.
+    /// Bulk mode has no hook where an operation is queued, so a bulk upsert a Preview handler starts without awaiting can be sent
+    /// after the Preview ended, when no Preview is open to refuse it. With a bulk-mode client registered, every Preview is
+    /// unavailable instead: the handler never runs, nothing reaches the store, discovery says why, and Send keeps working.
     /// </summary>
     [Fact]
-    public async Task ABulkModeWriteInAPreviewIsRefusedWithoutHangingEvenWhenAnOrdinaryRequestStartedTheDispatcher()
+    public async Task AnUnawaitedBulkUpsertStartedInAPreviewHandlerNeverReachesTheStore()
+    {
+        var gateway = new FakeCosmosGateway();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var later = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var app = await StartBulkAsync(gateway, new Gates(), registered: true, release, later);
+
+        using var response = await app.PreviewAsync("POST", "/orders/o-9/later");
+        release.SetResult();
+        await Task.WhenAny(later.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Empty(gateway.ItemRequests);
+        Expect.Unconfirmed(response, HttpStatusCode.Conflict);
+        Assert.False(later.Task.IsCompleted, $"The handler ran and its upsert was {(later.Task.IsCompleted ? later.Task.Result : "")}.");
+
+        var capabilities = await app.CapabilitiesAsync();
+        Assert.Empty(capabilities.GetProperty("previewOperations").EnumerateArray());
+        var unavailable = capabilities.GetProperty("previewUnavailable").EnumerateArray().ToArray();
+        Assert.Contains(unavailable, item => item.GetProperty("path").GetString() == "/orders/{id}/later" && item.GetProperty("method").GetString() == "POST");
+        Assert.All(unavailable, item =>
+        {
+            Assert.Contains("bulk mode", item.GetProperty("reason").GetString());
+            Assert.Contains("CosmosClient", item.GetProperty("reason").GetString());
+            Assert.Equal("cosmosdb", Assert.Single(item.GetProperty("stores").EnumerateArray()).GetString());
+        });
+
+        // Send keeps working.
+        Assert.Equal("sent", await PlainBulkCreateAsync(app, "plain-1"));
+        Assert.Single(gateway.ItemRequests);
+    }
+
+    /// <summary>
+    /// A client the startup check can't see (kept by the application, with bulk mode turned on after the guard was added) makes
+    /// every later Preview unavailable from its first bulk batch.
+    /// </summary>
+    [Fact]
+    public async Task AClientThatTurnsOnBulkModeAfterTheGuardMakesPreviewUnavailableFromItsFirstBatch()
     {
         var gateway = new FakeCosmosGateway();
         await using var app = await StartBulkAsync(gateway, new Gates());
+        Assert.NotEmpty((await app.CapabilitiesAsync()).GetProperty("previewOperations").EnumerateArray());
         Assert.Equal("sent", await PlainBulkCreateAsync(app, "plain-1"));
-        Assert.Single(gateway.ItemRequests);
 
-        var started = DateTime.UtcNow;
-        await Expect.BlockedAsync(await app.PreviewAsync("POST", "/orders/p-1/swallow"), "cosmosdb", "Batch");
-        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10), "The bulk caller must get the refusal, not wait on retries.");
+        Expect.Unconfirmed(await app.PreviewAsync("POST", "/orders/p-1/swallow"), HttpStatusCode.Conflict);
         Assert.Single(gateway.ItemRequests);
-
+        Assert.Empty((await app.CapabilitiesAsync()).GetProperty("previewOperations").EnumerateArray());
         Assert.Equal("sent", await PlainBulkCreateAsync(app, "plain-2"));
         Assert.Equal(2, gateway.ItemRequests.Count);
     }
 
     /// <summary>
-    /// When a Preview created the dispatcher, every later batch ran in that Preview's context, which stays marked as a Preview,
-    /// so every ordinary bulk write was refused for as long as the process ran. Now an ordinary write after the Preview is sent.
+    /// The first bulk batch of a client the startup check can't see is refused while its Preview is open, at once rather than
+    /// after retries. The dispatcher that Preview created runs every later batch in the Preview's context, which stays marked as
+    /// a Preview; an ordinary bulk write after it is still sent.
     /// </summary>
     [Fact]
-    public async Task ABulkModeDispatcherStartedByAPreviewDoesNotRefuseOrdinaryWritesAfterIt()
+    public async Task ABulkBatchInAPreviewIsRefusedAtOnceAndADispatcherAPreviewStartedDoesNotRefuseOrdinaryWrites()
     {
         var gateway = new FakeCosmosGateway();
         await using var app = await StartBulkAsync(gateway, new Gates());
+        var started = DateTime.UtcNow;
         await Expect.BlockedAsync(await app.PreviewAsync("POST", "/orders/p-1/swallow"), "cosmosdb", "Batch");
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10), "The bulk caller must get the refusal, not wait on retries.");
         Assert.Empty(gateway.ItemRequests);
         Assert.Equal("sent", await PlainBulkCreateAsync(app, "plain-1"));
         Assert.Single(gateway.ItemRequests);

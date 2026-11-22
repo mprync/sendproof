@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Cosmos.Fluent;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Sendproof.AspNetCore;
 
 namespace Sendproof.CosmosDb;
@@ -71,7 +72,13 @@ public static class SendproofCosmosDbExtensions
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(services);
-        services.GetRequiredService<CosmosDbStore>().Guard(options);
+        var store = services.GetRequiredService<CosmosDbStore>();
+        store.Guard(options);
+        if (options.AllowBulkExecution)
+        {
+            store.BlockBulk("a client built with WithSendproofGuard");
+        }
+
         return options;
     }
 
@@ -87,8 +94,14 @@ public static class SendproofCosmosDbExtensions
 }
 
 /// <summary>The Cosmos DB data store: its discovery entry and its guard.</summary>
-public sealed class CosmosDbStore : IPreviewDataStore
+public sealed class CosmosDbStore : IPreviewDataStore, IPreviewBlocker
 {
+    /// <inheritdoc />
+    string? IPreviewBlocker.PreviewBlockedReason => _guard.BlockedReason;
+
+    /// <summary>Makes every Preview unavailable because of a bulk-mode client.</summary>
+    internal void BlockBulk(string client, bool replace = false) => _guard.BlockBulk(client, replace);
+
     private readonly string? _name;
     private readonly CosmosGuard _guard;
 
@@ -134,6 +147,7 @@ public sealed class CosmosDbStore : IPreviewDataStore
         }
 
         using var scope = provider.CreateScope();
+        string? bulk = null;
         foreach (var (type, keyed, key) in groups)
         {
             var name = keyed ? $"{type.Name} (keyed \"{key}\")" : type.Name;
@@ -155,7 +169,21 @@ public sealed class CosmosDbStore : IPreviewDataStore
                     return $"The {name} registered in the container was built without the Sendproof guard, so Preview would let its writes through. " +
                            "Build it with new CosmosClientOptions().WithSendproofGuard(provider).";
                 }
+
+                if (CosmosGuard.InBulkMode(client) && bulk is null)
+                {
+                    bulk = name;
+                }
             }
+        }
+
+        if (bulk is not null)
+        {
+            // The host starts, and Send works; only Preview is unavailable, with the reason in discovery.
+            BlockBulk(bulk, replace: true);
+            provider.GetService<ILoggerFactory>()?.CreateLogger("Sendproof.CosmosDb").LogWarning(
+                "{Reason}. Every Preview is unavailable while it is registered; Send is unaffected. Turn off AllowBulkExecution on {Client} to use Preview.",
+                _guard.BlockedReason, bulk);
         }
 
         return null;

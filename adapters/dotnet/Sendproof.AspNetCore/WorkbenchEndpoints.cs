@@ -64,6 +64,14 @@ internal static class WorkbenchEndpoints
         var unavailable = marked.Where(item => !item.Mark.Enabled).Select(item => new UnavailableOperation(
             item.Operation.Method, item.Operation.Path, item.Mark.Reason ?? "Preview is not available for this operation",
             item.Mark.Stores is { Length: > 0 } ? item.Mark.Stores : null)).ToArray();
+        if (PreviewEndpointPolicy.Blocked(stores) is { } blocked)
+        {
+            // A client the guard can't cover is in use: every operation is unavailable, with that reason.
+            unavailable = [.. unavailable, .. operations.Select(operation => new UnavailableOperation(operation.Method, operation.Path,
+                CaptureLimits.Clip(blocked.Reason), [blocked.Store]))];
+            unavailable = [.. unavailable.OrderBy(item => item.Path, StringComparer.Ordinal).ThenBy(item => item.Method, StringComparer.Ordinal)];
+            operations = [];
+        }
         var dataStores = await Task.WhenAll(stores.Select(store => store.DescribeAsync(context.RequestAborted).AsTask()));
         var identity = context.User.Identities.FirstOrDefault(identity => identity.IsAuthenticated);
 

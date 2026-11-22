@@ -34,6 +34,17 @@ public interface IPreviewDataStore
     ValueTask FinishPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 }
 
+/// <summary>
+/// A store that makes every Preview unavailable while the host uses a client of it the guard can't cover, such as a Cosmos DB
+/// client in bulk mode. Handlers never run in a Preview then (it answers 409), discovery lists every operation under
+/// <c>previewUnavailable</c> with the reason, and Send and observed Send are unaffected.
+/// </summary>
+internal interface IPreviewBlocker
+{
+    /// <summary>Gets why every Preview is unavailable, or <see langword="null"/> while Previews can run.</summary>
+    string? PreviewBlockedReason { get; }
+}
+
 /// <summary>How discovery describes one hooked data store.</summary>
 /// <param name="System">The store id.</param>
 /// <param name="Name">An optional host-chosen label such as <c>catalog</c>. Never a connection string or host name.</param>

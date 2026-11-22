@@ -53,6 +53,20 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
     internal static IReadOnlyList<IPreviewDataStore> GetDataStores(HttpContext context) =>
         [.. context.RequestServices.GetServices<IPreviewDataStore>()];
 
+    /// <summary>The first store that makes every Preview unavailable, with its reason, or <see langword="null"/>.</summary>
+    internal static (string Store, string Reason)? Blocked(IReadOnlyList<IPreviewDataStore> stores)
+    {
+        foreach (var store in stores)
+        {
+            if (store is IPreviewBlocker { PreviewBlockedReason: { } reason })
+            {
+                return (store.System, reason);
+            }
+        }
+
+        return null;
+    }
+
     internal static IPreviewProvider? GetProvider(HttpContext context)
     {
         using var providers = context.RequestServices.GetServices<IPreviewProvider>().GetEnumerator();
@@ -113,6 +127,14 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
         // A host with only data stores (a MongoDB-only or guard-only app) can still Preview: no SQL provider is needed.
         var provider = GetProvider(context);
         var stores = GetDataStores(context);
+
+        // A client the guard can't cover is in use (a Cosmos DB client in bulk mode): no Preview runs its handler.
+        if (Blocked(stores) is not null)
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            return;
+        }
+
         if (provider is null && stores.Count == 0)
         {
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;

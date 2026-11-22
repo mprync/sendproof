@@ -19,6 +19,36 @@ internal sealed class CosmosGuard(CaptureContext capture, IReadOnlySet<string>? 
     /// <summary>The store id in <c>Db</c> entries and the 409 body.</summary>
     internal const string Store = "cosmosdb";
 
+    private string? _bulkClient;
+
+    /// <summary>
+    /// Why every Preview is unavailable: a client in bulk mode sends through this guard. Bulk mode has no hook where an operation
+    /// is queued, so an operation a Preview handler queues without awaiting it could be sent after the Preview ended, when no
+    /// Preview is open to refuse its batch.
+    /// </summary>
+    internal string? BlockedReason => Volatile.Read(ref _bulkClient) is { } client
+        ? $"Preview unavailable: this application has a Cosmos DB client in bulk mode (AllowBulkExecution: {client}), whose queued writes Sendproof can't refuse"
+        : null;
+
+    /// <summary>
+    /// Makes every Preview unavailable because of a bulk-mode client. <paramref name="replace"/> lets the startup check put the
+    /// registration's name in place of a less precise one.
+    /// </summary>
+    internal void BlockBulk(string client, bool replace = false)
+    {
+        if (replace)
+        {
+            Volatile.Write(ref _bulkClient, client);
+        }
+        else
+        {
+            Interlocked.CompareExchange(ref _bulkClient, client, null);
+        }
+    }
+
+    /// <summary>Whether a client runs in bulk mode, by its options; a client whose options can't be read is not.</summary>
+    internal static bool InBulkMode(CosmosClient client) => OptionsOf(client)?.AllowBulkExecution == true;
+
     /// <summary>Creates the request handler that checks each request. Add it to <see cref="CosmosClientOptions.CustomHandlers"/>.</summary>
     internal RequestHandler CreateHandler() => new GuardHandler(this);
 
@@ -86,7 +116,9 @@ internal sealed class CosmosGuard(CaptureContext capture, IReadOnlySet<string>? 
             // Bulk mode (AllowBulkExecution) queues item operations without passing them through the request handlers and sends
             // them later as one non-atomic batch, from the SDK's dispatcher, whose context is that of whichever request created
             // it. So the batch's context can't say whose operations it carries: it is refused whenever a Preview is open, and is
-            // not logged, because any request's trace could be the wrong one.
+            // not logged, because any request's trace could be the wrong one. A client the startup check didn't see in bulk mode
+            // (one the application keeps itself) shows itself here, and from now on no Preview runs.
+            BlockBulk("a client built outside the container");
             capture.RefuseUnattributableWrite(Store, "Batch");
             return default;
         }
