@@ -1,6 +1,6 @@
 # Data stores in the Rust binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis and DynamoDB, the Rust binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). It works the same in Axum and Actix Web.
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch and OpenSearch, the Rust binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). It works the same in Axum and Actix Web.
 
 | Store | Crate | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,6 +8,9 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | [`sendproof-mongodb`](sendproof-mongodb) | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | [`sendproof-redis`](sendproof-redis) | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | [`sendproof-dynamodb`](sendproof-dynamodb) | `guard` | Runs reads. The first write stops the Preview. |
+| Cassandra | [`sendproof-cassandra`](sendproof-cassandra) | `guard` | Runs reads. The first write, and every batch, stops the Preview. |
+| Elasticsearch, OpenSearch | [`sendproof-elasticsearch`](sendproof-elasticsearch) | `guard` | Runs reads. The first write stops the Preview. |
+| Cosmos DB, Firestore | none | unsupported | See [Unsupported stores](#unsupported-stores). |
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
@@ -16,7 +19,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 > [!WARNING]
 > The binding covers a store only through the handles and interceptor below. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis pub/sub connection, a Redis connection used without `Redis::connection` or `Redis::guard`, a DynamoDB client built without the interceptor, and a raw socket. Hook every client your handlers use, at startup.
 >
-> The guard finds the Preview through the request's handle (Redis and MongoDB) or the request's task-local capture (DynamoDB and the MongoDB command monitor). A handle moved into a task your handler spawns with `tokio::spawn` keeps its Preview (a guarded Redis connection, a `Mongo` handle). A spawned task doesn't inherit the task-local capture, so a DynamoDB call, or a write through `MongoStore::client()`, from such a task can't be attributed to any request. The DynamoDB interceptor and the MongoDB monitor treat a write they can't attribute as a possible Preview write that has already happened: **every Preview open on that store answers 500**. Every request the Axum and Actix adapters dispatch is attributed, so ordinary traffic never does this. Wrap background work that writes to a hooked store (job runners, scheduled tasks, fire-and-forget writes spawned from a handler) in `sendproof_axum::detached(...)` (or `sendproof_actix::detached`), which marks it as part of no Preview. Redis has no monitoring, so a raw Redis connection's writes are not seen at all.
+> The guard finds the Preview through the request's handle (Redis and MongoDB) or the request's task-local capture (DynamoDB and the MongoDB command monitor). A handle moved into a task your handler spawns with `tokio::spawn` keeps its Preview (a guarded Redis connection, a `Mongo` handle). A spawned task doesn't inherit the task-local capture, so a DynamoDB call, or a write through `MongoStore::client()`, from such a task can't be attributed to any request. While a Preview is open, a write to a guarded store (Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch) that carries no request, such as one from a spawned task or from a handle made with the store's `detached()`, is treated as that Preview's: **it is refused before it is sent** and every open Preview is blocked (409). The MongoDB command monitor sees commands only after they are sent, so a write it can't attribute has already happened: **every Preview open on that store answers 500**. A handle that carries a Preview's context keeps it after the Preview has ended: a task your handler started with a guarded handle, still running after the response, has its writes refused for as long as the process runs. None of the Rust clients queue writes behind the guard (the Elasticsearch and OpenSearch `_bulk` is one `send`, and `scylla` has no write queue), so a refusal always happens on the caller's task when the call is made, and nothing retries it. Every request the Axum and Actix adapters dispatch is attributed, so ordinary traffic never does this. Wrap background work that writes to a hooked store (job runners, scheduled tasks, fire-and-forget writes spawned from a handler) in `sendproof_axum::detached(...)` (or `sendproof_actix::detached`), which marks it as part of no Preview and is never refused. Redis, Cassandra and Elasticsearch/OpenSearch have no monitoring, so a raw connection's, session's or client's writes are not seen at all; for those stores the store owns the client and hands out only guarded handles, so keep the raw client out of handler reach.
 
 ## Register the stores
 
@@ -93,6 +96,54 @@ Pipelines, including `atomic()` ones, are classified as a whole before the first
 
 `DynamoStore::interceptor()` is an AWS SDK `Intercept` implementation. Add it to the client's configuration: `aws_sdk_dynamodb::config::Builder::from(&sdk_config).interceptor(store.interceptor()).build()`. It runs after the request is serialized and before it is signed or transmitted, so credentials and signatures never reach a capture. It reads the operation from the request and the PartiQL statements from its JSON body, so it covers every operation of the client, and `PutItem`, `UpdateItem`, `DeleteItem`, `BatchWriteItem`, `TransactWriteItems` and any PartiQL statement that isn't a `SELECT` are writes.
 
+### Cassandra
+
+`sendproof-cassandra` works with the `scylla` driver, which also speaks to Apache Cassandra. `Session` is a concrete struct with no pre-send hook, so the guard is a wrapper. `CassandraStore::new(Arc<Session>)` is the store, and **it owns the session**; the `Cassandra` extractor gives each request's handle (Axum: `FromRef<AppState>` for `CassandraStore` and the `axum` feature; Actix: `web::Data::new(store)` and the `actix` feature), and `cassandra.session()` returns a `GuardedSession` that mirrors the driver's `query_unpaged`, `query_single_page`, `query_iter`, `execute_*`, `execute_bound_*`, `batch`, `prepare`, `prepare_batch` and `use_keyspace`.
+
+```rust
+let session = SessionBuilder::new().known_node("127.0.0.1:9042").build().await?;
+let tickets = CassandraStore::new(Arc::new(session)).name("tickets")?;
+
+async fn ticket(cassandra: Cassandra, Path(id): Path<String>) -> Result<Json<String>, StatusCode> {
+    let result = cassandra.session().query_unpaged("SELECT status FROM tickets WHERE id = ?", (id,)).await;
+    result.map(|_| Json("ok".into())).map_err(|_| StatusCode::CONFLICT)
+}
+```
+
+- A statement is classified by its text before the driver is called. `SELECT`, `USE`, `DESCRIBE` and `LIST` are reads. A prepared statement is classified by the text it was prepared from, which the driver keeps in the `PreparedStatement`.
+- Every `batch` is a write, even a read-only or empty one. `INSERT ... IF NOT EXISTS` and other lightweight transactions are writes. DDL, `GRANT` and `REVOKE` are writes. So is a text with a second statement after a semicolon.
+- A refused call returns `CassandraError::Blocked(PreviewWriteBlocked)`; the Preview answers 409 whatever the handler does with it.
+- A `Db` entry shows the operation, the table, the keyspace and the statement with every literal replaced by `?`.
+- Only the store's session is covered. There is no raw `Session` accessor; a second `Session` you build yourself is not seen.
+- A node that advertises an address the application can't reach (a container IP) needs an `AddressTranslator` that maps it to the published port. The conformance fixture and the tests show one.
+
+### Elasticsearch and OpenSearch
+
+`sendproof-elasticsearch` covers the official `elasticsearch` and `opensearch` crates (both features are on by default; `default-features = false, features = ["opensearch"]` keeps one). Both clients send every request through one concrete `Transport` with no middleware, and the typed builders (`client.search()...`) call it directly. **The first hour's spike found nothing to intercept**: neither crate takes a custom `reqwest` client, and a `reqwest` layer can't see requests. So the guard is the wrapper the plan names as the fallback: `OpenSearchStore::new(client)` (or `ElasticsearchStore`) owns the client, the `OpenSearch` (or `Elasticsearch`) extractor gives each request's handle, and `search.client()` returns a `GuardedOpenSearch` whose `send` takes what the client's own `send` takes. Every request is classified by its method and path before the client sees it.
+
+```rust
+let search = OpenSearchStore::new(OpenSearch::new(Transport::single_node("http://127.0.0.1:9200")?)).name("articles")?;
+
+async fn article(search: OpenSearch) -> Result<Json<Value>, StatusCode> {
+    let reply = search.client()
+        .send(Method::Post, "/articles/_search", HeaderMap::new(), None::<&()>, Some(JsonBody::new(json!({ "size": 1 }))), None)
+        .await.map_err(|_| StatusCode::CONFLICT)?;
+    reply.json().await.map(Json).map_err(|_| StatusCode::BAD_GATEWAY)
+}
+```
+
+- The refusal happens above the client's `Transport`, connection pool and any retry logic, so a refused write never takes a node out of rotation or shifts it; a test with two nodes shows the next read goes to the node it would have.
+- **The typed builders aren't available through the guard.** Build the request from its method and path; a raw `Transport` or `client.search()` from a client the store doesn't own would bypass it, which is why the store never gives its client back.
+- `GET` and `HEAD`, `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, the template searches and SQL that is one `SELECT`/`SHOW`/`DESCRIBE` are reads, even when sent as a `POST`. `_bulk`, `_update_by_query`, `_delete_by_query`, `_reindex`, every document `PUT`/`POST`/`DELETE`, stored scripts, and index, alias and template changes are writes, and so is anything the shared table doesn't list that isn't a `GET` or `HEAD`.
+- Point-in-time, scroll, async-search and SQL-cursor handles run and are not logged.
+- A refused call returns the client's `Error`; `sendproof_elasticsearch::blocked_by(&error)` finds the `PreviewWriteBlocked` in it. The Preview answers 409 whatever the handler does with it.
+- A `Db` entry shows the endpoint name (`search`, `update_by_query`), the index and the body with every literal replaced by `?`.
+- `.treat_as_read([...])` takes an endpoint name such as `search`, or `METHOD /path` with `{}` for each non-underscore segment (`POST /{}/_future`) for a path the table doesn't list.
+
+## Unsupported stores
+
+Cosmos DB and Firestore have no official Rust SDK (`docs/plans/data-stores.md`, batch two), so this binding has no hook for them and does not embed their tables. A Rust application that writes to either store through an unofficial crate or its REST API is not covered: Preview neither blocks nor rolls back those writes, and the workbench lists only the stores you hook. Mark the operations that write to them `preview: false` with `preview_unavailable`, so a Preview of one is refused (409) without running the handler.
+
 ## Mark an operation `preview: false`
 
 An operation you know writes to a guarded store, such as one that clears a Redis session, can be marked `preview: false`. The workbench then shows "Preview unavailable" with your reason before anyone tries, and a Preview of it is refused (409, never confirmed) without running the handler. Send still runs it. The binding never infers the mark; without it the operation is advertised and the guard decides at run time.
@@ -149,4 +200,4 @@ Change records for MongoDB carry `store`, `namespace`, the collection as `table`
 
 ## Tests
 
-`cargo test --manifest-path adapters/rust/Cargo.toml --workspace` runs the store tests. The MongoDB tests use the compose replica set (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`) and skip, saying why, when it doesn't answer. The Redis and DynamoDB unit tests run against a recording fake connection and a recording HTTP client; each crate also has a test against its compose service (`redis`, `dynamodb`) that reads the store back independently after every refused write path, and skips when the service doesn't answer. The shared checks run with `node tests/conformance/run.mjs rust-axum rust-actix` and need `mongodb redis dynamodb` from the same compose file.
+`cargo test --manifest-path adapters/rust/Cargo.toml --workspace` runs the store tests. The MongoDB tests use the compose replica set (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`) and skip, saying why, when it doesn't answer. The Redis and DynamoDB unit tests run against a recording fake connection and a recording HTTP client; each crate also has a test against its compose service (`redis`, `dynamodb`) that reads the store back independently after every refused write path, and skips when the service doesn't answer. The Elasticsearch and OpenSearch tests run against a fake cluster that records every request that reaches it, for both clients, and the OpenSearch wrapper also runs against the compose `opensearch` service; the Cassandra tests run the guard's decisions without a server and the wrapper against the compose `cassandra` service. Both skip, saying why, when the service doesn't answer (`docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch`). Each guard has a test showing that the same write goes through, and the Preview would be confirmed, when the client isn't guarded. The core runs every shared classification vector of `spec/data-stores/classification-cases.json` for Redis, DynamoDB, Cassandra and Elasticsearch/OpenSearch, and fails when an embedded table differs from `spec/data-stores/` (run `node adapters/rust/scripts/embed-store-tables.mjs` to refresh the copies). The shared checks run with `node tests/conformance/run.mjs rust-axum rust-actix` and need `mongodb redis dynamodb` and, for Cassandra and OpenSearch, the heavy-stores services; `BENCH_STORES=mongodb,redis,dynamodb` skips the heavy ones, as CI's main matrix does.
