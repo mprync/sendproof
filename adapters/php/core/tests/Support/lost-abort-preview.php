@@ -9,6 +9,9 @@ declare(strict_types=1);
  * lost. Prints the Preview's outcome as one JSON line, then exits, which runs the shutdown work.
  *
  *   php lost-abort-preview.php <proxy port> <control port> <database> <seconds>
+ *
+ * With "drop" for <seconds>, the network stays up and the proxy (in its drop-aborts mode) loses
+ * only the abortTransaction requests.
  */
 
 use MongoDB\Client;
@@ -42,7 +45,7 @@ $cutter = new class ($controlPort, $seconds) implements CommandSubscriber {
 
     public function commandStarted(CommandStartedEvent $event): void
     {
-        if ($this->cutAt !== null || $event->getCommandName() !== 'abortTransaction') {
+        if ($this->cutAt !== null || $event->getCommandName() !== 'abortTransaction' || $this->seconds === 'drop') {
             return;
         }
         $control = stream_socket_client("tcp://127.0.0.1:{$this->controlPort}", $errno, $error, 2) ?: throw new RuntimeException($error);
@@ -64,6 +67,25 @@ $cutter = new class ($controlPort, $seconds) implements CommandSubscriber {
 };
 $client->getManager()->addSubscriber($cutter);
 
+/** Counts the finds that succeed: change capture reads the document before and inside the transaction. */
+$finds = new class implements CommandSubscriber {
+    public int $count = 0;
+
+    public function commandStarted(CommandStartedEvent $event): void
+    {
+    }
+
+    public function commandSucceeded(CommandSucceededEvent $event): void
+    {
+        $this->count += $event->getCommandName() === 'find' ? 1 : 0;
+    }
+
+    public function commandFailed(CommandFailedEvent $event): void
+    {
+    }
+};
+$client->getManager()->addSubscriber($finds);
+
 $state = new PreviewState(hrtime(true));
 $result = (new PreviewRunner($recorder))->run(new NoSqlProvider(), $state, static function () use ($store, $database, $state): CapturedResponse {
     $state->reached = true;
@@ -75,6 +97,7 @@ $result = (new PreviewRunner($recorder))->run(new NoSqlProvider(), $state, stati
 
 echo json_encode([
     'status' => $result->status,
+    'finds' => $finds->count,
     'confirmed' => $result->isConfirmed(),
     'cut' => $cutter->cutAt !== null,
     'secondsAfterCut' => $cutter->cutAt === null ? null : microtime(true) - $cutter->cutAt,

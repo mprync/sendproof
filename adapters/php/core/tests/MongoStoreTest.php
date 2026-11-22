@@ -678,6 +678,67 @@ final class MongoStoreTest extends TestCase
         }
     }
 
+    /**
+     * Only the abort is lost: change capture succeeds, the server stays reachable, and the proxy closes
+     * the connection of every abortTransaction (the driver's retry included) instead of forwarding it.
+     */
+    public function testAPreviewWhoseAbortAloneIsLostAnswers500AndIsKilledAtOnce(): void
+    {
+        $pipes = [];
+        [, $host, $port] = preg_match('#mongodb://(?:[^@/]*@)?([^:/,]+):(\d+)#', Services::mongodbUrl(), $match) === 1 ? $match : [null, '127.0.0.1', '57017'];
+        $proxy = proc_open([PHP_BINARY, __DIR__ . '/Support/mongo-proxy.php', $host, $port], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($proxy);
+        try {
+            [$proxyPort, $controlPort] = explode(' ', trim((string) fgets($pipes[1])));
+            $control = stream_socket_client("tcp://127.0.0.1:{$controlPort}", $errno, $error, 2);
+            $this->assertIsResource($control, (string) $error);
+            fwrite($control, "drop-aborts\n");
+            $this->assertSame('ok', trim((string) fgets($control)));
+            fclose($control);
+
+            $child = [];
+            $preview = proc_open([PHP_BINARY, __DIR__ . '/Support/lost-abort-preview.php', $proxyPort, $controlPort, $this->database, 'drop'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $child);
+            $this->assertIsResource($preview);
+            $line = (string) fgets($child[1]);
+            $outcome = json_decode($line, true);
+            $this->assertIsArray($outcome, $line . stream_get_contents($child[2]));
+            $this->assertGreaterThanOrEqual(2, $outcome['finds'], 'Change capture read the document before and inside the transaction.');
+            $this->assertSame(500, $outcome['status'], 'A rollback the server never acknowledged is never claimed.');
+            $this->assertFalse($outcome['confirmed']);
+
+            // The server is reachable, so the killSessions the process runs after answering lands at once.
+            $this->assertTrue($this->writtenInASecondTransactionWithin(5), 'The Preview transaction still holds its lock.');
+            $this->assertSame('Second', $this->documents()->findOne(['_id' => 'seeded'])['name'], 'Nothing of the Preview was committed.');
+            fclose($child[0]);
+            $errors = stream_get_contents($child[2]);
+            $this->assertSame(0, proc_close($preview), $errors);
+            $this->assertStringNotContainsString("couldn't end a MongoDB Preview transaction", $errors);
+        } finally {
+            fclose($pipes[0]);
+            proc_close($proxy);
+        }
+    }
+
+    /**
+     * A kill against a server that can't be reached gives up after about 10 seconds. The driver has no
+     * per-command timeout; with its default single-try server selection each try fails at once.
+     */
+    public function testTheKillWindowEndsAfterAboutTenSecondsAgainstAnUnreachableServer(): void
+    {
+        $recorder = new Recorder();
+        // Nothing listens on port 1.
+        $engine = new MongoEngine(new \MongoDB\Driver\Manager('mongodb://127.0.0.1:1/?directConnection=true'), new Guard(static fn () => $recorder));
+        $lsid = (object) ['id' => new \MongoDB\BSON\Binary(random_bytes(16), \MongoDB\BSON\Binary::TYPE_UUID)];
+        $kill = new \ReflectionMethod($engine, 'kill');
+        $started = microtime(true);
+        $failure = $kill->invoke($engine, $lsid, hrtime(true) + 10_000_000_000);
+        $elapsed = microtime(true) - $started;
+        $this->assertIsString($failure);
+        $this->assertStringContainsString("couldn't be reached", $failure);
+        $this->assertLessThan(13, $elapsed, 'One try waited for the client to give up on the server.');
+        $this->assertGreaterThan(7, $elapsed, 'The window retries for about 10 s.');
+    }
+
     public function testANormalPreviewSendsNoKillSessions(): void
     {
         $names = new class implements \MongoDB\Driver\Monitoring\CommandSubscriber {

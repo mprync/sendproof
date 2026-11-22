@@ -646,7 +646,7 @@ final class MongoEngine
     {
         foreach (self::$lost as $key => [$engine, $session, $lostAt]) {
             $deadline = $lostAt + self::KILL_RETRY_LIMIT_MS * 1_000_000;
-            $failure = $engine->kill($session, $wait ? $deadline : 0);
+            $failure = $engine->kill($session->getLogicalSessionId(), $wait ? $deadline : 0);
             if ($failure !== null && !$wait && hrtime(true) < $deadline) {
                 continue;
             }
@@ -661,15 +661,20 @@ final class MongoEngine
     }
 
     /**
-     * Sends `killSessions` for `$session`, retrying network failures with backoff until `$untilNs`
-     * (`hrtime`). Returns null once the server ended the session, or why it couldn't.
+     * Sends `killSessions` for the session `$lsid`, retrying network failures with backoff until
+     * `$untilNs` (`hrtime`). Returns null once the server ended the session, or why it couldn't.
+     *
+     * The driver has no per-command timeout, so a try takes what the client's options allow. With the
+     * default `serverSelectionTryOnce`, a try fails at once while the server is in the driver's
+     * 5-second cooldown after a failed check, and otherwise takes at most `connectTimeoutMS` (10 s by
+     * default, reached only by a host that drops packets).
      */
-    private function kill(Session $session, int $untilNs): ?string
+    private function kill(object $lsid, int $untilNs): ?string
     {
         $delayMs = self::KILL_FIRST_DELAY_MS;
         while (true) {
             try {
-                $this->internal(fn () => $this->manager->executeCommand('admin', new Command(['killSessions' => [$session->getLogicalSessionId()]])));
+                $this->internal(fn () => $this->manager->executeCommand('admin', new Command(['killSessions' => [$lsid]])));
 
                 return null;
             } catch (ServerException $error) {
