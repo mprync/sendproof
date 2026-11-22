@@ -324,7 +324,7 @@ One hook per client, below the typed API, sees method, path and body. Classify w
 | Java and Kotlin | `elasticsearch-java` 8, `opensearch-java` 2, Spring Data Elasticsearch | Decorate `ElasticsearchTransport` / `OpenSearchTransport` (`performRequest` sees the endpoint's method and URL); Spring: a `BeanPostProcessor` on the transport bean. | Confirmed |
 | Go | `go-elasticsearch` 8, `opensearch-go` 4 | An `http.RoundTripper` wrapper set as `Config.Transport`; it returns an error before the inner round trip. | Confirmed |
 | PHP | `elasticsearch/elasticsearch` 8, `opensearch-project/opensearch-php` 2 | A decorating PSR-18 client passed to `ClientBuilder::setHttpClient`. | Confirmed |
-| Ruby | `elasticsearch` 8, `opensearch-ruby` 3 | Faraday middleware added in the client's block (`Client.new { |f| f.use Guard }`). | Confirmed |
+| Ruby | `elasticsearch` 8, `opensearch-ruby` 3 | A Faraday middleware first in every connection's stack, added as the HTTP transport builds each connection (sniffing and reloads included); a client built before the store has its connection collection rebuilt; a client on another HTTP transport makes the store refuse to start, or fails as it is built. | Done and reviewed (2026-11-22); `ruby-rails` lists `opensearch` |
 | Rust | `elasticsearch`, `opensearch` crates | The `Transport` is a concrete struct with no middleware; typed calls can't be intercepted by a wrapper. | **Spike**: a custom `reqwest` client through `TransportBuilder`, or wrap `Elasticsearch::send` and expose only the wrapper |
 
 ### Cosmos DB
@@ -352,7 +352,7 @@ Every gRPC hook must cover streaming calls as well as unary ones: `RunQuery`, `B
 | Java and Kotlin | `google-cloud-firestore` 3 | A gRPC `ClientInterceptor` (covers every call type) through `InstantiatingGrpcChannelProvider.setInterceptorProvider`. | Confirmed |
 | Go | `cloud.google.com/go/firestore` | `option.WithGRPCDialOption(grpc.WithChainUnaryInterceptor(…))` **and** `grpc.WithChainStreamInterceptor(…)`. | Confirmed |
 | PHP | `google/cloud-firestore` (needs the grpc extension) | **Spike**: gax `transportConfig.grpc.interceptors`. | Spike |
-| Ruby | `google-cloud-firestore` 2 | **Spike**: the generated `Firestore::V1::Firestore::Client` `interceptors` configuration, reached from the handwritten client. | Spike |
+| Ruby | `google-cloud-firestore` 2 | A gRPC `ClientInterceptor` (all four call types) added where `Gapic::ServiceStub` creates each Firestore stub, so `config.interceptors` can't drop it; `BulkWriter` writes are refused as they are queued. A client built before the store makes it refuse to start; REST clients raise. | Done and reviewed (2026-11-22); recordings replayed |
 | Rust | no official SDK | | Unsupported |
 
 ### Order and acceptance

@@ -61,9 +61,9 @@ module Sendproof
     end
 
     # Marks the block as background work that belongs to no request, such as a job worker or a scheduled
-    # task running in the server process, so its data-store writes never fail an open Preview. Without the
-    # mark, a write from outside any request fails every Preview open at that moment with 500, because it
-    # might come from a Preview handler's own thread. Never use it inside a handler: a write it sends
+    # task running in the server process, so its data-store writes are never refused. Without the mark, a
+    # write from outside any request is refused while a Preview is open, and blocks every Preview open at
+    # that moment, because it might come from a Preview handler's own thread. Never use it inside a handler: a write it sends
     # escapes the Preview, like a client that was never hooked.
     #
     #   Sendproof.detached { redis.incr("jobs:processed") }

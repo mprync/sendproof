@@ -33,9 +33,11 @@ Details per store are below. In short:
 
 ### Writes from other threads and fibers
 
-A hook finds the request through thread- and fiber-local state, so a write sent from a thread or fiber the handler started (`Thread.new`, a `Fiber`, an external `Enumerator`) carries no request: the guard can't block it and MongoDB can't put it in the Preview transaction, so it runs. While a Preview is open, any store write that belongs to no request therefore fails every open Preview with 500, rather than let one confirm a rollback that didn't happen.
+A hook finds the request through thread- and fiber-local state, so a write sent from a thread or fiber the handler started (`Thread.new`, a `Fiber`, an external `Enumerator`), or from a client's own background threads, carries no request, and MongoDB can't put it in the Preview transaction. While a Preview is open, any store write that belongs to no request is therefore treated as that Preview's write: it is refused before it is sent, with `Sendproof::PreviewWriteBlocked`, and every open Preview answers 409. On a MongoDB replica set (`preview` mode) the write is refused with `Sendproof::PreviewTransactionControl` and every open Preview answers 500. Either way no Preview confirms a rollback that didn't happen.
 
-A write is attributed, and never fails a Preview, when it runs inside a request that passed through `Sendproof::Middleware` (Sends included), inside a Preview or observed Send, or inside `Sendproof.detached`. Mark background work that runs in the server process, such as an in-process job worker or a scheduled task, as detached:
+The same applies to any thread in the server process that isn't handling a request: an in-process job worker (ActiveJob's `:async` adapter), Action Cable channel actions, a scheduler. Their writes are refused while someone runs a Preview, until you mark them as detached.
+
+A write is attributed, and never refused this way, when it runs inside a request that passed through `Sendproof::Middleware` (Sends included), inside a Preview or observed Send, or inside `Sendproof.detached`. Mark background work that runs in the server process, such as an in-process job worker or a scheduled task, as detached:
 
 ```ruby
 Sendproof.detached { Rails.cache.increment("jobs:processed") } # this work belongs to no request
@@ -181,6 +183,8 @@ A path prefix in the client's URL (`https://host/search`) is removed before clas
 
 The `elasticsearch` client sends its product check with your first request, and prints a "can't verify the server" warning when that request is refused. That is harmless: the Preview still answers 409.
 
+Both clients depend on Faraday, which depends on `json` with no upper bound. On Rails 8.0, `json` 3 breaks every JSON response, because ActiveSupport 8.0 passes `quirks_mode`, an option `json` 3 rejects. This has nothing to do with Sendproof, but adding either client can be what pulls `json` 3 in. Pin it in the application's Gemfile, as this repository does: `gem "json", "~> 2.9"`.
+
 A host-declared read (`treat_as_read: ["POST /{}/_my_plugin_read"]`) is the operation name a `Db` entry shows, matched exactly.
 
 ### Firestore
@@ -194,7 +198,7 @@ config.sendproof.data_store Sendproof::Firestore::Store.new(name: "orders")   # 
 
 - **Create the store first.** A Firestore client built before the store has no interceptor, so creating the store raises `Sendproof::ConfigurationError` while one is alive. Move the store above the code that builds the client.
 - **gRPC only.** Firestore over REST (`transport: :rest`) has no interceptor, so with the store registered, building a REST client raises.
-- **`BulkWriter` and listeners send from threads of their own.** Those threads carry no request, so a `BulkWriter` write is not refused; it fails the Preview with 500 instead (see [Writes from other threads and fibers](#writes-from-other-threads-and-fibers)). Use `batch`, `set`, `update` or `transaction` in a previewed handler.
+- **`BulkWriter` sends from threads of its own**, which carry no request, and retries a failed batch without end. So in a Preview the store refuses each `create`, `set`, `update` or `delete` as the handler queues it, as a `BatchWrite`; nothing reaches the writer's threads and the handler never waits on a batch. A `BatchWrite` that a `BulkWriter` of another request sends while a Preview is open is refused before it is sent and blocks that Preview (see [Writes from other threads and fibers](#writes-from-other-threads-and-fibers)); the writer retries it once no Preview is open. Listeners only read.
 - **Transactions.** A transaction's reads run; its `Commit` is refused. A read-only transaction ends with no `Commit`, or an empty one, and is allowed.
 - The Firestore admin client (`google-cloud-firestore-admin-v1`) is not tested here. The hook is meant to reach it, since it names every `Google::Cloud::Firestore` stub, but don't rely on it: keep index and database administration out of previewed handlers.
 
