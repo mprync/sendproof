@@ -30,11 +30,37 @@ struct Fixture {
     database: String,
 }
 
+/// Client options for the compose server, with the driver's default 30-second server selection.
+async fn options() -> Option<ClientOptions> {
+    ClientOptions::parse(server()).await.ok()
+}
+
+/// The engine's detection once the server has really answered it.
+///
+/// Detection keeps only a real answer: a `hello` that fails (a slow server, or one dropping new
+/// connections while many suites share it) reads as "standalone" for now and is asked again next
+/// time. The compose server is a replica set, so a standalone answer here is that failure; asking
+/// again keeps a busy server from turning a test's Previews into guard-mode blocks.
+async fn detected(engine: &engine::Engine) -> engine::Detected {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let detected = engine.detect().await;
+        if detected.reason != Some(STANDALONE_REASON) {
+            return detected;
+        }
+        assert!(Instant::now() < deadline, "the compose MongoDB never answered detection");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 /// A fixture with its own database, or `None` (a skip) when MongoDB doesn't answer.
 async fn fixture(timeout: Option<Duration>) -> Option<Fixture> {
-    let mut options = ClientOptions::parse(server()).await.ok()?;
-    options.server_selection_timeout = Some(Duration::from_secs(2));
-    let reader = Client::with_options(options.clone()).ok()?;
+    let options = options().await?;
+    // Only the skip check is short. The store keeps the default: its detection `hello` is the first
+    // command of a fresh client, which can take longer than 2 seconds on a loaded server.
+    let mut probe = options.clone();
+    probe.server_selection_timeout = Some(Duration::from_secs(2));
+    let reader = Client::with_options(probe).ok()?;
     if reader.database("admin").run_command(doc! { "hello": 1 }).await.is_err() {
         eprintln!("skipped: MongoDB isn't running (docker compose -f tests/conformance/compose.yml up -d --wait mongodb)");
         return None;
@@ -45,6 +71,7 @@ async fn fixture(timeout: Option<Duration>) -> Option<Fixture> {
         builder = builder.preview_timeout(timeout);
     }
     let store = builder.build().unwrap();
+    assert_eq!(detected(&store.engine).await.mode, preview::Mode::Preview, "the compose MongoDB is a replica set");
     let config = Config::builder("Test")
         .environment("Development")
         .enable_in(["Development"])
@@ -55,8 +82,20 @@ async fn fixture(timeout: Option<Duration>) -> Option<Fixture> {
     Some(Fixture { store, core: Core::new(config), reader, database })
 }
 
+/// A name no other test uses at the same time, in this process or another: the process id, the
+/// time, and a counter. The clock alone isn't enough: macOS reports it in whole microseconds, so two
+/// tests starting together got the same database, and one's seed, writes or cleanup broke the other.
 fn uuid_like() -> String {
-    format!("{:x}{:x}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    format!("{:x}_{nanos:x}_{:x}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
+#[test]
+fn every_test_database_name_is_distinct() {
+    // Generated back to back, as parallel tests do: the clock repeats, the names must not.
+    let names: std::collections::HashSet<String> = (0..10_000).map(|_| uuid_like()).collect();
+    assert_eq!(names.len(), 10_000);
 }
 
 impl Fixture {
@@ -463,13 +502,14 @@ async fn a_preview_dropped_before_it_finishes_aborts_its_transaction() {
         .await;
     }
     assert!(fixture.store.engine.shared.previews.lock().unwrap().is_empty(), "the Preview is no longer registered");
-    // The transaction's write lock is released promptly, not when the time limit fires.
+    // The transaction's write lock is released promptly, not when the 30-second time limit fires. (10
+    // seconds, not less: the abort runs in a spawned task, which a loaded machine can delay.)
     let documents = fixture.reader.database(&fixture.database).collection::<Document>("documents");
-    let result = tokio::time::timeout(Duration::from_secs(5), async {
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
         documents.update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 10 } }).await
     })
     .await;
-    assert!(result.is_ok_and(|result| result.is_ok()), "the dropped Preview still holds its transaction");
+    assert!(matches!(result, Ok(Ok(_))), "the dropped Preview still holds its transaction: {result:?}");
     assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
     fixture.cleanup().await;
 }
@@ -589,16 +629,16 @@ fn a_label_that_looks_like_a_connection_string_is_refused() {
 #[tokio::test]
 async fn a_client_whose_monitor_never_sees_its_own_hello_never_previews() {
     let fixture = fixture!();
-    let mut options = ClientOptions::parse(server()).await.unwrap();
-    options.server_selection_timeout = Some(Duration::from_secs(2));
-    // The client of a store built around the builder: no command monitoring.
+    // The client of a store built around the builder: no command monitoring. The default server
+    // selection timeout, so a slow `hello` under load isn't mistaken for a standalone server.
     let engine = engine::Engine::new(
-        Client::with_options(options).unwrap(),
+        Client::with_options(options().await.unwrap()).unwrap(),
         fixture.database.clone(),
         preview::Shared::new(Default::default()),
         engine::DEFAULT_PREVIEW_TIMEOUT,
     );
     let store = MongoStore { engine, name: None };
+    detected(&store.engine).await;
     let description = store.describe().await;
     assert_eq!(description.mode, StoreMode::Guard);
     assert_eq!(description.reason.as_deref(), Some(UNMONITORED_REASON));
