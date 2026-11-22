@@ -124,25 +124,40 @@ public sealed class CosmosDbStore : IPreviewDataStore
     /// </summary>
     internal string? Problem(IServiceCollection services, IServiceProvider provider)
     {
-        if (!services.Any(descriptor => descriptor.ServiceType == typeof(CosmosClient) && !descriptor.IsKeyedService))
+        // Every registration counts, keyed or not and by any class deriving from CosmosClient, and so does every earlier
+        // registration of a service, which IEnumerable<T> still resolves.
+        var groups = services.Where(descriptor => typeof(CosmosClient).IsAssignableFrom(descriptor.ServiceType))
+            .Select(descriptor => (descriptor.ServiceType, descriptor.IsKeyedService, Key: descriptor.ServiceKey)).Distinct().ToArray();
+        if (groups.Length == 0)
         {
             return null;
         }
 
-        var client = provider.GetService<CosmosClient>();
-        if (client is null)
+        using var scope = provider.CreateScope();
+        foreach (var (type, keyed, key) in groups)
         {
-            return null;
+            var name = keyed ? $"{type.Name} (keyed \"{key}\")" : type.Name;
+            if (keyed && ReferenceEquals(key, KeyedService.AnyKey))
+            {
+                return $"The {type.Name} registered for any key can't be checked, so Sendproof can't confirm it is guarded. Register each key's client.";
+            }
+
+            var clients = keyed ? scope.ServiceProvider.GetKeyedServices(type, key) : scope.ServiceProvider.GetServices(type);
+            foreach (var client in clients.OfType<CosmosClient>())
+            {
+                if (!CosmosGuard.CanInspect(client))
+                {
+                    return $"Sendproof can't inspect this version of the Cosmos DB SDK's client options, so it can't confirm the registered {name} is guarded. Update Sendproof.CosmosDb.";
+                }
+
+                if (!_guard.IsGuarded(client))
+                {
+                    return $"The {name} registered in the container was built without the Sendproof guard, so Preview would let its writes through. " +
+                           "Build it with new CosmosClientOptions().WithSendproofGuard(provider).";
+                }
+            }
         }
 
-        if (!CosmosGuard.CanInspect(client))
-        {
-            return "Sendproof can't inspect this version of the Cosmos DB SDK's client options, so it can't confirm the registered CosmosClient is guarded. Update Sendproof.CosmosDb.";
-        }
-
-        return _guard.IsGuarded(client)
-            ? null
-            : "The CosmosClient registered in the container was built without the Sendproof guard, so Preview would let its writes through. " +
-              "Build it with new CosmosClientOptions().WithSendproofGuard(provider).";
+        return null;
     }
 }

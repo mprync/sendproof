@@ -23,8 +23,11 @@ internal sealed class OpenSearchGuard(CaptureContext capture, IReadOnlySet<strin
         inner is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, this) ? inner : new GuardedTransport(this, inner);
 
     /// <summary>Whether a client's transport is guarded by <paramref name="guard"/>.</summary>
-    internal static bool IsGuarded(IOpenSearchClient client, OpenSearchGuard guard) =>
-        TransportOf(client) is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, guard);
+    internal static bool IsGuarded(IOpenSearchClient client, OpenSearchGuard guard) => IsGuardedTransport(TransportOf(client), guard);
+
+    /// <summary>Whether a transport is one <paramref name="guard"/> made.</summary>
+    internal static bool IsGuardedTransport(ITransport<IConnectionSettingsValues> transport, OpenSearchGuard guard) =>
+        transport is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, guard);
 
     private static readonly System.Reflection.PropertyInfo? TransportProperty = typeof(OpenSearchClient).GetProperty(
         "Transport", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);

@@ -22,7 +22,7 @@ namespace Sendproof.DataStores.Tests;
 public sealed class FirestoreTests
 {
     /// <summary>A gRPC transport that records every call and answers each with an empty reply, so nothing leaves the process.</summary>
-    private sealed class FakeInvoker : CallInvoker
+    internal sealed class FakeInvoker : CallInvoker
     {
         internal List<(string Method, IMessage? Request)> Calls { get; } = [];
 

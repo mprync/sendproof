@@ -58,7 +58,13 @@ public static class SendproofFirestoreExtensions
         configure?.Invoke(options);
         var services = builder.Services;
         var store = new FirestoreStore(builder.Capture, options.Name, new HashSet<string>(options.Reads, StringComparer.Ordinal));
-        GuardRegistration.Decorate(services, typeof(FirestoreDb), db => store.Guard((FirestoreDb)db), nameof(AddFirestore));
+        // Every FirestoreDb and FirestoreClient registration, keyed or not, is decorated. The generated gRPC client can't be
+        // rebuilt over a guarded call invoker as its own type, so it stops the host instead.
+        GuardRegistration.DecorateAll(services, [typeof(FirestoreDb), typeof(FirestoreClient)],
+            [typeof(FirestoreDb), typeof(FirestoreClient), typeof(Google.Cloud.Firestore.V1.Firestore.FirestoreClient)],
+            (type, client) => type == typeof(FirestoreDb) ? store.Guard((FirestoreDb)client) : store.Guard((FirestoreClient)client),
+            store.IsGuarded, nameof(AddFirestore),
+            "Register FirestoreDb or FirestoreClient before AddFirestore, and use them instead of the generated gRPC client.");
         services.AddSingleton(store);
         services.AddSingleton<IPreviewDataStore>(store);
         return builder;
@@ -107,9 +113,34 @@ public sealed class FirestoreStore : IPreviewDataStore
             return db;
         }
 
-        var client = new FirestoreClientBuilder { CallInvoker = _guard.Guard(FirestoreGuard.InvokerOf(db.Client)) }.Build();
-        return _guard.Mark(FirestoreGuard.WithClient(db, client));
+        // A database over a client this store already guards sends through the guard once, not twice.
+        if (_guard.IsGuarded(db.Client))
+        {
+            return _guard.Mark(db);
+        }
+
+        return _guard.Mark(FirestoreGuard.WithClient(db, Guard(db.Client)));
     }
+
+    /// <summary>
+    /// Returns a client whose gRPC calls pass through the write guard, over the same call invoker as <paramref name="client"/>.
+    /// A client that is already guarded by this store is returned as it is. The new client uses the default call settings.
+    /// </summary>
+    public FirestoreClient Guard(FirestoreClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return _guard.IsGuarded(client)
+            ? client
+            : _guard.Mark(new FirestoreClientBuilder { CallInvoker = _guard.Guard(FirestoreGuard.InvokerOf(client)) }.Build());
+    }
+
+    /// <summary>Whether a registered instance is a database or client this store guards.</summary>
+    internal bool IsGuarded(object registered) => registered switch
+    {
+        FirestoreDb db => _guard.IsGuarded(db),
+        FirestoreClient client => _guard.IsGuarded(client),
+        _ => false
+    };
 
     /// <summary>
     /// Puts the write guard in front of a call invoker, for a <see cref="FirestoreClientBuilder"/> you configure yourself:

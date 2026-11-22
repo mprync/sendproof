@@ -27,6 +27,9 @@ internal sealed class CassandraGuard(CaptureContext capture, IReadOnlySet<string
     internal ICluster Guard(ICluster inner) =>
         inner is GuardProxy { Owner: { } owner } && ReferenceEquals(owner, this) ? inner : Create<ICluster>(inner);
 
+    /// <summary>Whether <paramref name="guard"/> is this guard.</summary>
+    internal bool Owns(CassandraGuard guard) => ReferenceEquals(guard, this);
+
     private T Create<T>(T inner) where T : class
     {
         var proxy = DispatchProxy.Create<T, GuardProxy>();

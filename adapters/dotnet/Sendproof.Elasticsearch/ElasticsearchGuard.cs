@@ -22,8 +22,11 @@ internal sealed class ElasticsearchGuard(CaptureContext capture, IReadOnlySet<st
         inner is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, this) ? inner : new GuardedTransport(this, inner);
 
     /// <summary>Whether a client's transport is guarded by <paramref name="guard"/>.</summary>
-    internal static bool IsGuarded(ElasticsearchClient client, ElasticsearchGuard guard) =>
-        client.Transport is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, guard);
+    internal static bool IsGuarded(ElasticsearchClient client, ElasticsearchGuard guard) => IsGuardedTransport(client.Transport, guard);
+
+    /// <summary>Whether a transport is one <paramref name="guard"/> made.</summary>
+    internal static bool IsGuardedTransport(object transport, ElasticsearchGuard guard) =>
+        transport is GuardedTransport { Owner: var owner } && ReferenceEquals(owner, guard);
 
     /// <summary>Reads the body of a request as text, for the SQL endpoints and the logged statement. Unreadable bodies are null.</summary>
     private static string? BodyOf(PostData? data, ITransportConfiguration configuration)

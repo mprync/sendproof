@@ -66,7 +66,11 @@ public static class SendproofElasticsearchExtensions
         configure?.Invoke(options);
         var services = builder.Services;
         var store = new ElasticsearchStore(builder.Capture, options.Name, new HashSet<string>(options.Reads, StringComparer.Ordinal));
-        GuardRegistration.Decorate(services, typeof(ElasticsearchClient), client => store.Guard((ElasticsearchClient)client), nameof(AddElasticsearch));
+        // Every ElasticsearchClient registration, keyed or not, is decorated. A derived client or a bare transport can't be
+        // rebuilt over a guarded transport as its own type, so it stops the host instead.
+        GuardRegistration.DecorateAll(services, [typeof(ElasticsearchClient)], [typeof(ElasticsearchClient), typeof(Elastic.Transport.ITransport)],
+            (_, client) => store.Guard((ElasticsearchClient)client), store.IsGuarded, nameof(AddElasticsearch),
+            "Register it as ElasticsearchClient before AddElasticsearch, or resolve the guarded ElasticsearchClient and use its Transport.");
         services.AddSingleton(store);
         services.AddSingleton<IPreviewDataStore>(store);
         return builder;
@@ -108,4 +112,11 @@ public sealed class ElasticsearchStore : IPreviewDataStore
     /// </summary>
     public ElasticsearchClient Guard(ElasticsearchClient client) =>
         ElasticsearchGuard.IsGuarded(client, _guard) ? client : new ElasticsearchClient(_guard.Guard(client.Transport));
+
+    /// <summary>Whether a registered instance is a client or transport this store guards.</summary>
+    internal bool IsGuarded(object registered) => registered switch
+    {
+        ElasticsearchClient client => ElasticsearchGuard.IsGuarded(client, _guard),
+        _ => ElasticsearchGuard.IsGuardedTransport(registered, _guard)
+    };
 }

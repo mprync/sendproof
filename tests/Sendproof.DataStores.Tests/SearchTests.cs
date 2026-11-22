@@ -29,7 +29,7 @@ public sealed class SearchTests
     // ---- Elasticsearch ----
 
     /// <summary>An invoker in front of an in-memory one that records every request that reaches it.</summary>
-    private sealed class RecordingInvoker : IRequestInvoker
+    internal sealed class RecordingInvoker : IRequestInvoker
     {
         private readonly InMemoryRequestInvoker _inner = new(Encoding.UTF8.GetBytes("""{"took":1,"hits":{"hits":[{"_id":"1","_source":{"title":"Seeded"}}]},"result":"updated"}"""),
             headers: new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] });
@@ -53,7 +53,7 @@ public sealed class SearchTests
         public void Dispose() { }
     }
 
-    private static ElasticsearchClient NewElasticClient(RecordingInvoker invoker) => new(new ElasticsearchClientSettings(
+    internal static ElasticsearchClient NewElasticClient(RecordingInvoker invoker) => new(new ElasticsearchClientSettings(
         new StaticNodePool(Nodes.Select(node => new Uri(node))), invoker).DisablePing());
 
     private sealed class ElasticFixture : IAsyncDisposable
@@ -193,7 +193,7 @@ public sealed class SearchTests
 
     // ---- OpenSearch ----
 
-    private sealed class RecordingConnection : InMemoryConnection
+    internal sealed class RecordingConnection : InMemoryConnection
     {
         internal RecordingConnection() : base(Encoding.UTF8.GetBytes("""{"took":1,"hits":{"hits":[{"_id":"1","_source":{"title":"Seeded"}}]},"result":"updated","items":[]}""")) { }
 
@@ -212,12 +212,12 @@ public sealed class SearchTests
         }
     }
 
-    private sealed class Doc
+    internal sealed class Doc
     {
         public string? Title { get; set; }
     }
 
-    private static OpenSearchClient NewOpenSearchClient(RecordingConnection connection) => new(new ConnectionSettings(
+    internal static OpenSearchClient NewOpenSearchClient(RecordingConnection connection) => new(new ConnectionSettings(
         new StaticConnectionPool(Nodes.Select(node => new Uri(node))), connection).DisablePing().SniffOnStartup(false).DefaultIndex("articles"));
 
     private sealed class OpenSearchFixture : IAsyncDisposable

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using OpenSearch.Client;
+using OpenSearch.Net;
 using Sendproof.AspNetCore;
 
 namespace Sendproof.OpenSearch;
@@ -67,25 +68,19 @@ public static class SendproofOpenSearchExtensions
         var services = builder.Services;
         var store = new OpenSearchStore(builder.Capture, options.Name, new HashSet<string>(options.Reads, StringComparer.Ordinal));
 
-        bool Registered(Type type) => services.Any(descriptor => descriptor.ServiceType == type && !descriptor.IsKeyedService);
-        var hasInterface = Registered(typeof(IOpenSearchClient));
-        var hasClass = Registered(typeof(OpenSearchClient));
-        if (!hasInterface && !hasClass)
+        if (!services.Any(descriptor => descriptor.ServiceType == typeof(IOpenSearchClient) || descriptor.ServiceType == typeof(OpenSearchClient)))
         {
             throw new InvalidOperationException(
                 "Register an IOpenSearchClient (or an OpenSearchClient) before AddOpenSearch, or guard a client you create yourself with OpenSearchStore.Guard.");
         }
 
-        if (hasInterface)
-        {
-            GuardRegistration.Decorate(services, typeof(IOpenSearchClient), client => store.Guard((IOpenSearchClient)client), nameof(AddOpenSearch));
-        }
-
-        if (hasClass)
-        {
-            GuardRegistration.Decorate(services, typeof(OpenSearchClient), client => store.Guard((OpenSearchClient)client), nameof(AddOpenSearch));
-        }
-
+        // Every IOpenSearchClient and OpenSearchClient registration, keyed or not, is decorated. A derived client, a low-level
+        // client or a bare transport can't be rebuilt over a guarded transport as its own type, so it stops the host instead.
+        GuardRegistration.DecorateAll(services, [typeof(IOpenSearchClient), typeof(OpenSearchClient)],
+            [typeof(IOpenSearchClient), typeof(IOpenSearchLowLevelClient), typeof(ITransport<IConnectionSettingsValues>)],
+            (type, client) => type == typeof(OpenSearchClient) ? store.Guard((OpenSearchClient)client) : store.Guard((IOpenSearchClient)client),
+            store.IsGuarded, nameof(AddOpenSearch),
+            "Register the client as IOpenSearchClient or OpenSearchClient before AddOpenSearch, and use the guarded client's LowLevel for low-level calls.");
         services.AddSingleton(store);
         services.AddSingleton<IPreviewDataStore>(store);
         return builder;
@@ -131,4 +126,15 @@ public sealed class OpenSearchStore : IPreviewDataStore
     /// <inheritdoc cref="Guard(IOpenSearchClient)" />
     public OpenSearchClient Guard(OpenSearchClient client) =>
         OpenSearchGuard.IsGuarded(client, _guard) ? client : new OpenSearchClient(_guard.Guard(OpenSearchGuard.TransportOf(client)));
+
+    /// <summary>
+    /// Whether a registered instance is a client or transport this store guards. A low-level client registered on its own is
+    /// never accepted: its transport can't be read.
+    /// </summary>
+    internal bool IsGuarded(object registered) => registered switch
+    {
+        IOpenSearchClient client => OpenSearchGuard.IsGuarded(client, _guard),
+        ITransport<IConnectionSettingsValues> transport => OpenSearchGuard.IsGuardedTransport(transport, _guard),
+        _ => false
+    };
 }

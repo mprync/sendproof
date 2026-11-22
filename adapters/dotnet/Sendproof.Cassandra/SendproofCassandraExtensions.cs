@@ -57,27 +57,20 @@ public static class SendproofCassandraExtensions
         var services = builder.Services;
         var store = new CassandraStore(builder.Capture, options.Name, new HashSet<string>(options.Reads, StringComparer.Ordinal));
 
-        bool Registered(Type type) => services.Any(descriptor => descriptor.ServiceType == type && !descriptor.IsKeyedService);
-        var hasCluster = Registered(typeof(ICluster));
-        var hasSession = Registered(typeof(ISession));
-        if (!hasCluster && !hasSession)
+        if (!services.Any(descriptor => descriptor.ServiceType == typeof(ISession) || descriptor.ServiceType == typeof(ICluster)))
         {
             throw new InvalidOperationException(
                 "Register an ISession (or an ICluster) before AddCassandra, or guard a session you create yourself with CassandraStore.Guard.");
         }
 
+        // Every ISession and ICluster registration, keyed or not, is decorated. A Cluster registered by its class can't be: its
+        // Connect would hand out raw sessions, so it stops the host instead.
+        GuardRegistration.DecorateAll(services, [typeof(ISession), typeof(ICluster)], [typeof(ISession), typeof(ICluster)],
+            (type, client) => type == typeof(ICluster) ? store.Guard((ICluster)client) : store.Guard((ISession)client),
+            store.IsGuarded, nameof(AddCassandra),
+            "Register the cluster as ICluster (services.AddSingleton<ICluster>(…)) and sessions as ISession, before AddCassandra.");
         services.AddSingleton(store);
         services.AddSingleton<IPreviewDataStore>(store);
-        if (hasCluster)
-        {
-            GuardRegistration.Decorate(services, typeof(ICluster), cluster => store.Guard((ICluster)cluster), nameof(AddCassandra));
-        }
-
-        if (hasSession)
-        {
-            GuardRegistration.Decorate(services, typeof(ISession), session => store.Guard((ISession)session), nameof(AddCassandra));
-        }
-
         return builder;
     }
 
@@ -116,4 +109,7 @@ public sealed class CassandraStore : IPreviewDataStore
 
     /// <summary>Wraps a cluster in the write guard: every session it connects is guarded.</summary>
     public ICluster Guard(ICluster cluster) => _guard.Guard(cluster);
+
+    /// <summary>Whether a registered instance is a session or cluster this store guards.</summary>
+    internal bool IsGuarded(object client) => client is CassandraGuard.GuardProxy { Owner: { } owner } && _guard.Owns(owner);
 }
