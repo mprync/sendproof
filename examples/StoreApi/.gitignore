@@ -1,0 +1,4 @@
+bin/
+obj/
+store-demo.db*
+store-demo.keys/

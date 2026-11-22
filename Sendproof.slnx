@@ -12,10 +12,10 @@
     <Project Path="adapters/dotnet/Sendproof.Firestore/Sendproof.Firestore.csproj" />
   </Folder>
   <Folder Name="/examples/">
-    <Project Path="examples/TreasuryApi/TreasuryApi.csproj" />
+    <Project Path="examples/StoreApi/StoreApi.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="examples/TreasuryApi/tests/TreasuryApi.Tests.csproj" />
+    <Project Path="examples/StoreApi/tests/StoreApi.Tests.csproj" />
     <Project Path="tests/Sendproof.AspNetCore.Tests/Sendproof.AspNetCore.Tests.csproj" />
     <Project Path="tests/Sendproof.EntityFrameworkCore.Tests/Sendproof.EntityFrameworkCore.Tests.csproj" />
     <Project Path="tests/Sendproof.DataStores.Tests/Sendproof.DataStores.Tests.csproj" />

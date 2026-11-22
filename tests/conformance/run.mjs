@@ -66,9 +66,9 @@ if (values.list) {
     const binding = { ...entry, port: entry.port + portOffset };
     assert(Number.isInteger(binding.port) && binding.port >= 1024 && binding.port <= 65535, 'Invalid fixture port');
     await test(binding.id, { timeout: binding.timeoutMs ?? 150000 }, async t => {
-      if (binding.profile === 'treasury') {
-        const { runTreasury } = await import('./treasury.mjs');
-        await withFixture(binding, 'standard', '', request => runTreasury(t, request, schemas));
+      if (binding.profile === 'store') {
+        const { runStore } = await import('./store.mjs');
+        await withFixture(binding, 'standard', '', request => runStore(t, request, schemas));
         return;
       }
       // The data-store reference fixture is not a binding: it implements only the data-store routes and shared rules.
