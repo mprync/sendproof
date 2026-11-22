@@ -107,8 +107,8 @@ public sealed class FirestoreStore : IPreviewDataStore
             return db;
         }
 
-        var client = new FirestoreClientBuilder { CallInvoker = _guard.Mark(FirestoreGuard.InvokerOf(db.Client)) }.Build();
-        return FirestoreGuard.WithClient(db, client);
+        var client = new FirestoreClientBuilder { CallInvoker = _guard.Guard(FirestoreGuard.InvokerOf(db.Client)) }.Build();
+        return _guard.Mark(FirestoreGuard.WithClient(db, client));
     }
 
     /// <summary>
@@ -118,6 +118,6 @@ public sealed class FirestoreStore : IPreviewDataStore
     public CallInvoker Guard(CallInvoker invoker)
     {
         ArgumentNullException.ThrowIfNull(invoker);
-        return _guard.Mark(invoker);
+        return _guard.Guard(invoker);
     }
 }

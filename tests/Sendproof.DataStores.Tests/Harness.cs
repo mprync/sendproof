@@ -77,6 +77,26 @@ public sealed class ServiceFactAttribute : FactAttribute
                         return response.IsSuccessStatusCode || (int)response.StatusCode < 500 ? null : "DynamoDB Local did not answer";
                     }
 
+                case "cassandra":
+                    using (var client = new TcpClient())
+                    {
+                        // An OPTIONS frame (native protocol v4); a ready node answers with SUPPORTED.
+                        var (host, port) = Services.CassandraEndpoint;
+                        client.Connect(host, port);
+                        var stream = client.GetStream();
+                        stream.ReadTimeout = 3000;
+                        stream.Write([0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00]);
+                        var buffer = new byte[16];
+                        return stream.Read(buffer, 0, buffer.Length) >= 9 && buffer[4] == 0x06 ? null : "Cassandra did not answer OPTIONS";
+                    }
+
+                case "opensearch":
+                    {
+                        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+                        using var response = http.GetAsync(Services.OpenSearchUrl + "/_cluster/health?wait_for_status=yellow&timeout=2s").GetAwaiter().GetResult();
+                        return response.IsSuccessStatusCode ? null : "OpenSearch did not answer";
+                    }
+
                 default:
                     return $"Unknown service {service}";
             }
@@ -96,6 +116,10 @@ internal static class Services
     internal const string RedisPassword = "bench_redis_local";
     internal static string MongoUrl { get; } = Environment.GetEnvironmentVariable("BENCH_MONGODB_SERVER_URL") ?? "mongodb://127.0.0.1:57017/?directConnection=true";
     internal static string DynamoUrl { get; } = Environment.GetEnvironmentVariable("BENCH_DYNAMODB_SERVER_URL") ?? "http://127.0.0.1:58000";
+    internal static (string Host, int Port) CassandraEndpoint { get; } = Environment.GetEnvironmentVariable("BENCH_CASSANDRA_SERVER") is { Length: > 0 } server
+        ? (server.Split(':')[0], int.Parse(server.Split(':')[1], System.Globalization.CultureInfo.InvariantCulture))
+        : ("127.0.0.1", 59042);
+    internal static string OpenSearchUrl { get; } = Environment.GetEnvironmentVariable("BENCH_OPENSEARCH_SERVER_URL") ?? "http://127.0.0.1:59200";
     internal static string Fresh(string prefix = "tb") => $"{prefix}_{Guid.NewGuid():N}"[..16];
 }
 

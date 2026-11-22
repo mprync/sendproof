@@ -63,20 +63,15 @@ internal sealed class FirestoreGuard(CaptureContext capture, IReadOnlySet<string
     }
 
     /// <summary>Whether a database sends through this guard's interceptor.</summary>
-    internal bool IsGuarded(FirestoreDb db)
-    {
-        // The interceptor sits inside the CallInvoker wrapper the Intercept extension creates; the wrapper is the marker.
-        var invoker = CallInvokerProperty?.GetValue(db.Client.GrpcClient);
-        return invoker is not null && Guarded.TryGetValue(invoker, out var owner) && ReferenceEquals(owner, this);
-    }
+    internal bool IsGuarded(FirestoreDb db) => _guardedDatabases.TryGetValue(db, out _);
 
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, object> Guarded = new();
+    // The databases this guard created. The client builder may wrap the invoker again, so the database is the marker.
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FirestoreDb, object> _guardedDatabases = new();
 
-    /// <summary>Marks an invoker the guard created, so <see cref="IsGuarded"/> can tell.</summary>
-    internal CallInvoker Mark(CallInvoker invoker)
+    /// <summary>Records a database this guard created, so guarding it again changes nothing.</summary>
+    internal FirestoreDb Mark(FirestoreDb guarded)
     {
-        var guarded = Guard(invoker);
-        Guarded.Add(guarded, this);
+        _guardedDatabases.Add(guarded, this);
         return guarded;
     }
 
