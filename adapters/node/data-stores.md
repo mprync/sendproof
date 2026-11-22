@@ -127,7 +127,9 @@ const search = opensearchStore(new Client({ node: url }), { name: 'search' });
 - Requests are classified by method and endpoint, not by method alone. A `POST` to `_search`, `_msearch`, `_count`, `_mget` or `_field_caps` is a read. `_bulk`, `_update`, `_update_by_query`, `_delete_by_query`, `_reindex`, index and template management and every `PUT` are writes, and so is an endpoint the table doesn't know (except `GET` and `HEAD`).
 - Point-in-time, scroll, async-search and SQL cursor handles are session state: opening and closing them runs and isn't logged.
 - An SQL endpoint (`_sql`, `_plugins/_sql`) is a read only when its body holds one `SELECT`, `SHOW` or `DESCRIBE` statement, or is a cursor page. OpenSearch's legacy SQL can run `DELETE`, so anything else is a write.
-- `client.child()` returns a hooked client with its own transport. OpenSearch re-registers `client.extend()` methods on a child before the child can be hooked; the store registers them again once its transport is guarded.
+- `helpers.bulk` is refused when it is called in a Preview, before it reads a document from its datasource: the helper sends from its own flush timer and retries failures, so a refusal at send time would be retried. The other helpers only read.
+- A refusal is raised above the transport's retry and connection-pool logic, so it never counts as a failed request, marks a node dead or takes it out of rotation.
+- `client.child()` returns a hooked client with its own transport and its own guarded `helpers.bulk`. A child made before the store was registered is not hooked; register the store before making children. OpenSearch re-registers `client.extend()` methods on a child before the child can be hooked; the store registers them again once its transport is guarded.
 - On OpenSearch, `client.extend()` methods registered before the hook bind the unhooked transport, so `opensearchStore` refuses a client that already has any. Register the store first, then extend.
 - A `Db` entry's statement is the request body with every literal replaced by `"?"` (one line per NDJSON line for `_bulk` and `_msearch`). The path isn't logged, because it can hold document ids; `target` is the index. Neither engine has a rollback.
 - Not covered: a second client, and the connection pool used directly (`client.connectionPool`).
@@ -144,8 +146,8 @@ const orders = cosmosStore(new CosmosClient({ endpoint, key }), { name: 'orders'
 ```
 
 - `Read`, `ReadFeed`, `Query` and `QueryPlan` are reads. `Create`, `Upsert`, `Replace`, `Patch`, `Delete`, batches and bulk operations are writes, and so is a stored procedure, even one that only reads, and any request that names a pre-trigger or post-trigger.
-- The `plugins` option is not in the SDK's public documentation. The package pins `@azure/cosmos` to the 4.10 line, `cosmosStore` throws at registration when the client doesn't have the options object it adds the plugin to, and the replay of the recorded requests in `spec/data-stores/recordings/` fails when an SDK upgrade changes what the plugin sees.
-- A `Db` entry's statement is the query text with inline literals replaced by `?` (values are `@` parameters and never logged); documents are never logged. `target` is the container and `namespace` the database. The authorization header and the account key are never read.
+- The `plugins` option is not in the SDK's public documentation. The package pins `@azure/cosmos` to the 4.10 line, `cosmosStore` throws at registration when the client reports another SDK version in its User-Agent or doesn't have the options object it adds the plugin to, a test fails when the pin is loosened, and the replay of the recorded requests in `spec/data-stores/recordings/` fails when an SDK upgrade changes what the plugin sees.
+- A `Db` entry's statement is the query text with inline literals, single- or double-quoted, replaced by `?` (values are `@` parameters and never logged); documents are never logged. `target` is the container and `namespace` the database. The authorization header and the account key are never read.
 - Cosmos DB can only roll back a transactional batch inside one logical partition, so arbitrary handlers can't Preview. A second `CosmosClient` is not covered.
 
 ### Firestore
@@ -161,6 +163,7 @@ const orders = firestoreStore(new Firestore({ projectId }), { name: 'orders' });
 
 - `GetDocument`, `ListDocuments`, `BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `PartitionQuery`, `Listen` and `ListCollectionIds` are reads. `BeginTransaction`, `Rollback` and a `Commit` with no writes run unlogged. A `Commit` is judged by its `writes`, so a `Commit` with any is a write. `BatchWrite` (`BulkWriter`), the `Write` stream, which is refused before its first message, and any method the table doesn't know are writes.
 - `collection()`, `doc()`, batches, transactions and `BulkWriter` send through the instance, so they stay guarded. A transaction that reads, then writes, is refused at its `Commit`; its reads and its rollback run.
+- A `BulkWriter` sends a batch later, from whichever request, flush or backoff timer completes it, so a Preview's write could leave in another request's batch. Its `create`, `set`, `update` and `delete` are refused when the write is queued (the returned promise rejects), for every BulkWriter of a hooked instance, including ones made before the hook and the one `recursiveDelete()` uses.
 - The pool is private SDK API: the package pins the 7.x line, `firestoreStore` throws at registration when the instance has no pool to hook, and a test fails when a new method appears on the SDK's GAPIC client. google-gax drops an `interceptors` client option, and its public `grpc` option loads clients through a process-wide cache that would let a gRPC interceptor miss, or leak onto, other instances.
 - A `Db` entry's statement is the request message as JSON with every literal, document paths included, replaced by `"?"`; `target` is the collection. OAuth tokens and authorization metadata are never read.
 - A second `Firestore` instance, and a GAPIC client made directly from `Firestore.v1`, are not covered. Firestore can roll a transaction back, but only when every read precedes the first write and its reads don't see its own buffered writes, which arbitrary handlers break.
@@ -181,7 +184,7 @@ Every batch-two store needs no extra setup beyond hooking its client. Stores the
 
 Each store write is attributed to the request that sent it. The binding attributes every request a Node HTTP server in the process serves, whatever the framework or middleware order, and Hono's middleware does the same on other runtimes.
 
-While a Preview is open, a store write with no request attribution fails every open Preview with 500: it may be a write of the Preview's that lost its async context, and the binding can't tell. The write itself is not blocked. Wrap background work that writes to a hooked store, such as a queue consumer, a scheduled job or startup seeding, in `detached()`:
+While a Preview is open, a store write with no request attribution may be a write of the Preview's that lost its async context (a client's own timer, a batching writer, a task started without the context), and the binding can't tell. A guarded store can't roll it back, so the write is refused before it is sent, with `PreviewWriteBlockedError`, and every open Preview is blocked (409). Writes MongoDB monitoring sees only after they were sent fail every open Preview with 500 instead. Wrap background work that writes to a hooked store, such as a queue consumer, a scheduled job or startup seeding, in `detached()`:
 
 ```ts
 import { detached } from '@sendproof/core';
@@ -190,7 +193,9 @@ setInterval(() => detached(() => redis.incr('heartbeat')), 60_000);
 queue.on('job', job => detached(() => processJob(job)));
 ```
 
-`detached()` changes nothing inside a request: a Preview's guard still blocks the write, so a handler can't use it to let a write through. With no Preview open, unattributed writes are never reported.
+`detached()` changes nothing inside a request: a Preview's guard still blocks the write, so a handler can't use it to let a write through. A Preview's context stays a Preview's after it ends, so a timer or task its handler started keeps being refused, `detached()` or not, for as long as the process runs. With no Preview open, unattributed writes are sent as usual.
+
+Clients that queue writes and send them later with their own retries and timers (Firestore `BulkWriter`, the Elasticsearch and OpenSearch `helpers.bulk`) are refused when the write is queued, on the caller's context, never at send time, where the client would retry the refusal or send a Preview's write in another request's batch.
 
 ## Mark an operation `preview: false`
 

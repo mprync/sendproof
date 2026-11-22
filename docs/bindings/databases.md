@@ -40,6 +40,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 | Node core and shared assets | — | — | — | — | 17 |
 | Express, Fastify, Hono, NestJS | 13, 15, 11, 10 | — | — | — | — |
 | Node SQLite | 11 | — | — | — | — |
+| Node batch-two stores (guard only) | — | — | — | — | Cassandra 7 and OpenSearch 7 against the `heavy-stores` Compose services (skipped when down); Elasticsearch and OpenSearch 7 more, Cosmos DB 10 and Firestore 11 over fake servers and recordings; classifiers 11 |
 | Knex | 15 | 15 | 15 | 15 | 2 |
 | Drizzle | 10 | 21 | 12 | — | 2 configuration, 10 PGlite |
 | TypeORM | 9 | 10 | 9 | — | 10 |
