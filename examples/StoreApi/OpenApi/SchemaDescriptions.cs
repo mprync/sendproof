@@ -156,8 +156,14 @@ internal static class SchemaDescriptions
                 SetExtension(schema, "x-currency-field", JsonValue.Create("currency")!);
                 SetExtension(schema, "x-sendproof-row", JsonValue.Create("discount")!);
                 break;
-            case (nameof(PlaceOrderRequest), nameof(PlaceOrderRequest.CouponCode) or nameof(PlaceOrderRequest.QuoteId) or nameof(PlaceOrderRequest.Note)):
+            case (nameof(PlaceOrderRequest), nameof(PlaceOrderRequest.QuoteId)):
+                // Optional and left out of the form until it is wanted, so the workbench shows its "add" chip.
+                schema.Title = "Price quote";
+                break;
+            case (nameof(PlaceOrderRequest), nameof(PlaceOrderRequest.CouponCode) or nameof(PlaceOrderRequest.Note)):
+            case (nameof(PlaceOrderRequest), nameof(PlaceOrderRequest.Currency)):
             case (nameof(OrderLineRequest), nameof(OrderLineRequest.Quantity)):
+            case (nameof(CreateShipmentRequest), nameof(CreateShipmentRequest.EstimatedDelivery)):
             case (nameof(Address), nameof(Address.Line2)):
                 SetExtension(schema, "x-sendproof-visible", JsonValue.Create(true)!);
                 break;

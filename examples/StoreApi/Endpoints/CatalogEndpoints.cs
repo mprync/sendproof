@@ -42,7 +42,7 @@ internal static class CatalogEndpoints
     /// Browses the catalogue. This operation is **public**: you do not need to sign in. Shoppers only see `Active`
     /// products; staff can also see `Draft` and `Archived` ones with `status`.
     ///
-    /// - Prices are shown in `currency` (default `USD`). Every product has a price in all eight currencies.
+    /// - Prices are shown in `currency` (default `USD`). Every product has a price in all ten currencies.
     /// - `q` searches the name, brand and tags; `minPrice` and `maxPrice` apply to the lowest variant price.
     /// - Sort by `price`, `rating` or `createdAt`; a leading `-` reverses the order, as in `-price`.
     ///
@@ -117,7 +117,7 @@ internal static class CatalogEndpoints
     /// <summary>Get product</summary>
     /// <remarks>
     /// Returns one product with its description, dimensions and every variant. **Public.** Each variant carries its SKU, its price in
-    /// all eight currencies and how many units can be bought now (`available`). Use a SKU with `CartsController.AddItem` or
+    /// all ten currencies and how many units can be bought now (`available`). Use a SKU with `CartsController.AddItem` or
     /// `OrdersController.Place`.
     /// </remarks>
     /// <param name="id">The product's ID, from `ProductsController.List`.</param>

@@ -10,7 +10,7 @@ namespace StoreApi;
 internal static class DocumentDescriptions
 {
     private const string Overview = """
-        The **Acme Store API** runs an online store: a catalogue of outdoor gear in eight currencies, stock levels in the warehouse, customers and their addresses, carts, orders, payments and refunds, shipments, product reviews and discount coupons. The storefront, the support desk and the warehouse all use it.
+        The **Acme Store API** runs an online store: a catalogue of outdoor gear in ten currencies, stock levels in the warehouse, customers and their addresses, carts, orders, payments and refunds, shipments, product reviews and discount coupons. The storefront, the support desk and the warehouse all use it.
 
         ## An order in one minute
 
@@ -57,7 +57,7 @@ internal static class DocumentDescriptions
     private static readonly (string Name, string Description)[] Tags =
     [
         ("Authentication", "Sign in, sign out and switch between the seeded development personas (store admin, support agent, warehouse and customers). Sessions use a cookie."),
-        ("Catalog", "Browse and search products and categories (public), read a product with its variants and prices in eight currencies, and let admins create and change them. Includes the deprecated v1 search."),
+        ("Catalog", "Browse and search products and categories (public), read a product with its variants and prices in ten currencies, and let admins create and change them. Includes the deprecated v1 search."),
         ("Inventory", "Stock levels per variant, their movements and adjustments, and the reservations that hold stock for carts and orders. Includes the deprecated v1 stock level."),
         ("Customers", "Shopper profiles and their saved shipping and billing addresses. Registration is public; customers can only touch their own records."),
         ("Carts", "A customer's cart: add, change and remove lines (each holds stock for 15 minutes), and quote a price that is cached in Redis for 15 minutes."),

@@ -10,7 +10,7 @@ internal static class Pricing
     private static readonly Dictionary<Currency, decimal> PerUsd = new()
     {
         [Currency.USD] = 1m, [Currency.EUR] = 0.92m, [Currency.GBP] = 0.79m, [Currency.CAD] = 1.37m,
-        [Currency.AUD] = 1.52m, [Currency.SEK] = 10.6m, [Currency.CHF] = 0.88m, [Currency.JPY] = 151m
+        [Currency.AUD] = 1.52m, [Currency.SEK] = 10.6m, [Currency.NOK] = 10.8m, [Currency.DKK] = 6.9m, [Currency.CHF] = 0.88m, [Currency.JPY] = 151m
     };
 
     /// <summary>How many units of a currency one US dollar buys.</summary>

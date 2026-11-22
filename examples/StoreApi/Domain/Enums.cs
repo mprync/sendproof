@@ -22,6 +22,10 @@ public enum Currency
     [Description("Australian dollar")] AUD,
     /// <summary>Swedish krona.</summary>
     [Description("Swedish krona")] SEK,
+    /// <summary>Norwegian krone.</summary>
+    [Description("Norwegian krone")] NOK,
+    /// <summary>Danish krone.</summary>
+    [Description("Danish krone")] DKK,
     /// <summary>Swiss franc.</summary>
     [Description("Swiss franc")] CHF,
     /// <summary>Japanese yen, which has no minor unit.</summary>

@@ -169,12 +169,12 @@ internal static class OrderEndpoints
         if (!string.IsNullOrWhiteSpace(request.CouponCode))
         {
             coupon = await db.Coupons.SingleOrDefaultAsync(c => c.Code == request.CouponCode);
-            var problem = coupon is null ? "No such coupon." : Pricing.CouponProblem(coupon, priced?.Sum(l => l.Line.Value) ?? 0, currency.Value, DateOnly.FromDateTime(DateTime.UtcNow));
+            var problem = coupon is null ? "No such coupon." : Pricing.CouponProblem(coupon, priced.Sum(l => l.Line.Value), currency.Value, DateOnly.FromDateTime(DateTime.UtcNow));
             if (problem is not null) errors["couponCode"] = [problem];
         }
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        var totals = Pricing.Totals(priced!.Sum(l => l.Line.Value), coupon, speed!.Value, currency.Value, customer.Tier, request.ShippingAddress.Country);
+        var totals = Pricing.Totals(priced.Sum(l => l.Line.Value), coupon, speed!.Value, currency.Value, customer.Tier, request.ShippingAddress.Country);
         if (request.QuoteId is { Length: > 0 } quoteId && stores.HasRedis)
         {
             var quote = await stores.ReadQuoteAsync(quoteId);

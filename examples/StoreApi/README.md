@@ -27,7 +27,7 @@ Authentication stays at `/auth/*` (`login`, `me`, `logout`, `personas`, `persona
 | Tag | Operations |
 | --- | --- |
 | Authentication | sign in, current user, sign out, list personas, switch persona |
-| Catalog | list and search products (public), get a product with its variants and prices in eight currencies (public), create, update, list and create categories, and the **deprecated** v1 search |
+| Catalog | list and search products (public), get a product with its variants and prices in ten currencies (public), create, update, list and create categories, and the **deprecated** v1 search |
 | Inventory | stock levels, one level, adjust, movements, reservations, and the **deprecated** `GET /products/{id}/stock` |
 | Customers | list, get, register (public), update, list and add addresses |
 | Carts | get, add, change and remove lines (each holds stock for 15 minutes), and **quote a price** (`preview: false`, it writes Redis) |
@@ -78,7 +78,7 @@ Check it with `curl http://127.0.0.1:5189/sendproof/_api/capabilities` (200, wit
 
 ## Seed data
 
-A new database is filled once with deterministic data (a fixed random seed; dates are relative to the day it is created, so the data is always current): 5 staff and 6 customers with sign-ins, about 26 more customers across Ireland, Germany, the Netherlands, France, the UK, the US, Canada, Australia, Sweden, Switzerland and Japan with saved addresses; 21 categories; 44 products from six fictional brands with about 120 variants, each priced in eight currencies; stock with some variants out of stock and some low; 10 coupons (active, expired, exhausted, switched off); and about 160 orders in every status with payments (card, bank transfer, gift card), refunds, shipments with tracking scans and stock movements, plus open carts that hold stock. `NPK-JKT-BLK-M` always starts with exactly 40 units on hand and none reserved, and `Mia Customer` has no cart. Existing databases are never seeded or recreated.
+A new database is filled once with deterministic data (a fixed random seed; dates are relative to the day it is created, so the data is always current): 5 staff and 6 customers with sign-ins, about 26 more customers across Ireland, Germany, the Netherlands, France, the UK, the US, Canada, Australia, Sweden, Switzerland and Japan with saved addresses; 21 categories; 44 products from six fictional brands with about 120 variants, each priced in ten currencies; stock with some variants out of stock and some low; 10 coupons (active, expired, exhausted, switched off); and about 160 orders in every status with payments (card, bank transfer, gift card), refunds, shipments with tracking scans and stock movements, plus open carts that hold stock. `NPK-JKT-BLK-M` always starts with exactly 40 units on hand and none reserved, and `Mia Customer` has no cart. Existing databases are never seeded or recreated.
 
 ## Reset
 
