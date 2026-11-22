@@ -80,6 +80,7 @@ final class StoresTest extends DoctrineTestCase
         $this->assertSame([['event' => 'kernel.terminate', 'method' => 'onTerminate']], $container->getDefinition($listener)->getTag('kernel.event_listener'));
         $container->getDefinition($listener)->setPublic(true);
         $container->compile();
+        $container->get('app.mongo');
 
         $engine = \Sendproof\Core\Stores\MongoDb\MongoEngine::class;
         $recorder = new Recorder();
@@ -104,6 +105,39 @@ final class StoresTest extends DoctrineTestCase
 
         $without = $this->container(['enabled' => true, 'data_stores' => ['redis' => ['clients' => ['app.redis']]]]);
         $this->assertFalse($without->hasDefinition($listener), 'No MongoDB client, no listener.');
+    }
+
+    /**
+     * The logger is set when the client is hooked, not on the first `kernel.terminate`: a kill the
+     * engine's own shutdown function runs, before any terminate event, reaches the application's
+     * logger too. Here the terminate listener is never built.
+     */
+    public function testTheLoggerIsSetWhenTheMongoClientIsHookedNotOnTheFirstTerminate(): void
+    {
+        $container = $this->container(['enabled' => true, 'data_stores' => ['mongodb' => ['clients' => ['app.mongo']]]]);
+        $container->register('test.log', \Monolog\Handler\TestHandler::class)->setPublic(true);
+        $container->register('logger', \Monolog\Logger::class)->setArguments(['test', [new \Symfony\Component\DependencyInjection\Reference('test.log')]])->setPublic(true);
+        $container->compile();
+
+        $engine = \Sendproof\Core\Stores\MongoDb\MongoEngine::class;
+        $nowhere = new $engine(new \MongoDB\Driver\Manager('mongodb://127.0.0.1:1/?directConnection=true'), new \Sendproof\Core\Stores\Guard(static fn () => new Recorder()));
+        $url = getenv('BENCH_MONGODB_SERVER_URL') ?: 'mongodb://127.0.0.1:57017/?directConnection=true';
+        try {
+            $session = (new MongoClient($url . '&appName=symfony-lost-hook&serverSelectionTimeoutMS=1500'))->getManager()->startSession();
+        } catch (\MongoDB\Driver\Exception\ConnectionException) {
+            $this->markTestSkipped('MongoDB is not answering; start it with: docker compose -f tests/conformance/compose.yml up -d --wait mongodb');
+        }
+        $lost = new \ReflectionProperty($engine, 'lost');
+        $lost->setValue(null, [...$lost->getValue(), [$nowhere, $session, hrtime(true) - 20_000_000_000]]);
+        $id = $engine::lsidHex($session->getLogicalSessionId());
+        try {
+            $container->get('app.mongo');
+            $engine::endLostTransactions();
+        } finally {
+            $engine::useLogger(null);
+        }
+
+        $this->assertTrue($container->get('test.log')->hasWarningThatContains("couldn't end a MongoDB Preview transaction (session {$id})"), 'Hooking the client sent the logger; no terminate event ran.');
     }
 
     public function testListedClientsAreHookedWhenTheContainerBuildsThemAndWritesAreRefused(): void

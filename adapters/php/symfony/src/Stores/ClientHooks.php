@@ -7,6 +7,7 @@ namespace Sendproof\Symfony\Stores;
 use Aws\DynamoDb\DynamoDbClient;
 use MongoDB\Client as MongoClient;
 use Predis\Client as PredisClient;
+use Psr\Log\LoggerInterface;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Stores\DynamoDb\DynamoGuard;
 use Sendproof\Core\Stores\Firestore\FirestoreGuard;
@@ -35,8 +36,11 @@ final class ClientHooks
 {
     private readonly Guard $guard;
 
-    /** @param array<string,array<string,mixed>> $config The `data_stores` configuration */
-    public function __construct(Recorder $recorder, private readonly array $config)
+    /**
+     * @param array<string,array<string,mixed>> $config The `data_stores` configuration
+     * @param ?LoggerInterface $logger The application's logger, which gets a failed MongoDB session kill's warning
+     */
+    public function __construct(Recorder $recorder, private readonly array $config, private readonly ?LoggerInterface $logger = null)
     {
         $this->guard = new Guard(static fn (): Recorder => $recorder);
     }
@@ -77,9 +81,16 @@ final class ClientHooks
         FirestoreGuard::install($client, $this->guard, Guard::readSet($this->config['firestore']['treat_as_read'] ?? null));
     }
 
-    /** Factory for the decorator of a MongoDB client: returns the guarded client. */
+    /**
+     * Factory for the decorator of a MongoDB client: returns the guarded client. It also gives the
+     * engine the application's logger, here and not on the first `kernel.terminate`, so a warning from
+     * any kill of a lost session (the engine's shutdown function included) reaches it.
+     */
     public function mongodb(MongoClient $client): GuardedClient
     {
+        if ($this->logger !== null) {
+            MongoEngine::useLogger($this->logger);
+        }
         $config = $this->config['mongodb'] ?? [];
         $engine = new MongoEngine(
             $client->getManager(),

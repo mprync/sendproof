@@ -34,7 +34,7 @@ final class DataStorePass implements CompilerPassInterface
             return;
         }
 
-        $container->setDefinition(ClientHooks::class, (new Definition(ClientHooks::class, [new Reference(Recorder::class), $stores]))->setPublic(false));
+        $container->setDefinition(ClientHooks::class, (new Definition(ClientHooks::class, [new Reference(Recorder::class), $stores, new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))->setPublic(false));
         $locator = [];
         foreach ($stores as $system => $entry) {
             foreach ($entry['clients'] as $id) {
@@ -54,9 +54,9 @@ final class DataStorePass implements CompilerPassInterface
             }
         }
         if (isset($stores['mongodb'])) {
-            // Kills the sessions of Previews whose abort was lost once each request is done, and sends a
-            // failed kill's warning to the application's logger.
-            $container->setDefinition(MongoLostSessions::class, (new Definition(MongoLostSessions::class, [new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
+            // Kills the sessions of Previews whose abort was lost once each request is done. (A failed
+            // kill's warning goes to the application's logger, which ClientHooks sets with the client.)
+            $container->setDefinition(MongoLostSessions::class, (new Definition(MongoLostSessions::class))
                 ->setPublic(false)
                 ->addTag('kernel.event_listener', ['event' => 'kernel.terminate', 'method' => 'onTerminate']));
         }
