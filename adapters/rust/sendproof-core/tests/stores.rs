@@ -24,7 +24,13 @@ fn spec(store: &str) -> Value {
 
 #[test]
 fn embedded_tables_match_the_spec() {
-    for (store, embedded) in [("redis", tables::REDIS), ("mongodb", tables::MONGODB), ("dynamodb", tables::DYNAMODB)] {
+    for (store, embedded) in [
+        ("redis", tables::REDIS),
+        ("mongodb", tables::MONGODB),
+        ("dynamodb", tables::DYNAMODB),
+        ("cassandra", tables::CASSANDRA),
+        ("elasticsearch", tables::ELASTICSEARCH),
+    ] {
         let copy: Value = serde_json::from_str(embedded).unwrap();
         assert_eq!(copy, spec(store), "{store}: run `node adapters/rust/scripts/embed-store-tables.mjs`");
     }

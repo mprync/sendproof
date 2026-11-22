@@ -22,6 +22,9 @@ pub fn store_name(store: &str) -> &str {
         "mongodb" => "MongoDB",
         "redis" => "Redis",
         "dynamodb" => "DynamoDB",
+        "cassandra" => "Cassandra",
+        "elasticsearch" => "Elasticsearch",
+        "opensearch" => "OpenSearch",
         other => other,
     }
 }

@@ -18,7 +18,9 @@ const lines = [
   '//! fails when a copy differs from the spec file.',
   '',
 ];
-for (const store of ['redis', 'mongodb', 'dynamodb']) {
+// Cosmos DB and Firestore have no official Rust SDK (docs/plans/data-stores.md), so their tables are
+// not embedded: nothing in this binding classifies them.
+for (const store of ['redis', 'mongodb', 'dynamodb', 'cassandra', 'elasticsearch']) {
   const text = readFileSync(new URL(`${store}.json`, spec), 'utf8');
   if (text.includes('"#')) throw new Error(`${store}.json contains a raw-string terminator`);
   lines.push(`/// The shared ${store} classification table, \`spec/data-stores/${store}.json\`.`, `pub const ${store.toUpperCase()}: &str = r#"${text}"#;`, '');
