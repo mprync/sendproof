@@ -59,6 +59,9 @@ internal sealed class MongoEngine
     private static readonly TimeSpan KillFirstDelay = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan KillMaxDelay = TimeSpan.FromSeconds(2);
 
+    // The most one killSessions try may take, server selection included.
+    private static readonly TimeSpan KillTryTimeout = TimeSpan.FromSeconds(2);
+
     // Commands the monitoring specification marks security-sensitive: never logged.
     private static readonly HashSet<string> Sensitive = new(
         ["authenticate", "saslstart", "saslcontinue", "getnonce", "createuser", "updateuser", "copydbgetnonce", "copydbsaslstart", "copydb"],
@@ -759,39 +762,16 @@ internal sealed class MongoEngine
     /// Ends the Preview transaction with <c>killSessions</c> after an abort the server never answered (the connection
     /// dropped), retrying with backoff while the server can't be reached. A final failure is logged with the session id:
     /// the server ends the transaction at its lifetime limit. The session stays open until then, so the driver can't hand
-    /// its id to another operation meanwhile. Each try waits at most the client's server selection timeout.
+    /// its id to another operation meanwhile.
     /// </summary>
     private async Task KillAsync(PreviewState state)
     {
-        string failure;
+        string? failure;
         try
         {
             // The id may still name a transaction on the server: never let the driver's pool reuse it.
             state.Session.WrappedCoreSession.MarkDirty();
-            var command = new BsonDocument("killSessions", new BsonArray { state.Session.WrappedCoreSession.ServerSession.Id.DeepClone() });
-            var started = Stopwatch.GetTimestamp();
-            var delay = KillFirstDelay;
-            while (true)
-            {
-                try
-                {
-                    await InternalAsync(() => Client.GetDatabase("admin").RunCommandAsync<BsonDocument>(command)).ConfigureAwait(false);
-                    return;
-                }
-                catch (Exception unreachable) when (unreachable is MongoConnectionException or TimeoutException)
-                {
-                    // A network error or no server to select: try again shortly.
-                    var left = KillRetryLimit - Stopwatch.GetElapsedTime(started);
-                    if (left <= TimeSpan.Zero)
-                    {
-                        failure = $"MongoDB couldn't be reached for {KillRetryLimit.TotalSeconds:0} s";
-                        break;
-                    }
-
-                    await Task.Delay(delay < left ? delay : left).ConfigureAwait(false);
-                    delay = delay * 2 < KillMaxDelay ? delay * 2 : KillMaxDelay;
-                }
-            }
+            failure = await KillSessionAsync((BsonDocument)state.Session.WrappedCoreSession.ServerSession.Id.DeepClone()).ConfigureAwait(false);
         }
         catch (Exception refused) when (refused is not OutOfMemoryException)
         {
@@ -802,9 +782,55 @@ internal sealed class MongoEngine
             _ = Close(state);
         }
 
+        if (failure is null)
+        {
+            return;
+        }
+
         (Logger ?? NullLogger.Instance).LogWarning(
             "Couldn't end the transaction of MongoDB Preview session {Session} ({Failure}); the server ends it, and releases its locks, at transactionLifetimeLimitSeconds.",
             state.Lsid, failure);
+    }
+
+    /// <summary>
+    /// Sends <c>killSessions</c> for one session id, retrying with backoff while the server can't be reached, for about
+    /// <see cref="KillRetryLimit"/> in all.
+    /// </summary>
+    /// <returns><c>null</c> once the server ended the session, or why it couldn't be ended.</returns>
+    internal async Task<string?> KillSessionAsync(BsonDocument id)
+    {
+        var command = new BsonDocument("killSessions", new BsonArray { id });
+        var started = Stopwatch.GetTimestamp();
+        var delay = KillFirstDelay;
+        while (true)
+        {
+            // Each try has its own short limit, so one that waits for a server never holds the window open.
+            var remaining = KillRetryLimit - Stopwatch.GetElapsedTime(started);
+            var limit = remaining < KillTryTimeout ? remaining : KillTryTimeout;
+            using var attempt = new CancellationTokenSource(limit > TimeSpan.Zero ? limit : TimeSpan.FromMilliseconds(1));
+            try
+            {
+                await InternalAsync(() => Client.GetDatabase("admin").RunCommandAsync<BsonDocument>(command, cancellationToken: attempt.Token)).ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception unreachable) when (unreachable is MongoConnectionException or TimeoutException ||
+                unreachable is OperationCanceledException && attempt.IsCancellationRequested)
+            {
+                // A network error or no server to select: try again shortly.
+                var left = KillRetryLimit - Stopwatch.GetElapsedTime(started);
+                if (left <= TimeSpan.Zero)
+                {
+                    return $"MongoDB couldn't be reached for {KillRetryLimit.TotalSeconds:0} s";
+                }
+
+                await Task.Delay(delay < left ? delay : left).ConfigureAwait(false);
+                delay = delay * 2 < KillMaxDelay ? delay * 2 : KillMaxDelay;
+            }
+            catch (Exception refused) when (refused is not OutOfMemoryException)
+            {
+                return refused.Message;
+            }
+        }
     }
 
     /// <summary>

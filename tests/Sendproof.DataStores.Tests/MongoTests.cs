@@ -686,6 +686,53 @@ public sealed class MongoTests
     }
 
     [ServiceFact("mongodb")]
+    public async Task APreviewWhoseAbortAloneIsLostStillCapturesThenAnswers500AndReleasesItsLocks()
+    {
+        using var proxy = new Proxy(Services.MongoUrl);
+        var succeeded = new ConcurrentQueue<string>();
+        var failed = new ConcurrentQueue<string>();
+        await using var f = await Fixture.StartAsync(url: $"mongodb://127.0.0.1:{proxy.Port}/?directConnection=true&serverSelectionTimeoutMS=1000",
+            settings: settings => settings.ClusterConfigurator = builder => builder
+                .Subscribe<global::MongoDB.Driver.Core.Events.CommandSucceededEvent>(done => succeeded.Enqueue(done.CommandName))
+                .Subscribe<global::MongoDB.Driver.Core.Events.CommandFailedEvent>(done => failed.Enqueue(done.CommandName)));
+        await f.SeedAsync();
+        await f.Documents.UpdateOneAsync(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Set("n", 0));
+        var store = Assert.Single((await f.App.CapabilitiesAsync()).GetProperty("dataStores").EnumerateArray());
+        Assert.Equal("preview", store.GetProperty("mode").GetString());
+        var armed = new System.Diagnostics.Stopwatch();
+        f.Gates.AfterWrite = () =>
+        {
+            // Only the abort is lost: the proxy closes the connection on it, and every other command goes through.
+            proxy.DropAborts = true;
+            succeeded.Clear();
+            armed.Start();
+        };
+        var response = await f.App.PreviewAsync("POST", "/lost-abort");
+        Assert.True(armed.Elapsed < TimeSpan.FromSeconds(6), $"The reply waited: {armed.Elapsed}.");
+        Assert.Contains("find", succeeded);
+        Assert.Contains("abortTransaction", failed);
+        Expect.Unconfirmed(response, HttpStatusCode.InternalServerError);
+
+        // The network is fine, so killSessions ends the transaction straight away.
+        var released = System.Diagnostics.Stopwatch.StartNew();
+        await f.Documents.UpdateOneAsync(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Inc("n", 10)).WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.True(released.Elapsed < TimeSpan.FromSeconds(5), $"The lock was held for {released.Elapsed}.");
+        Assert.Contains("killSessions", succeeded);
+        Assert.Equal(10, (await f.FindAsync("seeded"))!["n"].ToInt32());
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task AKillSessionsTryAgainstAnUnreachableServerNeverHoldsTheRetryWindowOpen()
+    {
+        // Nothing listens here, and the client keeps the driver's default 30-second server selection timeout.
+        await using var f = await Fixture.StartAsync(url: "mongodb://127.0.0.1:1/?directConnection=true");
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var failure = await f.Engine.KillSessionAsync(new BsonDocument("id", new BsonBinaryData(Guid.NewGuid(), GuidRepresentation.Standard)));
+        Assert.Contains("couldn't be reached", failure);
+        Assert.InRange(started.Elapsed, TimeSpan.FromSeconds(9), TimeSpan.FromSeconds(13));
+    }
+
+    [ServiceFact("mongodb")]
     public async Task ANormalPreviewSendsNoKillSessions()
     {
         var names = new ConcurrentQueue<string>();
@@ -936,13 +983,59 @@ public sealed class MongoTests
                         _open.Add(server);
                     }
 
-                    _ = Pump(client, server);
+                    _ = Forward(client, server);
                     _ = Pump(server, client);
                 }
             });
         }
 
         internal int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        /// <summary>While set, a connection that carries an <c>abortTransaction</c> is closed instead, before it reaches the server.</summary>
+        internal bool DropAborts { get; set; }
+
+        /// <summary>Copies the driver's requests to the server message by message, so an abort can be recognised and lost.</summary>
+        private async Task Forward(System.Net.Sockets.TcpClient client, System.Net.Sockets.TcpClient server)
+        {
+            try
+            {
+                var from = client.GetStream();
+                var to = server.GetStream();
+                var header = new byte[4];
+                while (true)
+                {
+                    await from.ReadExactlyAsync(header);
+                    var message = new byte[BitConverter.ToInt32(header)];
+                    header.CopyTo(message, 0);
+                    await from.ReadExactlyAsync(message.AsMemory(4));
+                    if (DropAborts && IsAbort(message))
+                    {
+                        return;
+                    }
+
+                    await to.WriteAsync(message);
+                }
+            }
+            catch (Exception cut) when (cut is IOException or ObjectDisposedException or InvalidOperationException or System.Net.Sockets.SocketException or EndOfStreamException)
+            {
+                // A cut connection.
+            }
+            finally
+            {
+                client.Dispose();
+                server.Dispose();
+            }
+        }
+
+        /// <summary>Whether a wire message is an OP_MSG whose body (section kind 0) starts with <c>abortTransaction</c>.</summary>
+        private static bool IsAbort(byte[] message)
+        {
+            // Header (16 bytes, opCode at 12), flag bits (4), section kind (1), document length (4), element type (1).
+            var name = "abortTransaction\0"u8;
+            const int at = 26;
+            return message.Length >= at + name.Length && BitConverter.ToInt32(message, 12) == 2013 && message[20] == 0 &&
+                message.AsSpan(at, name.Length).SequenceEqual(name);
+        }
 
         private static async Task Pump(System.Net.Sockets.TcpClient from, System.Net.Sockets.TcpClient to)
         {
@@ -969,7 +1062,8 @@ public sealed class MongoTests
             {
                 foreach (var socket in _open)
                 {
-                    socket.Client.Close(0);
+                    // Null once a pump has disposed it.
+                    socket.Client?.Close(0);
                     socket.Dispose();
                 }
 
