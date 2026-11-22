@@ -3,8 +3,9 @@
  *
  * Each store is hooked only when the runner passes its variables, so the standard and alternate
  * scenarios run without any store service. The routes use the clients exactly as an application
- * would: MongoDB through `mongoStore(...).client`, Redis through the hooked ioredis client and
- * DynamoDB through the hooked AWS SDK client.
+ * would: MongoDB through `mongoStore(...).client`, Redis through the hooked ioredis client,
+ * DynamoDB through the hooked AWS SDK client, Cassandra through the hooked `cassandra-driver`
+ * client and OpenSearch through the hooked OpenSearch client's transport.
  */
 import { currentCapture } from '@sendproof/core';
 
@@ -120,14 +121,93 @@ export async function createStoreRoutes({ operation, reply, insertItem }) {
     });
   }
 
-  if (redis || dynamo) {
+  let touchTicket;
+  let touchArticle;
+
+  if (env.BENCH_CASSANDRA_CONTACT_POINT) {
+    const [{ Client }, { cassandraStore }] = await Promise.all([import('cassandra-driver'), import('@sendproof/cassandra')]);
+    const cassandra = new Client({
+      contactPoints: [env.BENCH_CASSANDRA_CONTACT_POINT], localDataCenter: 'datacenter1', keyspace: env.BENCH_CASSANDRA_KEYSPACE,
+    });
+    dataStores.push(cassandraStore(cassandra, { name: 'tickets' }));
+    await cassandra.connect();
+    closers.push(() => cassandra.shutdown());
+    // Every statement is prepared, so the guard classifies the text the route passes and never sees a bound value.
+    const ticket = row => ({ id: row.id, status: row.status ?? null, hits: row.hits ?? 0 });
+    touchTicket = async id => {
+      await cassandra.execute("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)", [id], { prepare: true });
+      return { id, status: 'new', hits: 1 };
+    };
+    operations.push(
+      operation('GET', '/tickets/{id}', async ({ params }) => {
+        const result = await cassandra.execute('SELECT id, status, hits FROM tickets WHERE id = ?', [params.id], { prepare: true });
+        return result.rowLength ? reply(200, ticket(result.first())) : reply(404);
+      }),
+      operation('POST', '/tickets/{id}/touch', async ({ params }) => reply(200, await touchTicket(params.id))),
+      operation('POST', '/tickets/{id}/close', async ({ params }) => {
+        // One logged batch holding a lightweight transaction.
+        await cassandra.batch([{ query: "UPDATE tickets SET status = 'closed' WHERE id = ? IF EXISTS", params: [params.id] }], { prepare: true });
+        return reply(200, { id: params.id, status: 'closed' });
+      }),
+    );
+    unavailableOperation('DELETE', '/tickets/{id}', ['cassandra'], async ({ params }) => {
+      await cassandra.execute('DELETE FROM tickets WHERE id = ?', [params.id], { prepare: true });
+      return reply(204);
+    });
+  }
+
+  if (env.BENCH_OPENSEARCH_URL) {
+    const [{ Client }, { opensearchStore }] = await Promise.all([import('@opensearch-project/opensearch'), import('@sendproof/elasticsearch')]);
+    const search = new Client({ node: env.BENCH_OPENSEARCH_URL });
+    dataStores.push(opensearchStore(search, { name: 'search' }));
+    closers.push(() => search.close());
+    const index = env.BENCH_OPENSEARCH_INDEX;
+    const request = async (method, path, body) => (await search.transport.request({ method, path, ...(body === undefined ? {} : { body }) })).body;
+    const article = (id, source) => ({ id, title: source.title ?? null, views: source.views ?? 0 });
+    touchArticle = async id => {
+      const result = await request('POST', `/${index}/_update/${encodeURIComponent(id)}?refresh=true`, {
+        script: { source: 'ctx._source.views += params.step', params: { step: 1 } }, upsert: { title: 'Untitled', views: 1 }, _source: true,
+      });
+      return article(id, result.get?._source ?? {});
+    };
+    operations.push(
+      operation('GET', '/articles/{id}', async ({ params }) => {
+        // A read sent as a POST: the method alone must not decide.
+        const result = await request('POST', `/${index}/_search`, { query: { ids: { values: [params.id] } }, size: 1 });
+        const hit = result.hits?.hits?.[0];
+        return hit ? reply(200, article(hit._id, hit._source)) : reply(404);
+      }),
+      operation('POST', '/articles/{id}/touch', async ({ params }) => reply(200, await touchArticle(params.id))),
+      operation('POST', '/articles/{id}/hide', async ({ params }) => {
+        // Store errors are swallowed on purpose: the blocked mark, not the response, decides a Preview.
+        let result = null;
+        try {
+          result = await request('POST', `/${index}/_update_by_query?refresh=true`, {
+            query: { ids: { values: [params.id] } }, script: { source: 'ctx._source.hidden = true' },
+          });
+        } catch { /* reported as not found */ }
+        return result?.updated ? reply(200, { id: params.id, hidden: true }) : reply(404);
+      }),
+    );
+    unavailableOperation('DELETE', '/articles/{id}', ['opensearch'], async ({ params }) => {
+      await request('DELETE', `/${index}/_doc/${encodeURIComponent(params.id)}?refresh=true`);
+      return reply(204);
+    });
+  }
+
+  if (redis || dynamo || touchTicket || touchArticle) {
     operations.push(operation('POST', '/items/{id}/remember', async ({ params, body, query }) => {
       if (!text(body?.name)) return reply(400);
       const store = query.get('store');
-      if (store !== 'redis' && store !== 'dynamodb') return reply(400);
+      const writers = {
+        redis: redis && (() => redis.incr(`${env.BENCH_REDIS_PREFIX ?? ''}counter:item-${params.id}`)),
+        dynamodb: dynamo && (() => touch('item-' + params.id)),
+        cassandra: touchTicket && (() => touchTicket('item-' + params.id)),
+        opensearch: touchArticle && (() => touchArticle('item-' + params.id)),
+      };
+      if (!writers[store]) return reply(400);
       await insertItem(params.id, body.name);
-      if (store === 'redis') await redis.incr(`${env.BENCH_REDIS_PREFIX ?? ''}counter:item-${params.id}`);
-      else await touch('item-' + params.id);
+      await writers[store]();
       return reply(201, { id: params.id, name: body.name });
     }));
   }
