@@ -22,6 +22,8 @@ TEST_DEPENDENCIES = [
     "django-ninja", "djangorestframework", "flask-sqlalchemy", "psycopg[binary]", "pymysql",
     # Data-store clients: the hooks in sendproof_core.stores are tested against these.
     "redis", "boto3", "aioboto3", "pymongo", "motor",
+    # Batch two (guard-only): Cassandra, Elasticsearch 8, OpenSearch 2, Cosmos DB and Firestore (which brings grpcio).
+    "cassandra-driver", "elasticsearch>=8,<9", "opensearch-py>=2,<3", "azure-cosmos", "google-cloud-firestore",
 ]
 
 

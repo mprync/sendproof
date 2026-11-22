@@ -26,7 +26,8 @@ are captured too (set the logger level to `INFO` or lower to see them).
 
 ## Data stores
 
-`sendproof_core.stores` holds the write guard and the MongoDB, Redis and DynamoDB hooks that the
+`sendproof_core.stores` holds the write guard and the MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and
+Firestore hooks that the
 framework packages accept as `data_stores`. Each hook imports its client library on first use, so
 the core still needs none of them. See [Data stores in the Python binding](../data-stores.md).
 

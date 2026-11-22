@@ -1,6 +1,6 @@
 # Data stores in the Python binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis and DynamoDB, the Python binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). The hooks live in `sendproof_core.stores`, so the same code serves FastAPI, Flask and Django.
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore, the Python binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). The hooks live in `sendproof_core.stores`, so the same code serves FastAPI, Flask and Django.
 
 | Store | Clients | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,17 +8,24 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | PyMongo, `AsyncMongoClient` | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | redis-py and `redis.asyncio`, including Django's `RedisCache` | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | boto3, aioboto3, botocore | `guard` | Runs reads. The first write stops the Preview. |
+| Cassandra | `cassandra-driver` 3.29 (DataStax; ScyllaDB's fork) | `guard` | Runs reads. The first write, and every `BATCH`, stops the Preview. |
+| Elasticsearch | `elasticsearch` 8: `Elasticsearch`, `AsyncElasticsearch` | `guard` | Runs reads, including `POST` searches. The first write stops the Preview. |
+| OpenSearch | `opensearch-py` 2: `OpenSearch`, `AsyncOpenSearch` | `guard` | Same as Elasticsearch, reported as `opensearch`. |
+| Cosmos DB | `azure-cosmos` 4: `CosmosClient`, `azure.cosmos.aio.CosmosClient` | `guard` | Runs reads and queries. The first write, stored procedure, trigger or batch stops the Preview. |
+| Firestore | `google-cloud-firestore` 2: `Client`, `AsyncClient` | `guard` | Runs reads, queries and listeners. The first write stops the Preview. |
+
+None of the batch-two stores can run in `preview` mode (Cassandra, Elasticsearch and OpenSearch have no rollback; see [Batch two stores](../../spec/data-stores.md#batch-two-stores)), so a Preview of a handler that writes to one answers 409 and never confirms.
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
-Install the client libraries you use; the core imports each hook on first use and needs none of them: `pip install redis`, `pip install boto3` (or `aioboto3`), `pip install pymongo`. The `redis`, `dynamodb` and `mongodb` extras of `sendproof-core` pull them in.
+Install the client libraries you use; the core imports each hook on first use and needs none of them: `pip install redis`, `pip install boto3` (or `aioboto3`), `pip install pymongo`, `pip install cassandra-driver`, `pip install "elasticsearch>=8,<9"`, `pip install "opensearch-py>=2,<3"`, `pip install azure-cosmos`, `pip install google-cloud-firestore`. The `redis`, `dynamodb`, `mongodb`, `cassandra`, `elasticsearch`, `opensearch`, `cosmosdb` and `firestore` extras of `sendproof-core` pull them in.
 
 Motor is not supported: `mongo_store` refuses a Motor client with a `TypeError`. Motor is deprecated in favour of PyMongo's own `AsyncMongoClient`, and it runs PyMongo in a thread pool that drops the Preview's context, so the binding could not attribute a stray write to a Preview. Move to `AsyncMongoClient`; its API is close to Motor's.
 
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you pass to `mongo_store`, `redis_store` or `dynamodb_store`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis Cluster or Sentinel client built without the guarded connection class, a DynamoDB client made from an unhooked session (including `boto3.client(...)`, which uses boto3's default session), and a raw socket. Hook every client your handlers use, at startup. MongoDB is the exception that proves the rule: its command monitor sees every PyMongo client, so a write through an unhooked one during a Preview fails that Preview with 500 instead of passing silently.
+> The binding covers a store only through the client you pass to `mongo_store`, `redis_store`, `dynamodb_store`, `cassandra_store`, `elasticsearch_store`, `opensearch_store`, `cosmosdb_store` or `firestore_store`. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, a Redis Cluster or Sentinel client built without the guarded connection class, a DynamoDB client made from an unhooked session (including `boto3.client(...)`, which uses boto3's default session), a second `Cluster`, `Elasticsearch`, `OpenSearch`, `CosmosClient` or Firestore `Client` you did not hook (and a `cqlengine` connection that builds its own cluster), and a raw socket. The batch-two hooks cover everything derived from the client you pass: every session of a hooked `Cluster`, made before or after, `client.options(...)` copies, the database and container proxies of a `CosmosClient`, and the collections, documents, batches, transactions and `bulk_writer` of a Firestore client. Hook every client your handlers use, at startup. MongoDB is the exception that proves the rule: its command monitor sees every PyMongo client, so a write through an unhooked one during a Preview fails that Preview with 500 instead of passing silently.
 
 ## Background work and writes outside any request
 
@@ -151,6 +158,96 @@ table = session.resource("dynamodb").Table("orders")       # made afterwards: co
 
 Registering on a **session** covers every client and resource made from it afterwards, including the ones aioboto3 makes. Registering on a **client** (or a resource, through its client) covers that client only. A client made before the session was hooked is not covered. Libraries that build their own botocore client, such as PynamoDB, are covered when you hook the botocore session they use; PynamoDB itself is not tested here.
 
+### Cassandra
+
+`cassandra_store(target)` takes a `cassandra-driver` `Cluster` or `Session` and guards it in place. The hook overrides `Session.execute_async`, which `execute`, `execute_concurrent` and the `cqlengine` object mapper all call, so it sees the statement before the driver builds a message and nothing is sent for a refused write.
+
+```python
+from cassandra.cluster import Cluster
+from sendproof_core.stores import cassandra_store
+
+cluster = Cluster(["10.0.0.5"])
+tickets = cassandra_store(cluster, name="tickets")   # before or after cluster.connect(): both are covered
+session = cluster.connect("support")
+```
+
+- A **cluster** covers its sessions: the ones that already exist and every session `connect()` makes afterwards. A **session** covers that session only. A session of another cluster is not covered; hook that cluster too. `cqlengine.connection.setup(...)` builds its own cluster, so build the cluster yourself, hook it and register its session with `connection.set_session(session)`.
+- `SELECT`, `USE`, `DESCRIBE` and the `LIST` statements are reads. `INSERT`, `UPDATE`, `DELETE`, DDL, `GRANT` and `REVOKE` are writes, and so is a conditional statement (`IF NOT EXISTS`, `IF <condition>`) even when its condition fails.
+- Every `BatchStatement` and `BEGIN BATCH` text is a write, an empty one included. `execute_graph_async` (DSE Graph) is a write: the guard can't read Gremlin.
+- A `PreparedStatement` or `BoundStatement` is classified by `prepared_statement.query_string`, the text the driver prepared, so `session.prepare(...)` is allowed and its execution is classified like its text. A string with a second statement after a semicolon, or with an unterminated quote or comment, is a write.
+- A `Db` entry names the statement (`INSERT`), the table and the keyspace, with every string, number, UUID and blob literal replaced by `?` and comments dropped. It is logged when the reply arrives, with the row count of the first page. A batch has no statement text.
+- `cassandra-driver` has no `asyncio` API. From FastAPI call `await asyncio.to_thread(session.execute, ...)`, which keeps the Preview's context.
+
+### Elasticsearch and OpenSearch
+
+`elasticsearch_store(client)` hooks an `elasticsearch` 8 client and `opensearch_store(client)` an `opensearch-py` 2 client, each in place, synchronous or asynchronous. The hook is a `Transport` subclass whose `perform_request` classifies every request by method, path and, for the SQL endpoints, the body, below the typed API and above the HTTP node. Typed methods, `helpers.bulk`, `helpers.scan` and raw `client.perform_request` all pass through it.
+
+```python
+from elasticsearch import Elasticsearch
+from opensearchpy import OpenSearch
+from sendproof_core.stores import elasticsearch_store, opensearch_store
+
+search = Elasticsearch(es_url)
+elasticsearch_store(search, name="search")
+logs = OpenSearch(os_url)
+opensearch_store(logs, name="logs")                  # reported as opensearch
+```
+
+To build the client with the hook instead, create the store alone and pass its transport class: `Elasticsearch(url, transport_class=store.guard_transport_class(Transport))`.
+
+- A `POST` is not a write by itself: `_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, template searches and the other listed endpoints read through a `POST` body. `_bulk`, `_update_by_query`, `_delete_by_query` and `_reindex` always write, even when they match nothing, as do document `PUT`, `POST` and `DELETE`, stored scripts, and every index, alias, template and mapping change. A `GET` or `HEAD` to a path the table does not list reads; any other unlisted request writes.
+- The SQL endpoints (`_sql`, `_plugins/_sql`, `_opendistro/_sql`) read only when the body's `query` is one `SELECT`, `SHOW` or `DESCRIBE`, or fetches the next page of a cursor. OpenSearch's legacy SQL engine can run `DELETE`.
+- Point-in-time, scroll, async-search and SQL-cursor handles are allowed and not logged.
+- `client.options(...)` copies share the hooked transport and stay guarded. A second client is not covered unless you hook it or build it with the guarded transport class.
+- A `Db` entry carries the operation (`search`, `update`), the index and the request body with every value replaced by `?` (field names and operators stay), plus the number of hits or documents the reply reports.
+- `treat_as_read` takes the table's endpoint name, or `METHOD /path` with `{}` for each index or id segment (`POST /{}/_refresh`) for an endpoint the table does not list.
+
+### Cosmos DB
+
+`cosmosdb_store(client)` hooks an `azure-cosmos` 4 `CosmosClient` or `azure.cosmos.aio.CosmosClient` in place, through its azure-core transport:
+
+```python
+from azure.cosmos import CosmosClient
+from sendproof_core.stores import cosmosdb_store
+
+client = CosmosClient(url, credential)
+cosmosdb_store(client, name="orders")
+```
+
+- **Why the transport:** `CosmosClient` builds a fixed policy list, so azure-core's `per_call_policies=` is not honoured (it falls through to the HTTP session and fails). `transport=` is honoured, and every request the SDK sends passes through it after signing and before it is written. A client already built is hooked by swapping its transport's class; the pipeline's private layout (`client_connection.pipeline_client._pipeline._transport`) is checked at registration, and a client whose layout differs is refused with `TypeError` instead of left unguarded. Pin the minor version of `azure-cosmos` and keep the recording test.
+- To build the client with the hook, create the store alone and pass `transport=store.guard_transport(RequestsTransport())`.
+- Each request is classified by method, resource path and the `x-ms-documentdb-isquery`, `x-ms-cosmos-is-query-plan-request`, `x-ms-cosmos-is-batch-request` and `x-ms-documentdb-is-upsert` headers. Reads, queries, query plans and the change feed run. `create_item`, `upsert_item`, `replace_item`, `patch_item`, `delete_item`, transactional and bulk batches, stored-procedure execution (even one that only reads) and any request that names a pre-trigger or post-trigger are writes.
+- Database and container proxies, and `container.scripts`, share the client's one pipeline, so they stay guarded.
+- A `Db` entry names the operation, the container and the database, with the query text's literals replaced by `?` and parameter values never logged.
+- Cosmos DB has no service in the test suite. The hook is proven by replaying the requests recorded in `spec/data-stores/recordings/cosmosdb.json` through it, and by driving the real client against a local HTTP server.
+
+### Firestore
+
+`firestore_store(client)` hooks a `google-cloud-firestore` 2 `Client` or `AsyncClient` in place with a gRPC channel interceptor:
+
+```python
+from google.cloud import firestore
+from sendproof_core.stores import firestore_store
+
+db = firestore.Client()
+firestore_store(db, name="profiles")        # firebase_admin.firestore.client() returns the same Client
+```
+
+- The interceptor sees every call type: unary calls, server streams (`RunQuery`, `BatchGetDocuments`) and bidirectional streams. A `Write` stream is refused when it is opened, before its first message. The asynchronous client needs four interceptors (the `grpc.aio` channel registers an interceptor for one call shape only), and the binding passes all four.
+- `GetDocument`, `ListDocuments`, `BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `PartitionQuery`, `Listen` and `ListCollectionIds` are reads. `BeginTransaction` and `Rollback` are allowed. `Commit` is a write when its request carries a write; a `Commit` with none only ends a transaction that read and wrote nothing, so it is allowed. `BatchWrite`, `Write`, the document RPCs and any method the table does not list are writes.
+- The Python client takes no transport, and the generated transport builds all its stubs from the channel it is given. The hook therefore swaps the client's class for a subclass that builds the transport over an intercepted channel, and clears a client that was already used so the next call rebuilds it guarded. It relies on the private `_firestore_api_helper` of `google-cloud-firestore` 2 and refuses a client without it. An `AsyncClient`'s synchronous copy, which `bulk_writer` uses, is guarded too.
+- `bulk_writer` sends `BatchWrite` from its own threads, which carry no request context. The write can't be refused there, so it fails every open Preview with 500 (see [Background work](#background-work-and-writes-outside-any-request)) instead of claiming a rollback. Write through the client's `batch()` or `set()` in a handler.
+- A `Db` entry names the RPC (`Commit`, `RunQuery`), the collection and the database id, never a value or a query. A gRPC stream is logged when it is opened, without timing.
+- Firestore has no service in the test suite. The hook is proven by replaying `spec/data-stores/recordings/firestore.json` through it, and by driving real clients against a local gRPC server.
+
+### Unsupported
+
+- **Cassandra:** libraries other than `cassandra-driver`. The Cassandra Python driver has no async API; `acsylla` and `aiocassandra` are not hooked.
+- **Elasticsearch and OpenSearch:** `elasticsearch` 7 and 9, `opensearch-py` 1 and 3, `elasticsearch-dsl` and `opensearch-dsl` over an unhooked client, and any other HTTP client, are not covered.
+- **Cosmos DB:** `azure-cosmos` older than 4; the MongoDB, Cassandra, Gremlin and Table APIs of Cosmos DB, which use their own drivers.
+- **Firestore:** Datastore mode and the REST transport; `google-cloud-firestore` 1.
+- **MongoDB:** Motor (see above).
+
 ## Mark an operation `preview: false`
 
 An operation you know writes to a guarded store, such as one that clears a Redis session, can be marked `preview: false`. The workbench then shows "Preview unavailable" with your reason before anyone tries, and a Preview of it is refused (409, never confirmed) without running the handler. Send still runs it. The binding never infers the mark; without it the operation is advertised and the guard decides at run time.
@@ -211,7 +308,7 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command, a container command's subcommand and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Redis entries carry the time to the reply and, for a refused command, the Redis error code only (`WRONGTYPE`, `ERR`), never the rest of the message; redis-py reads one reply per command it sends, so the hook pairs them on each connection. A connection in pub/sub or `MONITOR` mode receives messages nobody asked for, so its commands are logged untimed. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command, a container command's subcommand and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Cassandra statements are the CQL text, Elasticsearch and OpenSearch statements the request body, and Cosmos DB statements the query text, each with every literal replaced by `?`; Firestore entries have no statement. Redis entries carry the time to the reply and, for a refused command, the Redis error code only (`WRONGTYPE`, `ERR`), never the rest of the message; redis-py reads one reply per command it sends, so the hook pairs them on each connection. A connection in pub/sub or `MONITOR` mode receives messages nobody asked for, so its commands are logged untimed. Session commands such as `AUTH` and `hello` are never logged.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{"_id": …}` as `key`, and whole nested documents as `before` and `after`, with BSON types in MongoDB Extended JSON (`{"$oid": …}`, `{"$date": …}`). A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 
@@ -221,9 +318,13 @@ Start the services, then run the Python suite (the store tests skip, with the co
 
 ```sh
 docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb
+docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch   # about 3 GB
 python3 adapters/python/scripts/prepare.py
 adapters/python/.venv/bin/python -m pytest adapters/python -q
 node tests/conformance/run.mjs python-fastapi        # python-django, python-flask, python-flask-sqlalchemy
+BENCH_STORES=mongodb,redis,dynamodb node tests/conformance/run.mjs python-flask   # without the heavy stores
 ```
+
+The Cassandra and OpenSearch tests skip, with the command in the reason, when their services are down. Cosmos DB and Firestore need no service, and the Elasticsearch tests run over a stand-in node.
 
 `scripts/embed_store_tables.py` regenerates `core/src/sendproof_core/stores/tables.py` from `spec/data-stores/`; a unit test fails when the two differ.

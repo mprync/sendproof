@@ -22,8 +22,10 @@ unless you opt in.
 
 ## Data stores
 
-Preview also covers MongoDB (rolled back in its own transaction), Redis and DynamoDB (writes are
-blocked), for PyMongo, `AsyncMongoClient`, redis-py, `redis.asyncio`, boto3 and aioboto3 (Motor is refused). See
+Preview also covers MongoDB (rolled back in its own transaction), Redis, DynamoDB, Cassandra, Elasticsearch,
+OpenSearch, Cosmos DB and Firestore (writes are blocked), for PyMongo, `AsyncMongoClient`, redis-py,
+`redis.asyncio`, boto3, aioboto3, `cassandra-driver`, `elasticsearch` 8, `opensearch-py` 2, `azure-cosmos` 4 and
+`google-cloud-firestore` 2 (Motor is refused). See
 [Data stores in the Python binding](data-stores.md) for setup, `@preview(False, reason=...)` and the
 coverage warning: only hooked clients are covered.
 

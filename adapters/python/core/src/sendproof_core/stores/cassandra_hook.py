@@ -26,7 +26,7 @@ from typing import Any, Iterable, Optional
 
 from ..scope import RequestScope
 from .base import DataStore
-from .classify import READ, SESSION, WRITE
+from .classify import SESSION, WRITE
 from .classify_batch_two import Verdict, classify_cassandra, cql_target, sanitize_cql
 from .guard import check_command, read_set, store_label
 

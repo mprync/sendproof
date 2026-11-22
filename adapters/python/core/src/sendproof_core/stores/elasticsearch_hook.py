@@ -31,10 +31,9 @@ import json
 import time
 from typing import Any, Iterable, Mapping, Optional
 
-from ..scope import RequestScope
 from .base import DataStore
 from .classify import SESSION
-from .classify_batch_two import Verdict, classify_elasticsearch, elasticsearch_target
+from .classify_batch_two import classify_elasticsearch, elasticsearch_target
 from .guard import check_command, read_set, sanitize_document, store_label
 
 
