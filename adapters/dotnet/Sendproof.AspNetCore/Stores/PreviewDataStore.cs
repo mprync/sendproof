@@ -129,7 +129,8 @@ internal static class DataStoreGuard
     {
         if (kind == CommandKind.Write)
         {
-            capture.ReportWrite(store, operation);
+            // A write with no request attribution while a Preview is open is refused before it is sent.
+            capture.RefuseUnattributedWrite(store, operation);
         }
 
         if (kind != CommandKind.Write || capture.Current is not { InPreview: true } preview)

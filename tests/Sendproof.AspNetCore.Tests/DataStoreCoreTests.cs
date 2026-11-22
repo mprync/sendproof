@@ -361,20 +361,23 @@ public sealed class DataStoreCoreTests
     }
 
     [Fact]
-    public async Task AWriteWithNoRequestAttributionFailsEveryOpenPreviewUnlessDetached()
+    public async Task AWriteWithNoRequestAttributionIsRefusedBeforeItIsSentAndBlocksEveryOpenPreviewUnlessDetached()
     {
         await using var host = await StoreHost.StartAsync();
         var capture = host.Capture;
 
-        // A background worker (nothing flows its request context to it) writes while a Preview is open.
+        // A background worker (nothing flows its request context to it) writes while a Preview is open: the guard refuses it
+        // before it is sent, and the open Preview answers 409 rather than being failed after the write landed.
         host.HoldPreview = new TaskCompletionSource();
         host.PreviewOpen = new TaskCompletionSource();
         var pending = host.PreviewAsync("POST", "/hold");
         await host.PreviewOpen.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await Detached(() => capture.Check("redis", "INCR", CommandKind.Write));
+        var refused = await Assert.ThrowsAsync<PreviewWriteBlockedException>(() => Detached(() => capture.Check("redis", "INCR", CommandKind.Write)));
+        Assert.Equal(("redis", "INCR"), (refused.Store, refused.Operation));
         host.HoldPreview.SetResult();
         using var failed = await pending;
-        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, failed.StatusCode);
+        Assert.Equal("INCR", (await failed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("operation").GetString());
         Assert.False(failed.Headers.Contains("Preference-Applied"));
 
         // Marked detached (a worker that never belongs to a request), the same write leaves the Preview alone.
