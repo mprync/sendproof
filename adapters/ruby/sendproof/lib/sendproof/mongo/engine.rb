@@ -283,8 +283,8 @@ module Sendproof
           end
         elsif classification.kind == :write
           # Not this request's Preview: a write from outside any request is refused before it is sent while
-          # a Preview is open. It blocks every open Preview, or in preview mode fails them with 500.
-          Attribution.refuse_unattributed("mongodb", name, fault: @detected&.dig(:mode) == :preview)
+          # a Preview is open, and blocks every open Preview (409) in either mode, since nothing was sent.
+          Attribution.refuse_unattributed("mongodb", name)
         end
         return if classification.kind == :session || SENSITIVE.include?(lower)
 

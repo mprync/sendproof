@@ -418,15 +418,22 @@ class MongoHookTest < Minitest::Test
   end
 
   # A thread the handler starts carries no request: its write can't join the Preview transaction, so it is
-  # refused before it is sent and the Preview fails with 500 rather than confirm. The same write marked
-  # detached is background work and runs.
-  def test_a_write_from_a_thread_the_handler_started_is_refused_and_fails_the_preview
+  # refused before it is sent. Nothing reached MongoDB, so even in preview mode the Preview is blocked (409),
+  # not failed (spec/data-stores.md). The same write marked detached is background work and runs.
+  def test_a_write_from_a_thread_the_handler_started_is_refused_and_blocks_the_preview
     recorder = preview([@store]) do |_|
-      Thread.new { assert_raises(Sendproof::PreviewTransactionControl) { @raw[:documents].insert_one(_id: "threaded") } }.join
+      Thread.new { assert_raises(Sendproof::PreviewWriteBlocked) { @raw[:documents].insert_one(_id: "threaded") } }.join
     end
-    refute_nil recorder.fault
-    assert_match(/thread or fiber the Preview's handler started/, recorder.fault.message)
+    assert_equal :preview, @store.describe[:mode]
+    assert_equal %w[mongodb insert], [recorder.blocked&.store, recorder.blocked&.operation]
+    assert_nil recorder.fault, "a write refused before sending never answers 500"
     assert_empty stored(_id: "threaded"), "the unattributed write never reached MongoDB"
+    background = preview([@store]) do |_|
+      Thread.new { Sendproof::Capture.without_inherited { assert_raises(Sendproof::PreviewWriteBlocked) { @raw[:documents].insert_one(_id: "background") } } }.join
+    end
+    assert_equal "insert", background.blocked&.operation, "a write with no context at all blocks every open Preview too"
+    assert_nil background.fault
+    assert_empty stored(_id: "background")
     detached = preview([@store]) { |_| Thread.new { Sendproof.detached { @raw[:documents].insert_one(_id: "worker") } }.join }
     assert_nil detached.fault
     assert_equal 1, stored(_id: "worker").length
@@ -446,7 +453,7 @@ class MongoHookTest < Minitest::Test
       end
     end
     go << true
-    assert_kind_of Exception, worker.value, "the late write must be refused"
+    assert_kind_of Sendproof::PreviewWriteBlocked, worker.value, "the late write must be refused before it is sent"
     assert_empty stored(_id: "late")
   end
 

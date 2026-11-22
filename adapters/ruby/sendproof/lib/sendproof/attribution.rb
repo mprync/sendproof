@@ -6,8 +6,8 @@ module Sendproof
   # A store hook finds its request through {Capture}, which is thread- and fiber-local: a write sent from
   # a thread or fiber the handler started, or from a client's own background threads (Firestore's
   # +BulkWriter+), carries no request. While any Preview is open such a write is treated as that Preview's
-  # write: it is refused before it is sent, and every open Preview is blocked, or for a +preview+-mode
-  # store fails with 500 (spec/data-stores.md, "Writes the binding can't attribute to a request").
+  # write: it is refused before it is sent, and every open Preview is blocked (409) whatever the store's
+  # mode (spec/data-stores.md, "Writes the binding can't attribute to a request").
   #
   # A write is attributed when it runs inside a Preview or observed send, inside any request that passed
   # through {Middleware}, or inside {Sendproof.detached}, the mark for background work such as a job
@@ -40,19 +40,19 @@ module Sendproof
       end
 
       # Called by a store hook, before it sends, for each write outside a Preview. A write that belongs to
-      # no request while a Preview is open is refused: every open Preview is marked blocked (409), or with
-      # +fault: true+, for a +preview+-mode store, fails with 500, and the error is raised so the write is
-      # never sent. Does nothing for an attributed write or when no Preview is open.
+      # no request while a Preview is open is refused, and the error is raised so the write is never sent.
+      # Every open Preview is marked blocked (409), whatever the store's mode: nothing reached the store, so
+      # there is nothing a rollback could have missed. Does nothing for an attributed write or when no
+      # Preview is open.
       #
       # @param store [String] the store id, such as +"redis"+
       # @param operation [String] the command or action name
-      # @param fault [Boolean] fail the open Previews with 500 instead of blocking them
-      # @raise [PreviewWriteBlocked, PreviewTransactionControl] when the write is refused
-      def refuse_unattributed(store, operation, fault: false)
+      # @raise [PreviewWriteBlocked] when the write is refused
+      def refuse_unattributed(store, operation)
         return if attributed?
 
         inherited = Capture.inherited_preview
-        return refuse_inherited(inherited, store, operation, fault) if inherited
+        return refuse_inherited(inherited, store, operation) if inherited
 
         open = @lock.synchronize { @open.keys }
         return if open.empty?
@@ -60,11 +60,6 @@ module Sendproof
         why = "A #{Stores::Guard.store_name(store)} #{operation} was sent outside any request while a Preview ran " \
               "(from a thread or fiber the handler started, or from background work), so Sendproof refused it: it can't " \
               "tell it apart from the Preview's own writes. Mark background work with Sendproof.detached."
-        if fault
-          open.each { |recorder| recorder.refuse(PreviewTransactionControl.new(why)) }
-          raise PreviewTransactionControl, why
-        end
-
         reason = Stores::Guard.write_reason(store)
         open.each do |recorder|
           recorder.block(store: store, operation: operation, detail: reason)
@@ -76,26 +71,18 @@ module Sendproof
       private
 
       # A write from a thread or fiber a Preview's handler started: it is that Preview's write. While the
-      # Preview is open it blocks it (or, with +fault+, fails it with 500); once it ended, it is refused
-      # for as long as the thread lives, since nothing could take it back.
-      def refuse_inherited(recorder, store, operation, fault)
+      # Preview is open it blocks it (409); once it ended, it is refused for as long as the thread lives,
+      # since nothing could take it back.
+      def refuse_inherited(recorder, store, operation)
         reason = Stores::Guard.write_reason(store)
         if recorder.active?
-          why = "A #{Stores::Guard.store_name(store)} #{operation} was sent from a thread or fiber the Preview's handler started, " \
-                "outside the Preview's own session, so Sendproof refused it."
-          if fault
-            recorder.refuse(PreviewTransactionControl.new(why))
-            raise PreviewTransactionControl, why
-          end
           recorder.block(store: store, operation: operation, detail: reason)
           recorder.db(system: store, operation: operation, blocked: true)
-          raise PreviewWriteBlocked.new(store, operation, reason)
+          raise PreviewWriteBlocked.new(store, operation, "#{reason}. It was sent from a thread or fiber the Preview's handler started.")
         end
 
         why = "A #{Stores::Guard.store_name(store)} #{operation} was sent from a thread or fiber a Preview's handler started, " \
               "after that Preview ended, so Sendproof refused it. Mark background work with Sendproof.detached."
-        raise PreviewTransactionControl, why if fault
-
         raise PreviewWriteBlocked.new(store, operation, "#{reason}. #{why}")
       end
 
