@@ -3,6 +3,7 @@ package mongobench
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/mprync/sendproof/adapters/go/sendproof"
@@ -10,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 )
 
 // sensitive commands are marked security-sensitive by the command monitoring
@@ -103,6 +105,12 @@ func (s *Store) started(ctx context.Context, e *event.CommandStartedEvent) {
 	kind := stores.ClassifyMongo(command, s.reads).Kind
 	inPreview := sendproof.IsPreview(ctx)
 	state := s.previewOf(ctx)
+	if state != nil && state.session != nil && commandSession(e.Command) == state.lsid {
+		// From here on the server may hold the transaction until an abort reaches it.
+		state.mu.Lock()
+		state.sent = true
+		state.mu.Unlock()
+	}
 	switch {
 	case inPreview && endsTransaction(lowerName):
 		// Sent around the guarded handles, for example through a raw client: it may
@@ -142,10 +150,7 @@ func (s *Store) started(ctx context.Context, e *event.CommandStartedEvent) {
 // watchWrite handles a write seen during a Preview: it collects change candidates,
 // or trips when the write did not run in the Preview's transaction.
 func (s *Store) watchWrite(ctx context.Context, state *preview, e *event.CommandStartedEvent, lowerName string) {
-	lsid := ""
-	if value, err := e.Command.LookupErr("lsid"); err == nil && value.Type == bson.TypeEmbeddedDocument {
-		lsid, _ = sessionID(value.Document())
-	}
+	lsid := commandSession(e.Command)
 	autocommit, hasAutocommit := e.Command.Lookup("autocommit").BooleanOK()
 	// Only a command inside the Preview transaction (its lsid and autocommit: false)
 	// rolls back. The binding cannot undo anything else: never claim a rollback.
@@ -217,6 +222,47 @@ func (s *Store) watchWrite(ctx context.Context, state *preview, e *event.Command
 			}
 		}
 	}
+}
+
+// commandSession is the session id a command carries in its lsid, or "".
+func commandSession(command bson.Raw) string {
+	lsid := ""
+	if value, err := command.LookupErr("lsid"); err == nil && value.Type == bson.TypeEmbeddedDocument {
+		lsid, _ = sessionID(value.Document())
+	}
+	return lsid
+}
+
+// noSuchTransaction is the code of NoSuchTransaction: the server has no such
+// transaction, so nothing holds its locks.
+const noSuchTransaction = 251
+
+// abortAnswered notes, on the engine's own abortTransaction, that the server
+// answered it: acknowledged, or no such transaction. The driver hides that outcome.
+func abortAnswered(ctx context.Context, name string, failure error) {
+	acknowledged, _ := ctx.Value(abortKey{}).(*atomic.Bool)
+	if acknowledged == nil || name != "abortTransaction" {
+		return
+	}
+	// A network error proves nothing reached the server; only a server reply counts.
+	if code, answered := replyCode(failure); failure == nil || answered && code == noSuchTransaction {
+		acknowledged.Store(true)
+	}
+}
+
+// replyCode is the server's error code in a command monitoring failure, and whether
+// the server answered at all. Monitoring hands over the driver's own error type, not
+// the mongo.CommandError a call returns.
+func replyCode(failure error) (int32, bool) {
+	var raw driver.Error
+	if errors.As(failure, &raw) {
+		return raw.Code, raw.Code != 0 && !raw.NetworkError()
+	}
+	var command mongo.CommandError
+	if errors.As(failure, &command) {
+		return command.Code, command.Code != 0 && !command.HasErrorLabel("NetworkError")
+	}
+	return 0, false
 }
 
 func splitNamespace(ns, fallback string) (database, collection string) {
@@ -291,6 +337,7 @@ func (s *Store) take(requestID int64) *pendingCommand {
 
 func (s *Store) succeeded(ctx context.Context, e *event.CommandSucceededEvent) {
 	defer s.recovered(ctx)
+	abortAnswered(ctx, e.CommandName, nil)
 	pending := s.take(e.RequestID)
 	if pending == nil {
 		return
@@ -348,14 +395,14 @@ func (p *preview) noteReply(pending *pendingCommand, reply bson.Raw) {
 
 func (s *Store) failed(ctx context.Context, e *event.CommandFailedEvent) {
 	defer s.recovered(ctx)
+	abortAnswered(ctx, e.CommandName, e.Failure)
 	pending := s.take(e.RequestID)
 	if pending == nil {
 		return
 	}
 	// The server refused something a transaction cannot do and applied nothing: a
 	// block, not a crash.
-	var server mongo.ServerError
-	if pending.preview != nil && errors.As(e.Failure, &server) && server.HasErrorCode(263) {
+	if code, answered := replyCode(e.Failure); pending.preview != nil && answered && code == 263 {
 		sendproof.BlockPreview(pending.ctx, system, pending.name, refusedReason(pending.name))
 	}
 	s.log(pending, e.Duration, sendproof.UnknownRows, errorName(e.Failure))
@@ -363,6 +410,11 @@ func (s *Store) failed(ctx context.Context, e *event.CommandFailedEvent) {
 
 // errorName is the server's error code name, such as WriteConflict.
 func errorName(err error) string {
+	// Monitoring hands over the driver's own error type.
+	var raw driver.Error
+	if errors.As(err, &raw) && raw.Name != "" {
+		return raw.Name
+	}
 	var command mongo.CommandError
 	if errors.As(err, &command) && command.Name != "" {
 		return command.Name

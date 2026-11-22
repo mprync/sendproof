@@ -17,8 +17,9 @@ var absentAtStart = []int{26, 246}
 
 // Finish runs after the handler: it captures the document changes, then aborts the
 // transaction and ends the session. A capture read that fails for any reason but an
-// already-aborted transaction fails the Preview with 500, after the abort. Nothing
-// the Preview wrote is ever committed: no commitTransaction is sent for the session.
+// already-aborted transaction fails the Preview with 500, after the abort, as does an
+// abort the server never acknowledged. Nothing the Preview wrote is ever committed:
+// no commitTransaction is sent for the session.
 func (p *preview) Finish(ctx context.Context) error {
 	if p.session == nil {
 		return nil // guard mode: nothing to capture or abort
@@ -38,7 +39,10 @@ func (p *preview) Finish(ctx context.Context) error {
 			failure = nil
 		}
 	}
-	p.end()
+	if !p.end() && failure == nil {
+		// The server may still hold the transaction's locks; the session is killed in the background.
+		failure = errors.New("mongobench: MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed")
+	}
 	return failure
 }
 

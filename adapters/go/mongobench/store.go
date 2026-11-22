@@ -36,7 +36,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mprync/sendproof/adapters/go/sendproof"
@@ -54,6 +56,11 @@ const system = "mongodb"
 // StandaloneReason is the reason a standalone server, or any reply the binding
 // does not recognise, runs in guard mode.
 const StandaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions"
+
+// UnreachableReason is the reason when the detection hello could not be sent or
+// answered: whether the server supports transactions is unknown, so the store runs
+// in guard mode for now and detects again on the next Preview.
+const UnreachableReason = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode"
 
 // DefaultPreviewTimeout is below the server's 60-second transactionLifetimeLimitSeconds,
 // so the binding, not the server, ends a Preview whose handler runs too long.
@@ -197,13 +204,18 @@ func (s *Store) detect(ctx context.Context) detection {
 		return *cached
 	}
 	if client == nil {
-		return detection{mode: sendproof.ModeGuard, reason: StandaloneReason}
+		return detection{mode: sendproof.ModeGuard, reason: UnreachableReason}
 	}
 	ctx, cancel := context.WithTimeout(context.WithValue(internal(ctx), probeKey{}, s), 10*time.Second)
 	defer cancel()
 	var hello bson.M
 	if err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
-		return detection{mode: sendproof.ModeGuard, reason: StandaloneReason}
+		// A server that answered with an error is one the binding doesn't recognise;
+		// one that never answered may support transactions or not.
+		if serverAnswered(err) {
+			return detection{mode: sendproof.ModeGuard, reason: StandaloneReason}
+		}
+		return detection{mode: sendproof.ModeGuard, reason: UnreachableReason}
 	}
 	_, replicaSet := hello["setName"]
 	sharded := hello["msg"] == "isdbgrid"
@@ -236,7 +248,11 @@ type preview struct {
 	mu       sync.Mutex
 	session  *mongo.Session
 	lsid     string
-	used     bool // a command carried the session to the server
+	used     bool // a write carried the session to the server
+	// sent is set once any command carried the session towards the server: from
+	// then on the server may hold the transaction, and its locks, until an abort
+	// reaches it.
+	sent     bool
 	finished bool
 	timer    *time.Timer
 	// inflight is held for reading by every guarded call that carries the session
@@ -307,14 +323,34 @@ func (s *Store) BeginPreview(ctx context.Context) (sendproof.StorePreview, error
 // windowHooks are test hooks (see export_test.go); both are nil in production.
 var windowHooks struct{ afterCheck, afterAbort func() }
 
-// end aborts the Preview transaction and ends its session, once. The driver ignores
-// abort errors, as the transactions specification requires; an unacknowledged abort
-// still commits nothing, because no commitTransaction is ever sent for the session.
-func (p *preview) end() {
+// How long the store keeps trying to end a Preview transaction whose abort the
+// server never acknowledged, and the backoff between tries: well inside the
+// server's 60-second lifetime limit.
+const (
+	killRetryLimit = 10 * time.Second
+	killFirstDelay = 100 * time.Millisecond
+	killMaxDelay   = 2 * time.Second
+)
+
+// abortKey marks the context of the engine's own abortTransaction. Its value is set
+// by the monitor when the server answered the abort.
+type abortKey struct{}
+
+// end aborts the Preview transaction and ends its session, once. It reports
+// whether the transaction is known to be over.
+//
+// The driver ignores abort errors, as the transactions specification requires: an
+// unacknowledged abort still commits nothing, because no commitTransaction is ever
+// sent for the session. But the server then keeps the transaction, and its locks,
+// until its 60-second lifetime limit. So when a command was sent on the session and
+// the server never answered the abort (the connection dropped), end returns false
+// at once, and the Preview answers 500, while the session is killed in the
+// background.
+func (p *preview) end() bool {
 	p.mu.Lock()
 	if p.finished {
 		p.mu.Unlock()
-		return
+		return true
 	}
 	p.finished = true
 	session := p.session
@@ -322,20 +358,78 @@ func (p *preview) end() {
 		p.timer.Stop()
 	}
 	p.mu.Unlock()
-	if session != nil {
-		// Calls that passed the ended check finish inside the transaction first; later ones are refused.
-		p.inflight.Lock()
-		defer p.inflight.Unlock()
-		ctx := internal(context.Background())
-		_ = session.AbortTransaction(ctx)
-		if hook := windowHooks.afterAbort; hook != nil {
-			hook()
-		}
-		session.EndSession(ctx)
+	if session == nil {
+		return true
 	}
+	// Calls that passed the ended check finish inside the transaction first; later ones are refused.
+	p.inflight.Lock()
+	defer p.inflight.Unlock()
+	acknowledged := &atomic.Bool{}
+	ctx := internal(context.Background())
+	_ = session.AbortTransaction(context.WithValue(ctx, abortKey{}, acknowledged))
+	if hook := windowHooks.afterAbort; hook != nil {
+		hook()
+	}
+	p.mu.Lock()
+	sent := p.sent
+	p.mu.Unlock()
+	if sent && !acknowledged.Load() {
+		go p.kill(session)
+		return false
+	}
+	session.EndSession(ctx)
+	return true
 }
 
-// Close releases the session. It is always called.
+// kill ends a Preview transaction whose abort the server never acknowledged with
+// killSessions, retrying with backoff while the server can't be reached. A final
+// failure is logged with the session id: the server then ends the transaction at
+// its lifetime limit. The session is ended only afterwards, so the driver can't
+// hand its id to another operation meanwhile.
+func (p *preview) kill(session *mongo.Session) {
+	defer session.EndSession(internal(context.Background()))
+	ctx, cancel := context.WithTimeout(internal(context.Background()), killRetryLimit)
+	defer cancel()
+	failure := fmt.Sprintf("MongoDB couldn't be reached for %s", killRetryLimit)
+	delay := killFirstDelay
+	for {
+		err := p.store.client.Database("admin").RunCommand(ctx, bson.D{{Key: "killSessions", Value: bson.A{session.ID()}}}).Err()
+		if err == nil {
+			return
+		}
+		if serverAnswered(err) {
+			failure = err.Error()
+			break
+		}
+		// A network error or no server to select: try again shortly.
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		delay = min(delay*2, killMaxDelay)
+	}
+	slog.Warn("mongobench: couldn't end a MongoDB Preview transaction; the server ends it, and releases its locks, at transactionLifetimeLimitSeconds",
+		"session", p.lsid, "failure", failure)
+}
+
+// serverAnswered reports whether the server itself answered with err, rather than
+// the driver failing to reach it.
+func serverAnswered(err error) bool {
+	var server mongo.ServerError
+	if !errors.As(err, &server) || mongo.IsNetworkError(err) || mongo.IsTimeout(err) {
+		return false
+	}
+	var command mongo.CommandError
+	return !errors.As(err, &command) || command.Code != 0
+}
+
+// Close releases the session. It is always called. A Preview dropped before Finish
+// whose abort is lost still has its session killed in the background.
 func (p *preview) Close() error {
 	p.end()
 	return nil
