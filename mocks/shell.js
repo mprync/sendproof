@@ -36,7 +36,8 @@
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-    bench: '<path d="M4 9h16"/><path d="M6 9V5h12v4"/><path d="M7 9v10M17 9v10"/>',
+    // The Sendproof mark (docs/images/logo): a faint preview dart behind the solid send dart.
+    mark: '<g fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M1.5 5 7.57 8.15 9.11 12 7.57 15.85 1.5 19 4.3 12z" style="opacity:var(--mark-ghost,.4)"/><path d="M9 5 22.5 12 9 19 11.8 12z"/></g>',
     shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
     undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
@@ -123,7 +124,7 @@
   if (top) top.outerHTML = `
   <header class="topbar">
     <button class="btn btn-ghost btn-icon mobile-only" aria-label="Open operations">${ico('menu')}</button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span><span class="desktop-only">Sendproof</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('mark')}</span><span class="desktop-only">Sendproof</span></div>
     <span class="crumb-sep desktop-only" aria-hidden="true">/</span>
     <button class="api-switch" aria-haspopup="listbox"><span lang="en">Acme Store API</span> <span class="ver">v1.0.0</span>${ico('chevrons-ud', 'i i-sm')}</button>
     <button class="env desktop-only" aria-haspopup="listbox"><span class="dot" aria-hidden="true"></span><strong>${t('env')}</strong><span class="ltr">store-demo.db</span>${ico('chevron-down', 'i i-sm')}</button>

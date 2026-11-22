@@ -11,7 +11,7 @@
     app.outerHTML = `
     <div class="sign-page">
       <header class="bar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span>Sendproof</div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('mark')}</span>Sendproof</div>
         <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="desktop-only" lang="en">Acme Store API</span>
         <span class="spacer"></span>
         <span class="pill pill-ok desktop-only"><span class="dot" aria-hidden="true"></span>Development · <span class="ltr">store-demo.db</span></span>
