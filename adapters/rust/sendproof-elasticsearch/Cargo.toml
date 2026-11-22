@@ -1,0 +1,38 @@
+[package]
+name = "sendproof-elasticsearch"
+description = "Elasticsearch and OpenSearch write guard for Sendproof: a Preview reads the cluster normally and is stopped before the first write is sent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[features]
+# Both clients are on by default; an application that uses one turns the other off with
+# `default-features = false, features = ["opensearch"]` (or `"elasticsearch"`).
+default = ["elasticsearch", "opensearch"]
+# The guard for the official `elasticsearch` crate.
+elasticsearch = ["dep:elasticsearch"]
+# The guard for the official `opensearch` crate.
+opensearch = ["dep:opensearch"]
+# The `Elasticsearch` and `OpenSearch` handles as Axum extractors (`Store: FromRef<State>`).
+axum = ["dep:axum"]
+# The handles as Actix Web extractors (`web::Data<Store>` in `app_data`).
+actix = ["dep:actix-web"]
+
+[dependencies]
+sendproof-core.workspace = true
+http.workspace = true
+serde.workspace = true
+bytes = "1"
+elasticsearch = { workspace = true, optional = true }
+opensearch = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+actix-web = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }

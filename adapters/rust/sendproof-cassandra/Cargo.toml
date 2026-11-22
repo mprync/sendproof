@@ -1,0 +1,30 @@
+[package]
+name = "sendproof-cassandra"
+description = "Cassandra write guard for Sendproof: a Preview reads Cassandra normally and is stopped before the first write is sent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[features]
+# `Cassandra` as an Axum extractor (`CassandraStore: FromRef<State>`).
+axum = ["dep:axum"]
+# `Cassandra` as an Actix Web extractor (`web::Data<CassandraStore>` in `app_data`).
+actix = ["dep:actix-web"]
+
+[dependencies]
+sendproof-core.workspace = true
+scylla.workspace = true
+http.workspace = true
+axum = { workspace = true, optional = true }
+actix-web = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The driver's `AddressTranslator` is an `async_trait`; the tests map the node's advertised address
+# (a container IP) to the published port.
+async-trait = "0.1"
+tokio ={ workspace = true, features = ["rt-multi-thread"] }
