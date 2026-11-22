@@ -29,7 +29,7 @@ from sendproof_sqlalchemy import SQLAlchemyPreview
 
 import fixture_database
 import fixture_flask_persistence
-from fixture_stores import SyncStores
+from fixture_stores import REMEMBERABLE, SyncStores
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -298,7 +298,7 @@ if _kind == "mysql":
 
 # ------------------------------------------------------------------------- data stores
 # Present only when the runner passes a store's variables. Flask uses the synchronous clients
-# (PyMongo, redis-py, boto3); the FastAPI fixture uses the asynchronous ones.
+# (PyMongo, redis-py, boto3, cassandra-driver, opensearch-py); the FastAPI fixture uses the asynchronous ones.
 stores = SyncStores()
 
 
@@ -388,14 +388,64 @@ if "dynamodb" in stores.stores:
         require_admin()
         return reply(stores.delete_order(id))
 
-if {"redis", "dynamodb"} & set(stores.stores):
+if "cassandra" in stores.stores:
+    @app.get("/tickets/<id>")
+    @preview(methods=["GET"])
+    def read_ticket(id: str):
+        require_user()
+        return reply(stores.get_ticket(id))
+
+    @app.post("/tickets/<id>/touch")
+    @preview
+    def touch_ticket(id: str):
+        require_admin()
+        return reply(stores.touch_ticket(id))
+
+    @app.post("/tickets/<id>/close")
+    @preview
+    def close_ticket(id: str):
+        require_admin()
+        return reply(stores.close_ticket(id))
+
+    @app.delete("/tickets/<id>")
+    @preview(False, stores=["cassandra"])
+    def delete_ticket(id: str):
+        require_admin()
+        return reply(stores.delete_ticket(id))
+
+if "opensearch" in stores.stores:
+    @app.get("/articles/<id>")
+    @preview(methods=["GET"])
+    def read_article(id: str):
+        require_user()
+        return reply(stores.get_article(id))
+
+    @app.post("/articles/<id>/touch")
+    @preview
+    def touch_article(id: str):
+        require_admin()
+        return reply(stores.touch_article(id))
+
+    @app.post("/articles/<id>/hide")
+    @preview
+    def hide_article(id: str):
+        require_admin()
+        return reply(stores.hide_article(id))
+
+    @app.delete("/articles/<id>")
+    @preview(False, stores=["opensearch"])
+    def delete_article(id: str):
+        require_admin()
+        return reply(stores.delete_article(id))
+
+if set(REMEMBERABLE) & set(stores.stores):
     @app.post("/items/<id>/remember")
     @preview
     def remember_item(id: str):
         require_admin()
         data = json_body("name")
         store = request.args.get("store", "")
-        if store not in ("redis", "dynamodb"):
+        if store not in REMEMBERABLE or store not in stores.stores:
             abort(400)
         db().add(Item(id=id, name=data["name"]))
         db().commit()
@@ -440,7 +490,19 @@ def _store_paths() -> dict:
             "/orders/{id}/touch": {"post": _operation("Touch order", "200")},
             "/orders/{id}/cancel": {"post": _operation("Cancel order", "200")},
         })
-    if {"redis", "dynamodb"} & set(stores.stores):
+    if "cassandra" in stores.stores:
+        paths.update({
+            "/tickets/{id}": {"get": _operation("Read ticket", "200"), "delete": _operation("Delete ticket", "204")},
+            "/tickets/{id}/touch": {"post": _operation("Touch ticket", "200")},
+            "/tickets/{id}/close": {"post": _operation("Close ticket", "200")},
+        })
+    if "opensearch" in stores.stores:
+        paths.update({
+            "/articles/{id}": {"get": _operation("Read article", "200"), "delete": _operation("Delete article", "204")},
+            "/articles/{id}/touch": {"post": _operation("Touch article", "200")},
+            "/articles/{id}/hide": {"post": _operation("Hide article", "200")},
+        })
+    if set(REMEMBERABLE) & set(stores.stores):
         paths["/items/{id}/remember"] = {"post": _operation("Write the item, then a store", "201", True)}
     if _kind == "mysql":
         paths["/items/{id}/escape"] = {"post": _operation("Commit implicitly inside the handler", "201", True)}

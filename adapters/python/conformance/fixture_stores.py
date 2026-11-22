@@ -1,18 +1,24 @@
 """Data-store routes of the Python conformance fixtures (spec/conformance/fixture.md "Data store routes").
 
-The fixtures share these helpers, so every framework serves the same MongoDB, Redis and DynamoDB
-behavior. ``SyncStores`` uses PyMongo, redis-py and boto3 (Flask and Django); ``AsyncStores`` uses
-``AsyncMongoClient``, ``redis.asyncio`` and aioboto3 (FastAPI), so the conformance run covers both
-families of clients. Each helper returns ``(status, body)``; the framework wraps it in a response.
+The fixtures share these helpers, so every framework serves the same MongoDB, Redis, DynamoDB,
+Cassandra and OpenSearch behavior. ``SyncStores`` uses PyMongo, redis-py, boto3, cassandra-driver and
+opensearch-py (Flask and Django); ``AsyncStores`` uses ``AsyncMongoClient``, ``redis.asyncio``,
+aioboto3 and ``AsyncOpenSearch`` (FastAPI), so the conformance run covers both families of clients.
+cassandra-driver has no ``async`` API, so FastAPI runs its calls in a worker thread
+(``asyncio.to_thread``, which keeps the request's context). Each helper returns ``(status, body)``;
+the framework wraps it in a response.
 
 A store is configured only when the runner passes its variables (``BENCH_MONGODB_URL``,
-``BENCH_REDIS_URL`` and ``BENCH_REDIS_PREFIX``, ``BENCH_DYNAMODB_URL`` and ``BENCH_DYNAMODB_TABLE``),
-and its client is hooked as the binding documents: ``mongo_store(client).client`` for MongoDB, the
-client itself for Redis, and the boto3 session for DynamoDB.
+``BENCH_REDIS_URL`` and ``BENCH_REDIS_PREFIX``, ``BENCH_DYNAMODB_URL`` and ``BENCH_DYNAMODB_TABLE``,
+``BENCH_CASSANDRA_CONTACT_POINT`` and ``BENCH_CASSANDRA_KEYSPACE``, ``BENCH_OPENSEARCH_URL`` and
+``BENCH_OPENSEARCH_INDEX``), and its client is hooked as the binding documents:
+``mongo_store(client).client`` for MongoDB, the client itself for Redis, the boto3 session for
+DynamoDB, the cluster for Cassandra and the client for OpenSearch.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, Mapping
@@ -23,7 +29,12 @@ log = logging.getLogger("fixture")
 PROBLEM = (404, None)
 
 #: The routes marked ``preview: false``, with the store each writes to.
-UNAVAILABLE = {"mongodb": "Clears a MongoDB document", "redis": "Clears a Redis counter", "dynamodb": "Deletes a DynamoDB order"}
+UNAVAILABLE = {"mongodb": "Clears a MongoDB document", "redis": "Clears a Redis counter", "dynamodb": "Deletes a DynamoDB order",
+               "cassandra": "Deletes a Cassandra ticket", "opensearch": "Deletes an OpenSearch article"}
+
+#: Every store the fixtures can serve; the ones a ``remember`` request may name.
+STORE_IDS = ("mongodb", "redis", "dynamodb", "cassandra", "opensearch")
+REMEMBERABLE = ("redis", "dynamodb", "cassandra", "opensearch")
 
 
 def document_body(document: Mapping[str, Any]) -> dict:
@@ -37,6 +48,33 @@ def order_body(item: Mapping[str, Any]) -> dict:
 def new_document(body: Mapping[str, Any]) -> dict:
     return {"_id": body["id"], "name": body["name"], "profile": {"city": body["city"]},
             "password_hash": "hashed:" + body["password"]}
+
+
+def ticket_body(row: Any) -> dict:
+    return {"id": row.id, "status": row.status, "hits": row.hits}
+
+
+def article_body(identifier: str, source: Mapping[str, Any]) -> dict:
+    return {"id": identifier, "title": source.get("title"), "views": source.get("views")}
+
+
+#: The CQL of the Cassandra routes. The read is prepared once and executed, so the hook must
+#: classify the execution by the text it saw prepared; the insert carries literals the Db entry hides.
+SELECT_TICKET = "SELECT id, status, hits FROM tickets WHERE id = ?"
+INSERT_TICKET = "INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)"
+CLOSE_TICKET = "UPDATE tickets SET status = 'closed' WHERE id = ? IF EXISTS"
+DELETE_TICKET = "DELETE FROM tickets WHERE id = ?"
+
+
+def touch_article_request(identifier: str) -> dict:
+    """``POST /<index>/_update/<id>?refresh=true``: bump ``views`` through a script, upserting a new article."""
+    return {"id": identifier, "params": {"refresh": "true"}, "body": {
+        "script": {"source": "ctx._source.views += params.step", "params": {"step": 1}},
+        "upsert": {"title": "Untitled", "views": 1}, "_source": True}}
+
+
+def ids_query(identifier: str) -> dict:
+    return {"query": {"ids": {"values": [identifier]}}}
 
 
 def touch_request(table: str, identifier: str) -> dict:
@@ -69,9 +107,10 @@ class SyncStores:
         from sendproof_core.stores import dynamodb_store, mongo_store, redis_store
 
         self.data_stores: list = []
-        self.documents = self.redis = self.dynamo = None
+        self.documents = self.redis = self.dynamo = self.cassandra = self.search = None
         self.prefix = env.get("BENCH_REDIS_PREFIX", "")
         self.table = env.get("BENCH_DYNAMODB_TABLE", "")
+        self.index = env.get("BENCH_OPENSEARCH_INDEX", "")
         if env.get("BENCH_MONGODB_URL"):
             from pymongo import MongoClient
 
@@ -89,10 +128,27 @@ class SyncStores:
             session = boto3.Session(region_name=env.get("AWS_REGION", "us-east-1"))
             self.data_stores.append(dynamodb_store(session, name="orders"))
             self.dynamo = session.client("dynamodb", endpoint_url=env["BENCH_DYNAMODB_URL"])
+        if env.get("BENCH_CASSANDRA_CONTACT_POINT"):
+            from cassandra.cluster import Cluster
+            from sendproof_core.stores import cassandra_store
+
+            host, _, port = env["BENCH_CASSANDRA_CONTACT_POINT"].partition(":")
+            cluster = Cluster([host], port=int(port or 9042))
+            self.data_stores.append(cassandra_store(cluster, name="tickets"))  # covers every session the cluster makes
+            self.cassandra = cluster.connect(env["BENCH_CASSANDRA_KEYSPACE"])
+            self.select, self.insert = self.cassandra.prepare(SELECT_TICKET), self.cassandra.prepare(INSERT_TICKET)
+        if env.get("BENCH_OPENSEARCH_URL"):
+            from opensearchpy import OpenSearch
+            from sendproof_core.stores import opensearch_store
+
+            self.search = OpenSearch(env["BENCH_OPENSEARCH_URL"])
+            self.data_stores.append(opensearch_store(self.search, name="search"))
 
     @property
     def stores(self) -> list[str]:
-        return [name for name, client in (("mongodb", self.documents), ("redis", self.redis), ("dynamodb", self.dynamo)) if client is not None]
+        clients = (("mongodb", self.documents), ("redis", self.redis), ("dynamodb", self.dynamo),
+                   ("cassandra", self.cassandra), ("opensearch", self.search))
+        return [name for name, client in clients if client is not None]
 
     def key(self, name: str) -> str:
         return f"{self.prefix}counter:{name}"
@@ -157,11 +213,58 @@ class SyncStores:
         self.dynamo.delete_item(TableName=self.table, Key={"id": {"S": identifier}})
         return 204, None
 
+    # ---- Cassandra
+    def get_ticket(self, identifier: str) -> tuple[int, Any]:
+        row = self.cassandra.execute(self.select, (identifier,)).one()
+        return (200, ticket_body(row)) if row else PROBLEM
+
+    def touch_ticket(self, identifier: str) -> tuple[int, Any]:
+        self.cassandra.execute(self.insert, (identifier,))
+        return 200, {"id": identifier, "status": "new", "hits": 1}
+
+    def close_ticket(self, identifier: str) -> tuple[int, Any]:
+        from cassandra.query import BatchStatement, BatchType
+
+        batch = BatchStatement(batch_type=BatchType.LOGGED)  # a logged batch holding a lightweight transaction
+        batch.add(CLOSE_TICKET.replace("?", "%s"), (identifier,))
+        self.cassandra.execute(batch)
+        return 200, {"id": identifier, "status": "closed"}
+
+    def delete_ticket(self, identifier: str) -> tuple[int, Any]:
+        self.cassandra.execute(DELETE_TICKET.replace("?", "%s"), (identifier,))
+        return 204, None
+
+    # ---- OpenSearch
+    def get_article(self, identifier: str) -> tuple[int, Any]:
+        hits = self.search.search(index=self.index, body={**ids_query(identifier), "size": 1})["hits"]["hits"]  # a read sent as a POST
+        return (200, article_body(identifier, hits[0]["_source"])) if hits else PROBLEM
+
+    def touch_article(self, identifier: str) -> tuple[int, Any]:
+        request = touch_article_request(identifier)
+        reply = self.search.update(self.index, identifier, request["body"], params=request["params"])
+        return 200, article_body(identifier, reply["get"]["_source"])
+
+    def hide_article(self, identifier: str) -> tuple[int, Any]:
+        try:
+            reply = self.search.update_by_query(self.index, body={**ids_query(identifier), "script": {"source": "ctx._source.hidden = true"}},
+                                                params={"refresh": "true"})
+        except Exception:  # swallowed on purpose: the blocked mark, not the response, decides a Preview
+            return PROBLEM
+        return (200, {"id": identifier, "hidden": True}) if reply.get("updated") else PROBLEM
+
+    def delete_article(self, identifier: str) -> tuple[int, Any]:
+        self.search.delete(self.index, identifier, params={"refresh": "true"})
+        return 204, None
+
     # ---- Mixed SQL and store
     def remember(self, store: str, identifier: str) -> None:
         """The guarded write of ``POST /items/{id}/remember``, after the SQL insert."""
         if store == "redis":
             self.redis.execute_command("INCR", self.key("item-" + identifier))
+        elif store == "cassandra":
+            self.touch_ticket("item-" + identifier)
+        elif store == "opensearch":
+            self.touch_article("item-" + identifier)
         else:
             self.dynamo.update_item(**touch_request(self.table, "item-" + identifier))
 
@@ -173,11 +276,12 @@ class AsyncStores:
         from sendproof_core.stores import dynamodb_store, mongo_store, redis_store
 
         self.data_stores: list = []
-        self.documents = self.redis = self.dynamo = self._dynamo_context = None
+        self.documents = self.redis = self.dynamo = self._dynamo_context = self.cassandra = self.search = None
         self._session = None
         self._env = env
         self.prefix = env.get("BENCH_REDIS_PREFIX", "")
         self.table = env.get("BENCH_DYNAMODB_TABLE", "")
+        self.index = env.get("BENCH_OPENSEARCH_INDEX", "")
         if env.get("BENCH_MONGODB_URL"):
             from pymongo import AsyncMongoClient
 
@@ -194,10 +298,27 @@ class AsyncStores:
 
             self._session = aioboto3.Session(region_name=env.get("AWS_REGION", "us-east-1"))
             self.data_stores.append(dynamodb_store(self._session, name="orders"))
+        if env.get("BENCH_CASSANDRA_CONTACT_POINT"):
+            from cassandra.cluster import Cluster
+            from sendproof_core.stores import cassandra_store
+
+            host, _, port = env["BENCH_CASSANDRA_CONTACT_POINT"].partition(":")
+            cluster = Cluster([host], port=int(port or 9042))
+            self.data_stores.append(cassandra_store(cluster, name="tickets"))
+            self.cassandra = cluster.connect(env["BENCH_CASSANDRA_KEYSPACE"])  # blocking, at startup
+            self.select, self.insert = self.cassandra.prepare(SELECT_TICKET), self.cassandra.prepare(INSERT_TICKET)
+        if env.get("BENCH_OPENSEARCH_URL"):
+            from opensearchpy import AsyncOpenSearch
+            from sendproof_core.stores import opensearch_store
+
+            self.search = AsyncOpenSearch(env["BENCH_OPENSEARCH_URL"])
+            self.data_stores.append(opensearch_store(self.search, name="search"))
 
     @property
     def stores(self) -> list[str]:
-        return [name for name, client in (("mongodb", self.documents), ("redis", self.redis), ("dynamodb", self._session)) if client is not None]
+        clients = (("mongodb", self.documents), ("redis", self.redis), ("dynamodb", self._session),
+                   ("cassandra", self.cassandra), ("opensearch", self.search))
+        return [name for name, client in clients if client is not None]
 
     def key(self, name: str) -> str:
         return f"{self.prefix}counter:{name}"
@@ -274,10 +395,57 @@ class AsyncStores:
         await client.delete_item(TableName=self.table, Key={"id": {"S": identifier}})
         return 204, None
 
+    # ---- Cassandra: the driver is synchronous, so each call runs in a worker thread that keeps the request's context
+    async def get_ticket(self, identifier: str) -> tuple[int, Any]:
+        row = (await asyncio.to_thread(self.cassandra.execute, self.select, (identifier,))).one()
+        return (200, ticket_body(row)) if row else PROBLEM
+
+    async def touch_ticket(self, identifier: str) -> tuple[int, Any]:
+        await asyncio.to_thread(self.cassandra.execute, self.insert, (identifier,))
+        return 200, {"id": identifier, "status": "new", "hits": 1}
+
+    async def close_ticket(self, identifier: str) -> tuple[int, Any]:
+        from cassandra.query import BatchStatement, BatchType
+
+        batch = BatchStatement(batch_type=BatchType.LOGGED)
+        batch.add(CLOSE_TICKET.replace("?", "%s"), (identifier,))
+        await asyncio.to_thread(self.cassandra.execute, batch)
+        return 200, {"id": identifier, "status": "closed"}
+
+    async def delete_ticket(self, identifier: str) -> tuple[int, Any]:
+        await asyncio.to_thread(self.cassandra.execute, DELETE_TICKET.replace("?", "%s"), (identifier,))
+        return 204, None
+
+    # ---- OpenSearch
+    async def get_article(self, identifier: str) -> tuple[int, Any]:
+        hits = (await self.search.search(index=self.index, body={**ids_query(identifier), "size": 1}))["hits"]["hits"]
+        return (200, article_body(identifier, hits[0]["_source"])) if hits else PROBLEM
+
+    async def touch_article(self, identifier: str) -> tuple[int, Any]:
+        request = touch_article_request(identifier)
+        reply = await self.search.update(self.index, identifier, request["body"], params=request["params"])
+        return 200, article_body(identifier, reply["get"]["_source"])
+
+    async def hide_article(self, identifier: str) -> tuple[int, Any]:
+        try:
+            reply = await self.search.update_by_query(
+                self.index, body={**ids_query(identifier), "script": {"source": "ctx._source.hidden = true"}}, params={"refresh": "true"})
+        except Exception:  # swallowed on purpose: the blocked mark, not the response, decides a Preview
+            return PROBLEM
+        return (200, {"id": identifier, "hidden": True}) if reply.get("updated") else PROBLEM
+
+    async def delete_article(self, identifier: str) -> tuple[int, Any]:
+        await self.search.delete(self.index, identifier, params={"refresh": "true"})
+        return 204, None
+
     # ---- Mixed SQL and store
     async def remember(self, store: str, identifier: str) -> None:
         """The guarded write of ``POST /items/{id}/remember``, after the SQL insert."""
         if store == "redis":
             await self.redis.execute_command("INCR", self.key("item-" + identifier))
+        elif store == "cassandra":
+            await self.touch_ticket("item-" + identifier)
+        elif store == "opensearch":
+            await self.touch_article("item-" + identifier)
         else:
             await self.touch_order("item-" + identifier)

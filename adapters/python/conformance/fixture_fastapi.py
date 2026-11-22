@@ -29,7 +29,7 @@ from sendproof_core import PreviewRollbackError, PreviewSession, RequestScope, r
 from sendproof_fastapi import AuthProvider, Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 
-from fixture_stores import AsyncStores
+from fixture_stores import REMEMBERABLE, AsyncStores
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -378,12 +378,54 @@ if "dynamodb" in stores.stores:
     async def delete_order(id: str, user: dict = Depends(require_admin)):
         return reply(await stores.delete_order(id))
 
-if {"redis", "dynamodb"} & set(stores.stores):
+if "cassandra" in stores.stores:
+    @app.get("/tickets/{id}")
+    @preview
+    async def read_ticket(id: str, user: dict = Depends(require_user)):
+        return reply(await stores.get_ticket(id))
+
+    @app.post("/tickets/{id}/touch")
+    @preview
+    async def touch_ticket(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.touch_ticket(id))
+
+    @app.post("/tickets/{id}/close")
+    @preview
+    async def close_ticket(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.close_ticket(id))
+
+    @app.delete("/tickets/{id}", status_code=204)
+    @preview(False, stores=["cassandra"])
+    async def delete_ticket(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.delete_ticket(id))
+
+if "opensearch" in stores.stores:
+    @app.get("/articles/{id}")
+    @preview
+    async def read_article(id: str, user: dict = Depends(require_user)):
+        return reply(await stores.get_article(id))
+
+    @app.post("/articles/{id}/touch")
+    @preview
+    async def touch_article(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.touch_article(id))
+
+    @app.post("/articles/{id}/hide")
+    @preview
+    async def hide_article(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.hide_article(id))
+
+    @app.delete("/articles/{id}", status_code=204)
+    @preview(False, stores=["opensearch"])
+    async def delete_article(id: str, user: dict = Depends(require_admin)):
+        return reply(await stores.delete_article(id))
+
+if set(REMEMBERABLE) & set(stores.stores):
     @app.post("/items/{id}/remember", status_code=201)
     @preview
     async def remember_item(id: str, patch: ItemPatch, store: str = Query(...), db: Session = Depends(get_db),
                             user: dict = Depends(require_admin)):
-        if store not in ("redis", "dynamodb"):
+        if store not in REMEMBERABLE or store not in stores.stores:
             raise HTTPException(400, "Unknown store.")
         db.add(Item(id=id, name=patch.name))
         db.commit()

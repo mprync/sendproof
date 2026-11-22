@@ -19,7 +19,7 @@ from pathlib import Path
 import django
 from django.conf import settings
 
-from fixture_stores import SyncStores
+from fixture_stores import REMEMBERABLE, SyncStores
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -452,12 +452,62 @@ if "dynamodb" in stores.stores:
         require_admin(request)
         return reply(stores.delete_order(id))
 
-if {"redis", "dynamodb"} & set(stores.stores):
+if "cassandra" in stores.stores:
+    @api.get("/tickets/{id}")
+    @preview
+    def read_ticket(request, id: str):
+        require_user(request)
+        return reply(stores.get_ticket(id))
+
+    @api.post("/tickets/{id}/touch")
+    @preview
+    def touch_ticket(request, id: str):
+        require_admin(request)
+        return reply(stores.touch_ticket(id))
+
+    @api.post("/tickets/{id}/close")
+    @preview
+    def close_ticket(request, id: str):
+        require_admin(request)
+        return reply(stores.close_ticket(id))
+
+    @api.delete("/tickets/{id}")
+    @preview(False, stores=["cassandra"])
+    def delete_ticket(request, id: str):
+        require_admin(request)
+        return reply(stores.delete_ticket(id))
+
+if "opensearch" in stores.stores:
+    @api.get("/articles/{id}")
+    @preview
+    def read_article(request, id: str):
+        require_user(request)
+        return reply(stores.get_article(id))
+
+    @api.post("/articles/{id}/touch")
+    @preview
+    def touch_article(request, id: str):
+        require_admin(request)
+        return reply(stores.touch_article(id))
+
+    @api.post("/articles/{id}/hide")
+    @preview
+    def hide_article(request, id: str):
+        require_admin(request)
+        return reply(stores.hide_article(id))
+
+    @api.delete("/articles/{id}")
+    @preview(False, stores=["opensearch"])
+    def delete_article(request, id: str):
+        require_admin(request)
+        return reply(stores.delete_article(id))
+
+if set(REMEMBERABLE) & set(stores.stores):
     @api.post("/items/{id}/remember", response={201: ItemOut})
     @preview
     def remember_item(request, id: str, payload: ItemPatch, store: str):
         require_admin(request)
-        if store not in ("redis", "dynamodb"):
+        if store not in REMEMBERABLE or store not in stores.stores:
             raise HttpError(400, "Unknown store.")
         item = Item.objects.create(id=id, name=payload.name)
         stores.remember(store, id)
