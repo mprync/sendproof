@@ -16,7 +16,7 @@
     {
       "id": "node-express",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5351,
@@ -178,7 +178,7 @@
     {
       "id": "node-fastify",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5353,
@@ -194,7 +194,7 @@
     {
       "id": "node-hono",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5354,
@@ -210,7 +210,7 @@
     {
       "id": "node-nestjs",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "node",
       "port": 5355,
