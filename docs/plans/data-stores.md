@@ -284,7 +284,7 @@ Once the last MySQL-escape helpers finish:
 
 ### Closing batch two
 
-Once every language's batch-two review signs off: add the new store packages (for example Node `@sendproof/cassandra`, `@sendproof/elasticsearch`, `@sendproof/cosmosdb`, `@sendproof/firestore`, and each language's equivalents) to the release tooling and consumer smoke tests as for batch one; update every language's rows in `docs/bindings/databases.md` and the batch-two status line above; run the full suite once with the heavy stores up.
+Once every language's batch-two review signs off: add the new store packages (for example Node `@sendproof/cassandra`, `@sendproof/elasticsearch`, `@sendproof/cosmosdb`, `@sendproof/firestore`, and each language's equivalents) to the release tooling and consumer smoke tests as for batch one; update every language's rows in `docs/bindings/databases.md` and the batch-two status line above; run the full suite once with the heavy stores up. Also: exclude `adapters/php/core/compat/` (the Elasticsearch 8 test run) from the Packagist archives in `tools/release/packagist.mjs`, and add Go's four and Rust's two new store modules to their release scripts if their reviews didn't.
 
 ### After batch one lands: release tooling
 
