@@ -59,6 +59,31 @@ module Sendproof
       end
     end
 
+    # Prepended to +Google::Cloud::Firestore::BulkWriter+. A BulkWriter sends from threads of its own, which
+    # carry no request, and retries a failed batch without end, so the guard runs as the handler queues
+    # each write instead: in a Preview the write is refused before it is queued.
+    module BulkWriterHook
+      def create(...)
+        Sendproof::Firestore.store&.guard_bulk_write
+        super
+      end
+
+      def set(...)
+        Sendproof::Firestore.store&.guard_bulk_write
+        super
+      end
+
+      def update(...)
+        Sendproof::Firestore.store&.guard_bulk_write
+        super
+      end
+
+      def delete(...)
+        Sendproof::Firestore.store&.guard_bulk_write
+        super
+      end
+    end
+
     # Prepended to the REST clients, which have no interceptor and so can't be guarded: with a store
     # registered, building one fails instead of leaving writes unguarded.
     module RestRefusal

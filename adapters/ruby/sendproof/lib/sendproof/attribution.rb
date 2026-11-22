@@ -4,10 +4,10 @@ module Sendproof
   # Which request a data-store write belongs to, and what happens to a write that belongs to none.
   #
   # A store hook finds its request through {Capture}, which is thread- and fiber-local: a write sent from
-  # a thread or fiber the handler started carries no request. The guard can't block it and MongoDB can't
-  # put it in the Preview transaction, so it runs. While any Preview is open, such a write therefore fails
-  # every open Preview with 500, so none confirms a rollback that didn't happen (spec/data-stores.md, "a
-  # confirmed Preview never leaves a write behind").
+  # a thread or fiber the handler started, or from a client's own background threads (Firestore's
+  # +BulkWriter+), carries no request. While any Preview is open such a write is treated as that Preview's
+  # write: it is refused before it is sent, and every open Preview is blocked, or for a +preview+-mode
+  # store fails with 500 (spec/data-stores.md, "Writes the binding can't attribute to a request").
   #
   # A write is attributed when it runs inside a Preview or observed send, inside any request that passed
   # through {Middleware}, or inside {Sendproof.detached}, the mark for background work such as a job
@@ -39,19 +39,35 @@ module Sendproof
         @lock.synchronize { @open.delete(recorder) }
       end
 
-      # Called by a store hook for each write it lets through. An unattributed write sent while a
-      # Preview is open fails every open Preview.
+      # Called by a store hook, before it sends, for each write outside a Preview. A write that belongs to
+      # no request while a Preview is open is refused: every open Preview is marked blocked (409), or with
+      # +fault: true+, for a +preview+-mode store, fails with 500, and the error is raised so the write is
+      # never sent. Does nothing for an attributed write or when no Preview is open.
       #
       # @param store [String] the store id, such as +"redis"+
       # @param operation [String] the command or action name
-      def report_write(store, operation)
-        return if @open.empty? || attributed?
+      # @param fault [Boolean] fail the open Previews with 500 instead of blocking them
+      # @raise [PreviewWriteBlocked, PreviewTransactionControl] when the write is refused
+      def refuse_unattributed(store, operation, fault: false)
+        return if attributed?
 
-        message = "A #{Stores::Guard.store_name(store)} #{operation} was sent outside any request while this Preview ran " \
-                  "(from a thread or fiber the handler started, or from background work). Sendproof can't tell it apart " \
-                  "from the Preview's own writes, so the Preview can't be confirmed. Mark background work with Sendproof.detached."
         open = @lock.synchronize { @open.keys }
-        open.each { |recorder| recorder.refuse(PreviewTransactionControl.new(message)) }
+        return if open.empty?
+
+        why = "A #{Stores::Guard.store_name(store)} #{operation} was sent outside any request while a Preview ran " \
+              "(from a thread or fiber the handler started, or from background work), so Sendproof refused it: it can't " \
+              "tell it apart from the Preview's own writes. Mark background work with Sendproof.detached."
+        if fault
+          open.each { |recorder| recorder.refuse(PreviewTransactionControl.new(why)) }
+          raise PreviewTransactionControl, why
+        end
+
+        reason = Stores::Guard.write_reason(store)
+        open.each do |recorder|
+          recorder.block(store: store, operation: operation, detail: reason)
+          recorder.db(system: store, operation: operation, blocked: true)
+        end
+        raise PreviewWriteBlocked.new(store, operation, "#{reason}. #{why}")
       end
 
       private

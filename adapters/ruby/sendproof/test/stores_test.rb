@@ -85,8 +85,17 @@ class StoresTest < Minitest::Test
           [200, { "content-type" => "text/plain" }, ["swallowed"]]
         end
       when ["POST", "/crash"] then handled.call { store.send_command("INCR", "k"); raise "after the refusal" }
-      # A write from a thread the handler started carries no request attribution.
-      when ["POST", "/spawn"] then handled.call { Thread.new { store.send_command("INCR", "k") }.join; [200, {}, ["spawned"]] }
+      # A write from a thread the handler started carries no request attribution. The thread swallows the
+      # refusal, so only the mark can fail the Preview.
+      when ["POST", "/spawn"]
+        handled.call do
+          Thread.new do
+            store.send_command("INCR", "k")
+          rescue Sendproof::PreviewWriteBlocked
+            nil
+          end.join
+          [200, {}, ["spawned"]]
+        end
       when ["POST", "/spawn-detached"]
         handled.call { Thread.new { Sendproof.detached { store.send_command("INCR", "k") } }.join; [200, {}, ["detached"]] }
       when ["POST", "/interrupt"] then handled.call { store.send_command("GET", "k"); raise Interrupted, "request timed out" }
@@ -282,12 +291,12 @@ class StoresTest < Minitest::Test
   # --- writes without request attribution -------------------------------------------------------
 
   # The guard can't tell a write from a thread the handler started apart from background work: while a
-  # Preview is open, such a write fails it rather than let it confirm a rollback that didn't happen.
-  def test_an_unattributed_write_while_a_preview_is_open_fails_the_preview_with_500
+  # Preview is open, such a write is the Preview's write. It is refused before it is sent, and the Preview
+  # is blocked (spec/data-stores.md, "Writes the binding can't attribute to a request").
+  def test_an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent
     preview("/spawn")
-    assert_equal 500, last_response.status, last_response.body
-    assert_nil last_response["preference-applied"]
-    assert_equal [["INCR", "k"]], @store.sent, "The write ran: the guard couldn't attribute it to the Preview"
+    assert_blocked
+    assert_empty @store.sent, "A guarded store can't roll back, so the write must never be sent"
   end
 
   def test_a_write_marked_detached_never_fails_a_preview
@@ -295,16 +304,24 @@ class StoresTest < Minitest::Test
     assert_equal 200, last_response.status, last_response.body
   end
 
-  def test_an_unattributed_write_fails_every_open_preview_and_attributed_ones_fail_none
+  def test_an_unattributed_write_blocks_every_open_preview_and_attributed_ones_block_none
     first = Sendproof::Recorder.new(rollback: true)
     second = Sendproof::Recorder.new(rollback: true)
     [first, second].each { |recorder| Sendproof::Attribution.open(recorder) }
     Sendproof::Attribution.request { @store.send_command("INCR", "k") }
     Sendproof::Capture.with(Sendproof::Recorder.new(rollback: false)) { @store.send_command("INCR", "k") }
-    assert_nil first.fault, "A write from a request Sendproof saw is attributed"
-    @store.send_command("INCR", "k")
-    refute_nil first.fault
-    refute_nil second.fault
+    assert_nil first.blocked, "A write from a request Sendproof saw is attributed"
+    assert_equal 2, @store.sent.length
+    error = assert_raises(Sendproof::PreviewWriteBlocked) { @store.send_command("INCR", "k") }
+    assert_equal %w[redis INCR], [error.store, error.operation]
+    assert_match(/outside any request/, error.message, "the error tells the caller why")
+    assert_equal 2, @store.sent.length, "The unattributed write is refused before it is sent"
+    [first, second].each do |recorder|
+      assert_equal ["redis", "INCR", "Preview unavailable: this operation writes to Redis"],
+                   [recorder.blocked&.store, recorder.blocked&.operation, recorder.blocked&.detail]
+      assert_nil recorder.fault, "a guarded store's refused write blocks the Preview (409), it doesn't fault it"
+    end
+    assert(first.finish.logs.any? { |entry| entry[:level] == "Db" && entry.dig(:db, :blocked) }, "the open Preview logs the refused write")
   ensure
     [first, second].each { |recorder| Sendproof::Attribution.close(recorder) }
   end

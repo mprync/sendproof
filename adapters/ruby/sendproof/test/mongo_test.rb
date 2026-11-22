@@ -417,14 +417,30 @@ class MongoHookTest < Minitest::Test
     Thread.current[:swallow_refusals] = nil
   end
 
-  # A thread the handler starts carries no request: its write can't join the Preview transaction and runs,
-  # so the Preview must fail rather than confirm. The same write marked detached is background work.
-  def test_a_write_from_a_thread_the_handler_started_fails_the_preview
-    recorder = preview([@store]) { |_| Thread.new { @raw[:documents].insert_one(_id: "threaded") }.join }
+  # A thread the handler starts carries no request: its write can't join the Preview transaction, so it is
+  # refused before it is sent and the Preview fails with 500 rather than confirm. The same write marked
+  # detached is background work and runs.
+  def test_a_write_from_a_thread_the_handler_started_is_refused_and_fails_the_preview
+    recorder = preview([@store]) do |_|
+      Thread.new { assert_raises(Sendproof::PreviewTransactionControl) { @raw[:documents].insert_one(_id: "threaded") } }.join
+    end
     refute_nil recorder.fault
     assert_match(/outside any request/, recorder.fault.message)
+    assert_empty stored(_id: "threaded"), "the unattributed write never reached MongoDB"
     detached = preview([@store]) { |_| Thread.new { Sendproof.detached { @raw[:documents].insert_one(_id: "worker") } }.join }
     assert_nil detached.fault
+    assert_equal 1, stored(_id: "worker").length
+  end
+
+  # In guard mode (a standalone server) the same write is refused before it is sent and blocks the Preview.
+  def test_in_guard_mode_a_write_from_a_thread_the_handler_started_is_refused_and_blocks_the_preview
+    guard_mode_store
+    recorder = preview([@store]) do |_|
+      Thread.new { assert_raises(Sendproof::PreviewWriteBlocked) { @raw[:documents].insert_one(_id: "threaded") } }.join
+    end
+    assert_equal %w[mongodb insert], [recorder.blocked&.store, recorder.blocked&.operation]
+    assert_nil recorder.fault
+    assert_empty stored(_id: "threaded")
   end
 
   # The tripwire proves it is installed on the guarded client itself, not on some other client.

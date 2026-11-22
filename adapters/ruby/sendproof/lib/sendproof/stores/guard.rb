@@ -42,10 +42,10 @@ module Sendproof
       # @return [String] the reason shown for a write to a guarded store
       def write_reason(store) = "Preview unavailable: this operation writes to #{store_name(store)}"
 
-      # Call before sending a store command. Does nothing for anything but a write, and outside a Preview
-      # only reports the write to {Attribution}, which fails every open Preview if it belongs to no
-      # request. In a Preview it marks the recorder blocked (the first block wins), logs a blocked +Db+
-      # entry and raises {PreviewWriteBlocked}.
+      # Call before sending a store command. Does nothing for anything but a write. In a Preview it marks
+      # the recorder blocked (the first block wins), logs a blocked +Db+ entry and raises
+      # {PreviewWriteBlocked}. Outside a Preview it lets the write through, unless it belongs to no request
+      # while a Preview is open: {Attribution} then refuses it the same way and blocks every open Preview.
       #
       # @param kind [Symbol] from {Classify}; only +:write+ blocks
       # @param detail [String, nil] replaces the default "writes to <Store>" reason, for example for a
@@ -55,7 +55,7 @@ module Sendproof
 
         recorder = Capture.preview
         unless recorder
-          Attribution.report_write(store, operation)
+          Attribution.refuse_unattributed(store, operation)
           return
         end
         reason = detail || write_reason(store)

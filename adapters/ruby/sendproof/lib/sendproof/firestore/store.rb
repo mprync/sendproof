@@ -83,11 +83,21 @@ module Sendproof
         response
       end
 
+      # Guards a write a +BulkWriter+ is about to queue, as the +BatchWrite+ it will be sent in. Called on
+      # the handler's thread, so in a Preview the write is refused before the writer's threads see it.
+      def guard_bulk_write
+        return unless @active
+
+        Stores::Guard.guard("firestore", "BatchWrite", Stores::Classify.firestore("BatchWrite", nil, @reads).kind)
+      end
+
       private
 
       # Prepends the hooks that cover clients built later, once per process.
       def install_hooks
         ::Gapic::ServiceStub.prepend(StubHook) unless ::Gapic::ServiceStub < StubHook
+        bulk = ::Google::Cloud::Firestore::BulkWriter
+        bulk.prepend(BulkWriterHook) unless bulk < BulkWriterHook
         rest = rest_client_class
         rest.prepend(RestRefusal) if rest && !(rest < RestRefusal)
       end

@@ -18,7 +18,11 @@ class FakeFirestoreServer
 
     def get_document(request, _call) = (@received << "GetDocument"; V1::Document.new(name: request.name))
     def commit(request, _call) = (@received << (request.writes.empty? ? "Commit(empty)" : "Commit"); V1::CommitResponse.new)
-    def batch_write(_request, _call) = (@received << "BatchWrite"; V1::BatchWriteResponse.new)
+    def batch_write(request, _call)
+      @received << "BatchWrite"
+      V1::BatchWriteResponse.new(write_results: request.writes.map { V1::WriteResult.new },
+                                 status: request.writes.map { Google::Rpc::Status.new(code: 0) })
+    end
     def begin_transaction(_request, _call) = (@received << "BeginTransaction"; V1::BeginTransactionResponse.new(transaction: "tx"))
     def rollback(_request, _call) = (@received << "Rollback"; Google::Protobuf::Empty.new)
     def batch_get_documents(_request, _call) = (@received << "BatchGetDocuments"; [].each)
@@ -104,9 +108,48 @@ class FirestoreHookTest < Minitest::Test
     assert_empty seen, "A refused write must never reach Firestore"
   end
 
-  # BulkWriter sends from threads of its own, which carry no request: the write isn't refused but it fails
-  # the Preview (see test_a_write_from_a_thread_the_handler_started_fails_the_preview). The generated
-  # client's BatchWrite, sent from the handler's thread, is refused.
+  # BulkWriter sends from threads of its own, which carry no request. In a Preview each write is refused
+  # as the handler queues it, so nothing reaches the writer's threads and the handler never waits on a
+  # batch the writer would retry forever.
+  def test_a_bulk_writer_write_in_a_preview_is_refused_before_it_is_queued
+    recorder = Timeout.timeout(10) do
+      assert_blocked_in_preview("firestore", "BatchWrite") do
+        writer = @firestore.bulk_writer
+        begin
+          writer.create(@firestore.doc("orders/bulk"), { status: "bulk" })
+        ensure
+          writer.close
+        end
+      end
+    end
+    assert db_entries(recorder, "BatchWrite").first[:db][:blocked]
+    %w[set update delete].each do |name|
+      writer = @firestore.bulk_writer
+      args = name == "delete" ? [@firestore.doc("orders/#{name}")] : [@firestore.doc("orders/#{name}"), { status: name }]
+      assert_blocked_in_preview("firestore", "BatchWrite") { writer.public_send(name, *args) }
+      writer.close
+    end
+    assert_empty seen, "A refused BulkWriter write must never reach Firestore"
+  end
+
+  # A BulkWriter queued by an ordinary request sends from its own thread, which carries no request. While a
+  # Preview is open that BatchWrite is the Preview's write: refused before it is sent, and the Preview blocked.
+  def test_an_unattributed_batch_write_while_a_preview_is_open_is_refused_before_it_is_sent
+    recorder = Sendproof::Recorder.new(rollback: true)
+    Sendproof::Attribution.open(recorder)
+    writer = @firestore.bulk_writer
+    Sendproof::Attribution.request { writer.create(@firestore.doc("orders/background"), { status: "queued" }) }
+    deadline = Time.now + 5
+    sleep 0.01 until recorder.blocked || Time.now > deadline
+    assert_equal %w[firestore BatchWrite], [recorder.blocked&.store, recorder.blocked&.operation]
+    refute_includes seen, "BatchWrite", "the unattributed write never reached Firestore while the Preview was open"
+    assert_nil recorder.fault
+  ensure
+    Sendproof::Attribution.close(recorder)
+    Timeout.timeout(10) { writer&.close }
+  end
+
+  # The generated client's BatchWrite, sent from the handler's thread, is refused.
   def test_a_batch_write_is_refused
     stub = @firestore.service.firestore
     assert_blocked_in_preview("firestore", "BatchWrite") do
@@ -183,12 +226,17 @@ class FirestoreHookTest < Minitest::Test
     assert_match(/REST/, error.message)
   end
 
-  def test_a_write_from_a_thread_the_handler_started_fails_the_preview
-    recorder = preview { |_| Thread.new { @firestore.doc("orders/t").delete }.join }
-    refute_nil recorder.fault
-    assert_match(/outside any request/, recorder.fault.message)
+  def test_a_write_from_a_thread_the_handler_started_is_refused_before_it_is_sent
+    recorder = preview do |_|
+      Thread.new { assert_raises(Sendproof::PreviewWriteBlocked) { @firestore.doc("orders/t").delete } }.join
+    end
+    assert_equal %w[firestore Commit], [recorder.blocked&.store, recorder.blocked&.operation]
+    assert_nil recorder.fault
+    assert_empty seen, "the unattributed write never reached Firestore"
     detached = preview { |_| Thread.new { Sendproof.detached { @firestore.doc("orders/w").delete } }.join }
+    assert_nil detached.blocked
     assert_nil detached.fault
+    assert_equal ["Commit"], seen, "a detached write is background work and runs"
   end
 
   def test_send_and_observed_send_are_never_blocked
