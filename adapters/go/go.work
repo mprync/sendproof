@@ -17,6 +17,7 @@ use (
 	./dynamobench
 	./echo
 	./examples
+	./firestorebench
 	./gin
 	./gorm
 	./mongobench
@@ -32,6 +33,7 @@ replace (
 	github.com/mprync/sendproof/adapters/go/cosmosbench v0.1.0-alpha.1 => ./cosmosbench
 	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.1 => ./dynamobench
 	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1 => ./echo
+	github.com/mprync/sendproof/adapters/go/firestorebench v0.1.0-alpha.1 => ./firestorebench
 	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.1 => ./gin
 	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
 	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.1 => ./mongobench
