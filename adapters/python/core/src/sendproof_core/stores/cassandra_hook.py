@@ -15,12 +15,13 @@ it. It sees the statement before the driver builds a message, so nothing is sent
   becomes a ``Db`` entry whose statement has every literal replaced by ``?``.
 
 Registering on a **cluster** covers its sessions: the ones that exist and every session
-``Cluster.connect`` creates afterwards. Registering on a **session** covers that session only. A
+``Cluster.connect`` creates afterwards (the hook wraps that cluster's ``connect``). Registering on a **session** covers that session only. A
 session of another cluster, or a raw connection, is not covered.
 """
 
 from __future__ import annotations
 
+import functools
 import time
 from typing import Any, Iterable, Optional
 
@@ -127,18 +128,24 @@ class CassandraStore(DataStore):
         """Guard a cluster's sessions: the existing ones, and every session ``connect()`` creates later."""
         if getattr(cluster, _HOOKED, None) is not None:
             raise TypeError("This Cassandra cluster is already hooked by cassandra_store.")
-        original = cluster._new_session
+        # ``connect()`` is the public, only way a cluster makes a session; wrapping it relies on no
+        # private method, so a driver that reorganizes its internals can't make sessions unguarded.
+        original = cluster.connect
+        sessions = getattr(cluster, "sessions", None)
+        if not callable(original) or sessions is None:
+            raise TypeError("This cassandra-driver Cluster has no connect() or sessions; cassandra_store can't guard it.")
         store = self
 
-        def new_session(keyspace: Any) -> Any:
-            session = original(keyspace)
+        @functools.wraps(original)
+        def connect(*args: Any, **kwargs: Any) -> Any:
+            session = original(*args, **kwargs)
             if not isinstance(session, _Guarded):
                 store.guard_session(session)
             return session
 
-        cluster._new_session = new_session
+        cluster.connect = connect
         setattr(cluster, _HOOKED, self)
-        for session in list(cluster.sessions):
+        for session in list(sessions):
             if not isinstance(session, _Guarded):
                 self.guard_session(session)
 
