@@ -70,11 +70,12 @@ def copy_consumer(destination, version):
     found = set()
     for ref in tree.iter("ProjectReference"):
         package_id = Path(ref.attrib["Include"]).stem
-        require(package_id in (HOST, EF), f"Unexpected sample project reference {package_id}")
+        # The sample also wires the optional data-store guards (Redis, MongoDB); each is restored from its archive.
+        require(package_id in PACKAGES, f"Unexpected sample project reference {package_id}")
         ref.tag = "PackageReference"
         ref.attrib = {"Include": package_id, "Version": f"[{version}]"}
         found.add(package_id)
-    require(found == {HOST, EF}, "Consumer must reference both archives")
+    require({HOST, EF} <= found, "Consumer must reference both archives")
     tree.write(project, encoding="utf-8")
 
 
@@ -95,8 +96,13 @@ def check_store_consumer(directory, version):
 </Project>
 """, encoding="utf-8")
     (directory / "Program.cs").write_text("""using Sendproof.AspNetCore;
+using Sendproof.Cassandra;
+using Sendproof.CosmosDb;
 using Sendproof.DynamoDB;
+using Sendproof.Elasticsearch;
+using Sendproof.Firestore;
 using Sendproof.MongoDB;
+using Sendproof.OpenSearch;
 using Sendproof.Redis;
 using MongoDB.Driver;
 
@@ -112,6 +118,11 @@ using var app = builder.Build();
 // Every guard resolves from the container the way an application would use it.
 _ = app.Services.GetRequiredService<RedisStore>();
 _ = app.Services.GetRequiredService<IMongoClient>();
+// The batch-two guards need a live client to register, so naming each one's public builder proves the
+// package carries its assembly and that it compiles against the host package and the client library.
+Type[] batchTwo = [typeof(CassandraStoreBuilder), typeof(ElasticsearchStoreBuilder), typeof(OpenSearchStoreBuilder),
+    typeof(CosmosDbStoreBuilder), typeof(FirestoreStoreBuilder)];
+foreach (var type in batchTwo) Console.WriteLine($"loaded {type.Assembly.GetName().Name}");
 Console.WriteLine("data-store guards registered");
 """, encoding="utf-8")
 

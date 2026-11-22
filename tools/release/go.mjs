@@ -18,8 +18,11 @@ import { isWindows, removeDir, require, root, run, which } from './lib.mjs';
 export const title = 'Go modules';
 
 const GO = join(root, 'adapters', 'go');
-/** Released modules: core, chi, gin, echo, gorm, and the redisbench, dynamobench and mongobench store modules. */
-const MODULE_COUNT = 8;
+/**
+ * Released modules: core, chi, gin, echo, gorm, and the redisbench, dynamobench, mongobench, cassandrabench,
+ * searchbench, cosmosbench and firestorebench store modules.
+ */
+const MODULE_COUNT = 12;
 
 /** Git for Windows' bash (never the WSL launcher in System32), or bash on PATH elsewhere. */
 export function bash() {

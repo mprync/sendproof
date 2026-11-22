@@ -28,6 +28,9 @@ async fn main() {
     let _redis = sendproof_redis::RedisStore::new();
     let _dynamodb = sendproof_dynamodb::DynamoStore::new();
     let _mongodb = std::any::type_name::<sendproof_mongodb::MongoStoreBuilder>();
+    let _cassandra = std::any::type_name::<sendproof_cassandra::CassandraStore>();
+    let _elasticsearch = std::any::type_name::<sendproof_elasticsearch::ElasticsearchStore>();
+    let _opensearch = std::any::type_name::<sendproof_elasticsearch::OpenSearchStore>();
     let api = Router::new().route("/openapi.json", get(openapi)).route("/ping", get(|| async { "pong" }));
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.expect("bind");
     axum::serve(listener, bench.wrap(api)).await.expect("serve");

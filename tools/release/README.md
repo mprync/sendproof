@@ -5,8 +5,8 @@ module per registry from this directory, in this order:
 
 | Module | Registry | Output in `artifacts/packages/<id>/` |
 | --- | --- | --- |
-| `nuget.mjs` | nuget.org | five `.nupkg` + `.snupkg` pairs |
-| `npm.mjs` | npmjs.com | thirteen `npm pack` tarballs |
+| `nuget.mjs` | nuget.org | ten `.nupkg` + `.snupkg` pairs |
+| `npm.mjs` | npmjs.com | seventeen `npm pack` tarballs |
 | `pypi.mjs` | PyPI | a wheel and an sdist per package |
 | `maven.mjs` | Maven Central | a Maven repository layout: jars, sources, javadoc, POMs, Gradle module files |
 | `crates.mjs` | crates.io | `cargo package` `.crate` files |
@@ -21,12 +21,12 @@ Packages are listed by hand, in dependency order, in the places below. The CI pu
 
 | Registry | Packages | Listed in | Consumer smoke test |
 | --- | --- | --- | --- |
-| npm | 10 framework packages plus `@sendproof/redis`, `/dynamodb`, `/mongodb` | `PACKAGES` in `npm.mjs` | `verify` type-checks and loads every entry point |
-| NuGet | `Sendproof.AspNetCore`, `.EntityFrameworkCore`, `.Redis`, `.MongoDB`, `.DynamoDB` | `PROJECTS` in `nuget.mjs`, `PACKAGES` in `tools/check-packages.py` | `check-packages.py` registers all three store guards from the archives |
-| Maven | seven framework modules plus `sendproof-redis`, `-mongodb`, `-dynamodb` | `MODULES` in `maven.mjs`; `adapters/java/settings.gradle.kts` | `consumers/maven` resolves the three store guards (`storesCheck`) |
-| crates.io | `sendproof-core`, `-axum`, `-sqlx`, `-actix`, `-redis`, `-dynamodb`, `-mongodb` | `CRATES` in `crates.mjs` | `consumers/crates/main.rs` builds against all three store crates |
-| Go | core, `chi`, `gin`, `echo`, `gorm`, `redisbench`, `dynamobench`, `mongobench` | `adapters/go/scripts/{package,tags,make-zips,test,verify-release}.sh`, `MODULE_COUNT` in `go.mjs` | `adapters/go/scripts/consumer/main.go.tmpl` imports every module |
-| PyPI, RubyGems, Packagist | no store packages | | The Python, Ruby and PHP store hooks ship inside `sendproof-core`, the `sendproof-core` gem and `sendproof/core`, so there are no extra packages or Packagist mirror repositories |
+| npm | 10 framework packages plus `@sendproof/redis`, `/dynamodb`, `/mongodb`, `/cassandra`, `/elasticsearch`, `/cosmosdb`, `/firestore` | `PACKAGES` in `npm.mjs` | `verify` type-checks and loads every entry point |
+| NuGet | `Sendproof.AspNetCore`, `.EntityFrameworkCore`, `.Redis`, `.MongoDB`, `.DynamoDB`, `.Cassandra`, `.Elasticsearch`, `.OpenSearch`, `.CosmosDb`, `.Firestore` | `PROJECTS` in `nuget.mjs`, `PACKAGES` in `tools/check-packages.py` | `check-packages.py` restores every store package from the archives, registers the first three guards and loads the five batch-two builders |
+| Maven | seven framework modules plus `sendproof-redis`, `-mongodb`, `-dynamodb`, `-cassandra`, `-elasticsearch`, `-cosmosdb`, `-firestore` | `MODULES` and `STORE_MODULES` in `maven.mjs`; `adapters/java/settings.gradle.kts` | `consumers/maven` resolves the seven store guards (`storesCheck`) |
+| crates.io | `sendproof-core`, `-axum`, `-sqlx`, `-actix`, `-redis`, `-dynamodb`, `-mongodb`, `-cassandra`, `-elasticsearch` | `CRATES` in `crates.mjs` | `consumers/crates/main.rs` builds against all five store crates (Cosmos DB and Firestore are unsupported in Rust) |
+| Go | core, `chi`, `gin`, `echo`, `gorm`, `redisbench`, `dynamobench`, `mongobench`, `cassandrabench`, `searchbench`, `cosmosbench`, `firestorebench` | `adapters/go/scripts/{package,tags,make-zips,test,verify-release}.sh`, `MODULE_COUNT` in `go.mjs` | `adapters/go/scripts/consumer/main.go.tmpl` imports every module |
+| PyPI, RubyGems, Packagist | no store packages | | The Python, Ruby and PHP store hooks ship inside `sendproof-core`, the `sendproof-core` gem and `sendproof/core`, so there are no extra packages or Packagist mirror repositories. `pypi.mjs` imports every hook module from the installed wheel and `check_dist.py` checks the eight client extras; `packagist.mjs` leaves `adapters/php/core/compat/` (the Elasticsearch 8 test run) out of the archive and checks it is absent |
 
 After a module's `pack` returns, `pack-all` writes `RELEASE.json` (registry, version, repository, commit,
 files) and `SHA256SUMS` into its output directory. CI uploads that directory unchanged, and every publish

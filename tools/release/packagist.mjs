@@ -50,7 +50,8 @@ export async function pack(ctx) {
     const target = join(ctx.work, pkg.dir);
     ctx.log(`staging ${pkg.name}`);
     await stage(join(root, 'adapters', 'php', pkg.dir), target, {
-      exclude: ['tests', 'phpunit.xml', '.phpunit.result.cache', 'composer.lock'],
+      // compat/ holds the Elasticsearch 8 test run (its own composer project), which never ships.
+      exclude: ['tests', 'compat', 'phpunit.xml', '.phpunit.result.cache', 'composer.lock'],
     });
     staged[pkg.dir] = target;
     await copyFile(license, join(target, 'LICENSE'));
@@ -213,7 +214,7 @@ async function checkArchive(path, pkg, ctx) {
   if (pkg.dir === 'core') {
     for (const required of ['resources/ui/manifest.json', 'resources/ui/index.html']) require(has(required), `${label} is missing ${required}`);
   }
-  const unwanted = names.filter(name => /(^|\/)(vendor|tests|\.git|\.phpunit\.cache)(\/|$)/.test(name) || /(^|\/)(composer\.lock|phpunit\.xml|\.phpunit\.result\.cache)$/.test(name));
+  const unwanted = names.filter(name => /(^|\/)(vendor|tests|compat|\.git|\.phpunit\.cache)(\/|$)/.test(name) || /(^|\/)(composer\.lock|phpunit\.xml|\.phpunit\.result\.cache)$/.test(name));
   require(!unwanted.length, `${label} contains files that must not ship: ${unwanted.slice(0, 5).join(', ')}`);
 
   const manifest = JSON.parse(entries.get('composer.json').toString('utf8'));

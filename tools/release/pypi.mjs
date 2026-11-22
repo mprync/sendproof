@@ -25,7 +25,10 @@ const PACKAGES = [
   ['sendproof-django', 'django'],
 ];
 
-const consumerFiles = join(root, 'tools', 'release', 'consumers', 'pypi');
+/** The data-store hook modules inside sendproof_core.stores (they ship in sendproof-core, not as packages of their own). */
+const STORE_HOOKS = ['redis_hook', 'dynamodb_hook', 'mongo_hook', 'cassandra_hook', 'elasticsearch_hook', 'cosmos_hook', 'firestore_hook'];
+
+const consumerFiles =join(root, 'tools', 'release', 'consumers', 'pypi');
 const adapterVenv = join(root, 'adapters', 'python', '.venv');
 
 /** Build tooling installed into a fresh environment when the repository's .venv is missing or lacks it. */
@@ -156,9 +159,17 @@ export async function verify(ctx) {
       '    assert "site-packages" in pathlib.Path(module.__file__).parts, f"{name} imported from {module.__file__}"',
       '    assert module.__version__ == expected, f"{name} {module.__version__} != {expected}"',
       // The data-store hooks ship inside sendproof-core (their client libraries are optional extras).
-      'stores = importlib.import_module("sendproof_core.stores")',
-      'assert "site-packages" in pathlib.Path(stores.__file__).parts, f"stores imported from {stores.__file__}"',
-      'print("imported", ", ".join(' + JSON.stringify(modules) + '), "and sendproof_core.stores")',
+      // Every hook module is found in the wheel. Some import their client library at the top (the MongoDB hook needs
+      // bson), so a missing third-party module is accepted, but a missing sendproof_core module is not.
+      `for name in ${JSON.stringify(['stores', ...STORE_HOOKS.map(hook => `stores.${hook}`)])}:`,
+      '    try:',
+      '        stores = importlib.import_module("sendproof_core." + name)',
+      '    except ModuleNotFoundError as error:',
+      '        assert error.name and not error.name.startswith("sendproof"), f"{name} is missing from the wheel: {error}"',
+      '        print("  sendproof_core." + name, "needs", error.name, "(optional client library)")',
+      '        continue',
+      '    assert "site-packages" in pathlib.Path(stores.__file__).parts, f"{name} imported from {stores.__file__}"',
+      'print("imported", ", ".join(' + JSON.stringify(modules) + '), "and the sendproof_core.stores hooks")',
     ].join('\n')], { cwd: consumer, label: 'pypi' });
 
     await copyFile(join(consumerFiles, 'app.py'), join(consumer, 'app.py'));

@@ -5,7 +5,7 @@
 //        and copies the Maven tree into ctx.out without checksums or maven-metadata files.
 // verify builds a fresh Spring Boot project that resolves the artifacts from ctx.out only, runs it and
 //        checks /sendproof/ and /openapi.json. A second configuration resolves sendproof-ktor, and a third the
-//        data-store guards (sendproof-redis, -mongodb, -dynamodb) with their dependencies on the core.
+//        data-store guards (sendproof-redis, -mongodb, -dynamodb, -cassandra, -elasticsearch, -cosmosdb, -firestore) with their dependencies on the core.
 //
 // Signing is deliberately absent: the CI publish job signs and checksums the files with gpg, so no secret
 // ever reaches the Gradle build. Gradle itself is the repository's wrapper (adapters/java).
@@ -22,7 +22,11 @@ export const title = 'Maven Central';
 
 const GROUP = 'io.github.mprync';
 const MODULES = ['sendproof-core', 'sendproof-ui', 'sendproof-jdbc', 'sendproof-logback', 'sendproof-spring-boot', 'sendproof-jpa', 'sendproof-ktor',
-  'sendproof-redis', 'sendproof-mongodb', 'sendproof-dynamodb'];
+  'sendproof-redis', 'sendproof-mongodb', 'sendproof-dynamodb', 'sendproof-cassandra', 'sendproof-elasticsearch', 'sendproof-cosmosdb',
+  'sendproof-firestore'];
+/** The data-store guards the consumer's `storesCheck` configuration resolves; their clients stay with the host. */
+const STORE_MODULES = ['sendproof-redis', 'sendproof-mongodb', 'sendproof-dynamodb', 'sendproof-cassandra', 'sendproof-elasticsearch',
+  'sendproof-cosmosdb', 'sendproof-firestore'];
 /** Modules whose sources are not Java: Kotlin code, or (sendproof-ui) JavaScript resources. Their Javadoc jar is a placeholder. */
 const SOURCE_EXTENSION = { 'sendproof-ktor': '.kt', 'sendproof-ui': '.js' };
 /** Spring Boot version the consumer smoke test builds against; keep in step with adapters/java/gradle/libs.versions.toml. */
@@ -206,7 +210,7 @@ export async function verify(ctx) {
       `sendproof-ktor's transitive dependencies did not resolve (got ${ktor.join(', ')})`);
     // The data-store guards leave their client libraries to the host, so only the core comes with them.
     const stores = (await readFile(join(consumer, 'build', 'consumer', 'stores-classpath.txt'), 'utf8')).split('\n');
-    for (const module of ['sendproof-redis', 'sendproof-mongodb', 'sendproof-dynamodb']) {
+    for (const module of STORE_MODULES) {
       require(stores.includes(`${module}-${ctx.version}.jar`), `${module} did not resolve (got ${stores.join(', ')})`);
     }
     require(stores.includes(`sendproof-core-${ctx.version}.jar`), `the data-store guards' sendproof-core dependency did not resolve (got ${stores.join(', ')})`);

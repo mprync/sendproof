@@ -41,6 +41,10 @@ dependencies {
     storesCheck("io.github.mprync:sendproof-redis:@VERSION@")
     storesCheck("io.github.mprync:sendproof-mongodb:@VERSION@")
     storesCheck("io.github.mprync:sendproof-dynamodb:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-cassandra:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-elasticsearch:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-cosmosdb:@VERSION@")
+    storesCheck("io.github.mprync:sendproof-firestore:@VERSION@")
 }
 
 // Tells the Node script which JVM Gradle used, so the app runs on the same JDK 17+ on every platform.
