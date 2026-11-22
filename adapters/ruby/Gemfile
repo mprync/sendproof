@@ -20,6 +20,9 @@ gem "redis", "~> 5.0"
 gem "aws-sdk-dynamodb", "~> 1.100"
 # Batch two (guard only): the Elasticsearch and OpenSearch clients take the Faraday middleware, and
 # Firestore's generated gRPC client takes the interceptor. Cassandra and Cosmos DB have no Ruby client.
+# Faraday depends on json without an upper bound, and json 3 rejects the quirks_mode option that
+# ActiveSupport 8.0 still passes to it, which breaks every Rails JSON response.
+gem "json", "~> 2.9"
 gem "elasticsearch", "~> 8.0"
 gem "opensearch-ruby", "~> 3.0"
 gem "google-cloud-firestore", "~> 2.0"

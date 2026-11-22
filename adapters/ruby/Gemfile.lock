@@ -237,7 +237,7 @@ GEM
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
     jmespath (1.6.2)
-    json (3.1.0)
+    json (2.21.2)
     jwt (3.3.0)
       base64
     logger (1.7.0)
@@ -420,6 +420,7 @@ DEPENDENCIES
   aws-sdk-dynamodb (~> 1.100)
   elasticsearch (~> 8.0)
   google-cloud-firestore (~> 2.0)
+  json (~> 2.9)
   minitest (~> 5.25)
   mongo (~> 2.21)
   mongoid (~> 9.0)

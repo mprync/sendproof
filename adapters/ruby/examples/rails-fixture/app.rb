@@ -6,7 +6,9 @@
 # Environment: PORT (set by the server), BENCH_PATH_BASE (see config.ru), BENCH_SCENARIO
 # (standard, disabled, no-provider or rollback-failure), BENCH_DATABASE (sqlite, mysql or postgresql) with
 # BENCH_DATABASE_URL, and the data-store variables of spec/conformance/fixture.md: BENCH_MONGODB_URL,
-# BENCH_REDIS_URL with BENCH_REDIS_PREFIX, and BENCH_DYNAMODB_URL with BENCH_DYNAMODB_TABLE.
+# BENCH_REDIS_URL with BENCH_REDIS_PREFIX, BENCH_DYNAMODB_URL with BENCH_DYNAMODB_TABLE, and
+# BENCH_OPENSEARCH_URL with BENCH_OPENSEARCH_INDEX. Ruby has no maintained Cassandra client, so the
+# fixture never serves the Cassandra routes.
 
 require "tmpdir"
 require "fileutils"
@@ -18,6 +20,7 @@ require "sendproof/active_record"
 require "sendproof/mongoid" if ENV["BENCH_MONGODB_URL"]
 require "sendproof/redis" if ENV["BENCH_REDIS_URL"]
 require "sendproof/dynamodb" if ENV["BENCH_DYNAMODB_URL"]
+require "sendproof/opensearch" if ENV["BENCH_OPENSEARCH_URL"]
 require "redis" if ENV["BENCH_REDIS_URL"]
 
 # SQLite by default: every process gets its own empty database file, removed on exit. BENCH_DATABASE=mysql
@@ -39,7 +42,9 @@ module Fixture
   MONGODB_URL = ENV["BENCH_MONGODB_URL"]
   REDIS_URL = ENV["BENCH_REDIS_URL"]
   DYNAMODB_URL = ENV["BENCH_DYNAMODB_URL"]
-  STORES = (SCENARIO == "no-provider" ? [] : [(:mongodb if MONGODB_URL), (:redis if REDIS_URL), (:dynamodb if DYNAMODB_URL)].compact).freeze
+  OPENSEARCH_URL = ENV["BENCH_OPENSEARCH_URL"]
+  STORES = (SCENARIO == "no-provider" ? [] : [(:mongodb if MONGODB_URL), (:redis if REDIS_URL), (:dynamodb if DYNAMODB_URL),
+                                              (:opensearch if OPENSEARCH_URL)].compact).freeze
   # On MySQL the fixture also serves the mysql-escape route (spec/conformance/fixture.md).
   MYSQL = ENV["BENCH_DATABASE"] == "mysql"
   PASSWORD = "bench-fixture"
@@ -75,6 +80,8 @@ module Fixture
                                          access_key_id: ENV.fetch("AWS_ACCESS_KEY_ID", "benchlocal"),
                                          secret_access_key: ENV.fetch("AWS_SECRET_ACCESS_KEY", "benchlocal"))
              end
+  # Built before the store, as an application's own initializers may: the global store hooks it in place.
+  OPENSEARCH = (::OpenSearch::Client.new(url: OPENSEARCH_URL) if OPENSEARCH_URL)
 
   # What an application would have sent. Previews suppress delivery; ordinary sends append here.
   OUTBOX = []
@@ -120,6 +127,7 @@ module Fixture
     bench.data_store Sendproof::Mongoid::Store.new(name: "catalog") if STORES.include?(:mongodb)
     bench.data_store Sendproof::Redis::Store.new(name: "cache") if STORES.include?(:redis)
     bench.data_store Sendproof::DynamoDB::Store.new(client: DYNAMODB, name: "orders") if STORES.include?(:dynamodb)
+    bench.data_store Sendproof::OpenSearch::Store.new(name: "search") if STORES.include?(:opensearch)
 
     initializer "fixture.database" do
       ActiveRecord::Schema.verbose = false

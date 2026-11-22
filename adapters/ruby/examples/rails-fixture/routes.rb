@@ -44,5 +44,11 @@ Rails.application.routes.draw do
       post "/orders/:id/cancel", to: "orders#cancel", constraints: id
       delete "/orders/:id", to: "orders#destroy", constraints: id
     end
+    if Fixture::STORES.include?(:opensearch)
+      get "/articles/:id", to: "articles#show", constraints: id
+      post "/articles/:id/touch", to: "articles#touch", constraints: id
+      post "/articles/:id/hide", to: "articles#hide", constraints: id
+      delete "/articles/:id", to: "articles#destroy", constraints: id
+    end
   end
 end

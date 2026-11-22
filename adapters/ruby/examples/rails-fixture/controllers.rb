@@ -169,6 +169,7 @@ module Fixture
       case params[:store]
       when "redis" then Fixture::REDIS.incr("#{ENV.fetch('BENCH_REDIS_PREFIX', '')}counter:item-#{params[:id]}")
       when "dynamodb" then Fixture.touch_order("item-#{params[:id]}")
+      when "opensearch" then Fixture.touch_article("item-#{params[:id]}")
       else return head(:bad_request)
       end
       render json: item_json(item), status: :created
@@ -324,6 +325,49 @@ module Fixture
     def table = ENV.fetch("BENCH_DYNAMODB_TABLE")
   end
 
+  # OpenSearch through opensearch-ruby, guarded by the Faraday middleware. Reads are a POST _search.
+  class ArticlesController < BaseController
+    sendproof_preview
+    sendproof_no_preview only: :destroy, stores: :opensearch
+    before_action :authenticate!
+
+    def show
+      reply = OPENSEARCH.search(index: index, body: { query: { ids: { values: [params[:id]] } }, size: 1 })
+      hit = reply.dig("hits", "hits", 0)
+      hit ? render(json: Fixture.article_json(hit)) : head(:not_found)
+    end
+
+    def touch = render(json: Fixture.touch_article(params[:id]))
+
+    # The store's refusal is rescued here on purpose: a blocked Preview must still answer 409.
+    def hide
+      reply = OPENSEARCH.update_by_query(index: index, refresh: true,
+                                         body: { query: { ids: { values: [params[:id]] } }, script: { source: "ctx._source.hidden = true" } })
+      reply["updated"].to_i.positive? ? render(json: { id: params[:id], hidden: true }) : head(:not_found)
+    rescue StandardError
+      head :not_found
+    end
+
+    def destroy
+      OPENSEARCH.delete(index: index, id: params[:id], refresh: true)
+      head :no_content
+    end
+
+    private
+
+    def index = ENV.fetch("BENCH_OPENSEARCH_INDEX")
+  end
+
+  # The same update the article touch route and the mixed route make.
+  def self.touch_article(id)
+    reply = OPENSEARCH.update(index: ENV.fetch("BENCH_OPENSEARCH_INDEX"), id: id, refresh: true,
+                              body: { script: { source: "ctx._source.views += params.step", params: { step: 1 } },
+                                      upsert: { title: "Untitled", views: 1 }, _source: true })
+    { id: id, title: reply.dig("get", "_source", "title"), views: reply.dig("get", "_source", "views") }
+  end
+
+  def self.article_json(hit) = { id: hit["_id"], title: hit.dig("_source", "title"), views: hit.dig("_source", "views") }
+
   # The same update the order touch route and the mixed route make.
   def self.touch_order(id)
     DYNAMODB.update_item(table_name: ENV.fetch("BENCH_DYNAMODB_TABLE"), key: { "id" => id },
@@ -373,7 +417,7 @@ module Fixture
     paths["/items/{id}/escape"] = { post: simple.call("Insert, then commit implicitly (DDL or CALL)", "201") } if MYSQL
     if STORES.any?
       paths["/items/{id}/remember"] = { post: { summary: "Insert, then write a guarded store", parameters: [id_param,
-        { name: "store", in: "query", required: true, schema: { type: "string", enum: %w[redis dynamodb] } }],
+        { name: "store", in: "query", required: true, schema: { type: "string", enum: %w[redis dynamodb opensearch] } }],
         responses: { "201" => { description: "Created" } } } }
     end
     if STORES.include?(:mongodb)
@@ -395,6 +439,12 @@ module Fixture
                                 delete: { summary: "Delete an order", responses: { "204" => { description: "Deleted" } } } }
       paths["/orders/{id}/touch"] = { post: simple.call("Touch an order (UpdateItem)") }
       paths["/orders/{id}/cancel"] = { post: simple.call("Cancel an order (PartiQL UPDATE)") }
+    end
+    if STORES.include?(:opensearch)
+      paths["/articles/{id}"] = { parameters: [id_param], get: { summary: "Read an article (POST _search)", responses: { "200" => { description: "The article" } } },
+                                  delete: { summary: "Delete an article", responses: { "204" => { description: "Deleted" } } } }
+      paths["/articles/{id}/touch"] = { post: simple.call("Touch an article (_update)") }
+      paths["/articles/{id}/hide"] = { post: simple.call("Hide an article (_update_by_query)") }
     end
     document
   end.freeze
