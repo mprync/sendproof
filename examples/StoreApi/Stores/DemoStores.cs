@@ -134,7 +134,23 @@ public sealed class DemoStores
         if (_redis is null) return null;
         try
         {
-            return await _redis.GetDatabase().StringIncrementAsync($"coupon:redemptions:{code}", count);
+            // Sent as INCRBY whatever the count (the typed helper would send INCR for 1), so the guard names the command the docs name.
+            return (long)await _redis.GetDatabase().ExecuteAsync("INCRBY", $"coupon:redemptions:{code}", count);
+        }
+        catch (RedisException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>How often a coupon was redeemed according to Redis, or <c>null</c> when Redis is not configured, is down or has no counter.</summary>
+    internal async Task<long?> ReadRedemptionsAsync(string code)
+    {
+        if (_redis is null) return null;
+        try
+        {
+            var value = await _redis.GetDatabase().StringGetAsync($"coupon:redemptions:{code}");
+            return value.HasValue && long.TryParse(value.ToString(), out var count) ? count : null;
         }
         catch (RedisException)
         {

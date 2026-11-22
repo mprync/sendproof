@@ -170,6 +170,9 @@ internal static class OrderEndpoints
         {
             coupon = await db.Coupons.SingleOrDefaultAsync(c => c.Code == request.CouponCode);
             var problem = coupon is null ? "No such coupon." : Pricing.CouponProblem(coupon, priced.Sum(l => l.Line.Value), currency.Value, DateOnly.FromDateTime(DateTime.UtcNow));
+            // With Redis, the redemption counter there is the count of record, so read it (a Preview may read) before trusting the SQL copy.
+            if (problem is null && coupon!.MaxRedemptions is { } max && await stores.ReadRedemptionsAsync(coupon.Code) is { } redeemed && redeemed >= max)
+                problem = "The coupon has been used the maximum number of times.";
             if (problem is not null) errors["couponCode"] = [problem];
         }
         if (errors.Count > 0) return Results.ValidationProblem(errors);

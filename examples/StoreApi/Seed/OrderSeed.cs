@@ -7,7 +7,7 @@ internal sealed record OrderData(List<OrderRecord> Orders, List<OrderLineRecord>
     List<ShipmentRecord> Shipments, List<StockRecord> Stock, List<StockMovementRecord> Movements, List<ReservationRecord> Reservations,
     List<CartRecord> Carts, List<CartItemRecord> CartItems, List<AuditEventRecord> Audit);
 
-/// <summary>Seeds coupons, then about 160 orders with their payments, refunds, shipments, stock levels and carts.</summary>
+/// <summary>Seeds coupons, then about 140 orders with their payments, refunds, shipments, stock levels and carts.</summary>
 internal static class OrderSeed
 {
     private static readonly string[] CardBrands = ["Visa", "Mastercard", "Amex"];

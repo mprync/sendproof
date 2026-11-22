@@ -4,7 +4,7 @@ namespace StoreApi;
 
 /// <summary>
 /// Seeds a newly created database with a believable, deterministic online-store data set: staff and customers, a
-/// catalogue of outdoor gear with prices in ten currencies, stock, coupons, and about 160 orders in every status with
+/// catalogue of outdoor gear with prices in ten currencies, stock, coupons, and about 140 orders in every status with
 /// their payments, refunds, shipments and stock movements.
 /// </summary>
 /// <remarks>
