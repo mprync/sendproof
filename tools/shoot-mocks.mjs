@@ -21,6 +21,8 @@ mkdirSync(out, { recursive: true });
 const V6_SHIP = 'v5=1&v6=1&opid=ShipmentsController.Create';
 const V6_QUOTE = 'v5=1&v6=1&opid=CartsController.Quote';
 const V6_REDEEM = 'v5=1&v6=1&opid=CouponsController.Redeem';
+// v7 screens build on v5 and v6 (store marks, row cards); see mocks/v7-journeys.js.
+const V7 = 'v5=1&v6=1&v7=1&opid=ShipmentsController.Create';
 
 // [name, page, query, mobile?] where mobile is true (390 px) or a phone width in px.
 const shots = [
@@ -189,6 +191,33 @@ const shots = [
   ['m29-v6-preview-off-130', 'workbench', `${V6_QUOTE}&nosql=known&text=130`, 320],
   ['m30-v6-preview-blocked-130', 'workbench', `${V6_REDEEM}&nosql=blocked&mview=result&text=130`, 320],
   ['m31-v6-preview-blocked-ar-130-dark', 'workbench', `${V6_REDEEM}&nosql=blocked&mview=result&text=130&lang=ar&theme=dark`, 320],
+  // v7 (README "v7"): journeys. An Arazzo workflow run step by step, compared with its
+  // expected writes. Phones are 390 px (320 px for the summary) at 130% text.
+  ['132-v7-overview', 'workbench', `${V7}&jv=overview`],
+  ['133-v7-overview-dark', 'workbench', `${V7}&jv=overview&theme=dark`],
+  ['134-v7-step', 'workbench', `${V7}&jv=step`],
+  ['135-v7-step-dark', 'workbench', `${V7}&jv=step&theme=dark`],
+  ['136-v7-step-send-run', 'workbench', `${V7}&jv=step&mode=send`],
+  ['137-v7-result', 'workbench', `${V7}&jv=result`],
+  ['138-v7-result-dark', 'workbench', `${V7}&jv=result&theme=dark`],
+  ['139-v7-result-130', 'workbench', `${V7}&jv=result&text=130`],
+  ['140-v7-rtl-ar-result', 'workbench', `${V7}&jv=result&lang=ar`],
+  ['141-v7-summary', 'workbench', `${V7}&jv=summary`],
+  ['142-v7-summary-dark', 'workbench', `${V7}&jv=summary&theme=dark`],
+  ['143-v7-refused', 'workbench', `${V7}&jv=refused`],
+  ['144-v7-refused-dark', 'workbench', `${V7}&jv=refused&theme=dark`],
+  ['145-v7-empty', 'workbench', `${V7}&jv=empty`],
+  ['146-v7-loading', 'workbench', `${V7}&jv=loading`],
+  ['147-v7-loading-dark', 'workbench', `${V7}&jv=loading&theme=dark`],
+  ['148-v7-board-findings', 'journeys', 'v6=1&v7=1&set=findings'],
+  ['149-v7-board-findings-dark', 'journeys', 'v6=1&v7=1&set=findings&theme=dark'],
+  ['m32-v7-journeys-drawer-130', 'workbench', `${V7}&jv=overview&drawer=1&text=130`, true],
+  ['m33-v7-overview-130', 'workbench', `${V7}&jv=overview&text=130`, true],
+  ['m34-v7-step-130', 'workbench', `${V7}&jv=step&text=130`, true],
+  ['m35-v7-result-130', 'workbench', `${V7}&jv=result&mview=result&text=130`, true],
+  ['m36-v7-result-ar-130-dark', 'workbench', `${V7}&jv=result&mview=result&text=130&lang=ar&theme=dark`, true],
+  ['m37-v7-summary-130', 'workbench', `${V7}&jv=summary&text=130`, 320],
+  ['m38-v7-refused-130', 'workbench', `${V7}&jv=refused&mview=result&text=130`, true],
 ];
 
 /**
