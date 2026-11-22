@@ -12,6 +12,7 @@ import json
 import socket
 import threading
 import time
+from collections.abc import Mapping
 
 import pytest
 from pymongo import monitoring
@@ -965,7 +966,7 @@ class _Proxy:
     """A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
     failing in the middle of a Preview."""
 
-    def __init__(self) -> None:
+    def __init__(self, drop_aborts: bool = False) -> None:
         from urllib.parse import urlparse
 
         from store_support import MONGODB_URL
@@ -976,7 +977,38 @@ class _Proxy:
         self._lock = threading.Lock()
         self._down = False
         self._links: set[socket.socket] = set()
+        #: Close a connection on any abortTransaction request, so only the abort is lost.
+        self._drop_aborts = drop_aborts
+        self.aborts = 0
         threading.Thread(target=self._accept, daemon=True).start()
+
+    @staticmethod
+    def command_of(message: bytes) -> str:
+        """The command name of an OP_MSG request: the first key of its body section (header 16 bytes,
+        opCode 2013 at 12, flagBits, a kind-0 section holding one BSON document)."""
+        if len(message) < 27 or int.from_bytes(message[12:16], "little") != 2013 or message[20] != 0:
+            return ""
+        end = message.find(b"\x00", 26)
+        return message[26:end].decode() if end > 0 else ""
+
+    def _forward(self, source: socket.socket, sink: socket.socket) -> None:
+        """Copy requests message by message, closing both ends on an abortTransaction."""
+        buffered = b""
+        try:
+            while data := source.recv(65536):
+                buffered += data
+                while len(buffered) >= 4 and len(buffered) >= int.from_bytes(buffered[:4], "little"):
+                    length = int.from_bytes(buffered[:4], "little")
+                    message, buffered = buffered[:length], buffered[length:]
+                    if self.command_of(message) == "abortTransaction":
+                        self.aborts += 1
+                        return
+                    sink.sendall(message)
+        except OSError:
+            pass
+        finally:
+            self._close(source)
+            self._close(sink)
 
     def url(self) -> str:
         host, port = self._listener.getsockname()[:2]
@@ -998,8 +1030,9 @@ class _Proxy:
                     client.close()
                     continue
                 self._links.update((client, upstream))
-            for source, sink in ((client, upstream), (upstream, client)):
-                threading.Thread(target=self._pipe, args=(source, sink), daemon=True).start()
+            requests = self._forward if self._drop_aborts else self._pipe
+            threading.Thread(target=requests, args=(client, upstream), daemon=True).start()
+            threading.Thread(target=self._pipe, args=(upstream, client), daemon=True).start()
 
     @staticmethod
     def _close(link: socket.socket) -> None:
@@ -1041,12 +1074,13 @@ class _CommandNames(monitoring.CommandListener):
 
     def __init__(self) -> None:
         self.names: list[str] = []
+        self.succeeded_names: list[str] = []
 
     def started(self, event):
         self.names.append(event.command_name)
 
     def succeeded(self, event):
-        pass
+        self.succeeded_names.append(event.command_name)
 
     def failed(self, event):
         pass
@@ -1139,6 +1173,66 @@ async def test_an_async_preview_whose_abort_is_lost_fails_at_once_and_its_locks_
     assert reader["documents"].find_one({"_id": "seeded"})["name"] == "Second"
     await client.close()
     proxy.close()
+
+
+def test_a_preview_whose_capture_succeeds_but_whose_abort_alone_is_lost_answers_500(database, reader, caplog):
+    from pymongo import MongoClient
+
+    seed(reader, {"_id": "seeded", "name": "Seeded"})
+    proxy = _Proxy(drop_aborts=True)
+    sent = _CommandNames()
+    client = MongoClient(proxy.url(), serverSelectionTimeoutMS=1000, event_listeners=[sent])
+    store = mongo_store(client, name="catalog")
+    documents = store.client[database]["documents"]
+
+    def handler(scope):
+        documents.update_one({"_id": "seeded"}, {"$set": {"name": "Preview"}})
+        return 200, {}
+
+    with caplog.at_level("ERROR", logger="sendproof"):
+        response = run_preview(sync_bench(store), handler)
+    assert response.status == 500 and b'"rolledBack":true' not in response.body
+    assert proxy.aborts >= 1 and "find" in sent.succeeded_names  # only the abort was lost: capture read the documents
+    assert "didn't acknowledge the abort" in caplog.text
+    assert lock_released_within(reader, 10), "the Preview still holds its transaction"
+    assert "killSessions" in sent.names
+    assert reader["documents"].find_one({"_id": "seeded"})["name"] == "Second"  # nothing of the Preview committed
+    client.close()
+    proxy.close()
+
+
+def test_each_kill_sessions_try_is_bounded_so_an_unreachable_server_is_retried(monkeypatch, caplog):
+    import uuid
+
+    from bson.binary import Binary, UuidRepresentation
+    from pymongo import MongoClient
+    from pymongo.database import Database
+
+    from sendproof_core.stores.mongo_hook import _drive_sync
+
+    closed = socket.create_server(("127.0.0.1", 0))  # nothing listens here once it is closed
+    port = closed.getsockname()[1]
+    closed.close()
+    # The client keeps the driver's 30-second server selection timeout.
+    client = MongoClient(f"mongodb://127.0.0.1:{port}/?directConnection=true")
+    store = mongo_store(client)
+    tries = []
+    original = Database.command
+
+    def command(self, command, *args, **kwargs):
+        if isinstance(command, Mapping) and "killSessions" in command:
+            tries.append(time.monotonic())
+        return original(self, command, *args, **kwargs)
+
+    monkeypatch.setattr(Database, "command", command)
+    session_id = {"id": Binary.from_uuid(uuid.uuid4(), UuidRepresentation.STANDARD)}
+    started = time.monotonic()
+    with caplog.at_level("WARNING", logger="sendproof"):
+        assert _drive_sync(store.engine._kill_session_steps(session_id, "feedface", time.sleep)) is False
+    assert time.monotonic() - started < 12, "the kill outlasted its 10-second window"
+    assert len(tries) >= 4, f"each try gives up after about 2 s and is retried: {len(tries)} tries"
+    assert "feedface" in caplog.text  # the final failure is logged with the session id
+    client.close()
 
 
 def test_a_normal_preview_sends_no_kill_sessions(database, reader):

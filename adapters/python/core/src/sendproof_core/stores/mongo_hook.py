@@ -114,6 +114,8 @@ _NO_SUCH_TRANSACTION = 251
 _KILL_RETRY_LIMIT = 10.0
 _KILL_FIRST_DELAY = 0.1
 _KILL_MAX_DELAY = 2.0
+#: Each ``killSessions`` try gives up after this long, or the time left, whichever is shorter.
+_KILL_TRY_LIMIT = 2.0
 
 logger = logging.getLogger("sendproof")
 
@@ -816,38 +818,50 @@ class MongoEngine:
             return call()
 
     def _kill_steps(self, state: PreviewState, sleep: Callable[[float], Any]) -> Steps:
-        """End a Preview transaction whose abort the server never acknowledged with ``killSessions``,
-        retrying with backoff while the server can't be reached. A final failure is logged as a warning
-        with the session id: the server then ends the transaction at its lifetime limit. The session is
-        ended only afterwards, so the driver can't hand its id to another operation meanwhile."""
+        """End a Preview transaction whose abort the server never acknowledged with ``killSessions``. The
+        session is ended only afterwards, so the driver can't hand its id to another operation meanwhile."""
         permission = _engine_call.set(True)
-        deadline = time.monotonic() + _KILL_RETRY_LIMIT
-        delay = _KILL_FIRST_DELAY
-        failure: Optional[str] = f"MongoDB couldn't be reached for {_KILL_RETRY_LIMIT:g} s"
-        command = {"killSessions": [state.session.session_id]}
         try:
-            while (remaining := deadline - time.monotonic()) > 0:
-                try:
-                    yield (lambda: self._bounded(remaining, lambda: self.client["admin"].command(command)))
-                    failure = None
-                    break
-                except OperationFailure as error:  # the server answered no: retrying won't help
-                    failure = str(error)
-                    break
-                except Exception:  # a network error or no server to select: try again shortly
-                    pass
-                pause = max(0.0, min(delay, deadline - time.monotonic()))
-                yield (lambda: sleep(pause))
-                delay = min(delay * 2, _KILL_MAX_DELAY)
-            if failure is not None:
-                logger.warning("Couldn't end a MongoDB Preview transaction (session %s): %s. The server ends it, "
-                               "and releases its locks, at transactionLifetimeLimitSeconds.", state.lsid, failure)
+            yield from self._kill_session_steps(state.session.session_id, state.lsid, sleep)
             try:
                 yield (lambda: state.session.end_session())
             except Exception:
                 pass
         finally:
             _engine_call.reset(permission)
+
+    def _kill_session_steps(self, session_id: Any, lsid: str, sleep: Callable[[float], Any]) -> Steps:
+        """Send ``killSessions`` for one session id, retrying with backoff for up to 10 s while the server
+        can't be reached. Each try gives up after 2 s, or the time left, so a try never waits out the
+        driver's 30-second server selection timeout. Returns whether the server killed the session; a
+        final failure is logged as a warning with ``lsid``: the server then ends the transaction at its
+        lifetime limit."""
+        permission = _engine_call.set(True)  # the monitor leaves the engine's own killSessions alone
+        deadline = time.monotonic() + _KILL_RETRY_LIMIT
+        delay = _KILL_FIRST_DELAY
+        failure: Optional[str] = f"MongoDB couldn't be reached for {_KILL_RETRY_LIMIT:g} s"
+        command = {"killSessions": [session_id]}
+        try:
+            while (remaining := deadline - time.monotonic()) > 0:
+                bound = min(_KILL_TRY_LIMIT, remaining)
+                try:
+                    yield (lambda: self._bounded(bound, lambda: self.client["admin"].command(command)))
+                    failure = None
+                    break
+                except OperationFailure as error:  # the server answered no: retrying won't help
+                    failure = str(error)
+                    break
+                except Exception:  # a network error, no server to select or a try that timed out
+                    pass
+                pause = max(0.0, min(delay, deadline - time.monotonic()))
+                yield (lambda: sleep(pause))
+                delay = min(delay * 2, _KILL_MAX_DELAY)
+        finally:
+            _engine_call.reset(permission)
+        if failure is not None:
+            logger.warning("Couldn't end a MongoDB Preview transaction (session %s): %s. The server ends it, "
+                           "and releases its locks, at transactionLifetimeLimitSeconds.", lsid, failure)
+        return failure is None
 
     async def _aend(self, state: PreviewState) -> None:
         try:
