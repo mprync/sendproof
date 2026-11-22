@@ -4,6 +4,6 @@
 set -eu
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 node "$root/tools/pack-ui.mjs" --version 0.1.0-alpha.1 --out "$root/adapters/php/core/resources/ui"
-for package in core laravel symfony examples/laravel-fixture examples/symfony-fixture; do
+for package in core core/compat/elasticsearch-8 laravel symfony examples/laravel-fixture examples/symfony-fixture; do
   composer install --working-dir "$root/adapters/php/$package" --no-interaction --no-progress --prefer-dist
 done

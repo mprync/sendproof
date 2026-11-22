@@ -39,7 +39,7 @@
     "embed-store-tables": "node scripts/embed-store-tables.mjs"
   },
   "archive": {
-    "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
+    "exclude": ["/vendor", "/tests", "/compat", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
   },
   "config": {
     "sort-packages": true,

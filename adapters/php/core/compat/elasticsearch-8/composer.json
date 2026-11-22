@@ -1,0 +1,24 @@
+{
+  "name": "sendproof/core-elasticsearch-8-check",
+  "description": "Runs the core search-guard tests against elasticsearch/elasticsearch 8 (core's own install resolves 9). See adapters/php/scripts/test.sh.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "elasticsearch/elasticsearch": "^8.15",
+    "guzzlehttp/guzzle": "^7.8",
+    "opensearch-project/opensearch-php": "^2.4",
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": { "Sendproof\\Core\\": "../../src/" }
+  },
+  "autoload-dev": {
+    "psr-4": { "Sendproof\\Core\\Tests\\": "../../tests/" }
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": { "php-http/discovery": true }
+  },
+  "minimum-stability": "stable"
+}
