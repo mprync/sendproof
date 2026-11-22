@@ -62,10 +62,13 @@ public sealed class SearchTests
         internal required RecordingInvoker Wire { get; init; }
         internal required ElasticsearchClient Client { get; init; }
 
+        internal TaskCompletionSource<Exception?> Late { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal static async Task<ElasticFixture> StartAsync(bool hooked = true)
         {
             var wire = new RecordingInvoker();
             var client = NewElasticClient(wire);
+            var late = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
             var app = await TestApp.StartAsync((services, bench) =>
             {
                 services.AddSingleton(client);
@@ -102,8 +105,28 @@ public sealed class SearchTests
                     await search.Indices.DeleteAsync("articles");
                     return Results.Ok();
                 }).AllowAnonymous().WithSendproofPreview();
+                app.MapPost("/articles/{id}/late", (string id, ElasticsearchClient search) =>
+                {
+                    // Started inside the Preview, writes after it ended: it still carries the Preview's context.
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(300);
+                        try { await search.IndexAsync(new Dictionary<string, object> { ["late"] = id }, i => i.Index("articles")); late.SetResult(null); }
+                        catch (Exception error) { late.SetResult(error); }
+                    });
+                    return Results.Ok();
+                }).AllowAnonymous().WithSendproofPreview();
+                app.MapPost("/articles/{id}/bulk", (string id, ElasticsearchClient search) =>
+                {
+                    // BulkAll queues documents and sends them from its own tasks, with back-off retries.
+                    var observable = search.BulkAll(new[] { new Dictionary<string, object> { ["title"] = id } }, b => b.Index("articles").Size(1).MaxDegreeOfParallelism(1).BackOffRetries(3).BackOffTime(TimeSpan.FromSeconds(1)));
+                    observable.Wait(TimeSpan.FromSeconds(20), _ => { });
+                    return Results.Ok();
+                }).AllowAnonymous().WithSendproofPreview();
             });
-            return new ElasticFixture { App = app, Wire = wire, Client = client };
+            var fixture = new ElasticFixture { App = app, Wire = wire, Client = client };
+            late.Task.ContinueWith(task => fixture.Late.SetResult(task.Result), TaskScheduler.Default);
+            return fixture;
         }
 
         public ValueTask DisposeAsync() => App.DisposeAsync();
@@ -158,6 +181,26 @@ public sealed class SearchTests
             }, _ => { }));
         Assert.Contains("registered again after AddElasticsearch", error.Message);
         await Assert.ThrowsAsync<InvalidOperationException>(() => TestApp.StartAsync((_, bench) => bench.AddElasticsearch(), _ => { }));
+    }
+
+    [Fact]
+    public async Task AnElasticsearchWriteSentAfterItsPreviewEndedIsStillRefused()
+    {
+        await using var f = await ElasticFixture.StartAsync();
+        Assert.Equal(HttpStatusCode.OK, (await f.App.PreviewAsync("POST", "/articles/a-1/late")).StatusCode);
+        Assert.IsType<PreviewWriteBlockedException>(await f.Late.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Empty(f.Wire.Sent);
+    }
+
+    [Fact]
+    public async Task AnElasticsearchBulkHelperIsRefusedWithoutBeingRetried()
+    {
+        await using var f = await ElasticFixture.StartAsync();
+        var started = DateTime.UtcNow;
+        await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/articles/queued/bulk"), "elasticsearch", "bulk");
+        // The helper retries with a one second back-off; a refusal that reached it as a retryable error would take several seconds.
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10), "The bulk helper must not retry a refused write.");
+        Assert.Empty(f.Wire.Sent);
     }
 
     [Fact]
