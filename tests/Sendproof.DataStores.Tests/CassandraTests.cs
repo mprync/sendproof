@@ -1,4 +1,5 @@
 using System.Net;
+using global::Cassandra.Data.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -150,6 +151,33 @@ public sealed class CassandraTests
             await new global::Cassandra.Mapping.Mapper(session).InsertAsync(new Ticket { Id = id, Status = "mapped", Hits = 1 });
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/tickets/{id}/linq", async (string id, CassandraSession session) =>
+        {
+            await new global::Cassandra.Data.Linq.Table<Ticket>(session).Insert(new Ticket { Id = id, Status = "linq", Hits = 1 }).ExecuteAsync();
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/tickets/{id}/linq-delete", async (string id, CassandraSession session) =>
+        {
+            await new global::Cassandra.Data.Linq.Table<Ticket>(session).Where(ticket => ticket.Id == id).Delete().ExecuteAsync();
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapGet("/tickets/{id}/linq", async (string id, CassandraSession session) =>
+        {
+            var rows = await new global::Cassandra.Data.Linq.Table<Ticket>(session).Where(ticket => ticket.Id == id).ExecuteAsync();
+            return Results.Ok(rows.Select(ticket => ticket.Hits).FirstOrDefault());
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/tickets/{id}/lwt", async (string id, CassandraSession session) =>
+        {
+            // A lightweight transaction whose condition fails still goes to the server as a write.
+            await session.ExecuteAsync(new global::Cassandra.SimpleStatement("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1) IF NOT EXISTS", id));
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/tickets/{id}/sync-prepared", (string id, CassandraSession session) =>
+        {
+            var prepared = session.Prepare("UPDATE tickets SET hits = ? WHERE id = ?");
+            session.Execute(prepared.Bind(9, id));
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/tickets/{id}/swallow", async (string id, CassandraSession session) =>
         {
             try { await session.ExecuteAsync(new global::Cassandra.SimpleStatement("DELETE FROM tickets WHERE id = ?", id)); } catch (PreviewWriteBlockedException) { }
@@ -180,6 +208,10 @@ public sealed class CassandraTests
     [InlineData("/tickets/seeded/derived", "DELETE")]
     [InlineData("/tickets/blocked/mapper", "INSERT")]
     [InlineData("/tickets/seeded/swallow", "DELETE")]
+    [InlineData("/tickets/blocked/linq", "INSERT")]
+    [InlineData("/tickets/seeded/linq-delete", "DELETE")]
+    [InlineData("/tickets/seeded/lwt", "INSERT")]
+    [InlineData("/tickets/seeded/sync-prepared", "UPDATE")]
     public async Task EveryWritePathIsRefusedBeforeItIsSent(string path, string operation)
     {
         await using var f = await Fixture.StartAsync();
@@ -189,6 +221,16 @@ public sealed class CassandraTests
         Assert.Null(await f.TicketAsync("blocked"));
         var seeded = await f.TicketAsync("seeded");
         Assert.Equal(("open", 3), (seeded!.GetValue<string>("status"), seeded.GetValue<int>("hits")));
+    }
+
+    [ServiceFact("cassandra")]
+    public async Task ALinqReadRunsThroughTheGuard()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.SeedAsync("seeded", "open", 3);
+        var envelope = await Expect.ConfirmedAsync(await f.App.PreviewAsync("GET", "/tickets/seeded/linq"));
+        Assert.Equal(3, envelope.GetProperty("body").GetInt32());
+        Assert.NotEmpty(Expect.DbEntries(envelope, "cassandra", "SELECT"));
     }
 
     [ServiceFact("cassandra")]

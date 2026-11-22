@@ -29,6 +29,9 @@ internal sealed class FakeCosmosGateway : HttpMessageHandler
     /// <summary>Every item request that reached the gateway: method, path and whether it was a batch.</summary>
     internal List<string> ItemRequests { get; } = [];
 
+    /// <summary>Every request that reached the gateway with a method other than GET, on any resource.</summary>
+    internal List<string> NotGets { get; } = [];
+
     internal void Seed(string id, JsonObject item)
     {
         lock (_items) _items[id] = item;
@@ -43,6 +46,11 @@ internal sealed class FakeCosmosGateway : HttpMessageHandler
     {
         var path = request.RequestUri!.AbsolutePath.Trim('/');
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (request.Method != HttpMethod.Get)
+        {
+            lock (NotGets) NotGets.Add($"{request.Method} /{path}");
+        }
+
         if (segments.Length == 0)
         {
             return Json(HttpStatusCode.OK, Account());
@@ -211,6 +219,51 @@ public sealed class CosmosDbSdkTests
         using var response = await app.Client.PostAsync("/orders/o-3", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(gateway.Has("o-3"));
+    }
+
+    /// <summary>Each write path of the SDK, by the operation the guard reports for it.</summary>
+    private static readonly Dictionary<string, Func<Container, Task>> WritePaths = new()
+    {
+        ["upsert"] = orders => orders.UpsertItemAsync(new Order("o-1", "new"), new PartitionKey("o-1")),
+        ["replace"] = orders => orders.ReplaceItemAsync(new Order("o-1", "new"), "o-1", new PartitionKey("o-1")),
+        ["patch"] = orders => orders.PatchItemAsync<Order>("o-1", new PartitionKey("o-1"), [PatchOperation.Set("/status", "paid")]),
+        ["delete"] = orders => orders.DeleteItemAsync<Order>("o-1", new PartitionKey("o-1")),
+        ["batch"] = orders => orders.CreateTransactionalBatch(new PartitionKey("o-1")).ReadItem("o-1").ExecuteAsync(),
+        ["sproc"] = orders => orders.Scripts.ExecuteStoredProcedureAsync<string>("touch", new PartitionKey("o-1"), []),
+        ["sproc-create"] = orders => orders.Scripts.CreateStoredProcedureAsync(new Microsoft.Azure.Cosmos.Scripts.StoredProcedureProperties("touch", "function () {}")),
+        ["trigger"] = orders => orders.ReadItemAsync<Order>("o-1", new PartitionKey("o-1"), new ItemRequestOptions { PreTriggers = ["stamp"] }),
+        ["container-delete"] = orders => orders.DeleteContainerAsync()
+    };
+
+    [Theory]
+    [InlineData("upsert", "Upsert")]
+    [InlineData("replace", "Replace")]
+    [InlineData("patch", "Patch")]
+    [InlineData("delete", "Delete")]
+    [InlineData("batch", "Batch")]
+    [InlineData("sproc", "ExecuteJavaScript")]
+    [InlineData("sproc-create", "Create")]
+    [InlineData("trigger", "Read")]
+    [InlineData("container-delete", "Delete")]
+    public async Task EveryRealSdkWritePathIsRefusedBeforeItIsSent(string path, string operation)
+    {
+        var gateway = new FakeCosmosGateway();
+        gateway.Seed("o-1", new JsonObject { ["id"] = "o-1", ["status"] = "open" });
+        await using var app = await TestApp.StartAsync(
+            (services, bench) =>
+            {
+                bench.AddCosmosDb();
+                services.AddSingleton(provider => NewClient(gateway, new CosmosClientOptions().WithSendproofGuard(provider)));
+            },
+            app => app.MapPost("/op/{name}", async (string name, CosmosClient client) =>
+            {
+                await WritePaths[name](client.GetContainer("shop", "orders"));
+                return Results.Ok();
+            }).AllowAnonymous().WithSendproofPreview());
+
+        await Expect.BlockedAsync(await app.PreviewAsync("POST", "/op/" + path), "cosmosdb", operation);
+        Assert.Empty(gateway.NotGets);
+        Assert.True(gateway.Has("o-1"));
     }
 
     /// <summary>
