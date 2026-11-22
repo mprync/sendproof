@@ -515,33 +515,98 @@ async fn a_preview_dropped_before_it_finishes_aborts_its_transaction() {
 }
 
 /// A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
-/// failing in the middle of a Preview.
+/// failing in the middle of a Preview. Built with [`Proxy::start_dropping_aborts`] it instead reads
+/// each request message by message, records its command name, and closes the connection on an
+/// `abortTransaction` without sending it on: only the abort is lost.
 struct Proxy {
     address: std::net::SocketAddr,
     down: Arc<std::sync::atomic::AtomicBool>,
     links: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// How many `abortTransaction` requests the proxy dropped.
+    aborts: Arc<std::sync::atomic::AtomicUsize>,
+    /// The command name of every request the proxy read (only when it drops aborts).
+    sent: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+/// The command name of an OP_MSG request: the first key of its body section (a 16-byte header with
+/// opCode 2013 at offset 12, 4 bytes of flag bits, a kind-0 section holding one BSON document whose
+/// first element is a type byte and then its key). Empty for any other message.
+fn command_of(message: &[u8]) -> String {
+    if message.len() < 27 || message[12..16] != 2013u32.to_le_bytes() || message[20] != 0 {
+        return String::new();
+    }
+    let key = &message[26..];
+    key.iter().position(|byte| *byte == 0).map(|end| String::from_utf8_lossy(&key[..end]).into_owned()).unwrap_or_default()
 }
 
 impl Proxy {
     async fn start() -> Self {
+        Self::start_with(false).await
+    }
+
+    async fn start_dropping_aborts() -> Self {
+        Self::start_with(true).await
+    }
+
+    async fn start_with(drop_aborts: bool) -> Self {
         let options = options().await.unwrap();
         let upstream = match &options.hosts[0] {
             mongodb::options::ServerAddress::Tcp { host, port } => format!("{host}:{}", port.unwrap_or(27017)),
             other => panic!("the proxy needs a TCP server address, not {other:?}"),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let proxy = Proxy { address: listener.local_addr().unwrap(), down: Arc::default(), links: Arc::default() };
-        let (down, links) = (proxy.down.clone(), proxy.links.clone());
+        let proxy = Proxy {
+            address: listener.local_addr().unwrap(),
+            down: Arc::default(),
+            links: Arc::default(),
+            aborts: Arc::default(),
+            sent: Arc::default(),
+        };
+        let (down, links, aborts, sent) = (proxy.down.clone(), proxy.links.clone(), proxy.aborts.clone(), proxy.sent.clone());
         tokio::spawn(async move {
             while let Ok((mut client, _)) = listener.accept().await {
                 if down.load(std::sync::atomic::Ordering::SeqCst) {
                     continue; // Dropping the socket closes it.
                 }
-                let upstream = upstream.clone();
+                let (upstream, aborts, sent) = (upstream.clone(), aborts.clone(), sent.clone());
                 links.lock().unwrap().push(tokio::spawn(async move {
-                    if let Ok(mut server) = tokio::net::TcpStream::connect(upstream).await {
+                    let Ok(mut server) = tokio::net::TcpStream::connect(upstream).await else { return };
+                    if !drop_aborts {
                         let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                        return;
                     }
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let (mut from_client, mut to_client) = client.into_split();
+                    let (mut from_server, mut to_server) = server.into_split();
+                    // Replies pass through untouched; only requests are read a message at a time.
+                    let replies = tokio::spawn(async move {
+                        let _ = tokio::io::copy(&mut from_server, &mut to_client).await;
+                    });
+                    loop {
+                        let mut header = [0u8; 4];
+                        if from_client.read_exact(&mut header).await.is_err() {
+                            break;
+                        }
+                        let length = u32::from_le_bytes(header) as usize;
+                        if length < 4 {
+                            break;
+                        }
+                        let mut message = header.to_vec();
+                        message.resize(length, 0);
+                        if from_client.read_exact(&mut message[4..]).await.is_err() {
+                            break;
+                        }
+                        let command = command_of(&message);
+                        if command == "abortTransaction" {
+                            aborts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            break; // Neither forwarded nor answered: both sides close.
+                        }
+                        sent.lock().unwrap().push(command);
+                        if to_server.write_all(&message).await.is_err() {
+                            break;
+                        }
+                    }
+                    replies.abort();
                 }));
             }
         });
@@ -556,6 +621,11 @@ impl Proxy {
 
     fn restore(&self) {
         self.down.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the proxy has read a request for `command`.
+    fn has_sent(&self, command: &str) -> bool {
+        self.sent.lock().unwrap().iter().any(|name| name == command)
     }
 }
 
@@ -616,6 +686,36 @@ async fn a_preview_whose_abort_is_lost_answers_500_at_once_and_still_releases_it
     assert!(!confirmed(&reply), "a rollback the server never acknowledged is never claimed");
     // The session is killed in the background once the network is back.
     assert!(lock_released_within(&fixture, Duration::from_secs(20)).await, "the Preview still holds its transaction");
+    assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_preview_whose_capture_succeeds_but_whose_abort_alone_is_lost_answers_500() {
+    let fixture = fixture!();
+    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
+    // The proxy closes the connection on the abort and on nothing else, so the capture finds succeed.
+    let proxy = Proxy::start_dropping_aborts().await;
+    let (store, core) = proxied(&fixture, &proxy).await;
+    let state = PreviewState::new(&core, Instant::now());
+    let enrollment = state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+    let mongo = store.from_enrollment(Some(&enrollment), true).unwrap();
+    let result = capture::scope(state.recorder(), async {
+        mongo.collection::<Document>("documents").update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 1 } }).await.unwrap();
+        Ok::<_, Failure>(Inner { status: 200, headers: Headers::new(), body: Vec::new() })
+    })
+    .await;
+    state.complete();
+    let reply = state.finish(result).await;
+    assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+    assert!(!confirmed(&reply), "a rollback the server never acknowledged is never claimed");
+    // The proxy dropped nothing but the abort (every other request was forwarded and answered), and
+    // the abort is only sent once the capture finds have run.
+    assert!(proxy.aborts.load(std::sync::atomic::Ordering::SeqCst) > 0, "the proxy never dropped an abort");
+    assert!(proxy.has_sent("find"), "change capture never read the documents");
+    // killSessions ends the transaction in the background, so the lock is released well before the 60-second limit.
+    assert!(lock_released_within(&fixture, Duration::from_secs(5)).await, "the Preview still holds its transaction");
+    assert!(proxy.has_sent("killSessions"), "the store never sent killSessions");
     assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
     fixture.cleanup().await;
 }
