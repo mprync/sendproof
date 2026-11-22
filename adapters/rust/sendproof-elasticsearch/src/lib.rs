@@ -123,6 +123,8 @@ impl Hook {
     /// Classifies one request before it is sent. `Err` is a refusal (the Preview is marked);
     /// `Ok(None)` is a request that is allowed and not logged.
     pub(crate) fn check(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Option<Pending>, PreviewWriteBlocked> {
+        let resolved = sent_path(path);
+        let path = resolved.as_deref().unwrap_or(path);
         let classified = classify_search(method, path, body, Some(&self.reads));
         // A write no request sent, while a Preview is open, is refused before it is sent.
         self.open.block_unattributed(&self.scope, self.system, &classified.operation, classified.kind)?;
@@ -157,6 +159,19 @@ impl Hook {
             ..DbEntry::default()
         });
     }
+}
+
+/// The path and query the client will request for `path`. Both clients join it onto the node's URL,
+/// which reads `\` as `/`, removes `.` and `..` segments (`%2e` too) and drops a `#` fragment, so
+/// `/a\..\_bulk#/_search` is sent as `/_bulk`. The guard classifies what is sent, never the text it
+/// was given. `None` when the path isn't a URL reference, which the client refuses too.
+fn sent_path(path: &str) -> Option<String> {
+    let base = url::Url::parse("http://node.invalid/").ok()?;
+    let url = base.join(path.trim_start_matches('/')).ok()?;
+    Some(match url.query() {
+        Some(query) => format!("{}?{query}", url.path()),
+        None => url.path().to_owned(),
+    })
 }
 
 /// Validates host-declared reads: exact operation names, as the `Db` entry shows them. A name is a

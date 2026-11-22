@@ -177,6 +177,26 @@ macro_rules! engine_tests {
             }
 
             #[tokio::test]
+            async fn a_path_is_classified_as_the_client_will_send_it() {
+                let (wire, recorder) = (Wire::default(), preview());
+                let store = $Store::new(client(&wire.serve().await));
+                capture::scope(recorder.clone(), async {
+                    let guarded = store.detached().client();
+                    // The client resolves the path as a URL: `\` is a `/`, dot segments go and the
+                    // fragment is never sent, so each of these is a `_bulk` or an `_update`, not a search.
+                    for path in ["/a\\..\\_bulk#/_search", "/a/../_bulk#/x/_search", "/a/%2e%2e/_bulk#/_search", "/articles/_update/1#/_search"] {
+                        let error = send(&guarded, Method::Post, path, None).await.map(|_| ()).unwrap_err();
+                        assert!(blocked_by(&error).is_some(), "{path}");
+                    }
+                    // A read with dot segments still reads.
+                    send(&guarded, Method::Post, "/articles/./x/../_search#ignored", None).await.unwrap();
+                })
+                .await;
+                assert_eq!(wire.sent(), ["POST /articles/_search"]);
+                assert_eq!(recorder.blocked().map(|blocked| blocked.operation), Some("bulk".to_owned()));
+            }
+
+            #[tokio::test]
             async fn sql_is_a_read_only_when_it_is_one_select() {
                 let (wire, recorder) = (Wire::default(), preview());
                 let store = $Store::new(client(&wire.serve().await));

@@ -28,6 +28,8 @@ sendproof-core.workspace = true
 http.workspace = true
 serde.workspace = true
 bytes = "1"
+# The clients resolve each path as a URL; the guard resolves it the same way before classifying it.
+url = "2"
 elasticsearch = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
