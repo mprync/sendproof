@@ -365,7 +365,7 @@
     {
       "id": "ruby-rails",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "ruby",
       "port": 5352,
