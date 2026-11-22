@@ -76,6 +76,31 @@ internal sealed class CaptureContext
         throw new PreviewWriteBlockedException(store, operation, reason);
     }
 
+    /// <summary>
+    /// For a write whose context says nothing about which request it belongs to, whatever it holds: the Cosmos DB SDK's bulk
+    /// dispatcher sends operations queued by many callers in one batch, from the context of whichever caller created the
+    /// dispatcher. While any Preview is open the write is refused before it is sent and blocks every open Preview, as an
+    /// unattributed write does; otherwise it runs. <see cref="DetachedWork"/> does not exempt it, because that mark too comes from
+    /// the dispatcher's creator rather than from the callers whose operations are in the batch.
+    /// </summary>
+    /// <exception cref="PreviewWriteBlockedException">A Preview is open.</exception>
+    internal void RefuseUnattributableWrite(string store, string operation)
+    {
+        if (_open.IsEmpty)
+        {
+            return;
+        }
+
+        var reason = DataStoreGuard.WriteReason(store);
+        foreach (var preview in _open.Keys)
+        {
+            preview.Block(new BlockedWrite(store, operation, reason));
+            preview.RecordDb(new DbEntry(store, operation) { Blocked = true });
+        }
+
+        throw new PreviewWriteBlockedException(store, operation, reason);
+    }
+
     internal readonly struct Scope(AsyncLocal<SendproofPreview?> slot, SendproofPreview? previous, AsyncLocal<bool> inRequest, bool wasInRequest) : IDisposable
     {
         public void Dispose()

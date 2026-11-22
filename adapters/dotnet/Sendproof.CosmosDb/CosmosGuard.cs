@@ -81,6 +81,16 @@ internal sealed class CosmosGuard(CaptureContext capture, IReadOnlySet<string>? 
     private DbCall Begin(RequestMessage request, string path)
     {
         string? Header(string name) => request.Headers.TryGetValue(name, out var value) ? value : null;
+        if (IsBulkBatch(Header))
+        {
+            // Bulk mode (AllowBulkExecution) queues item operations without passing them through the request handlers and sends
+            // them later as one non-atomic batch, from the SDK's dispatcher, whose context is that of whichever request created
+            // it. So the batch's context can't say whose operations it carries: it is refused whenever a Preview is open, and is
+            // not logged, because any request's trace could be the wrong one.
+            capture.RefuseUnattributableWrite(Store, "Batch");
+            return default;
+        }
+
         var classification = CosmosClassifier.Classify(request.Method.Method, path, Header);
         if (SdkOperation(request) is { } sdk && classification.Kind == CommandKind.Read &&
             CosmosClassifier.Classify(sdk, triggered: false) is { Kind: CommandKind.Write } sdkClassification &&
@@ -101,6 +111,14 @@ internal sealed class CosmosGuard(CaptureContext capture, IReadOnlySet<string>? 
             Statement = classification.Operation is "Query" ? QueryText(request) : null
         });
     }
+
+    /// <summary>
+    /// Whether a request is a bulk-mode batch: a batch request that is not atomic. A transactional batch (atomic) is sent from
+    /// the caller's own context and is classified like any other request.
+    /// </summary>
+    private static bool IsBulkBatch(Func<string, string?> header) =>
+        string.Equals(header("x-ms-cosmos-is-batch-request"), "true", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(header("x-ms-cosmos-batch-atomic"), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The SQL text of a query request with every literal replaced by <c>?</c>. Parameter values are never read.</summary>
     private static string? QueryText(RequestMessage request)
