@@ -40,7 +40,7 @@ public final class StoreGuard {
     /**
      * Like {@link #guard(String, String, CommandKind, String)}, for the batch-two hooks, with the attribution rule: a write
      * on a thread with no request behind it while a Preview is open could be that Preview's own write, sent from a thread
-     * the capture didn't follow. Nothing can say it isn't, so it is refused and every open Preview fails with 500. Work
+     * the capture didn't follow. Nothing can say it isn't, so it is refused before it is sent and every open Preview is blocked (409). Work
      * that belongs to no request (a scheduler, a background worker) runs inside {@link CaptureContext#detached} to be
      * exempt.
      */
@@ -48,12 +48,13 @@ public final class StoreGuard {
         RequestCapture preview = currentPreview();
         if (preview == null && kind == CommandKind.WRITE && CaptureContext.current() == null && !CaptureContext.attributed()
                 && !OPEN.isEmpty()) {
-            String message = "A " + storeName(store) + " " + operation + " with no request attribution was sent while a Preview was open; "
-                    + "it may belong to that Preview, so the Preview can't be confirmed. Run background work inside CaptureContext.detached.";
+            // Treated as the open Previews' own write: refused before it is sent, and every open Preview is blocked (409).
+            String reason = detail != null ? detail : writeReason(store);
             for (RequestCapture open : OPEN) {
-                open.refuse(new PreviewTransactionControlException(message));
+                open.block(new BlockedWrite(store, operation, reason));
+                open.db(DbEntry.blocked(store, operation));
             }
-            throw new PreviewTransactionControlException(message);
+            throw new PreviewWriteBlockedException(store, operation, reason);
         }
         guard(preview, store, operation, kind, detail);
     }

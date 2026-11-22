@@ -13,7 +13,6 @@ import com.datastax.oss.driver.api.core.cql.SimpleStatement;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.mprync.sendproof.core.CaptureContext;
 import io.github.mprync.sendproof.core.PreviewOutcome;
-import io.github.mprync.sendproof.core.stores.PreviewTransactionControlException;
 import io.github.mprync.sendproof.core.stores.PreviewWriteBlockedException;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
@@ -195,17 +194,17 @@ class CassandraStoreTest {
     }
 
     @Test
-    void aWriteWithNoRequestBehindItFailsAnOpenPreviewUnlessDetached() throws Exception {
+    void aWriteWithNoRequestBehindItIsRefusedAndBlocksAnOpenPreviewUnlessDetached() throws Exception {
         var pool = Executors.newSingleThreadExecutor();
         try {
             PreviewOutcome outcome = Harness.preview(store, () -> {
                 // Another thread the capture didn't follow: nothing says this isn't the Preview's own write.
                 assertThatThrownBy(() -> pool.submit(() -> session.execute("INSERT INTO tickets (id) VALUES ('bg')")).get())
-                        .isInstanceOf(ExecutionException.class).hasRootCauseInstanceOf(PreviewTransactionControlException.class);
+                        .isInstanceOf(ExecutionException.class).hasRootCauseInstanceOf(PreviewWriteBlockedException.class);
             });
-            assertThat(outcome.confirmed()).isFalse();
-            assertThat(outcome.blocked()).isFalse();
-            assertThat(outcome.status()).isEqualTo(500);
+            // Refused before it was sent, and the Preview is blocked (409), not merely failed.
+            assertThat(outcome.blocked()).isTrue();
+            assertThat(new String(outcome.problem())).contains("\"operation\":\"INSERT\"");
             assertThat(sent).isEmpty();
 
             PreviewOutcome detached = Harness.preview(store, () ->

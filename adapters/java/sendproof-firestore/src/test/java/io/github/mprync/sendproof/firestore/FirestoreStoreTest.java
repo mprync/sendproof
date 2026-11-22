@@ -185,6 +185,26 @@ class FirestoreStoreTest {
     }
 
     @Test
+    void aBackgroundWriteWithNoRequestIsRefusedBeforeItIsSentAndBlocksTheOpenPreviewUnlessDetached() throws Exception {
+        var fake = new FakeRpc();
+        FirestoreRpc guarded = store.rpc(fake.rpc);
+        var commit = CommitRequest.newBuilder().addWrites(com.google.firestore.v1.Write.getDefaultInstance()).build();
+        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            PreviewOutcome outcome = Harness.preview(store, () -> assertThatThrownBy(() ->
+                    pool.submit(() -> guarded.commitCallable().futureCall(commit)).get()).hasRootCauseInstanceOf(PreviewWriteBlockedException.class));
+            assertThat(outcome.blocked()).isTrue();
+            assertThat(fake.reached).isEmpty();
+            PreviewOutcome detached = Harness.preview(store, () -> pool.submit(() -> io.github.mprync.sendproof.core.CaptureContext
+                    .detached(() -> guarded.commitCallable().futureCall(commit))).get());
+            assertThat(detached.confirmed()).isTrue();
+            assertThat(fake.reached).containsExactly("Commit");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     void anEmptyCommitEndsATransactionThatOnlyReadAndIsAllowed() throws Exception {
         var fake = new FakeRpc();
         FirestoreRpc guarded = store.rpc(fake.rpc);
