@@ -231,6 +231,25 @@ fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+/// Whether an unquoted UUID literal (`8-4-4-4-12` hex digits) starts at `at` and ends there.
+fn uuid_at(chars: &[char], at: usize) -> bool {
+    let groups = [8, 4, 4, 4, 12];
+    let mut i = at;
+    for (index, length) in groups.into_iter().enumerate() {
+        if index > 0 {
+            if chars.get(i) != Some(&'-') {
+                return false;
+            }
+            i += 1;
+        }
+        if !(i..i + length).all(|j| chars.get(j).is_some_and(char::is_ascii_hexdigit)) {
+            return false;
+        }
+        i += length;
+    }
+    !chars.get(i).copied().is_some_and(is_word)
+}
+
 /// Replaces the literals of a CQL statement with `?`, so a value never reaches a capture: quoted
 /// strings, `$$` strings, and every number or other token that starts with a digit (which also covers
 /// UUIDs and hex literals). Quoted identifiers and ordinary names are kept.
@@ -267,6 +286,10 @@ pub fn sanitize_cql(text: &str) -> String {
                 i += 1;
             }
             i = (i + 2).min(chars.len());
+            out.push('?');
+        } else if uuid_at(&chars, i) {
+            // A UUID literal that starts with a letter (one that starts with a digit is a number below).
+            i += 36;
             out.push('?');
         } else if is_word(c) && !c.is_ascii_digit() {
             // A name: keep it whole, so `t1` is not mistaken for a number.
@@ -366,6 +389,9 @@ mod tests {
         );
         assert_eq!(sanitize_cql("SELECT \"t1\" FROM t1 WHERE a = 'it''s' AND b = $$x;y$$ AND c = -4.5e-3"), "SELECT \"t1\" FROM t1 WHERE a = ? AND b = ? AND c = ?");
         assert_eq!(sanitize_cql("WHERE id = 550e8400-e29b-41d4-a716-446655440000"), "WHERE id = ?");
+        // A UUID whose first group starts with a letter is a literal too.
+        assert_eq!(sanitize_cql("WHERE id = e29b41d4-a716-4466-5544-0000550e8400 AND t = abc"), "WHERE id = ? AND t = abc");
+        assert_eq!(sanitize_cql("WHERE id IN (DEADBEEF-0000-4000-8000-00000000000a)"), "WHERE id IN (?)");
         assert_eq!(sanitize_cql("a-1"), "a-?");
         assert_eq!(sanitize_cql("WHERE a = 'unterminated"), "WHERE a = ?");
     }
