@@ -49,6 +49,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 | Flask-SQLAlchemy | 14 | 14 | 14 | — | — |
 | Go database/sql and GORM | 27 | 27 | 27 | 26, 1 skipped | 2 |
 | Go batch-two stores (guard only) | — | — | — | — | Cassandra 8 against the `heavy-stores` Compose service (skipped when down); Elasticsearch and OpenSearch 16 (one against the `heavy-stores` service, the rest over fake clusters, including two-node pool, retry and bulk-indexer checks); Cosmos DB 12 and Firestore 13 over fake servers and recordings; classifiers 3. The five main Go conformance entries run the Cassandra and OpenSearch checks |
+| Java and Kotlin batch-two stores (guard only) | — | — | — | — | Cassandra 16 against the `heavy-stores` Compose service; Elasticsearch 12, OpenSearch 6, the low-level `RestClient` 2 and a two-node pool check 1 over fake clusters; Cosmos DB 16 and Firestore 22 over fakes, a local gRPC server and the recordings; classifiers 8; Spring Boot client-bean wiring 5 (the `RestClient` bean, `Firestore` beans, unguarded Cosmos DB and Firestore beans refusing Preview). `java-spring` and `kotlin-ktor` run the Cassandra and OpenSearch checks |
 | Rails ActiveRecord | 42, 4 skipped | 42, 4 skipped | 45, 1 skipped | — | — |
 | SQLx | 8 | 10 | 11 | — | 22 unit |
 
