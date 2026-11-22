@@ -53,6 +53,8 @@ module Sendproof
       KILL_RETRY_LIMIT = 10.0
       KILL_FIRST_DELAY = 0.1
       KILL_MAX_DELAY = 2.0
+      # The most one +killSessions+ try may take, in seconds.
+      KILL_TRY_LIMIT = 2.0
 
       # The state of one +preview+-mode Preview.
       # +start_time+ is the transaction's snapshot time: the +operationTime+ of the first reply to a command
@@ -598,7 +600,14 @@ module Sendproof
         delay = KILL_FIRST_DELAY
         failure = begin
           loop do
-            @client.use("admin").database.command(killSessions: [session.session_id])
+            # Each try is bounded, so one can't wait out the client's own server selection timeout (30 s by
+            # default) and hold the window open. Database#command doesn't bound server selection by
+            # +timeout_ms+, so a bounded selection comes first; +timeout_ms+ then bounds the command itself.
+            try_ms = ([KILL_TRY_LIMIT, deadline - Clock.now].min * 1000).ceil
+            break "MongoDB couldn't be reached for #{KILL_RETRY_LIMIT.to_i} s" unless try_ms.positive?
+
+            ::Mongo::ServerSelector.primary.select_server(@client.cluster, nil, nil, timeout: try_ms / 1000.0)
+            @client.use("admin").database.command({ killSessions: [session.session_id] }, timeout_ms: try_ms)
             return
           rescue ::Mongo::Error::OperationFailure => error
             break error.message

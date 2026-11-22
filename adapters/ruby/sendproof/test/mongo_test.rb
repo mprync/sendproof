@@ -110,6 +110,9 @@ class MongoProxy
 
   def restore = @lock.synchronize { @down = false }
 
+  # From now on, every abortTransaction request closes its connection instead of being forwarded.
+  def drop_aborts! = (@drop_aborts = true)
+
   def close
     @acceptor.kill
     close_quietly(@server)
@@ -126,10 +129,10 @@ class MongoProxy
     end
     return close_quietly(downstream) unless upstream
 
-    [[downstream, upstream], [upstream, downstream]].each do |from, to|
+    [[downstream, upstream, true], [upstream, downstream, false]].each do |from, to, requests|
       Thread.new do
         Thread.current.report_on_exception = false
-        loop { to.write(from.readpartial(65_536)) }
+        requests ? forward_requests(from, to) : loop { to.write(from.readpartial(65_536)) }
       rescue StandardError
         nil
       ensure
@@ -137,6 +140,30 @@ class MongoProxy
         close_quietly(to)
       end
     end
+  end
+
+  # Forwards the driver's requests message by message. With {#drop_aborts}, a request whose OP_MSG
+  # body starts with abortTransaction closes the connection instead of reaching the server: only the
+  # abort is lost, and everything else, change capture included, still gets through.
+  def forward_requests(from, to)
+    buffer = +"".b
+    loop do
+      buffer << from.readpartial(65_536)
+      while buffer.bytesize >= 4 && buffer.bytesize >= (length = buffer.unpack1("l<"))
+        message = buffer.byteslice(0, length)
+        buffer = buffer.byteslice(length..)
+        raise IOError, "abortTransaction dropped" if @drop_aborts && command_name(message) == "abortTransaction"
+
+        to.write(message)
+      end
+    end
+  end
+
+  # The first key of an OP_MSG's body section (kind 0): the command name.
+  def command_name(message)
+    return nil unless message.bytesize > 26 && message.byteslice(12, 4).unpack1("l<") == 2013 && message.getbyte(20).zero?
+
+    message.byteslice(26..).unpack1("Z*")
   end
 
   def close_quietly(socket)
@@ -586,6 +613,50 @@ class MongoHookTest < Minitest::Test
     MongoSocketWatch::BeforeAbort.hook = nil
     restorer&.join
     proxy&.close
+  end
+
+  # Only the abort is lost: change capture succeeds, the server stays reachable, and the proxy closes the
+  # connection of every abortTransaction (the driver's retry included) instead of forwarding it.
+  def test_a_preview_whose_abort_alone_is_lost_answers_500_and_is_killed_at_once
+    proxy = MongoProxy.new(SERVERS[:mongodb])
+    proxied = new_client_at("mongodb://127.0.0.1:#{proxy.port}/#{@database}?directConnection=true",
+                            server_selection_timeout: 2, connect_timeout: 1, logger: Logger.new(IO::NULL))
+    names = MongoSocketWatch::Names.new
+    proxied.subscribe(::Mongo::Monitoring::COMMAND, names)
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(proxied, name: "catalog")
+    @client = @store.client
+    proxy.drop_aborts!
+    post "/sendproof/_preview/documents/seeded", "{}", RACK_HEADERS
+    assert_equal 500, last_response.status, last_response.body
+    assert_nil last_response["preference-applied"]
+    assert_operator names.names.count("find"), :>=, 2, "Change capture ran: #{names.names}"
+    assert written_in_a_second_transaction_within(5), "The Preview transaction still holds its lock: #{@last_conflict&.message}"
+    assert_includes names.names, "killSessions"
+    assert_equal "Second", stored(_id: "seeded").first["name"], "Nothing of the Preview was committed"
+  ensure
+    proxy&.close
+  end
+
+  # Each killSessions try is bounded, so one against a server that can't be reached doesn't wait for the
+  # client's own 30-second server selection timeout and hold the 10-second window open.
+  def test_the_kill_window_ends_after_about_ten_seconds_against_an_unreachable_server
+    warnings = []
+    logger = Object.new
+    logger.define_singleton_method(:warn) { |message| warnings << message }
+    # Nothing listens on port 1; the client keeps its default server selection timeout of 30 s.
+    nowhere = new_client_at("mongodb://127.0.0.1:1/?directConnection=true", server_selection_timeout: 30, logger: Logger.new(IO::NULL))
+    engine = Sendproof::Mongo::Engine.new(nowhere, logger: logger)
+    session = Struct.new(:session_id).new(BSON::Document.new(id: BSON::Binary.new(SecureRandom.bytes(16), :uuid)))
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    engine.send(:kill, session)
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    assert_operator elapsed, :<, 13, "One try waited for the client's server selection timeout"
+    assert_operator elapsed, :>, 7, "The window retries for about 10 s"
+    assert_equal 1, warnings.length
+    assert_includes warnings.first, session.session_id["id"].data.unpack1("H*"), "The warning names the session"
+  ensure
+    engine&.unhook!
   end
 
   def test_a_normal_preview_sends_no_kill_sessions
