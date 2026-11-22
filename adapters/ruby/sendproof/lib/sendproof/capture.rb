@@ -40,12 +40,27 @@ module Sendproof
     def with(recorder)
       previous = Thread.current[KEY]
       previous_inherited = Fiber[INHERITED]
+      PoolHooks.install if recorder&.rollback?
       Thread.current[KEY] = recorder
       Fiber[INHERITED] = recorder&.rollback? ? recorder : nil
       yield
     ensure
       Thread.current[KEY] = previous
       Fiber[INHERITED] = previous_inherited
+    end
+
+    # Runs the block with no inherited Preview: the start of a pool task, which belongs to whoever posted
+    # it, not to the Preview that was running when the pool thread happened to be created ({PoolHooks}).
+    def without_inherited
+      previous = Fiber[INHERITED]
+      return yield if previous.nil?
+
+      begin
+        Fiber[INHERITED] = nil
+        yield
+      ensure
+        Fiber[INHERITED] = previous
+      end
     end
   end
 end

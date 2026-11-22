@@ -35,6 +35,7 @@ module Sendproof
   autoload :Middleware, "sendproof/middleware"
   autoload :ObservedRequest, "sendproof/observed_request"
   autoload :OperationMatcher, "sendproof/operation_matcher"
+  autoload :PoolHooks, "sendproof/pool_hooks"
   autoload :PreviewRequest, "sendproof/preview_request"
   autoload :PreviewTransactionControl, "sendproof/stores"
   autoload :PreviewTransport, "sendproof/preview_transport"
