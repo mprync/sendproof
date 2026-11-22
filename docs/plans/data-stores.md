@@ -284,6 +284,8 @@ Once the last MySQL-escape helpers finish:
 
 ### Closing batch two
 
+**Done (2026-11-22):** the release scripts, consumer smoke tests, `tools/release/README.md`, `docs/publishing.md` and `docs/bindings/databases.md` list the batch-two packages and counts, and the Packagist archives leave out `adapters/php/core/compat/`. `node tools/pack-all.mjs --verify` passes for every registry. The CI publish jobs name no packages (they publish whatever `pack-all` wrote), so they needed no change. Still open: the full suite run with the heavy stores up, and the MongoDB lost-abort items below.
+
 Once every language's batch-two review signs off: add the new store packages (for example Node `@sendproof/cassandra`, `@sendproof/elasticsearch`, `@sendproof/cosmosdb`, `@sendproof/firestore`, and each language's equivalents) to the release tooling and consumer smoke tests as for batch one; update every language's rows in `docs/bindings/databases.md` and the batch-two status line above; run the full suite once with the heavy stores up. Also, in every language except Rust (done): the MongoDB "couldn't reach" reason and the lost-abort handling (`killSessions` with background retries) from spec/data-stores.md "Starting the transaction", each with a cut-connection test. Also: exclude `adapters/php/core/compat/` (the Elasticsearch 8 test run) from the Packagist archives in `tools/release/packagist.mjs`, and add Go's four and Rust's two new store modules to their release scripts if their reviews didn't.
 
 ### After batch one lands: release tooling
@@ -294,7 +296,14 @@ Once every language's batch-two review signs off: add the new store packages (fo
 
 Batch two adds one classification table per store under `spec/data-stores/`, extends `classification-cases.json`, and adds guard-only hooks. All four stores are `guard` only (see [Batch two stores](../../spec/data-stores.md#batch-two-stores)).
 
-**Status:** the foundation is done (2026-11-22). The four tables, their shared cases, the Cosmos DB and Firestore recordings, the reference hooks for Cassandra and OpenSearch with their conformance checks, the compose `heavy-stores` services and the CI heavy-stores jobs are in place. No binding has started batch two.
+**Status:** the foundation is done (2026-11-22). The four tables, their shared cases, the Cosmos DB and Firestore recordings, the reference hooks for Cassandra and OpenSearch with their conformance checks, the compose `heavy-stores` services and the CI heavy-stores jobs are in place. All eight languages have implemented batch two and had it reviewed (2026-11-22); the release packages, smoke tests and [databases page](../bindings/databases.md) are updated (see Closing batch two). Unsupported stores, per language:
+
+| Language | Unsupported | Why |
+| --- | --- | --- |
+| Node, Python, .NET, Java and Kotlin, Go | none | All four stores are guarded. |
+| PHP | Cassandra, Cosmos DB | The DataStax PHP extension is unmaintained, and Cosmos DB has no official PHP SDK. |
+| Ruby | Cassandra, Cosmos DB | The DataStax Ruby gem is unmaintained, and Cosmos DB has no official Ruby SDK. |
+| Rust | Cosmos DB, Firestore | No official SDK for either. (Cassandra is guarded by a `Session` wrapper; Elasticsearch and OpenSearch by a store that owns the client and exposes a guarded raw `send`, because the typed builders can't be intercepted and so aren't available through the guard.) |
 
 In the tables below, **confirmed** means the hook uses a documented, public extension point of that library; the Node Cosmos DB and Firestore rows were also confirmed by recording the SDK's traffic for `spec/data-stores/recordings/`. **Spike** means the first hour of that language's work must prove the hook sees every request before it is sent, and the fallback is named. Unsupported stores are documented as such in the binding's data-store page.
 
