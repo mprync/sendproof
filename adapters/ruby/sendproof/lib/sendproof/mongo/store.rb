@@ -23,7 +23,9 @@ module Sendproof
       # @param preview_timeout [Numeric] seconds a Preview may hold its transaction (default 50, below the
       #   server's 60-second lifetime); a Preview still running at the limit answers 500
       # @param hello [#call, nil] test seam: returns the +hello+ document instead of asking the server
-      def initialize(client, name: nil, treat_as_read: nil, preview_timeout: Engine::DEFAULT_TIMEOUT, hello: nil)
+      # @param logger [#warn, nil] where a Preview transaction the store couldn't end after a lost abort is
+      #   reported, with its session id; standard error when nil
+      def initialize(client, name: nil, treat_as_read: nil, preview_timeout: Engine::DEFAULT_TIMEOUT, hello: nil, logger: nil)
         super()
         unless client.is_a?(::Mongo::Client)
           raise ArgumentError, "Sendproof::Mongo::Store takes a Mongo::Client from the mongo driver."
@@ -31,7 +33,7 @@ module Sendproof
 
         @name = Stores::Guard.store_label(name)
         reads = Stores::Guard.read_set(treat_as_read, &:downcase)
-        @engine = Engine.new(client, reads: reads, preview_timeout: preview_timeout, hello: hello)
+        @engine = Engine.new(client, reads: reads, preview_timeout: preview_timeout, hello: hello, logger: logger)
         @client = Guarded::Handle.new(client, @engine)
       end
 

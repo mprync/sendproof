@@ -19,7 +19,10 @@ module Sendproof
     #   A reply with code 263 blocks, and every other command becomes a +Db+ log entry.
     # - *Finish.* After the handler, changes are read (inside the transaction for +after+, and at the
     #   transaction's own snapshot time for +before+), then the transaction is aborted and the session
-    #   ended. A Preview that outlives its time limit is aborted early and answers 500.
+    #   ended. A Preview that outlives its time limit is aborted early and answers 500. An abort the
+    #   server never acknowledged (the connection dropped) answers 500 at once and is followed, in the
+    #   background, by +killSessions+, so the transaction doesn't hold its locks until the server's
+    #   lifetime limit.
     class Engine
       # Commands the monitoring specification marks security-sensitive: never logged.
       SENSITIVE = %w[authenticate saslstart saslcontinue getnonce createuser updateuser copydbgetnonce copydbsaslstart copydb].to_set.freeze
@@ -42,13 +45,26 @@ module Sendproof
       # Databases whose commands can't join a transaction.
       SYSTEM_DATABASES = %w[admin config local].freeze
 
+      # +NoSuchTransaction+: the server has no such transaction, so nothing holds its locks.
+      NO_SUCH_TRANSACTION = 251
+
+      # How long, in seconds, the engine keeps trying to end a Preview transaction whose abort the server
+      # never acknowledged, and the backoff between tries: well inside the server's 60-second lifetime.
+      KILL_RETRY_LIMIT = 10.0
+      KILL_FIRST_DELAY = 0.1
+      KILL_MAX_DELAY = 2.0
+
       # The state of one +preview+-mode Preview.
       # +start_time+ is the transaction's snapshot time: the +operationTime+ of the first reply to a command
       # the Preview session sent, so +before+ images are read at that time and a concurrent commit by
       # another request never shows up as a Preview change. +lock+ makes the time limit and the finish take
       # turns: only one of them ever aborts the transaction, and neither is interrupted while it does.
-      State = Struct.new(:mode, :session, :lsid, :used, :finished, :expired, :candidates, :filters, :start_time, :timer,
-                         :lock, keyword_init: true)
+      # +opened+ is set once a command carrying the Preview session was sent: from then on the server may
+      # hold the transaction, and its locks, until an abort reaches it. +killer+ is the background thread
+      # that ends a transaction whose abort was lost; it ends the session itself once done, so the session
+      # id isn't reused meanwhile.
+      State = Struct.new(:mode, :session, :lsid, :used, :opened, :finished, :expired, :candidates, :filters, :start_time,
+                         :timer, :lock, :killer, keyword_init: true)
 
       # One document a Preview may have changed, and how.
       Candidate = Struct.new(:namespace, :collection, :id, :via)
@@ -68,7 +84,9 @@ module Sendproof
       # @param reads [Set<String>, nil] host-declared reads, lower case
       # @param preview_timeout [Numeric] seconds a Preview may hold its transaction
       # @param hello [#call, nil] test seam: returns the +hello+ document instead of asking the server
-      def initialize(client, reads: nil, preview_timeout: DEFAULT_TIMEOUT, hello: nil)
+      # @param logger [#warn, nil] where a Preview transaction the engine couldn't end is reported;
+      #   +Kernel#warn+ (standard error) when nil
+      def initialize(client, reads: nil, preview_timeout: DEFAULT_TIMEOUT, hello: nil, logger: nil)
         raise ArgumentError, "preview_timeout must be a positive number of seconds." unless preview_timeout.is_a?(Numeric) && preview_timeout.positive?
 
         # The guard sees commands only through monitoring: a client that doesn't publish them would run every
@@ -81,6 +99,7 @@ module Sendproof
         @reads = reads
         @timeout = preview_timeout
         @hello = hello
+        @logger = logger
         @detect_lock = Mutex.new
         @detected = nil
         @active = true
@@ -144,7 +163,9 @@ module Sendproof
 
       def internal? = Thread.current[:sendproof_mongo_internal] ? true : false
 
-      # Detects the topology once: +preview+ on a replica set or mongos with logical sessions.
+      # Detects the topology once: +preview+ on a replica set or mongos with logical sessions, +guard+ with
+      # {STANDALONE_REASON} for a standalone server or any reply this doesn't recognize. When the +hello+
+      # can't be sent or answered, +guard+ with {UNREACHABLE_REASON} for now, and it is asked again next time.
       # @return [Hash] +:mode+ and, in +guard+ mode, the +:reason+
       def detect
         return @detected if @detected
@@ -152,13 +173,17 @@ module Sendproof
         @detect_lock.synchronize do
           return @detected if @detected
 
-          hello = internal { @hello ? @hello.call : @client.use("admin").database.command(hello: 1).first }
-          transactions = (hello["setName"] || hello["msg"] == "isdbgrid") && !hello["logicalSessionTimeoutMinutes"].nil?
+          hello = begin
+            internal { @hello ? @hello.call : @client.use("admin").database.command(hello: 1).first }
+          rescue ::Mongo::Error::OperationFailure
+            nil # The server answered, with an error: not a reply that supports transactions.
+          rescue StandardError
+            return { mode: :guard, reason: UNREACHABLE_REASON }
+          end
+          transactions = hello.is_a?(Hash) && (hello["setName"] || hello["msg"] == "isdbgrid") &&
+                         !hello["logicalSessionTimeoutMinutes"].nil?
           @detected = transactions ? { mode: :preview } : { mode: :guard, reason: STANDALONE_REASON }
         end
-      rescue StandardError
-        # Unreachable or unrecognized: guard mode for now, and ask again next time.
-        { mode: :guard, reason: STANDALONE_REASON }
       end
 
       # @return [State, nil] the current Preview's state, when this code runs in a +preview+-mode Preview that began
@@ -211,7 +236,7 @@ module Sendproof
         lift_direct_connection_checks(session)
         session.start_transaction(read_concern: { level: :snapshot }, write_concern: { w: :majority })
         join_transaction(session, recorder)
-        state = State.new(mode: mode, session: session, lsid: hex(session.session_id), used: false, finished: false,
+        state = State.new(mode: mode, session: session, lsid: hex(session.session_id), used: false, opened: false, finished: false,
                           expired: false, candidates: {}, filters: [], lock: Mutex.new)
         recorder.set_store_state(self, state)
         # A handler still running at the limit loses its transaction: later commands fail, nothing commits,
@@ -225,8 +250,8 @@ module Sendproof
 
       # After the handler: capture document changes, then abort the transaction and end the session. A
       # capture read that fails for any reason but an already-aborted transaction raises, after the abort, so
-      # the Preview answers 500. Nothing the Preview wrote is ever committed: no +commitTransaction+ is ever
-      # sent for the Preview session.
+      # the Preview answers 500, as does an abort the server never acknowledged. Nothing the Preview wrote
+      # is ever committed: no +commitTransaction+ is ever sent for the Preview session.
       def finish_preview(recorder)
         current = recorder.store_state(self)
         # Bookkeeping for commands this thread never saw finish (a refused command is never sent).
@@ -247,6 +272,11 @@ module Sendproof
           ensure
             end_session(current)
           end
+          if current.killer && !current.expired
+            # The server may still hold the transaction's locks; the session is killed in the background.
+            failure ||= PreviewTransactionControl.new("MongoDB didn't acknowledge the abort of the Preview transaction, " \
+                                                      "so the rollback can't be confirmed.")
+          end
         end
         # The timer is asleep, waiting for the lock or done: never stopped in the middle of an abort.
         current.timer&.kill unless current.timer.equal?(Thread.current)
@@ -258,6 +288,9 @@ module Sendproof
       # Called by the subscriber before a command is written. During a Preview it classifies the command
       # and raises to refuse it: the driver propagates the exception, so no byte of it is sent.
       def command_started(event)
+        # The driver sends abortTransaction only when a command was sent in the transaction.
+        aborting = Thread.current[:sendproof_mongo_aborting]
+        aborting[:sent] = true if aborting && event.command_name == "abortTransaction"
         return unless @active && !internal?
 
         name = event.command_name
@@ -281,6 +314,10 @@ module Sendproof
             (Thread.current[:sendproof_mongo_refused] ||= Set.new) << event.request_id
             raise
           end
+          # Not refused, so it is sent: on the Preview session, the server now holds the transaction.
+          if (current = state_for(preview)) && !current.opened && hex(command["lsid"]) == current.lsid
+            current.opened = true
+          end
         elsif classification.kind == :write
           # Not this request's Preview: a write from outside any request is refused before it is sent while
           # a Preview is open, and blocks every open Preview (409) in either mode, since nothing was sent.
@@ -301,6 +338,7 @@ module Sendproof
       end
 
       def command_succeeded(event)
+        acknowledge_abort(event, nil)
         return unless @active
 
         tripwire(event)
@@ -320,12 +358,14 @@ module Sendproof
       end
 
       def command_failed(event)
+        failure = event.failure
+        failure = {} unless failure.respond_to?(:key?)
+        # A network error has no failure document: it proves nothing reached the server.
+        acknowledge_abort(event, failure["code"]) if failure["code"]
         return unless @active
 
         tripwire(event)
         pending = take(event) or return
-        failure = event.failure
-        failure = {} unless failure.respond_to?(:key?)
         # The server refused something a transaction can't do and applied nothing: a block, not a crash.
         if pending.preview && state_for(pending.preview) && failure["code"] == 263
           pending.preview.block(store: "mongodb", operation: pending.name, detail: Mongo.refused_reason(pending.name))
@@ -336,6 +376,15 @@ module Sendproof
       private
 
       def state_for(recorder) = recorder.store_state(self)&.then { |state| state.session ? state : nil }
+
+      # The driver hides the outcome of +abortTransaction+, so monitoring notes it while the engine aborts:
+      # the abort counts when the server acknowledged it or answered that the transaction no longer exists.
+      def acknowledge_abort(event, code)
+        aborting = Thread.current[:sendproof_mongo_aborting]
+        return unless aborting && event.command_name == "abortTransaction"
+
+        aborting[:acknowledged] = true if code.nil? || code == NO_SUCH_TRANSACTION
+      end
 
       def mode_of(recorder) = recorder.store_state(self)&.mode || :guard
 
@@ -489,26 +538,14 @@ module Sendproof
         session.define_singleton_method(:end_session) { nil }
       end
 
-      # Aborts the Preview transaction and ends its session, once; call it holding +state.lock+. The driver
-      # ignores abort errors, as the transactions specification requires; an unacknowledged abort still
-      # commits nothing, because no +commitTransaction+ is ever sent for the Preview session.
+      # Aborts the Preview transaction and ends its session, once; call it holding +state.lock+. When the
+      # abort was lost, the background kill ends the session once it is done instead.
       def end_session(state)
         return if state.finished
 
         state.finished = true
-        session = state.session
-        internal do
-          begin
-            ::Mongo::Session.instance_method(:abort_transaction).bind(session).call if session.in_transaction?
-          rescue StandardError
-            nil
-          end
-          begin
-            ::Mongo::Session.instance_method(:end_session).bind(session).call
-          rescue StandardError
-            nil
-          end
-        end
+        abort_or_kill(state)
+        release(state.session) unless state.killer
       end
 
       # The Preview outlived its time limit: it can never be confirmed, and its transaction is aborted now.
@@ -518,14 +555,75 @@ module Sendproof
 
           state.expired = true
           recorder.refuse(PreviewTransactionControl.new("The Preview ran longer than #{@timeout} s, so its MongoDB transaction was aborted."))
-          internal do
-            begin
-              ::Mongo::Session.instance_method(:abort_transaction).bind(state.session).call if state.session.in_transaction?
-            rescue StandardError
-              nil
-            end
+          abort_or_kill(state)
+        end
+      end
+
+      # Aborts the Preview transaction. The driver ignores abort errors, as the transactions specification
+      # requires: an unacknowledged abort still commits nothing, because no +commitTransaction+ is ever sent
+      # for the Preview session. But the server then keeps the transaction, and its locks, until its
+      # 60-second lifetime limit. So when a command was sent on the session (+state.opened+, or the driver
+      # sent its abort) and no reply acknowledged the abort, a background thread ends the transaction with
+      # +killSessions+ ({#kill}) and sets +state.killer+. The driver may not even send the abort: a dropped
+      # connection can leave it no server to select.
+      def abort_or_kill(state)
+        session = state.session
+        return if state.killer || !session.in_transaction?
+
+        aborting = { sent: false, acknowledged: false }
+        previous = Thread.current[:sendproof_mongo_aborting]
+        Thread.current[:sendproof_mongo_aborting] = aborting
+        begin
+          internal { ::Mongo::Session.instance_method(:abort_transaction).bind(session).call }
+        rescue StandardError
+          nil
+        ensure
+          Thread.current[:sendproof_mongo_aborting] = previous
+        end
+        return if aborting[:acknowledged] || !(state.opened || aborting[:sent])
+
+        state.killer = Thread.new do
+          Thread.current.report_on_exception = false
+          internal { kill(session) }
+        ensure
+          release(session, discard: true)
+        end
+      end
+
+      # Ends a Preview transaction whose abort no reply acknowledged with +killSessions+ on its session,
+      # retrying with backoff while the server can't be reached. A final failure is logged with the session
+      # id: the server then ends the transaction, and releases its locks, at its lifetime limit.
+      def kill(session)
+        deadline = Clock.now + KILL_RETRY_LIMIT
+        delay = KILL_FIRST_DELAY
+        failure = begin
+          loop do
+            @client.use("admin").database.command(killSessions: [session.session_id])
+            return
+          rescue ::Mongo::Error::OperationFailure => error
+            break error.message
+          rescue StandardError => error
+            # A network error or no server to select: try again shortly.
+            break "MongoDB couldn't be reached for #{KILL_RETRY_LIMIT.to_i} s (#{error.class})" if Clock.now + delay > deadline
+
+            sleep delay
+            delay = [delay * 2, KILL_MAX_DELAY].min
           end
         end
+        message = "Sendproof couldn't end a MongoDB Preview transaction (session #{hex(session.session_id)}): #{failure}. " \
+                  "The server ends it, and releases its locks, at transactionLifetimeLimitSeconds."
+        @logger ? @logger.warn(message) : Kernel.warn(message)
+      end
+
+      # Ends the driver session. After a lost abort (+discard+) its server session is marked dirty, so the
+      # driver drops it rather than hand its id to another operation.
+      def release(session, discard: false)
+        internal do
+          session.dirty! if discard && session.respond_to?(:dirty!)
+          ::Mongo::Session.instance_method(:end_session).bind(session).call
+        end
+      rescue StandardError
+        nil
       end
 
       # ---- Change capture ----

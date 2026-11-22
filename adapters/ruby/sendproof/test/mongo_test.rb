@@ -23,6 +23,15 @@ module MongoSocketWatch
     end
   end
 
+  # Records the name of every command a client starts, engine-internal ones included.
+  class Names
+    def initialize = (@names = [] and @lock = Mutex.new)
+    def started(event) = @lock.synchronize { @names << event.command_name }
+    def succeeded(_event) = nil
+    def failed(_event) = nil
+    def names = @lock.synchronize { @names.dup }
+  end
+
   module Socket
     def write(*args, **options)
       watch = Thread.current[:mongo_socket_watch]
@@ -54,10 +63,93 @@ module MongoSocketWatch
       end
     end
   end
+
+  # Runs a test's hook once, just before the next abort of a transaction: the network failing after the
+  # handler, between change capture and the abort.
+  module BeforeAbort
+    class << self
+      attr_accessor :hook
+    end
+
+    def abort_transaction(*args, **options)
+      hook = BeforeAbort.hook
+      BeforeAbort.hook = nil
+      hook&.call
+      super
+    end
+  end
 end
+
+# A TCP proxy to the compose MongoDB that can cut every open connection and refuse new ones until it is
+# restored: a network failure a test can switch on and off.
+class MongoProxy
+  attr_reader :port
+
+  def initialize(url)
+    host, port = url.match(%r{mongodb://(?:[^@/]*@)?([^:/,]+):(\d+)}).captures
+    @upstream = [host, Integer(port)]
+    @server = TCPServer.new("127.0.0.1", 0)
+    @port = @server.addr[1]
+    @lock = Mutex.new
+    @down = false
+    @links = []
+    @acceptor = Thread.new do
+      Thread.current.report_on_exception = false
+      loop { link(@server.accept) }
+    end
+  end
+
+  # Closes every open connection and refuses new ones until {#restore}.
+  def cut
+    @lock.synchronize do
+      @down = true
+      @links.each { |socket| close_quietly(socket) }
+      @links.clear
+    end
+  end
+
+  def restore = @lock.synchronize { @down = false }
+
+  def close
+    @acceptor.kill
+    close_quietly(@server)
+    cut
+  end
+
+  private
+
+  def link(downstream)
+    upstream = @lock.synchronize do
+      next nil if @down
+
+      TCPSocket.new(*@upstream).tap { |socket| @links << downstream << socket }
+    end
+    return close_quietly(downstream) unless upstream
+
+    [[downstream, upstream], [upstream, downstream]].each do |from, to|
+      Thread.new do
+        Thread.current.report_on_exception = false
+        loop { to.write(from.readpartial(65_536)) }
+      rescue StandardError
+        nil
+      ensure
+        close_quietly(from)
+        close_quietly(to)
+      end
+    end
+  end
+
+  def close_quietly(socket)
+    socket.close unless socket.closed?
+  rescue StandardError
+    nil
+  end
+end
+
 Sendproof::Mongo::Subscriber.prepend(MongoSocketWatch::Subscriber)
 Mongo::Socket.prepend(MongoSocketWatch::Socket)
 Mongo::Session.prepend(MongoSocketWatch::Abort)
+Mongo::Session.prepend(MongoSocketWatch::BeforeAbort)
 
 # Prepended last, so it wraps the watch above: lets one test stand in for a driver that swallows an exception raised from a command subscriber.
 Sendproof::Mongo::Subscriber.prepend(Module.new do
@@ -94,8 +186,10 @@ class MongoHookTest < Minitest::Test
     [@reader, @raw, *@others].compact.each(&:close)
   end
 
-  def new_client(**options)
-    ::Mongo::Client.new(@url, server_selection_timeout: 3, **options).tap { |client| (@others ||= []) << client }
+  def new_client(**options) = new_client_at(@url, **options)
+
+  def new_client_at(url, **options)
+    ::Mongo::Client.new(url, server_selection_timeout: 3, **options).tap { |client| (@others ||= []) << client }
   end
 
   def stored(filter = {}) = @reader[:documents].find(filter).to_a
@@ -402,6 +496,112 @@ class MongoHookTest < Minitest::Test
     assert_empty captured(recorder).changes
   end
 
+  # --- detection reasons -----------------------------------------------------------------------------
+
+  def test_an_unreachable_server_has_its_own_guard_reason_and_is_asked_again
+    refute_equal Sendproof::Mongo::STANDALONE_REASON, Sendproof::Mongo::UNREACHABLE_REASON
+    assert_equal "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode",
+                 Sendproof::Mongo::UNREACHABLE_REASON
+    assert_equal "Preview unavailable: this MongoDB server doesn't support transactions", Sendproof::Mongo::STANDALONE_REASON
+
+    # Nothing listens on port 1: the hello can't be sent.
+    nowhere = ::Mongo::Client.new("mongodb://127.0.0.1:1/?directConnection=true", server_selection_timeout: 0.3, connect_timeout: 0.3)
+    @others << nowhere
+    unreachable = Sendproof::Mongo::Store.new(nowhere, name: "nowhere")
+    begin
+      assert_equal({ system: "mongodb", name: "nowhere", mode: :guard, reason: Sendproof::Mongo::UNREACHABLE_REASON }, unreachable.describe)
+    ensure
+      unreachable.unhook!
+    end
+
+    # A hello that fails, then answers: guard mode with the unreachable reason, then preview mode.
+    calls = 0
+    hello = lambda do
+      calls += 1
+      raise ::Mongo::Error::SocketError, "unreachable" if calls == 1
+
+      { "setName" => "rs0", "logicalSessionTimeoutMinutes" => 30 }
+    end
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(@raw, hello: hello)
+    assert_equal Sendproof::Mongo::UNREACHABLE_REASON, @store.describe[:reason]
+    assert_equal({ system: "mongodb", name: nil, mode: :preview }, @store.describe)
+  end
+
+  # --- an abort the server never acknowledged ---------------------------------------------------------
+
+  # A second transaction that writes the seeded document, retried while a Preview transaction still holds
+  # its lock (a transaction waits only 5 ms for one). The reader is a direct connection, so the driver's
+  # own topology checks are lifted on this session as the engine lifts them on the Preview session.
+  def written_in_a_second_transaction_within(seconds)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+    loop do
+      session = @reader.start_session
+      session.define_singleton_method(:check_transactions_supported!) { nil }
+      session.define_singleton_method(:validate_read_preference!) { |_command| nil }
+      begin
+        session.start_transaction(write_concern: { w: :majority })
+        @reader[:documents].update_one({ _id: "seeded" }, { "$set" => { name: "Second" } }, session: session)
+        session.commit_transaction
+        return true
+      rescue ::Mongo::Error => error
+        begin
+          session.abort_transaction if session.in_transaction?
+        rescue ::Mongo::Error
+          nil
+        end
+        return false if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+        @last_conflict = error
+        sleep 0.2
+      ensure
+        session.end_session
+      end
+    end
+  end
+
+  def test_a_preview_whose_abort_is_lost_answers_500_at_once_and_its_locks_are_released
+    proxy = MongoProxy.new(SERVERS[:mongodb])
+    proxied = new_client_at("mongodb://127.0.0.1:#{proxy.port}/#{@database}?directConnection=true",
+                            server_selection_timeout: 1, connect_timeout: 1, logger: Logger.new(IO::NULL))
+    @store.unhook!
+    @store = Sendproof::Mongo::Store.new(proxied, name: "catalog")
+    @client = @store.client
+    restorer = nil
+    # The network fails after the handler and its change capture, just before the abort, for 5 seconds.
+    MongoSocketWatch::BeforeAbort.hook = lambda do
+      proxy.cut
+      restorer = Thread.new { sleep 5; proxy.restore }
+    end
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    post "/sendproof/_preview/documents/seeded", "{}", RACK_HEADERS
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    assert_equal 500, last_response.status, last_response.body
+    assert_nil last_response["preference-applied"], "A rollback the server never acknowledged is never claimed"
+    assert_operator elapsed, :<, 4.5, "The reply waited for the network to come back"
+    # Once the network is back, the background killSessions ends the transaction and frees its lock.
+    assert written_in_a_second_transaction_within(20), "The Preview transaction still holds its lock: #{@last_conflict&.message}"
+    assert_equal "Second", stored(_id: "seeded").first["name"], "Nothing of the Preview was committed"
+  ensure
+    MongoSocketWatch::BeforeAbort.hook = nil
+    restorer&.join
+    proxy&.close
+  end
+
+  def test_a_normal_preview_sends_no_kill_sessions
+    names = MongoSocketWatch::Names.new
+    @raw.subscribe(::Mongo::Monitoring::COMMAND, names)
+    preview([@store]) { |_| @client[:documents].update_one({ _id: "seeded" }, "$set" => { name: "Previewed" }) }
+    preview([@store]) { |_| @client[:documents].find(_id: "seeded").first }
+    preview([@store]) { |_| nil }
+    post "/sendproof/_preview/documents", "{}", RACK_HEADERS
+    assert_equal 200, last_response.status, last_response.body
+    sleep 0.5 # a background kill would have started by now
+    assert_equal 3, names.names.count("abortTransaction"), "Each Preview that sent a command aborts once"
+    refute_includes names.names, "killSessions"
+    assert_equal "Seeded", stored(_id: "seeded").first["name"]
+  end
+
   # The pre-send refusal relies on the driver propagating an exception from a command subscriber. Were a
   # future driver to swallow it, the refused command would be sent: the Preview must then never be confirmed.
   def test_a_refused_command_that_reaches_the_server_fails_the_preview
@@ -672,7 +872,7 @@ class MongoHookTest < Minitest::Test
     config = build_config
     config.use(CoreHelpers::FakeProvider.new)
     config.data_store(store)
-    config.preview_operations = [%w[POST /documents], %w[POST /documents/archive], %w[POST /documents/escape]]
+    config.preview_operations = [%w[POST /documents], %w[POST /documents/archive], %w[POST /documents/escape], %w[POST /documents/seeded]]
     config.identity = ->(request) { { name: "a", subject: "a" } if request.get_header("HTTP_X_USER") }
     application = lambda do |env|
       request = Rack::Request.new(env)
@@ -681,6 +881,9 @@ class MongoHookTest < Minitest::Test
         when "/documents"
           client[:documents].insert_one(_id: "rack", name: "Rack")
           [201, { "content-type" => "application/json" }, ['{"ok":true}']]
+        when "/documents/seeded"
+          client[:documents].update_one({ _id: "seeded" }, { "$set" => { name: "Previewed" } })
+          [200, { "content-type" => "application/json" }, ['{"ok":true}']]
         when "/documents/archive"
           begin
             client[:documents].aggregate([{ "$out" => "documents_archive" }]).to_a

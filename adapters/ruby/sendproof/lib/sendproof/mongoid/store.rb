@@ -19,12 +19,16 @@ module Sendproof
       # @param treat_as_read [Array<String>, nil] commands you state never write, by exact name
       # @param preview_timeout [Numeric] seconds a Preview may hold its transaction (default 50)
       # @param hello [#call, nil] test seam: returns the +hello+ document instead of asking the server
-      def initialize(client: :default, name: nil, treat_as_read: nil, preview_timeout: Sendproof::Mongo::Engine::DEFAULT_TIMEOUT, hello: nil)
+      # @param logger [#warn, nil] where a Preview transaction the store couldn't end after a lost abort is
+      #   reported, with its session id; standard error when nil
+      def initialize(client: :default, name: nil, treat_as_read: nil, preview_timeout: Sendproof::Mongo::Engine::DEFAULT_TIMEOUT, hello: nil,
+                     logger: nil)
         super()
         @name = Stores::Guard.store_label(name)
         reads = Stores::Guard.read_set(treat_as_read, &:downcase)
         @client_name = client
-        @engine = Sendproof::Mongo::Engine.new(::Mongoid::Clients.with_name(client), reads: reads, preview_timeout: preview_timeout, hello: hello)
+        @engine = Sendproof::Mongo::Engine.new(::Mongoid::Clients.with_name(client), reads: reads, preview_timeout: preview_timeout,
+                                               hello: hello, logger: logger)
         Sendproof::Mongoid.install!
       end
 

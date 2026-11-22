@@ -30,6 +30,11 @@ module Sendproof
     # The reason a standalone server, or any reply the binding doesn't recognize, runs in +guard+ mode.
     STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions"
 
+    # The reason when the detection +hello+ couldn't be sent or answered: whether the server supports
+    # transactions is unknown, so the store runs in +guard+ mode for now and asks again next time.
+    UNREACHABLE_REASON = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, " \
+                         "so this Preview runs in guard mode"
+
     # The reason for a command MongoDB refuses inside a transaction.
     def self.refused_reason(operation) = "Preview unavailable: MongoDB can't run #{operation} inside a transaction"
   end
