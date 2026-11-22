@@ -259,16 +259,18 @@ func TestSendIsNeverBlockedAndObservedSendTracesTheOperation(t *testing.T) {
 	}
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: a write that carries
+// no request while a Preview is open is taken to be the Preview's, and refused.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	a := newApp(t, true, map[string]operation{
 		"POST /background": func(_ context.Context, c *azcosmos.ContainerClient) error {
 			_, err := c.UpsertItem(context.Background(), partition, []byte(`{"id":"b"}`), nil)
 			return err
 		},
 	})
-	response := a.preview("/background")
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	assertBlocked(t, a.preview("/background"), "Upsert")
+	if got := a.gateway.requests(); len(got) != 0 {
+		t.Errorf("the unattributed write reached the gateway: %v", got)
 	}
 }
 

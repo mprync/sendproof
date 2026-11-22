@@ -32,8 +32,9 @@
 // covered, and only calls made with the request's context: pass r.Context() (or a
 // context derived from it) to every call. A client built without the wrapper, a
 // second client for the same cluster and a request made with context.Background()
-// are not guarded; the last one fails every open Preview with 500 (see
-// sendproof.ReportWrite and sendproof.Detached).
+// are not guarded; the last one, while a Preview is open, is refused before it is
+// sent and blocks every open Preview, like a client's own background goroutine
+// (mark background work with sendproof.Detached).
 //
 // A refusal is an error from the transport, so the clients' connection pools
 // treat it as a failed node: with several nodes configured, each refused write

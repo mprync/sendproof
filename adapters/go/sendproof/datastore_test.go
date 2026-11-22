@@ -391,9 +391,10 @@ func TestObservedSendRecordsDbEntriesWithoutBlocking(t *testing.T) {
 }
 
 // A write whose context belongs to no request, such as a handler calling a store
-// with context.Background(), cannot be told apart from the Preview's own: while a
-// Preview is open it fails that Preview instead of letting it claim a rollback.
-func TestAWriteWithoutARequestContextFailsTheOpenPreview(t *testing.T) {
+// with context.Background() or a client's own background goroutine, cannot be told
+// apart from the Preview's own: while a Preview is open it is refused before it is
+// sent and the Preview is blocked.
+func TestAWriteWithoutARequestContextIsRefusedAndBlocksTheOpenPreview(t *testing.T) {
 	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(&fakeStore{}))
 	if err != nil {
 		t.Fatal(err)
@@ -408,11 +409,11 @@ func TestAWriteWithoutARequestContextFailsTheOpenPreview(t *testing.T) {
 	request.Header.Set("Prefer", "tx=rollback")
 	response := httptest.NewRecorder()
 	bench.Middleware(mux).ServeHTTP(response, request)
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("an unattributed write during a Preview must answer 500, got %d %s", response.Code, response.Body)
+	if response.Code != 409 || response.Header().Get("Preference-Applied") != "" || sent != 0 {
+		t.Fatalf("an unattributed write during a Preview must be refused (409, not sent), got %d sent=%d %s", response.Code, sent, response.Body)
 	}
 	// Outside any Preview the same write is untouched.
-	if err := write(context.Background(), &sent); err != nil || sent != 2 {
+	if err := write(context.Background(), &sent); err != nil || sent != 1 {
 		t.Errorf("a background write outside a Preview was refused: %v sent=%d", err, sent)
 	}
 }

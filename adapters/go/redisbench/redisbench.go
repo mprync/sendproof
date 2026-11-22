@@ -23,8 +23,8 @@
 // context: pass r.Context() (or a context derived from it) to every command. A
 // client created inside a handler, a second client for the same server and
 // Pub/Sub connections (which bypass go-redis hooks) are not guarded. A write sent
-// with context.Background() while a Preview is open runs, and fails that Preview
-// with 500 (see sendproof.ReportWrite and sendproof.Detached). Sidekiq-style job enqueues are writes and block a Preview;
+// with context.Background() while a Preview is open is refused before it is sent
+// and blocks every open Preview (see sendproof.Detached). Sidekiq-style job enqueues are writes and block a Preview;
 // record such jobs as effects with sendproof.RecordJob instead. rueidis is not
 // supported.
 package redisbench

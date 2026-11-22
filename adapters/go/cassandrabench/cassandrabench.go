@@ -35,8 +35,9 @@
 // blocked nor rolled back. Use Connect so no raw session exists, and give the
 // wrapper the request's context with WithContext (or ExecContext, IterContext and
 // the other Context methods): a statement sent with no context belongs to no
-// request, so it runs, and while a Preview is open it fails that Preview with 500
-// (see sendproof.ReportWrite and sendproof.Detached).
+// request, so while a Preview is open it is refused before it is sent and blocks
+// that Preview, like any write (a client's own background goroutine is the same);
+// mark background work with sendproof.Detached.
 package cassandrabench
 
 import (

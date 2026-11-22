@@ -130,7 +130,7 @@ func newApp(t *testing.T, hook bool, options ...redisbench.Option) *app {
 		reply(w, 200, map[string]any{"error": errString(err)})
 	}))
 	// background sends its write with context.Background(): the guard can't see the
-	// Preview, so the write runs, but the Preview must never be confirmed.
+	// Preview, so it refuses the write before it is sent and blocks every open Preview.
 	bench.HandlePreview(mux, "POST /background/{key}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = hooked.Incr(context.Background(), key(r)).Err()
 		w.WriteHeader(200)
@@ -299,13 +299,17 @@ func TestStoreRefusesAConnectionStringAsALabel(t *testing.T) {
 	redisbench.Store("redis://:secret@host:6379")
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: a write that carries
+// no request while a Preview is open is taken to be the Preview's, and refused.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	a := newApp(t, true)
-	response := a.preview("POST", "/background/b")
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	t.Cleanup(func() { a.plain.Del(context.Background(), a.prefix+"counter:b") })
+	assertBlocked(t, a.preview("POST", "/background/b"), "INCR")
+	if a.exists(t, "counter:b") {
+		t.Error("the unattributed write reached Redis")
 	}
-	if !a.exists(t, "counter:b") {
-		t.Error("the unattributed write should have run (it is reported, not blocked)")
+	// Work in a detached scope is never refused, and an ordinary request's writes are not unattributed.
+	if err := a.hooked.Incr(sendproof.Detached(context.Background()), a.prefix+"counter:b").Err(); err != nil {
+		t.Errorf("a detached write must run: %v", err)
 	}
 }

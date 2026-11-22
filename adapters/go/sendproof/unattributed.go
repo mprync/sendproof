@@ -98,3 +98,34 @@ func ReportWrite(ctx context.Context, store, operation string) {
 		state.mu.Unlock()
 	}
 }
+
+// refuseUnattributed is the guard's rule for a write that carries no request
+// (spec/data-stores.md, "Writes the binding can't attribute to a request"): a
+// client's own background goroutine (a Firestore BulkWriter, a bulk indexer), a
+// goroutine the handler started without the context, or a call made with
+// context.Background(). While any Preview is open the write is taken to be that
+// Preview's, so it is refused before it is sent and every open Preview is marked
+// blocked, which answers 409 for the write's store and operation. Failing the
+// Preview after the write landed would not be enough, because a guarded store
+// cannot roll it back. A request that is not a Preview is attributed to its own
+// request, and Detached work is never refused. It returns nil when the write may go on.
+func refuseUnattributed(ctx context.Context, store, operation string) error {
+	if openPreviews.count.Load() == 0 || attributed(ctx) {
+		return nil
+	}
+	reason := WriteReason(store)
+	openPreviews.mu.Lock()
+	states := make([]*requestState, 0, len(openPreviews.states))
+	for state := range openPreviews.states {
+		states = append(states, state)
+	}
+	openPreviews.mu.Unlock()
+	for _, state := range states {
+		state.mu.Lock()
+		if state.blocked == nil {
+			state.blocked = &blockedWrite{store: clip(store, maxName), operation: clip(operation, maxName), detail: clip(reason, maxText)}
+		}
+		state.mu.Unlock()
+	}
+	return &PreviewWriteBlockedError{Store: store, Operation: operation, Reason: reason}
+}

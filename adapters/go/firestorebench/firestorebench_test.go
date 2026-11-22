@@ -351,16 +351,34 @@ func TestSendIsNeverBlockedAndObservedSendTracesTheCall(t *testing.T) {
 	}
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: a write that carries
+// no request while a Preview is open is taken to be the Preview's, and refused.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	a := newApp(t, true, map[string]operation{
 		"POST /background": func(_ context.Context, c *firestore.Client) error {
 			_, err := c.Collection("orders").Doc("b").Set(context.Background(), map[string]any{"a": 1})
 			return err
 		},
+		// A BulkWriter flushes from its own goroutine, with the context it was created
+		// with: here a background one, as a client helper that outlives the request has.
+		"POST /bulk-background": func(_ context.Context, c *firestore.Client) error {
+			writer := c.BulkWriter(context.Background())
+			job, err := writer.Set(c.Collection("orders").Doc("b"), map[string]any{"a": 1})
+			if err != nil {
+				return err
+			}
+			writer.End()
+			_, err = job.Results()
+			return err
+		},
 	})
-	response := a.preview("/background")
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	assertBlocked(t, a.preview("/background"), "Commit")
+	assertBlocked(t, a.preview("/bulk-background"), "BatchWrite")
+	for _, method := range a.server.requests() {
+		if method == "Commit" || method == "BatchWrite" {
+			t.Errorf("an unattributed write reached the server: %v", a.server.requests())
+			break
+		}
 	}
 }
 

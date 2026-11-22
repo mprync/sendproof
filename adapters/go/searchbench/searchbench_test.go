@@ -340,7 +340,10 @@ func TestSendIsNeverBlockedAndObservedSendTracesTheRequest(t *testing.T) {
 	}
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: a write that carries
+// no request while a Preview is open is taken to be the Preview's, and refused;
+// detached work is never refused.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	var current *app
 	current = newApp(t, true, false, map[string]operation{
 		"POST /background": func(context.Context) error {
@@ -348,11 +351,10 @@ func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
 			return discard(client.Index("articles", strings.NewReader(`{}`), client.Index.WithContext(context.Background())))
 		},
 	})
-	response := current.preview("/background")
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
+	assertBlocked(t, current.preview("/background"), "elasticsearch", "Elasticsearch", "index")
+	if got := current.cluster.requests(); len(got) != 0 {
+		t.Errorf("the unattributed write reached the cluster: %v", got)
 	}
-	// Background work that says so never fails a Preview.
 	detached := newApp(t, true, false, map[string]operation{
 		"POST /job": func(context.Context) error {
 			client, _ := elastic(t, current.cluster, true)

@@ -321,14 +321,13 @@ func TestSendIsNeverBlockedAndObservedSendTracesTheStatement(t *testing.T) {
 	}
 }
 
-func TestAWriteWithoutTheRequestContextNeverConfirms(t *testing.T) {
+// TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: a write that carries
+// no request while a Preview is open is taken to be the Preview's, and refused.
+func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	a := newApp(t, true)
-	response := a.preview("POST", "/background/b1")
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" {
-		t.Fatalf("want 500 without confirmation, got %d %s", response.Code, response.Body)
-	}
-	if a.status(t, "b1") != "bg" {
-		t.Error("the unattributed write should have run (it is reported, not blocked)")
+	assertBlocked(t, a.preview("POST", "/background/b1"), "INSERT")
+	if a.status(t, "b1") != "" {
+		t.Error("the unattributed write reached Cassandra")
 	}
 }
 

@@ -25,9 +25,9 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 
 ### Calls without the request's context
 
-Go hands the request to a store call only through the context you pass. A hooked client called with `context.Background()` can't tell which request the call belongs to, so the guard can't block it and MongoDB can't put it in the Preview's transaction. The write runs. So that a Preview never confirms a rollback that didn't happen, such a write fails every Preview that is open at that moment with 500.
+Go hands the request to a store call only through the context you pass. A hooked client called with `context.Background()` can't tell which request the call belongs to, so MongoDB can't put it in the Preview's transaction. The same holds for a client's own background goroutine, such as a Firestore `BulkWriter`, a bulk indexer or a goroutine your handler started without the context. While any Preview is open, such a write to a guarded store (Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore, a standalone MongoDB server) is taken to be that Preview's write: it is **refused before it is sent**, exactly like a write with the request's context, and every open Preview answers 409. For MongoDB in `preview` mode the monitor can only see the write after it was sent, so every open Preview answers 500 without confirmation instead.
 
-Writes made with the context of any other request that passed through `bench.Middleware` never fail a Preview. Background work that runs while Previews may be open, such as a job worker or a scheduled task writing through a hooked client, should mark its context:
+Writes made with the context of any other request that passed through `bench.Middleware` are never refused for this reason. Background work that runs while Previews may be open, such as a job worker or a scheduled task writing through a hooked client, must mark its context, or it is refused while a Preview is open:
 
 ```go
 ctx := sendproof.Detached(context.Background()) // this work belongs to no request
@@ -188,7 +188,7 @@ When the guard refuses a write, the command never reaches the store and the hand
   "detail": "Preview unavailable: this operation writes to Redis", "store": "redis", "operation": "INCR", "rolledBack": false }
 ```
 
-The SQL transaction rolls back as usual. A failed rollback or abort, a handler `COMMIT` or `commitTransaction`, a write that escaped the MongoDB session, or a store write sent without a request context while the Preview ran answers 500 without confirmation instead; the failure outranks a blocked write.
+The SQL transaction rolls back as usual. A failed rollback or abort, a handler `COMMIT` or `commitTransaction`, or a write that escaped the MongoDB session (a MongoDB write sent without a request context included) answers 500 without confirmation instead; the failure outranks a blocked write.
 
 In `preview` mode MongoDB blocks only what a transaction can't run, such as `$out`, `$merge`, `count` (`EstimatedDocumentCount`), an explicit `create` (`CreateCollection`) or `listCollections`, with a reason like "Preview unavailable: MongoDB can't run $out inside a transaction".
 

@@ -152,12 +152,15 @@ type blockedWrite struct{ store, operation, detail string }
 //
 // Guard works for any context derived from the request, also after the Preview
 // finished and in handlers that were never marked, so a late write is still refused.
-// A write whose context belongs to no request is let through, but fails every
-// open Preview with 500 (see ReportWrite).
+// A write whose context belongs to no request, while a Preview is open, is treated
+// as that Preview's write: it is refused before it is sent and every open Preview
+// is blocked (see refuseUnattributed). Work in a Detached context is never refused.
 func Guard(ctx context.Context, store, operation string, write bool, detail string) error {
 	state := stateFrom(ctx)
 	if write && state == nil {
-		ReportWrite(ctx, store, operation)
+		if err := refuseUnattributed(ctx, store, operation); err != nil {
+			return err
+		}
 	}
 	if !write || state == nil || state.kind != kindPreview {
 		return nil

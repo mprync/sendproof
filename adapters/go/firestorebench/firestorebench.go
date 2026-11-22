@@ -31,8 +31,10 @@
 // clients built with the options are covered, and only calls made with the
 // request's context: pass r.Context() (or a context derived from it) to every call.
 // A client built without the options, a second client for the same database and a
-// call made with context.Background() are not guarded; the last one fails every
-// open Preview with 500 (see sendproof.ReportWrite and sendproof.Detached).
+// call made with context.Background() are not guarded; the last one, while a Preview
+// is open, is refused before it is sent and blocks every open Preview. So is a
+// write from the client's own goroutine, such as a BulkWriter created with a
+// background context (mark background work with sendproof.Detached).
 package firestorebench
 
 import (

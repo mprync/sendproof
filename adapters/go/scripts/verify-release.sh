@@ -91,8 +91,8 @@ consume() {
     resolved="$("$golang" list -m -f '{{.Path}} {{.Version}}' all | grep "^$base" || true)"
     echo "$resolved" | sed 's/^/  /'
     count="$(echo "$resolved" | grep -c " $version\$" || true)"
-    if [[ "$count" != "8" ]]; then
-      echo "expected the eight released modules at $version, resolved $count" >&2
+    if [[ "$count" != "12" ]]; then
+      echo "expected the twelve released modules at $version, resolved $count" >&2
       exit 1
     fi
     "$golang" run .

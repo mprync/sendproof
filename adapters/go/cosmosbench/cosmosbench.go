@@ -25,8 +25,9 @@
 // Only clients built with the policy are covered, and only calls made with the
 // request's context: pass r.Context() (or a context derived from it) to every
 // call. A client built without the policy, a second client for the same account and
-// a call made with context.Background() are not guarded; the last one fails every
-// open Preview with 500 (see sendproof.ReportWrite and sendproof.Detached).
+// a call made with context.Background() are not guarded; the last one, while a Preview
+// is open, is refused before it is sent and blocks every open Preview, like a
+// client's own background goroutine (mark background work with sendproof.Detached).
 //
 // The policy is public azcore API, so it does not depend on azcosmos internals.
 package cosmosbench
