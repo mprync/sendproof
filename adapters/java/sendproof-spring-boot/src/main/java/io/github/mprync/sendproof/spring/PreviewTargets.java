@@ -28,15 +28,18 @@ import org.springframework.web.util.UrlPathHelper;
  */
 final class PreviewTargets {
     private final ObjectProvider<HandlerMapping> mappings;
+    private final UnguardedClients unguarded;
 
-    PreviewTargets(ObjectProvider<HandlerMapping> mappings) {
+    PreviewTargets(ObjectProvider<HandlerMapping> mappings, UnguardedClients unguarded) {
         this.mappings = mappings;
+        this.unguarded = unguarded;
     }
 
     /**
      * Returns {@code 0} when the request maps to a marked controller method, otherwise the status to refuse it with:
-     * 404 when nothing (or a non-controller handler) matches, 409 for an unmarked operation, or the mapping's own status
-     * (405 method not allowed, 415, 406, 400) when the match fails.
+     * 404 when nothing (or a non-controller handler) matches, 409 for an unmarked operation, or for any operation while the
+     * application has a client bean Sendproof can't guard ({@link UnguardedClients}), or the mapping's own status (405
+     * method not allowed, 415, 406, 400) when the match fails.
      */
     int check(HttpServletRequest request) {
         var isolated = new PrivateAttributes(request);
@@ -51,7 +54,7 @@ final class PreviewTargets {
                 if (!(chain.getHandler() instanceof HandlerMethod method)) {
                     return 404;
                 }
-                return PreviewEligibility.isMarked(method) ? 0 : 409;
+                return PreviewEligibility.isMarked(method) && (unguarded == null || unguarded.block() == null) ? 0 : 409;
             }
         }
         return 404;

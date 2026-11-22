@@ -19,6 +19,7 @@ dependencies {
     api(project(":sendproof-dynamodb"))
     api(project(":sendproof-cassandra"))
     api(project(":sendproof-elasticsearch"))
+    api(project(":sendproof-firestore"))
     api("org.springframework.boot:spring-boot-autoconfigure")
     api("org.springframework:spring-webmvc")
 
@@ -32,6 +33,7 @@ dependencies {
     compileOnly(rootProject.libs.cassandra.driver)
     compileOnly(rootProject.libs.elasticsearch.java)
     compileOnly(rootProject.libs.opensearch.java)
+    compileOnly(rootProject.libs.google.firestore)
     compileOnly(rootProject.libs.springdoc.webmvc.api)
 
     testImplementation("org.springframework.boot:spring-boot-starter-web")
@@ -39,5 +41,11 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-data-mongodb")
     testImplementation("org.springframework.boot:spring-boot-starter-data-redis")
     testImplementation(rootProject.libs.springdoc.webmvc.api)
+    // Batch-two client beans: the Elasticsearch RestClient Spring Boot builds, Firestore and Cosmos DB clients.
+    testImplementation(rootProject.libs.elasticsearch.java)
+    testImplementation("org.elasticsearch.client:elasticsearch-rest-client:${rootProject.libs.versions.elasticsearchJava.get()}")
+    testImplementation(rootProject.libs.google.firestore)
+    testImplementation(rootProject.libs.azure.cosmos)
+    testImplementation(project(":sendproof-cosmosdb"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

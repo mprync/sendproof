@@ -83,9 +83,16 @@ public class SendproofAutoConfiguration {
         return new PreviewProviders(providers);
     }
 
+    /** Client beans of a registered store Sendproof can't guard; while any exists, every Preview is refused. */
     @Bean
-    PreviewOperations sendproofPreviewOperations(ObjectProvider<RequestMappingHandlerMapping> mappings) {
-        return new PreviewOperations(mappings);
+    UnguardedClients sendproofUnguardedClients(org.springframework.beans.factory.ListableBeanFactory beans,
+                                               ObjectProvider<SendproofStores> stores, Environment environment) {
+        return new UnguardedClients(beans, stores, environment);
+    }
+
+    @Bean
+    PreviewOperations sendproofPreviewOperations(ObjectProvider<RequestMappingHandlerMapping> mappings, UnguardedClients unguarded) {
+        return new PreviewOperations(mappings, unguarded);
     }
 
     @Bean
@@ -96,7 +103,8 @@ public class SendproofAutoConfiguration {
 
     @Bean
     FilterRegistrationBean<SendproofFilter> sendproofFilter(SendproofSettings settings, Environment environment,
-                                                            ObjectProvider<HandlerMapping> handlerMappings) {
+                                                            ObjectProvider<HandlerMapping> handlerMappings,
+                                                            UnguardedClients unguarded) {
         // The preview must be rewritten before Spring Security sees it; otherwise the security rules would be matched
         // against /sendproof/_preview/... instead of the real operation's path.
         int securityOrder = environment.getProperty("spring.security.filter.order", Integer.class,
@@ -106,7 +114,7 @@ public class SendproofAutoConfiguration {
                     + ") must be lower than spring.security.filter.order (" + securityOrder
                     + ") so previews are authorized as the real operation.");
         }
-        var registration = new FilterRegistrationBean<>(new SendproofFilter(new PreviewTargets(handlerMappings)));
+        var registration = new FilterRegistrationBean<>(new SendproofFilter(new PreviewTargets(handlerMappings, unguarded)));
         registration.setName("sendproofFilter");
         registration.addUrlPatterns("/*");
         // Before Spring Security (-100) so the rewritten request is authenticated and authorized as the real one.
@@ -203,6 +211,27 @@ public class SendproofAutoConfiguration {
         @Bean
         static SearchStoreHook sendproofSearchStoreHook(Environment environment) {
             return new SearchStoreHook(environment);
+        }
+    }
+
+    /** Hooks the low-level Elasticsearch {@code RestClient} Spring Boot builds, which is a bean an application can inject. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = {"org.springframework.boot.autoconfigure.elasticsearch.RestClientBuilderCustomizer",
+            "org.elasticsearch.client.RestClientBuilder", "co.elastic.clients.transport.ElasticsearchTransport"})
+    static class ElasticsearchRestClientHookConfiguration {
+        @Bean
+        ElasticsearchRestClientHook sendproofElasticsearchRestClientHook(SendproofStores stores, Environment environment) {
+            return new ElasticsearchRestClientHook(stores, environment);
+        }
+    }
+
+    /** Hooks every Firestore bean. Static: post-processors are created before the beans they wrap. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "com.google.cloud.firestore.Firestore")
+    static class FirestoreHookConfiguration {
+        @Bean
+        static FirestoreStoreHook sendproofFirestoreStoreHook(Environment environment) {
+            return new FirestoreStoreHook(environment);
         }
     }
 

@@ -48,7 +48,9 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @SpringBootTest(classes = SpringDataStoresTest.App.class, properties = {"sendproof.enabled=true",
         "sendproof.environment=Development", "sendproof.trace.retention=5s", "sendproof.stores.mongodb.name=catalog",
-        "sendproof.stores.redis.name=cache", "spring.autoconfigure.exclude="})
+        "sendproof.stores.redis.name=cache", "spring.autoconfigure.exclude="
+        + "org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration,"
+        + "org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchClientAutoConfiguration"})
 @AutoConfigureMockMvc
 class SpringDataStoresTest {
     private static final ObjectMapper JSON = new ObjectMapper();
