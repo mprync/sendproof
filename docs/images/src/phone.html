@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sendproof: phone</title>
+<link rel="stylesheet" href="frame.css">
+<style>
+  #canvas { width: 1180px; padding: 48px 0 56px; display: flex; justify-content: center; align-items: flex-start; gap: 72px; }
+  .phone { position: relative; }
+  .phone .status { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--window); }
+  .phone .status .icons { display: flex; gap: 5px; align-items: center; }
+  .phone .status .icons i { display: block; width: 16px; height: 9px; border-radius: 2px; border: 1.5px solid currentColor; opacity: 0.85; }
+  .phone .status .icons b { display: block; width: 3px; height: 9px; background: currentColor; border-radius: 1px; opacity: 0.85; }
+  .phone:nth-child(2) { margin-top: 36px; }
+</style>
+<script src="../../../artifacts/readme/raw/manifest.js"></script>
+<script src="frame.js"></script>
+</head>
+<body>
+<div id="canvas">
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons"><b></b><i></i></span></div>
+      <!-- The order Preview on a phone: the Database tab. -->
+      <div class="crop" data-raw="phone" data-region="full" data-width="360" data-height="720"><img alt=""></div>
+    </div>
+  </div>
+  <div class="phone">
+    <div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons"><b></b><i></i></span></div>
+      <!-- The same Preview in Arabic, right to left. -->
+      <div class="crop" data-raw="phone-rtl" data-region="full" data-width="360" data-height="720"><img alt=""></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

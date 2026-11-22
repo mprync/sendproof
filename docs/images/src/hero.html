@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sendproof: hero</title>
+<link rel="stylesheet" href="frame.css">
+<style>
+  #canvas { width: 1360px; padding: 46px 0 64px 40px; }
+  .main { position: relative; }
+  .mongo { right: 36px; bottom: 40px; }
+</style>
+<script src="../../../artifacts/readme/raw/manifest.js"></script>
+<script src="frame.js"></script>
+</head>
+<body>
+<div id="canvas">
+  <div class="window main" style="width: 1150px">
+    <div class="bar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span><b>localhost:5189</b>/sendproof</span></div>
+      <div class="tail"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+    </div>
+    <!-- Place order, Preview, Database tab: the request and the changes grouped by store. -->
+    <div class="crop" data-raw="order-database" data-region="work" data-width="1150"><img alt=""></div>
+  </div>
+
+  <div class="panel mongo">
+    <!-- The Database tab of the same Preview, scrolled to its MongoDB document diff. -->
+    <div class="crop" data-raw="order-documents" data-region="body" data-width="520" data-height="420"><img alt=""></div>
+  </div>
+</div>
+</body>
+</html>

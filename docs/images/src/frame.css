@@ -1,0 +1,86 @@
+/* Shared product-shot frame for the README images. Rendered by `node tools/shoot-readme.mjs compose`
+   at 2x from the real captures in artifacts/readme/raw (made by `node tools/shoot-readme.mjs raw`). */
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+
+:root {
+  --accent: oklch(0.50 0.19 268);
+  --glow-a: oklch(0.62 0.19 268 / 0.30);
+  --glow-b: oklch(0.70 0.15 300 / 0.22);
+  --glow-c: oklch(0.78 0.12 200 / 0.20);
+  --canvas: oklch(0.975 0.008 268);
+  --grid: oklch(0.55 0.05 268 / 0.10);
+  --window: oklch(1 0 0);
+  --bar: oklch(0.965 0.004 268);
+  --bar-line: oklch(0.90 0.006 268);
+  --pill: oklch(1 0 0);
+  --pill-text: oklch(0.45 0.012 268);
+  --pill-line: oklch(0.90 0.006 268);
+  --edge: oklch(0.22 0.02 268 / 0.10);
+  --shadow: 0 2px 4px oklch(0.25 0.05 268 / 0.06), 0 24px 48px -12px oklch(0.30 0.10 268 / 0.22), 0 60px 120px -30px oklch(0.35 0.14 268 / 0.30);
+  --text: oklch(0.22 0.012 268);
+  --muted: oklch(0.48 0.012 268);
+  --chip: oklch(1 0 0 / 0.85);
+  color-scheme: light;
+}
+:root.dark {
+  --glow-a: oklch(0.55 0.20 268 / 0.45);
+  --glow-b: oklch(0.55 0.20 300 / 0.30);
+  --glow-c: oklch(0.60 0.14 200 / 0.22);
+  --canvas: oklch(0.155 0.012 268);
+  --grid: oklch(0.80 0.05 268 / 0.07);
+  --window: oklch(0.175 0.006 268);
+  --bar: oklch(0.215 0.008 268);
+  --bar-line: oklch(0.29 0.01 268);
+  --pill: oklch(0.175 0.006 268);
+  --pill-text: oklch(0.72 0.01 268);
+  --pill-line: oklch(0.30 0.01 268);
+  --edge: oklch(1 0 0 / 0.10);
+  --shadow: 0 2px 4px oklch(0 0 0 / 0.3), 0 24px 48px -12px oklch(0 0 0 / 0.55), 0 60px 140px -20px oklch(0.45 0.20 268 / 0.40);
+  --text: oklch(0.95 0.004 268);
+  --muted: oklch(0.72 0.01 268);
+  --chip: oklch(0.22 0.01 268 / 0.85);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; margin: 0; }
+html, body { background: transparent; }
+body { font-family: "Geist", ui-sans-serif, system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+
+#canvas { position: relative; overflow: hidden; background: var(--canvas); isolation: isolate; }
+/* Soft accent glows and a fading grid, behind everything. */
+#canvas::before { content: ""; position: absolute; inset: -20%; z-index: -2;
+  background:
+    radial-gradient(40% 45% at 22% 18%, var(--glow-a), transparent 70%),
+    radial-gradient(38% 40% at 85% 30%, var(--glow-b), transparent 70%),
+    radial-gradient(45% 45% at 60% 95%, var(--glow-c), transparent 70%); filter: blur(10px); }
+#canvas::after { content: ""; position: absolute; inset: 0; z-index: -1;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 32px 32px; background-position: -1px -1px;
+  mask-image: radial-gradient(75% 70% at 50% 45%, #000 30%, transparent 100%); }
+
+.window { position: absolute; border-radius: 14px; background: var(--window); box-shadow: var(--shadow), 0 0 0 1px var(--edge); overflow: hidden; }
+.window .bar { height: 40px; display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; padding: 0 14px; background: var(--bar); border-bottom: 1px solid var(--bar-line); }
+.window .dots { display: flex; gap: 8px; }
+.window .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px oklch(0 0 0 / 0.18); }
+.window .dots i:nth-child(2) { background: #febc2e; }
+.window .dots i:nth-child(3) { background: #28c840; }
+.window .url { justify-self: center; display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 14px; min-width: 300px; justify-content: center;
+  border-radius: 8px; background: var(--pill); border: 1px solid var(--pill-line); color: var(--pill-text); font-size: 13px; letter-spacing: 0.01em; }
+.window .url svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.75; }
+.window .url b { color: var(--text); font-weight: 500; }
+.window .bar .tail { justify-self: end; display: flex; gap: 10px; color: var(--pill-text); opacity: 0.6; }
+.window .bar .tail svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* A crop of a raw capture: --x, --y, --w, --h in capture CSS pixels, --s the scale. The raw
+   captures are 2x PNGs of a --vw CSS-pixel-wide viewport. */
+.crop { position: relative; overflow: hidden; width: calc(var(--w) * var(--s) * 1px); height: calc(var(--h) * var(--s) * 1px); }
+.crop img { position: absolute; left: calc(var(--x) * var(--s) * -1px); top: calc(var(--y) * var(--s) * -1px); width: calc(var(--vw) * var(--s) * 1px); max-width: none; }
+
+.panel { position: absolute; border-radius: 14px; background: var(--window); overflow: hidden; box-shadow: var(--shadow), 0 0 0 1px var(--edge); }
+.label { position: absolute; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  background: var(--chip); color: var(--text); box-shadow: 0 0 0 1px var(--edge), 0 8px 24px -8px oklch(0.3 0.1 268 / 0.25); backdrop-filter: blur(8px); white-space: nowrap; }
+.label .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px oklch(0.50 0.19 268 / 0.18); }
+
+.phone { position: absolute; border-radius: 44px; padding: 10px; background: oklch(0.16 0.01 268); box-shadow: var(--shadow), 0 0 0 1px var(--edge), inset 0 0 0 1.5px oklch(0.35 0.01 268); }
+.phone .screen { border-radius: 34px; overflow: hidden; position: relative; background: var(--window); }
+.phone .notch { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 96px; height: 26px; border-radius: 13px; background: #000; z-index: 2; }
