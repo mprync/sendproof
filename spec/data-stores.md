@@ -154,6 +154,8 @@ While any Preview is open, a write to a guarded store that carries no request is
 
 A write that carries the context of a Preview that has **ended** (a thread or task the handler started, still running after the response) is refused before it is sent, for as long as the process runs: a Preview's context stays marked as a Preview after it ends. A handler-started thread that dropped its context and writes after the Preview ended can't be told apart from background work; bindings document this limit.
 
+In runtimes where a new thread inherits context from the thread that started it (Ruby fiber storage, Java `InheritableThreadLocal`), a thread-pool worker that happens to start during a Preview would inherit it and have every later write refused, including unrelated work. Bindings clear the inherited Preview context at the start of each task in the pool libraries they can hook (concurrent-ruby and the Rails executor, Java `ExecutorService` wrappers, Spring's task executors), so the mark follows the task, not the pool thread; a task posted to such a pool during a Preview then counts as unattributed. Pools they can't hook are listed in the binding's docs, with the advice to start them at boot or run their tasks `detached`.
+
 Clients that queue writes and send them later with automatic retries (Firestore `BulkWriter`, Elasticsearch bulk helpers and bulk indexers) are refused when the write is queued, on the caller's thread, not when the batch is sent: a refusal at send time is retried until the caller's flush or close hangs.
 
 ### Mixed SQL and guarded stores
