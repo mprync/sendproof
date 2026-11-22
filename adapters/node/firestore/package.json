@@ -1,0 +1,16 @@
+{
+  "name": "@sendproof/firestore",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof write guard for Google Cloud Firestore: @google-cloud/firestore 7",
+  "license": "MIT",
+  "keywords": ["firestore", "google-cloud", "sendproof"],
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@sendproof/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "@google-cloud/firestore": "^7.0.0" },
+  "devDependencies": { "@google-cloud/firestore": "^7.11.6" }
+}

@@ -28,7 +28,13 @@ export const services = {
   mongodb: process.env.BENCH_MONGODB_SERVER_URL ?? 'mongodb://127.0.0.1:57017/?directConnection=true',
   redis: process.env.BENCH_REDIS_SERVER_URL ?? 'redis://:bench_redis_local@127.0.0.1:56379',
   dynamodb: process.env.BENCH_DYNAMODB_SERVER_URL ?? 'http://127.0.0.1:58000',
+  // Batch two: the heavy-stores profile. Cassandra is `host:port`, like the runner's BENCH_CASSANDRA_SERVER.
+  cassandra: 'tcp://' + (process.env.BENCH_CASSANDRA_SERVER ?? '127.0.0.1:59042'),
+  opensearch: process.env.BENCH_OPENSEARCH_SERVER_URL ?? 'http://127.0.0.1:59200',
 };
+
+/** The Cassandra contact point (`host:port`) and the keyspace-less address the driver wants. */
+export const cassandraContactPoint = services.cassandra.replace(/^tcp:\/\//, '');
 
 /**
  * Whether a TCP service accepts a connection, is sent `request` (when given), and answers with
@@ -71,6 +77,9 @@ const probes: Record<keyof typeof services, () => Promise<boolean>> = {
   redis: () => reachable(services.redis, 'PING\r\n', reply => reply[0] === 0x2b || reply[0] === 0x2d),
   mongodb: () => reachable(services.mongodb, mongoHello(), reply => reply.length >= 16 && reply.readInt32LE(12) === 2013),
   dynamodb: () => reachable(services.dynamodb, 'GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n', reply => reply.subarray(0, 5).toString() === 'HTTP/'),
+  // A native-protocol v4 OPTIONS frame; Cassandra answers with a v4 response frame (0x84), opcode SUPPORTED (0x06).
+  cassandra: () => reachable(services.cassandra, '\x04\x00\x00\x00\x05\x00\x00\x00\x00', reply => reply.length >= 9 && reply[0] === 0x84 && reply[4] === 0x06),
+  opensearch: () => reachable(services.opensearch, 'GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n', reply => reply.subarray(0, 5).toString() === 'HTTP/'),
 };
 
 /** The `skip` option for tests that need a compose service. */

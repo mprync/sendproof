@@ -1,0 +1,20 @@
+{
+  "name": "@sendproof/elasticsearch",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof write guard for Elasticsearch 8 and OpenSearch 2 clients",
+  "license": "MIT",
+  "keywords": ["elasticsearch", "opensearch", "sendproof"],
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@sendproof/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "@elastic/elasticsearch": "^8.0.0", "@opensearch-project/opensearch": "^2.0.0" },
+  "peerDependenciesMeta": {
+    "@elastic/elasticsearch": { "optional": true },
+    "@opensearch-project/opensearch": { "optional": true }
+  },
+  "devDependencies": { "@elastic/elasticsearch": "^8.19.0", "@opensearch-project/opensearch": "^2.13.0" }
+}

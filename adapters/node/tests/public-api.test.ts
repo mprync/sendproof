@@ -1,9 +1,18 @@
 import { expectTypeOf } from 'expect-type';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { Client as ElasticClient } from '@elastic/elasticsearch';
+import { CosmosClient } from '@azure/cosmos';
+import firestoreSdk from '@google-cloud/firestore';
+import { Client as CassandraClient } from 'cassandra-driver';
+import { Client as OpenSearchClient } from '@opensearch-project/opensearch';
 import { Redis } from 'ioredis';
 import { MongoClient } from 'mongodb';
 import type { DataStore } from '@sendproof/core';
+import { cassandraStore } from '@sendproof/cassandra';
+import { cosmosStore } from '@sendproof/cosmosdb';
 import { dynamoStore } from '@sendproof/dynamodb';
+import { elasticsearchStore, opensearchStore } from '@sendproof/elasticsearch';
+import { firestoreStore } from '@sendproof/firestore';
 import { mongoStore } from '@sendproof/mongodb';
 import { redisStore } from '@sendproof/redis';
 import express from 'express';
@@ -84,13 +93,27 @@ expectTypeOf(SendproofPreview('POST', '/items')).toEqualTypeOf<MethodDecorator>(
 
 // Data stores: one registration per store, and preview:false marks in every framework.
 
+const { Firestore } = firestoreSdk;
+type Firestore = InstanceType<typeof Firestore>;
+
 const catalog = mongoStore(new MongoClient('mongodb://localhost/catalog'), { name: 'catalog' });
 expectTypeOf(catalog.client).toEqualTypeOf<MongoClient>();
 const cache = redisStore(new Redis({ lazyConnect: true }), { name: 'cache', treatAsRead: ['MYMODULE.GET'] });
 expectTypeOf(cache.client).toEqualTypeOf<Redis>();
 const orders = dynamoStore(new DynamoDBClient({}));
 expectTypeOf(orders).toMatchTypeOf<DataStore>();
-const withStores = expressBench({ previewProvider: sqlite, dataStores: [catalog, cache, orders] });
+const tickets = cassandraStore(new CassandraClient({ contactPoints: ['localhost'], localDataCenter: 'datacenter1' }), { name: 'tickets', treatAsRead: ['SELECT'] });
+expectTypeOf(tickets.client).toEqualTypeOf<CassandraClient>();
+const articles = opensearchStore(new OpenSearchClient({ node: 'http://localhost:9200' }), { name: 'search' });
+expectTypeOf(articles.client).toEqualTypeOf<OpenSearchClient>();
+expectTypeOf(articles.system).toEqualTypeOf<'opensearch'>();
+const logs = elasticsearchStore(new ElasticClient({ node: 'http://localhost:9200' }));
+expectTypeOf(logs.system).toEqualTypeOf<'elasticsearch'>();
+const shop = cosmosStore(new CosmosClient({ endpoint: 'https://localhost:8081', key: 'k' }), { name: 'orders' });
+expectTypeOf(shop.client).toEqualTypeOf<CosmosClient>();
+const documents = firestoreStore(new Firestore({ projectId: 'p' }), { name: 'orders' });
+expectTypeOf(documents.client).toEqualTypeOf<Firestore>();
+const withStores = expressBench({ previewProvider: sqlite, dataStores: [catalog, cache, orders, tickets, articles, logs, shop, documents] });
 withStores.unavailable('DELETE', '/sessions/{id}', { reason: 'Clears the Redis session', stores: ['redis'] }, (_request, response) => { response.end(); });
 // @ts-expect-error The preview:false mark takes its options before the handlers.
 withStores.unavailable('DELETE', '/sessions/{id}', (_request: Request, response: express.Response) => { response.end(); });

@@ -1,0 +1,16 @@
+{
+  "name": "@sendproof/cosmosdb",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof write guard for Azure Cosmos DB for NoSQL: @azure/cosmos 4",
+  "license": "MIT",
+  "keywords": ["cosmosdb", "azure", "sendproof"],
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@sendproof/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "@azure/cosmos": "~4.10.2" },
+  "devDependencies": { "@azure/cosmos": "4.10.2" }
+}

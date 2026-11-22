@@ -39,6 +39,18 @@
     },
     {
       "path": "./mongodb"
+    },
+    {
+      "path": "./cassandra"
+    },
+    {
+      "path": "./elasticsearch"
+    },
+    {
+      "path": "./cosmosdb"
+    },
+    {
+      "path": "./firestore"
     }
   ]
 }

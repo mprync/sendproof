@@ -1,0 +1,16 @@
+{
+  "name": "@sendproof/cassandra",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof write guard for Apache Cassandra and ScyllaDB: cassandra-driver 4",
+  "license": "MIT",
+  "keywords": ["cassandra", "scylladb", "cql", "sendproof"],
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" },
+  "engines": { "node": ">=22.14" },
+  "dependencies": { "@sendproof/core": "0.1.0-alpha.1" },
+  "peerDependencies": { "cassandra-driver": "^4.0.0" },
+  "devDependencies": { "cassandra-driver": "^4.8.0" }
+}

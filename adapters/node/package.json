@@ -18,7 +18,11 @@
     "prisma",
     "mongodb",
     "redis",
-    "dynamodb"
+    "dynamodb",
+    "cassandra",
+    "elasticsearch",
+    "cosmosdb",
+    "firestore"
   ],
   "devDependencies": {
     "@electric-sql/pglite": "0.4.3",
