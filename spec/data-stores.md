@@ -266,9 +266,11 @@ A field whose name is secret is `"[REDACTED]"` in `key`, `before` and `after`, *
 
 ### Starting the transaction
 
-At startup or first use, the binding sends `hello` and reads the topology. A response with `setName` (replica set) or `msg: "isdbgrid"` (mongos) and a non-null `logicalSessionTimeoutMinutes` supports transactions: MongoDB runs in `preview` mode. A standalone server, or any reply the binding doesn't recognise, runs in `guard` mode with the reason "Preview unavailable: this MongoDB server doesn't support transactions".
+At startup or first use, the binding sends `hello` and reads the topology. A response with `setName` (replica set) or `msg: "isdbgrid"` (mongos) and a non-null `logicalSessionTimeoutMinutes` supports transactions: MongoDB runs in `preview` mode. A standalone server, or any reply the binding doesn't recognise, runs in `guard` mode with the reason "Preview unavailable: this MongoDB server doesn't support transactions". When the `hello` can't be sent or answered at all, the binding also runs in `guard` mode, with the reason "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode", and detects again later.
 
 For each Preview the provider starts one client session and one transaction with read concern `snapshot` and write concern `majority`, records the transaction's start `operationTime`, and makes that session ambient for the request (see the per-language mechanism in the plan). Every command the handler sends through a hooked client carries the session's `lsid`, `txnNumber` and `autocommit: false`. After the handler, it captures changes, sends `abortTransaction` and ends the session.
+
+Drivers ignore errors from `abortTransaction` by design, so the binding checks the server's own answer: the abort counts only when the server acknowledged it or answered that the transaction no longer exists. Otherwise, if any command was sent on the Preview session, the Preview answers 500 at once and the binding ends the session with `killSessions` in the background, retrying with backoff for about 10 s, then logs a warning with the session id. This releases the transaction's locks promptly instead of at the server's transaction lifetime limit. The session id is never reused meanwhile.
 
 ### Commands that escape the session
 
