@@ -45,6 +45,30 @@ internal readonly record struct DbCall(SendproofPreview? Recorder, DbEntry? Entr
     }
 }
 
+/// <summary>The shared check of the Elasticsearch and OpenSearch hooks: one request, by method and path.</summary>
+internal static class SearchCall
+{
+    /// <summary>
+    /// Checks a request before it is sent and prepares its <c>Db</c> entry (target index, and the body with every value
+    /// replaced by <c>"?"</c>). <paramref name="body"/> is read only when the endpoint needs it or the request is logged. A
+    /// <c>GET /</c> or <c>HEAD /</c> (the client's product check) is allowed and not logged.
+    /// </summary>
+    internal static DbCall Begin(CaptureContext capture, string system, string method, string path, Func<string?> body, IReadOnlySet<string>? treatAsRead)
+    {
+        var classification = ElasticsearchClassifier.Classify(method, path, body, treatAsRead);
+        if (classification.Kind == CommandKind.Read && ElasticsearchClassifier.Segments(path).Length == 0)
+        {
+            classification = classification with { Kind = CommandKind.Session };
+        }
+
+        return DbCall.Begin(capture, system, classification, () => new DbEntry(system, classification.Operation)
+        {
+            Target = ElasticsearchClassifier.Target(path),
+            Statement = ElasticsearchClassifier.Statement(body())
+        });
+    }
+}
+
 /// <summary>
 /// Registration helpers for store hooks that decorate a client registered in the container. A guard that a later
 /// registration can silently replace would let writes through, so each helper also adds a startup check that refuses to

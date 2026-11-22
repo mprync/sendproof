@@ -87,7 +87,14 @@ internal static class ElasticsearchClassifier
     /// Classifies a request. <paramref name="body"/> is the request body as text, read only for the SQL endpoints. A
     /// <c>session</c> endpoint (point-in-time, scroll, async-search and SQL-cursor handles) is allowed and never logged.
     /// </summary>
-    internal static Classification Classify(string method, string path, string? body, IReadOnlySet<string>? treatAsRead = null)
+    internal static Classification Classify(string method, string path, string? body, IReadOnlySet<string>? treatAsRead = null) =>
+        Classify(method, path, () => body, treatAsRead);
+
+    /// <summary>
+    /// Classifies a request, reading the body (through <paramref name="body"/>) only when the endpoint is an SQL one, so a
+    /// hook never buffers a large bulk body just to classify it.
+    /// </summary>
+    internal static Classification Classify(string method, string path, Func<string?> body, IReadOnlySet<string>? treatAsRead = null)
     {
         var verb = method.ToUpperInvariant();
         var segments = Segments(path);
@@ -100,7 +107,7 @@ internal static class ElasticsearchClassifier
 
             var kind = entry.Kind switch
             {
-                "sql" => SqlReads(body) ? CommandKind.Read : CommandKind.Write,
+                "sql" => SqlReads(body()) ? CommandKind.Read : CommandKind.Write,
                 "read" => CommandKind.Read,
                 "session" => CommandKind.Session,
                 _ => treatAsRead?.Contains(entry.Name) == true ? CommandKind.Read : CommandKind.Write

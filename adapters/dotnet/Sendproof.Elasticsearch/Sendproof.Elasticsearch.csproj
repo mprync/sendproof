@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Title>Sendproof for Elasticsearch</Title>
+    <PackageTags>openapi;aspnetcore;api-testing;elasticsearch</PackageTags>
+    <PackageIcon>package-icon.png</PackageIcon>
+    <Description>A Preview write guard for Elastic.Clients.Elasticsearch in Sendproof: reads run, the first write blocks the Preview before it is sent.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../../docs/package-icon.png" Pack="true" PackagePath="/" />
+    <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.19.27" />
+    <ProjectReference Include="../Sendproof.AspNetCore/Sendproof.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sendproof.DataStores.Tests" />
+  </ItemGroup>
+</Project>

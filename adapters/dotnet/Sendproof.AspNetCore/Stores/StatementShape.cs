@@ -177,6 +177,12 @@ internal readonly record struct StatementShape(string First, string Second, bool
         return output.ToString();
     }
 
+    /// <summary>
+    /// Replaces every value in JSON text (a search body, a protobuf message rendered as JSON) with <c>"?"</c>, keeping field
+    /// names and structure; one line per NDJSON line. Text that is not JSON becomes a bare <c>"?"</c>.
+    /// </summary>
+    internal static string? RedactJson(string? json) => ElasticsearchClassifier.Statement(json);
+
     private static bool IsWordPart(char character) => char.IsAsciiLetterOrDigit(character) || character is '_' or '.' or '"';
 
     // A UUID, a hexadecimal blob or a number, at a word boundary; a leading minus belongs to the number.

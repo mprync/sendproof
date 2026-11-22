@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Title>Sendproof for Google Cloud Firestore</Title>
+    <PackageTags>openapi;aspnetcore;api-testing;firestore;google-cloud</PackageTags>
+    <PackageIcon>package-icon.png</PackageIcon>
+    <Description>A Preview write guard for Google.Cloud.Firestore in Sendproof: reads run, the first write blocks the Preview before it is sent.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../../docs/package-icon.png" Pack="true" PackagePath="/" />
+    <PackageReference Include="Google.Cloud.Firestore" Version="4.7.0" />
+    <ProjectReference Include="../Sendproof.AspNetCore/Sendproof.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sendproof.DataStores.Tests" />
+  </ItemGroup>
+</Project>
