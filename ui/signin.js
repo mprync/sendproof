@@ -119,7 +119,7 @@ export async function showSignIn(root, capabilities, onSignedIn, onCancel) {
 
   root.innerHTML = `<div class="sign-page">
     <header class="bar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">${icon('bench')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">${icon('mark')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
       <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="desktop-only" lang="en">${esc(api)}</span>
       <span class="spacer"></span>
       ${capabilities.environment ? `<span class="pill pill-ok desktop-only"><span class="dot" aria-hidden="true"></span>${esc(capabilities.environment)}${database ? ` · <span class="ltr">${esc(database)}</span>` : ''}</span>` : ''}

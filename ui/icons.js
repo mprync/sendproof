@@ -19,7 +19,8 @@
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
     moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-    bench: '<path d="M4 9h16"/><path d="M6 9V5h12v4"/><path d="M7 9v10M17 9v10"/>',
+    // The Sendproof mark (docs/images/logo): a faint preview dart behind the solid send dart.
+    mark: '<g fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M1.5 5 7.57 8.15 9.11 12 7.57 15.85 1.5 19 4.3 12z" style="opacity:var(--mark-ghost,.4)"/><path d="M9 5 22.5 12 9 19 11.8 12z"/></g>',
     shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
     undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',

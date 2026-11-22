@@ -38,7 +38,7 @@ function topbar(cap, info) {
   const toolButton = (id, glyph, label) => `<button type="button" class="btn btn-ghost btn-icon btn-sm desktop-only" id="${id}-btn" data-action="${id}" aria-label="${esc(label)}" title="${esc(titled(label, id))}" ${shortcutAttrs(id)}>${icon(glyph, true)}</button>`;
   return `<header class="topbar">
     <button type="button" class="btn btn-ghost btn-icon mobile-only" data-action="navigation" aria-label="${esc(t('shell.openOperations'))}" aria-controls="operations" aria-expanded="false">${icon('menu')}</button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true">${icon('bench')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">${icon('mark')}</span><span class="desktop-only">${esc(t('app.name'))}</span></div>
     <span class="crumb-sep desktop-only" aria-hidden="true">/</span>
     <span class="api-switch"><span class="name" lang="en" dir="auto">${esc(cap.apiName || info.title || 'API')}</span>${version}</span>
     ${cap.environment || database ? envChip(cap, database) : ''}

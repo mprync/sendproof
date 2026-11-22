@@ -74,7 +74,7 @@ const TEXT_PAIRS = [
   ['--text', ['--code-bg', '--accent-soft', '--info-soft', '--warn-soft']], ['--text-2', ['--code-bg', '--info-soft', '--warn-soft']],
   ...['path', 'query', 'header', 'cookie'].map(where => [`--in-${where}`, [`--in-${where}-bg`]]),
 ];
-const MARK_PAIRS = [['--accent', ['--raised', '--accent-soft']], ['--text-3', ['--raised', '--sunken']], ['--ok', ['--raised', '--panel']], ['--warn', ['--raised', '--warn-soft']], ['--danger-line', ['--raised']]];
+const MARK_PAIRS = [['--accent', ['--raised', '--accent-soft']], ['--text-3', ['--raised', '--sunken']], ['--ok', ['--raised', '--panel']], ['--warn', ['--raised', '--warn-soft']], ['--danger-line', ['--raised']], ['--mark', ['--panel', '--bg']]];
 
 for (const theme of ['light', 'dark']) {
   test(`every v5 colour token meets WCAG AA in the ${theme} theme`, () => {
