@@ -282,6 +282,10 @@ Once the last MySQL-escape helpers finish:
 - PHP on SQL Server: untested, because `pdo_sqlsrv` needs Microsoft's ODBC driver, whose install asks to accept Microsoft's licence. Ask the person first.
 - One full run of every suite and the whole conformance matrix, then a demo rebuild.
 
+### Closing batch two
+
+Once every language's batch-two review signs off: add the new store packages (for example Node `@sendproof/cassandra`, `@sendproof/elasticsearch`, `@sendproof/cosmosdb`, `@sendproof/firestore`, and each language's equivalents) to the release tooling and consumer smoke tests as for batch one; update every language's rows in `docs/bindings/databases.md` and the batch-two status line above; run the full suite once with the heavy stores up.
+
 ### After batch one lands: release tooling
 
 `tools/release/*.mjs` lists packages per registry by hand and knows none of the new store packages (Node `@sendproof/redis`, `/dynamodb`, `/mongodb`; Go `redisbench`, `dynamobench`, `mongobench`; the Rust, Python, .NET, Java, Ruby and PHP store packages). Once every language is reviewed, one pass adds them to each registry script, the CI publish jobs, the consumer smoke tests and, for PHP, the split mirror repos, then runs `pack-all --verify`. The Rust review adds its three crates to `crates.mjs` already.
