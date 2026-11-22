@@ -29,4 +29,5 @@ axum = { workspace = true, optional = true }
 actix-web = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+# `net` and `io-util` run the TCP proxy a test cuts to drop the connection in the middle of a Preview.
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }

@@ -87,10 +87,15 @@ impl Access {
         }
         let Some(session) = state.session.clone() else { return Ok(None) };
         let session = session.lock_owned().await;
-        if state.data().finished {
-            // The transaction was aborted (the time limit): a command now would run outside any transaction.
-            let fault = self.scope.refuse("The Preview's MongoDB transaction has ended, so this call was refused.");
-            return Err(Error::custom(fault));
+        {
+            let mut data = state.data();
+            if data.finished {
+                // The transaction was aborted (the time limit): a command now would run outside any transaction.
+                drop(data);
+                let fault = self.scope.refuse("The Preview's MongoDB transaction has ended, so this call was refused.");
+                return Err(Error::custom(fault));
+            }
+            data.opened = true;
         }
         Ok(Some(session))
     }

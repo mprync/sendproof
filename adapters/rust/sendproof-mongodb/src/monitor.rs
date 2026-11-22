@@ -15,7 +15,10 @@
 //! The handler runs in the task that sent the command, so the request's task-local capture finds the
 //! Preview. Commands the engine sends itself run under [`INTERNAL`] and are ignored.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use mongodb::{
     bson::{Bson, Document, Timestamp},
@@ -38,6 +41,19 @@ tokio::task_local! {
     pub(crate) static INTERNAL: ();
     /// Set while the engine sends its detection `hello`, which monitoring must see.
     pub(crate) static DETECTING: ();
+    /// Set while the engine aborts a Preview transaction. The driver hides the outcome of
+    /// `abortTransaction`, so monitoring raises this flag when the server acknowledged it.
+    pub(crate) static ABORTING: Arc<AtomicBool>;
+}
+
+/// `NoSuchTransaction`: the server has no such transaction, so nothing holds its locks.
+const NO_SUCH_TRANSACTION: i32 = 251;
+
+/// Raises the abort flag when this reply shows the server ended the Preview transaction.
+fn acknowledge_abort(name: &str, code: Option<i32>) {
+    if name == "abortTransaction" && code.is_none_or(|code| code == NO_SUCH_TRANSACTION) {
+        let _ = ABORTING.try_with(|acknowledged| acknowledged.store(true, Ordering::SeqCst));
+    }
 }
 
 /// Whether the current task is running an engine-internal command.
@@ -97,12 +113,19 @@ impl Shared {
     pub(crate) fn handle(self: &Arc<Self>, event: CommandEvent) {
         match event {
             CommandEvent::Started(event) => self.started(&event.command, &event.command_name, &event.db, event.request_id),
-            CommandEvent::Succeeded(event) => self.succeeded(event.request_id, &event.reply, event.duration),
+            CommandEvent::Succeeded(event) => {
+                acknowledge_abort(&event.command_name, None);
+                self.succeeded(event.request_id, &event.reply, event.duration);
+            }
             CommandEvent::Failed(event) => {
                 let (code, name) = match &*event.failure.kind {
                     ErrorKind::Command(error) => (error.code, error.code_name.clone()),
                     other => (0, format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("Error").to_owned()),
                 };
+                // A network error (code 0) proves nothing reached the server.
+                if code != 0 {
+                    acknowledge_abort(&event.command_name, Some(code));
+                }
                 self.failed(event.request_id, code, name, event.duration);
             }
             _ => {}

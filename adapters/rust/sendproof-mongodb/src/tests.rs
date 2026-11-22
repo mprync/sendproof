@@ -38,14 +38,14 @@ async fn options() -> Option<ClientOptions> {
 /// The engine's detection once the server has really answered it.
 ///
 /// Detection keeps only a real answer: a `hello` that fails (a slow server, or one dropping new
-/// connections while many suites share it) reads as "standalone" for now and is asked again next
-/// time. The compose server is a replica set, so a standalone answer here is that failure; asking
-/// again keeps a busy server from turning a test's Previews into guard-mode blocks.
+/// connections while many suites share it) runs Previews in guard mode for now and is asked again
+/// next time. Asking until it answers keeps a busy server from turning a test's Previews into
+/// guard-mode blocks.
 async fn detected(engine: &engine::Engine) -> engine::Detected {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let detected = engine.detect().await;
-        if detected.reason != Some(STANDALONE_REASON) {
+        if detected.reason != Some(UNREACHABLE_REASON) {
             return detected;
         }
         assert!(Instant::now() < deadline, "the compose MongoDB never answered detection");
@@ -514,6 +514,99 @@ async fn a_preview_dropped_before_it_finishes_aborts_its_transaction() {
     fixture.cleanup().await;
 }
 
+/// A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
+/// failing in the middle of a Preview.
+struct Proxy {
+    address: std::net::SocketAddr,
+    down: Arc<std::sync::atomic::AtomicBool>,
+    links: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+}
+
+impl Proxy {
+    async fn start() -> Self {
+        let options = options().await.unwrap();
+        let upstream = match &options.hosts[0] {
+            mongodb::options::ServerAddress::Tcp { host, port } => format!("{host}:{}", port.unwrap_or(27017)),
+            other => panic!("the proxy needs a TCP server address, not {other:?}"),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy = Proxy { address: listener.local_addr().unwrap(), down: Arc::default(), links: Arc::default() };
+        let (down, links) = (proxy.down.clone(), proxy.links.clone());
+        tokio::spawn(async move {
+            while let Ok((mut client, _)) = listener.accept().await {
+                if down.load(std::sync::atomic::Ordering::SeqCst) {
+                    continue; // Dropping the socket closes it.
+                }
+                let upstream = upstream.clone();
+                links.lock().unwrap().push(tokio::spawn(async move {
+                    if let Ok(mut server) = tokio::net::TcpStream::connect(upstream).await {
+                        let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                    }
+                }));
+            }
+        });
+        proxy
+    }
+
+    /// Closes every open connection and refuses new ones until [`Proxy::restore`].
+    fn cut(&self) {
+        self.down.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.links.lock().unwrap().drain(..).for_each(|link| link.abort());
+    }
+
+    fn restore(&self) {
+        self.down.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn a_preview_dropped_while_the_connection_is_down_still_releases_its_locks() {
+    let fixture = fixture!();
+    fixture.seed(doc! { "_id": "seeded", "n": 0 }).await;
+    let proxy = Arc::new(Proxy::start().await);
+    // A store that reaches MongoDB only through the proxy, and gives up quickly when it can't: the
+    // driver's own abort fails, and the driver hides that failure.
+    let mut options = ClientOptions::parse(format!("mongodb://{}/?directConnection=true", proxy.address)).await.unwrap();
+    options.server_selection_timeout = Some(Duration::from_secs(1));
+    let store = MongoStore::builder(options, fixture.database.clone()).build().unwrap();
+    detected(&store.engine).await;
+    let core = Core::new(
+        Config::builder("T")
+            .environment("Development")
+            .enable_in(["Development"])
+            .preview_operation("POST", "/things")
+            .data_store(store.clone())
+            .build()
+            .unwrap(),
+    );
+    {
+        let state = PreviewState::new(&core, Instant::now());
+        let enrollment = state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+        let mongo = store.from_enrollment(Some(&enrollment), true).unwrap();
+        capture::scope(state.recorder(), async {
+            mongo.collection::<Document>("documents").update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 1 } }).await.unwrap();
+        })
+        .await;
+        // The client disconnects as the network fails: the Preview is dropped while MongoDB can't be reached.
+        proxy.cut();
+    }
+    // The network comes back after 3 seconds, long after the driver gave up on its abort.
+    let restorer = proxy.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        restorer.restore();
+    });
+    // Without retries the transaction holds its write lock until the server's 60-second lifetime limit.
+    let documents = fixture.reader.database(&fixture.database).collection::<Document>("documents");
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
+        documents.update_one(doc! { "_id": "seeded" }, doc! { "$inc": { "n": 10 } }).await
+    })
+    .await;
+    assert!(matches!(result, Ok(Ok(_))), "the dropped Preview still holds its transaction: {result:?}");
+    assert_eq!(fixture.find(doc! { "_id": "seeded" }).await[0].get_i32("n"), Ok(10), "nothing of the Preview was committed");
+    fixture.cleanup().await;
+}
+
 #[tokio::test]
 async fn a_write_conflict_between_two_previews_reaches_the_handler() {
     let fixture = fixture!();
@@ -569,14 +662,27 @@ async fn observed_send_commits_once_and_traces_the_command() {
     fixture.cleanup().await;
 }
 
+#[test]
+fn a_standalone_server_and_an_unreachable_one_give_different_reasons() {
+    // A standalone `hello`: sessions, but no replica set name. It really can't run transactions.
+    let standalone = engine::topology(&doc! { "isWritablePrimary": true, "maxWireVersion": 25, "logicalSessionTimeoutMinutes": 30 });
+    assert_eq!((standalone.mode, standalone.reason), (preview::Mode::Guard, Some(STANDALONE_REASON)));
+    let replica_set = engine::topology(&doc! { "isWritablePrimary": true, "setName": "rs0", "logicalSessionTimeoutMinutes": 30 });
+    assert_eq!((replica_set.mode, replica_set.reason), (preview::Mode::Preview, None));
+    // An unreachable server says only that it couldn't be asked.
+    assert_ne!(STANDALONE_REASON, UNREACHABLE_REASON);
+    assert!(UNREACHABLE_REASON.contains("couldn't reach MongoDB") && !UNREACHABLE_REASON.contains("doesn't support"));
+}
+
 #[tokio::test]
-async fn a_standalone_or_unreachable_server_runs_in_guard_mode_and_blocks_writes() {
-    // Nothing listens here: detection fails, so the store runs in guard mode.
+async fn an_unreachable_server_runs_in_guard_mode_says_so_and_blocks_writes() {
+    // Nothing listens here: detection fails, so the store runs in guard mode, and says it couldn't
+    // check rather than claiming the server lacks transactions.
     let mut options = ClientOptions::parse("mongodb://127.0.0.1:1/?directConnection=true").await.unwrap();
     options.server_selection_timeout = Some(Duration::from_millis(300));
     let store = MongoStore::builder(options, "catalog").build().unwrap();
     let description = store.describe().await;
-    assert_eq!((description.mode, description.reason.as_deref()), (StoreMode::Guard, Some(STANDALONE_REASON)));
+    assert_eq!((description.mode, description.reason.as_deref()), (StoreMode::Guard, Some(UNREACHABLE_REASON)));
     let core = Core::new(
         Config::builder("T")
             .environment("Development")

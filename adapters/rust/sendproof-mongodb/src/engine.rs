@@ -7,9 +7,17 @@
 //!   transaction. Handles pass it to every operation. Nothing ever commits it: the engine only aborts.
 //! * **Finish:** after the handler, changes are read (inside the transaction for `after`, and at the
 //!   transaction's own snapshot time for `before`), then the transaction is aborted and the session
-//!   released. A Preview that outlives its time limit is aborted early and answers 500.
+//!   released. A Preview that outlives its time limit is aborted early and answers 500. An abort no
+//!   reply acknowledged is followed by `killSessions`, so a dropped connection doesn't leave the
+//!   transaction holding its locks until the server's lifetime limit.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use mongodb::{
     Client, ClientSession,
@@ -21,14 +29,20 @@ use sendproof_core::{BoxError, BoxFuture, Changes, PreviewSession, capture::Reco
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{
-    monitor::{DETECTING, INTERNAL},
+    monitor::{ABORTING, DETECTING, INTERNAL},
     plain,
-    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared, UNMONITORED_REASON},
+    preview::{Candidate, Mode, PreviewState, STANDALONE_REASON, Shared, UNMONITORED_REASON, UNREACHABLE_REASON},
 };
 
 /// The default Preview time limit: below the server's 60-second `transactionLifetimeLimitSeconds`, so
 /// the binding, not the server, ends a Preview whose handler runs too long.
 pub const DEFAULT_PREVIEW_TIMEOUT: Duration = Duration::from_secs(50);
+
+/// How long the engine keeps trying to end a Preview transaction whose abort no reply acknowledged,
+/// and the backoff between tries. Well inside the server's 60-second transaction lifetime.
+const KILL_RETRY_LIMIT: Duration = Duration::from_secs(10);
+const KILL_FIRST_DELAY: Duration = Duration::from_millis(100);
+const KILL_MAX_DELAY: Duration = Duration::from_secs(2);
 
 /// Most candidate documents read back for change capture in one Preview.
 const CANDIDATE_LIMIT: usize = 1000;
@@ -59,6 +73,15 @@ pub(crate) struct Engine {
     detected: AsyncMutex<Option<Detected>>,
 }
 
+/// The mode a `hello` reply allows: `preview` on a replica set or mongos with logical sessions,
+/// `guard` for a standalone server or any reply this doesn't recognise.
+pub(crate) fn topology(hello: &Document) -> Detected {
+    let sessions = !matches!(hello.get("logicalSessionTimeoutMinutes"), None | Some(Bson::Null));
+    let clustered = hello.get_str("setName").is_ok() || hello.get_str("msg") == Ok("isdbgrid");
+    let mode = if clustered && sessions { Mode::Preview } else { Mode::Guard };
+    Detected { mode, reason: (mode == Mode::Guard).then_some(STANDALONE_REASON), monitored: true }
+}
+
 pub(crate) fn code_of(error: &Error) -> i32 {
     match &*error.kind {
         ErrorKind::Command(command) => command.code,
@@ -87,14 +110,11 @@ impl Engine {
         let hello =
             INTERNAL.scope((), DETECTING.scope((), async { self.client.database("admin").run_command(doc! { "hello": 1 }).await })).await;
         // An unreachable server proves nothing either way: guard mode for now, asked again next time.
-        let Ok(hello) = hello else { return Detected { mode: Mode::Guard, reason: Some(STANDALONE_REASON), monitored: true } };
+        let Ok(hello) = hello else { return Detected { mode: Mode::Guard, reason: Some(UNREACHABLE_REASON), monitored: true } };
         let result = if !self.shared.monitored.load(std::sync::atomic::Ordering::SeqCst) {
             Detected { mode: Mode::Guard, reason: Some(UNMONITORED_REASON), monitored: false }
         } else {
-            let sessions = !matches!(hello.get("logicalSessionTimeoutMinutes"), None | Some(Bson::Null));
-            let clustered = hello.get_str("setName").is_ok() || hello.get_str("msg") == Ok("isdbgrid");
-            let mode = if clustered && sessions { Mode::Preview } else { Mode::Guard };
-            Detected { mode, reason: (mode == Mode::Guard).then_some(STANDALONE_REASON), monitored: true }
+            topology(&hello)
         };
         *detected = Some(result.clone());
         result
@@ -135,12 +155,14 @@ impl Engine {
     /// first, so an operation in flight completes before the abort and none can follow it: a command
     /// sent on a session after an abort would run outside any transaction, and commit.
     ///
-    /// Abort errors are ignored, as the transactions specification requires: an unacknowledged abort
-    /// still commits nothing, because no `commitTransaction` is ever sent for the Preview session.
+    /// The driver ignores abort errors, as the transactions specification requires: an unacknowledged
+    /// abort still commits nothing, because no `commitTransaction` is ever sent for the Preview
+    /// session. But the server then keeps the transaction, and its locks, until its 60-second
+    /// lifetime limit, so when no reply acknowledged the abort the engine kills the session instead.
     pub async fn end(&self, state: &PreviewState, from_timer: bool) {
         let Some(session) = &state.session else { return };
         let mut session = session.lock().await;
-        {
+        let opened = {
             let mut data = state.data();
             if data.finished {
                 return;
@@ -152,8 +174,45 @@ impl Engine {
             {
                 timer.abort();
             }
+            data.opened
+        };
+        let acknowledged = Arc::new(AtomicBool::new(false));
+        let _ = INTERNAL.scope((), ABORTING.scope(acknowledged.clone(), async { session.abort_transaction().await })).await;
+        // The session stays locked meanwhile, so the driver can't hand its id to another operation.
+        if opened && !acknowledged.load(Ordering::SeqCst) {
+            self.kill(state).await;
         }
-        let _ = INTERNAL.scope((), async { session.abort_transaction().await }).await;
+    }
+
+    /// Ends the Preview transaction with `killSessions` after an abort no reply acknowledged (the
+    /// connection dropped), retrying with backoff while the server can't be reached. A final failure
+    /// is logged with the session id: the server ends the transaction at its lifetime limit.
+    async fn kill(&self, state: &PreviewState) {
+        let Some(lsid) = &state.lsid else { return };
+        let attempts = async {
+            let mut delay = KILL_FIRST_DELAY;
+            loop {
+                let admin = self.client.database("admin");
+                let killed = INTERNAL.scope((), async { admin.run_command(doc! { "killSessions": [lsid.clone()] }).await }).await;
+                match killed {
+                    Ok(_) => return Ok(()),
+                    Err(error) if code_of(&error) != 0 => return Err(error.to_string()),
+                    // A network error or no server to select: try again shortly.
+                    Err(_) => tokio::time::sleep(delay).await,
+                }
+                delay = (delay * 2).min(KILL_MAX_DELAY);
+            }
+        };
+        let failure = match tokio::time::timeout(KILL_RETRY_LIMIT, attempts).await {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => error,
+            Err(_) => format!("MongoDB couldn't be reached for {} s", KILL_RETRY_LIMIT.as_secs()),
+        };
+        tracing::warn!(
+            session = %lsid,
+            %failure,
+            "couldn't end a MongoDB Preview transaction; the server ends it, and releases its locks, at transactionLifetimeLimitSeconds"
+        );
     }
 
     /// Reads documents as they were when the Preview transaction started: a snapshot read at its

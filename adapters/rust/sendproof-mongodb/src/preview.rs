@@ -15,6 +15,11 @@ use tokio::task::JoinHandle;
 /// The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode.
 pub const STANDALONE_REASON: &str = "Preview unavailable: this MongoDB server doesn't support transactions";
 
+/// The reason when the detection `hello` got no answer: whether the server supports transactions is
+/// unknown, so the store runs in `guard` mode for now and asks again next time.
+pub const UNREACHABLE_REASON: &str =
+    "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode";
+
 /// The reason a client whose command monitoring never saw its own `hello` can't Preview: the tripwire
 /// isn't on it, so an escaped write would go unseen.
 pub const UNMONITORED_REASON: &str = "Preview unavailable: command monitoring isn't installed on this MongoDB client";
@@ -55,6 +60,9 @@ pub(crate) struct Filter {
 pub(crate) struct Data {
     /// Set once a command carried the session to the server.
     pub used: bool,
+    /// Set when a handle hands out the session for a command: from then on the server may hold the
+    /// transaction, and its locks, until an abort reaches it.
+    pub opened: bool,
     /// The transaction was aborted and the session released. Nothing may use the session again.
     pub finished: bool,
     pub candidates: Vec<Candidate>,
