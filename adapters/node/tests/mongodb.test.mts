@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import test from 'node:test';
-import { ClientSession, MongoClient } from 'mongodb';
+import { ClientSession, MongoClient, UUID } from 'mongodb';
+// The engine itself, for the kill's own timing: the package exports only the stores.
+import { MongoEngine } from '../mongodb/dist/engine.js';
 import mongoose from 'mongoose';
 import { detached } from '@sendproof/core';
 import { mongooseStore, mongoStore, standaloneReason, unreachableReason } from '@sendproof/mongodb';
@@ -620,10 +622,11 @@ function standalone(raw: MongoClient): MongoClient {
  * A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
  * failing in the middle of a Preview.
  */
-async function proxy(t: test.TestContext) {
+async function proxy(t: test.TestContext, { dropAborts = false } = {}) {
   const target = new URL(services.mongodb);
   const sockets = new Set<net.Socket>();
   let down = false;
+  const dropped = { aborts: 0 };
   const server = net.createServer(client => {
     if (down) { client.destroy(); return; }
     const upstream = net.connect(Number(target.port || 27017), target.hostname);
@@ -632,7 +635,27 @@ async function proxy(t: test.TestContext) {
       socket.on('error', () => {});
       socket.on('close', () => { sockets.delete(socket); client.destroy(); upstream.destroy(); });
     }
-    client.pipe(upstream);
+    if (dropAborts) {
+      // Read requests message by message, and close the connection on any abortTransaction: only
+      // the abort is lost, while every other command, change capture included, goes through.
+      let buffered = Buffer.alloc(0);
+      client.on('data', (chunk: Buffer) => {
+        buffered = Buffer.concat([buffered, chunk]);
+        while (buffered.length >= 4 && buffered.length >= buffered.readInt32LE(0)) {
+          const message = buffered.subarray(0, buffered.readInt32LE(0));
+          buffered = buffered.subarray(message.length);
+          if (commandOf(message) === 'abortTransaction') {
+            dropped.aborts++;
+            client.destroy();
+            upstream.destroy();
+            return;
+          }
+          upstream.write(message);
+        }
+      });
+    } else {
+      client.pipe(upstream);
+    }
     upstream.pipe(client);
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -641,7 +664,17 @@ async function proxy(t: test.TestContext) {
     url: (database: string) => `mongodb://127.0.0.1:${(server.address() as net.AddressInfo).port}/${database}?directConnection=true`,
     cut() { down = true; for (const socket of sockets) socket.destroy(); },
     restore() { down = false; },
+    dropped,
   };
+}
+
+/** The command name of an OP_MSG request: the first key of its body section. */
+function commandOf(message: Buffer): string | undefined {
+  // Header (16 bytes), opCode 2013 at 12, flagBits, then a kind-0 section holding one BSON document,
+  // whose first element is a type byte and the key as a C string.
+  if (message.length < 27 || message.readInt32LE(12) !== 2013 || message[20] !== 0) return undefined;
+  const end = message.indexOf(0, 26);
+  return end < 0 ? undefined : message.toString('utf8', 26, end);
 }
 
 /** Whether a transaction on an independent client can write the seeded document within `limitMs`: no Preview holds its lock. */
@@ -705,6 +738,63 @@ test('driver: a Preview whose abort is lost answers 500 at once, and its locks a
   assert(sent.includes('killSessions'), 'The store ended the Preview session with killSessions');
   assert.deepEqual(warnings, [], 'A kill that succeeds logs nothing');
   assert.equal((await documents({ _id: 'seeded' }))[0]?.name, 'Second', 'Nothing of the Preview was committed');
+});
+
+test('driver: a Preview whose capture succeeds but whose abort alone is lost answers 500, and killSessions releases its locks', await needs('mongodb'), async t => {
+  const { name, reader, documents } = await database(t);
+  const network = await proxy(t, { dropAborts: true });
+  const raw = new MongoClient(network.url(name), { serverSelectionTimeoutMS: 1000 });
+  t.after(() => raw.close());
+  const sent = sentCommands(raw);
+  const succeeded: string[] = [];
+  raw.on('commandSucceeded', event => succeeded.push(event.commandName));
+  const store = mongoStore(raw, { name: 'catalog' });
+  const app = await startApp(t, [store], bench => {
+    bench.operation('PATCH', '/documents/{id}', handle(async (req, res) => {
+      await store.client.db().collection('documents').updateOne({ _id: req.params.id as never }, { $set: { name: 'Preview' } });
+      res.json({ ok: true });
+    }));
+  }, { sqlProvider: false });
+  await assertUnconfirmed(await app.preview('PATCH', '/documents/seeded'));
+  assert(network.dropped.aborts >= 1, 'The proxy dropped the abort');
+  assert(succeeded.includes('find'), 'Change capture read the documents');
+  assert(app.errors.some(error => /didn't acknowledge the abort/.test(String((error as Error)?.message ?? error))), `The failure is the lost abort: ${app.errors.map(String).join('; ')}`);
+  assert(await lockReleasedWithin(reader, name, 10_000), 'The Preview still holds its transaction');
+  assert(sent.includes('killSessions'), 'The store ended the Preview session with killSessions');
+  assert.equal((await documents({ _id: 'seeded' }))[0]?.name, 'Second', 'Nothing of the Preview was committed');
+});
+
+test('driver: each killSessions try is bounded, so an unreachable server is retried, not waited on for the server selection timeout', async t => {
+  // Nothing listens on a closed listener's port, and the client keeps the driver's 30-second server selection timeout.
+  const closed = net.createServer();
+  await new Promise<void>(resolve => closed.listen(0, '127.0.0.1', resolve));
+  const port = (closed.address() as net.AddressInfo).port;
+  await new Promise(resolve => closed.close(resolve));
+  const raw = new MongoClient(`mongodb://127.0.0.1:${port}/?directConnection=true`);
+  t.after(() => raw.close());
+  let tries = 0;
+  const db = raw.db.bind(raw);
+  raw.db = ((dbName?: string, options?: never) => {
+    const handle = db(dbName, options);
+    const command = handle.command.bind(handle);
+    handle.command = ((document: Record<string, unknown>, ...rest: never[]) => {
+      if (document.killSessions) tries++;
+      return command(document as never, ...rest);
+    }) as typeof handle.command;
+    return handle;
+  }) as typeof raw.db;
+  const warnings: string[] = [];
+  const onWarning = (warning: Error) => { warnings.push(warning.message); };
+  process.on('warning', onWarning);
+  t.after(() => { process.off('warning', onWarning); });
+  const engine = new MongoEngine(raw, { reads: undefined });
+  const started = Date.now();
+  assert.equal(await engine.killSession({ id: new UUID() }, 'feedface'), false);
+  const elapsed = Date.now() - started;
+  assert(elapsed < 12_000, `The kill outlasted its 10-second window: ${elapsed} ms`);
+  assert(tries >= 4, `Each try gives up after about 2 s and is retried: ${tries} tries`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert(warnings.some(message => message.includes('feedface')), 'The final failure is logged with the session id');
 });
 
 test('driver: a normal Preview sends no killSessions', await needs('mongodb'), async t => {

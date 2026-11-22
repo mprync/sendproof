@@ -71,6 +71,8 @@ const noSuchTransaction = 251;
 const killRetryLimitMs = 10_000;
 const killFirstDelayMs = 100;
 const killMaxDelayMs = 2_000;
+/** Each `killSessions` try gives up after this long, or the time left, whichever is shorter. */
+const killTryLimitMs = 2_000;
 
 /**
  * Whether the server itself answered with this error, rather than the driver failing to reach it.
@@ -596,36 +598,48 @@ export class MongoEngine {
    * operation meanwhile.
    */
   async #kill(state: PreviewState): Promise<void> {
-    const deadline = performance.now() + killRetryLimitMs;
-    let delay = killFirstDelayMs;
-    let failure = `MongoDB couldn't be reached for ${killRetryLimitMs / 1000} s`;
     try {
-      for (;;) {
-        const remaining = deadline - performance.now();
-        if (remaining <= 0) break;
-        const attempt = this.client.db('admin').command({ killSessions: [state.session.id] });
-        attempt.catch(() => {});
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const limit = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), remaining); });
-        try {
-          await Promise.race([attempt, limit]);
-          return;
-        } catch (error) {
-          if (serverAnswered(error)) { failure = (error as Error).message; break; }
-          // A network error or no server to select: try again shortly.
-        } finally {
-          clearTimeout(timer);
-        }
-        await new Promise(resolve => setTimeout(resolve, Math.max(0, Math.min(delay, deadline - performance.now()))));
-        delay = Math.min(delay * 2, killMaxDelayMs);
-      }
-      process.emitWarning(
-        `Couldn't end the MongoDB Preview transaction of session ${state.lsid} (${failure}); the server ends it, and releases its locks, at transactionLifetimeLimitSeconds.`,
-        { code: 'SENDPROOF_MONGODB_PREVIEW_NOT_ENDED' },
-      );
+      await this.killSession(state.session.id, state.lsid);
     } finally {
       await this.#endSession(state);
     }
+  }
+
+  /**
+   * Send `killSessions` for one session id (`{ id: UUID }`), retrying with backoff for up to 10 s
+   * while the server can't be reached. Each try gives up after 2 s, or the time left, so a try never
+   * waits out the driver's 30-second server selection timeout. Resolves whether the server killed
+   * it; a final failure is emitted as a process warning naming `lsid`. Internal: used by the
+   * engine, and exposed only so tests can time it.
+   */
+  async killSession(id: unknown, lsid: string): Promise<boolean> {
+    const deadline = performance.now() + killRetryLimitMs;
+    let delay = killFirstDelayMs;
+    let failure = `MongoDB couldn't be reached for ${killRetryLimitMs / 1000} s`;
+    for (;;) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) break;
+      const attempt = this.internal(() => this.client.db('admin').command({ killSessions: [id] }));
+      attempt.catch(() => {});
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const limit = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), Math.min(killTryLimitMs, remaining)); });
+      try {
+        await Promise.race([attempt, limit]);
+        return true;
+      } catch (error) {
+        if (serverAnswered(error)) { failure = (error as Error).message; break; }
+        // A network error, no server to select or a try that timed out: try again shortly.
+      } finally {
+        clearTimeout(timer);
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, Math.min(delay, deadline - performance.now()))));
+      delay = Math.min(delay * 2, killMaxDelayMs);
+    }
+    process.emitWarning(
+      `Couldn't end the MongoDB Preview transaction of session ${lsid} (${failure}); the server ends it, and releases its locks, at transactionLifetimeLimitSeconds.`,
+      { code: 'SENDPROOF_MONGODB_PREVIEW_NOT_ENDED' },
+    );
+    return false;
   }
 
   /**
