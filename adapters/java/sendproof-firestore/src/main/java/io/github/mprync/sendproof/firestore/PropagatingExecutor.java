@@ -22,9 +22,35 @@ import java.util.concurrent.TimeoutException;
  */
 final class PropagatingExecutor implements ScheduledExecutorService {
     private final ScheduledExecutorService delegate;
+    private final boolean checked;
 
     PropagatingExecutor(ScheduledExecutorService delegate) {
+        this(delegate, false);
+    }
+
+    private PropagatingExecutor(ScheduledExecutorService delegate, boolean checked) {
         this.delegate = delegate;
+        this.checked = checked;
+    }
+
+    /**
+     * The executor of a {@link GuardedBulkWriter}: every task runs as a checked send ({@code StoreGuard.sendChecked}), with
+     * no capture, whichever thread scheduled it. The writer only ever schedules sends of writes checked when they were
+     * queued, and the context of the thread that scheduled one says nothing about them.
+     */
+    static PropagatingExecutor checkedSends(ScheduledExecutorService delegate) {
+        return new PropagatingExecutor(delegate, true);
+    }
+
+    private <T> Callable<T> wrap(Callable<T> task) {
+        return checked ? () -> io.github.mprync.sendproof.core.stores.StoreGuard.sendChecked(task::call) : carry(task);
+    }
+
+    private Runnable wrap(Runnable task) {
+        return checked ? () -> io.github.mprync.sendproof.core.stores.StoreGuard.<Void, RuntimeException>sendChecked(() -> {
+            task.run();
+            return null;
+        }) : carry(task);
     }
 
     /** The capture and attribution of a thread, to run work under later on another one. */
@@ -76,48 +102,48 @@ final class PropagatingExecutor implements ScheduledExecutorService {
         };
     }
 
-    private static <T> List<Callable<T>> carryAll(Collection<? extends Callable<T>> tasks) {
-        return tasks.stream().<Callable<T>>map(PropagatingExecutor::carry).toList();
+    private <T> List<Callable<T>> carryAll(Collection<? extends Callable<T>> tasks) {
+        return tasks.stream().<Callable<T>>map(this::wrap).toList();
     }
 
     @Override
     public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
-        return delegate.schedule(carry(command), delay, unit);
+        return delegate.schedule(wrap(command), delay, unit);
     }
 
     @Override
     public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit) {
-        return delegate.schedule(carry(callable), delay, unit);
+        return delegate.schedule(wrap(callable), delay, unit);
     }
 
     @Override
     public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit) {
-        return delegate.scheduleAtFixedRate(carry(command), initialDelay, period, unit);
+        return delegate.scheduleAtFixedRate(wrap(command), initialDelay, period, unit);
     }
 
     @Override
     public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit) {
-        return delegate.scheduleWithFixedDelay(carry(command), initialDelay, delay, unit);
+        return delegate.scheduleWithFixedDelay(wrap(command), initialDelay, delay, unit);
     }
 
     @Override
     public void execute(Runnable command) {
-        delegate.execute(carry(command));
+        delegate.execute(wrap(command));
     }
 
     @Override
     public <T> Future<T> submit(Callable<T> task) {
-        return delegate.submit(carry(task));
+        return delegate.submit(wrap(task));
     }
 
     @Override
     public <T> Future<T> submit(Runnable task, T result) {
-        return delegate.submit(carry(task), result);
+        return delegate.submit(wrap(task), result);
     }
 
     @Override
     public Future<?> submit(Runnable task) {
-        return delegate.submit(carry(task));
+        return delegate.submit(wrap(task));
     }
 
     @Override

@@ -90,7 +90,8 @@ class FirestoreRecordingsTest {
     private static void replay(FirestoreRpc rpc, Recorded r) {
         switch (r.bare()) {
             case "Commit" -> rpc.commitCallable().futureCall((CommitRequest) r.message());
-            case "BatchWrite" -> rpc.batchWriteCallable().futureCall((BatchWriteRequest) r.message());
+            // A refused BatchWrite arrives as a failed future (so a BulkWriter's flush can't hang); call() rethrows it.
+            case "BatchWrite" -> rpc.batchWriteCallable().call((BatchWriteRequest) r.message());
             case "BatchGetDocuments" -> rpc.batchGetDocumentsCallable().call((BatchGetDocumentsRequest) r.message(), (ResponseObserver) observer());
             case "RunQuery" -> rpc.runQueryCallable().call((RunQueryRequest) r.message(), (ResponseObserver) observer());
             case "RunAggregationQuery" -> rpc.runAggregationQueryCallable().call((RunAggregationQueryRequest) r.message(), (ResponseObserver) observer());
@@ -131,11 +132,13 @@ class FirestoreRecordingsTest {
         for (Recorded write : recordings().stream().filter(r -> r.kind().equals("write")).toList()) {
             var fake = new FakeRpc();
             FirestoreRpc guarded = store.rpc(fake.rpc);
+            // A refused BatchWrite fails as a FAILED_PRECONDITION ApiException caused by the refusal (see RpcGuard).
             PreviewOutcome outcome = Harness.preview(store, () -> assertThatThrownBy(() -> replay(guarded, write))
-                    .as(write.name()).isInstanceOfSatisfying(PreviewWriteBlockedException.class, refused -> {
-                        assertThat(refused.store()).isEqualTo("firestore");
-                        assertThat(refused.operation()).isEqualTo(write.operation());
-                    }));
+                    .as(write.name()).satisfies(error -> assertThat(write.operation().equals("BatchWrite") ? error.getCause() : error)
+                            .isInstanceOfSatisfying(PreviewWriteBlockedException.class, refused -> {
+                                assertThat(refused.store()).isEqualTo("firestore");
+                                assertThat(refused.operation()).isEqualTo(write.operation());
+                            })));
             assertThat(outcome.blocked()).as(write.name()).isTrue();
             assertThat(new String(outcome.problem())).contains("\"store\":\"firestore\"").contains("\"operation\":\"" + write.operation() + "\"")
                     .contains("Preview unavailable: this operation writes to Firestore");

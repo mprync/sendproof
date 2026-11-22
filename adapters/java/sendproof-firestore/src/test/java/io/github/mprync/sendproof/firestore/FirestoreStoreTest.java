@@ -78,6 +78,18 @@ class FirestoreStoreTest {
                             out.onNext(BeginTransactionResponse.newBuilder().setTransaction(ByteString.copyFromUtf8("tx")).build());
                             out.onCompleted();
                         }))
+                .addMethod(method("BatchWrite", MethodDescriptor.MethodType.UNARY,
+                        com.google.firestore.v1.BatchWriteRequest.getDefaultInstance(), com.google.firestore.v1.BatchWriteResponse.getDefaultInstance()),
+                        ServerCalls.<com.google.firestore.v1.BatchWriteRequest, com.google.firestore.v1.BatchWriteResponse>asyncUnaryCall((request, out) -> {
+                            served.add("BatchWrite");
+                            var response = com.google.firestore.v1.BatchWriteResponse.newBuilder();
+                            for (int i = 0; i < request.getWritesCount(); i++) {
+                                response.addWriteResults(com.google.firestore.v1.WriteResult.getDefaultInstance())
+                                        .addStatus(com.google.rpc.Status.getDefaultInstance());
+                            }
+                            out.onNext(response.build());
+                            out.onCompleted();
+                        }))
                 .addMethod(method("Commit", MethodDescriptor.MethodType.UNARY,
                         CommitRequest.getDefaultInstance(), CommitResponse.getDefaultInstance()),
                         ServerCalls.<CommitRequest, CommitResponse>asyncUnaryCall((request, out) -> {
@@ -245,6 +257,83 @@ class FirestoreStoreTest {
         // Outside a Preview the writer queues and sends as usual (this server doesn't implement BatchWrite, so only the queueing is shown).
         var bulk = store.bulkWriter(db);
         bulk.set(db.document("orders/sent"), Map.of("status", "new"));
+    }
+
+    /**
+     * Runs {@code work} on another thread, under the caller's capture, and fails the test, rather than hanging it, when it
+     * doesn't return in time.
+     */
+    private static void returnsWithin(int seconds, Harness.Handler work) throws Exception {
+        var pool = new PropagatingExecutor(java.util.concurrent.Executors.newSingleThreadScheduledExecutor());
+        try {
+            pool.submit(() -> {
+                work.run();
+                return null;
+            }).get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException hung) {
+            throw new AssertionError("did not return within " + seconds + " s", hung);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void aBulkWriterFromTheGuardedClientIsRefusedInAPreviewAndNeverHangs() throws Exception {
+        // A BulkWriter made before the Preview, from the guarded client itself: its queued write is refused when it is
+        // sent, and that refusal fails the write instead of leaving flush and close waiting forever.
+        var early = db.bulkWriter();
+        var failed = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        PreviewOutcome outcome = Harness.preview(store, () -> {
+            var write = early.set(db.document("orders/o-1"), Map.of("status", "new"));
+            returnsWithin(10, early::close);
+            try {
+                write.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.ExecutionException refused) {
+                failed.set(refused.getCause());
+            }
+        });
+        assertThat(failed.get()).isNotNull();
+        assertThat(outcome.blocked()).isTrue();
+        assertThat(new String(outcome.problem())).contains("\"operation\":\"BatchWrite\"");
+        assertThat(served).isEmpty();
+    }
+
+    @Test
+    void everyBulkWriterTheGuardedClientHandsOutInAPreviewIsRefusedWhenItIsMade() throws Exception {
+        for (Harness.Handler made : List.<Harness.Handler>of(db::bulkWriter,
+                () -> db.bulkWriter(com.google.cloud.firestore.BulkWriterOptions.builder().setThrottlingEnabled(false).build()),
+                () -> db.recursiveDelete(db.document("orders/o-1")))) {
+            PreviewOutcome outcome = Harness.preview(store, () -> assertThatThrownBy(made::run).isInstanceOf(PreviewWriteBlockedException.class));
+            assertThat(outcome.blocked()).isTrue();
+        }
+        assertThat(served).isEmpty();
+        // Outside a Preview the client hands them out as usual.
+        db.bulkWriter().close();
+    }
+
+    @Test
+    void aPreviewThatFlushesASharedGuardedWriterSendsTheWritesOtherRequestsQueued() throws Exception {
+        var shared = store.bulkWriter(db);
+        // Queued by an ordinary request (allowed when it was queued), not yet sent.
+        var write = shared.set(db.document("orders/sent"), Map.of("status", "new"));
+        PreviewOutcome outcome = Harness.preview(store, () -> shared.flush().get(10, java.util.concurrent.TimeUnit.SECONDS));
+        assertThat(outcome.blocked()).isFalse();
+        write.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(served).containsExactly("BatchWrite");
+        shared.close();
+    }
+
+    @Test
+    void anInternalBulkWriterRefusedAtSendTimeDoesNotHang() throws Exception {
+        // recursiveDelete through a client derived from the guarded options runs the library's own BulkWriter.
+        Firestore derived = db.getOptions().toBuilder().build().getService();
+        try {
+            PreviewOutcome outcome = Harness.preview(store, () -> returnsWithin(10, () ->
+                    swallow(() -> derived.recursiveDelete(db.document("orders/o-1")).get(10, java.util.concurrent.TimeUnit.SECONDS))));
+            assertThat(outcome.blocked()).isTrue();
+        } finally {
+            derived.close();
+        }
     }
 
     @Test

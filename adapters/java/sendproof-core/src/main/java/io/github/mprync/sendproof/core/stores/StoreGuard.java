@@ -59,6 +59,26 @@ public final class StoreGuard {
         guard(preview, store, operation, kind, detail);
     }
 
+    /** Work that may throw a checked exception, for {@link #sendChecked}. */
+    @FunctionalInterface
+    public interface Work<T, E extends Exception> {
+        T run() throws E;
+    }
+
+    /**
+     * Runs work that only sends writes the guard already checked when they were queued (a guarded bulk writer or bulk
+     * ingester flushing its queue), with no capture and as attributed work. The send happens on whichever thread flushes
+     * (the client's scheduler, or a Preview handler that flushes a shared writer), so it must neither be mistaken for an
+     * unattributed write nor be refused as the flushing Preview's own: every queued write was refused or allowed when it
+     * was queued, by the request that queued it. Never run anything else this way.
+     */
+    @SuppressWarnings("try")
+    public static <T, E extends Exception> T sendChecked(Work<T, E> work) throws E {
+        try (var noCapture = CaptureContext.enter(null); var attributed = CaptureContext.enterAttributed()) {
+            return work.run();
+        }
+    }
+
     /** The display name of a store id; unknown ids are shown as given. */
     public static String storeName(String store) {
         return NAMES.getOrDefault(store, store);

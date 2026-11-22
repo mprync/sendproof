@@ -20,6 +20,7 @@ import com.google.protobuf.MessageOrBuilder;
 import com.google.protobuf.util.JsonFormat;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.stores.GuardOnlyStore.Observation;
+import io.github.mprync.sendproof.core.stores.PreviewWriteBlockedException;
 import io.github.mprync.sendproof.core.stores.StoreClassifier;
 import io.github.mprync.sendproof.core.stores.StoreRedaction;
 import java.lang.reflect.InvocationHandler;
@@ -123,7 +124,20 @@ final class RpcGuard implements InvocationHandler {
         return new UnaryCallable<>() {
             @Override
             public ApiFuture<R> futureCall(Q request, ApiCallContext context) {
-                Observation call = begin(rpc, request);
+                Observation call;
+                try {
+                    call = begin(rpc, request);
+                } catch (PreviewWriteBlockedException refused) {
+                    if (rpc.equals("BatchWrite")) {
+                        // Only a BulkWriter sends BatchWrite, from inside its own scheduling, where an exception thrown
+                        // here (or a failure that isn't an ApiException) escapes its bookkeeping and leaves flush and
+                        // close waiting forever. A FAILED_PRECONDITION ApiException fails each queued write instead; the
+                        // writer doesn't retry that code, so flush and close return.
+                        return ApiFutures.immediateFailedFuture(new com.google.api.gax.rpc.FailedPreconditionException(refused,
+                                com.google.api.gax.grpc.GrpcStatusCode.of(io.grpc.Status.Code.FAILED_PRECONDITION), false));
+                    }
+                    throw refused;
+                }
                 ApiFuture<R> future = delegate.futureCall(request, context);
                 ApiFutures.addCallback(future, new ApiFutureCallback<>() {
                     @Override

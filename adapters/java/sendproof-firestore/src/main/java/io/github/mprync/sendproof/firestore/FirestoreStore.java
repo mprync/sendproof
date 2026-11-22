@@ -38,6 +38,12 @@ import java.util.Set;
  * layer, so it stays guarded, and so does an emulator endpoint. Only a client built through this store is covered: a
  * {@code Firestore} from {@code FirestoreOptions.getDefaultInstance()} is not.
  *
+ * <p>{@code BulkWriter} is final, so no client can hand out a guarded one. The client {@link #firestore} returns refuses
+ * {@code bulkWriter()} and {@code recursiveDelete} during a Preview when they are called; {@link #bulkWriter} gives a
+ * {@link GuardedBulkWriter} that refuses each write as it is queued. A raw writer from any client over the guarded RPC
+ * layer is still refused when it sends, and that refusal fails its writes, so its {@code flush} and {@code close}
+ * return.
+ *
  * <p>The gRPC channel interceptor the plan names as the hook can't attribute a call to its request: the library runs every
  * attempt on its own scheduler thread, so an interceptor sees the call on a thread with no request behind it.
  */
@@ -91,9 +97,42 @@ public final class FirestoreStore extends GuardOnlyStore {
         }).build();
     }
 
-    /** A Firestore client whose every call is checked: {@code options(builder).getService()}. */
+    /**
+     * A Firestore client whose every call is checked: {@code options(builder).getService()}, wrapped so that
+     * {@code bulkWriter()} and {@code recursiveDelete} are refused during a Preview when they are called. Handlers should
+     * use this client; {@link #bulkWriter} gives a writer that refuses each write as it is queued.
+     */
     public Firestore firestore(FirestoreOptions.Builder options) {
-        return options(options).getService();
+        return GuardedFirestore.wrap(this, options(options).getService());
+    }
+
+    /**
+     * Rebuilds a client the application already made (for example a {@code Firestore} bean) as a guarded one, from its own
+     * options, and closes the original. Used by Spring Boot for every {@code Firestore} bean; a client this store already
+     * guards is returned unchanged.
+     */
+    public Firestore firestore(Firestore raw) {
+        if (raw instanceof GuardedClient guarded && guarded.sendproofStore() == this) {
+            return raw;
+        }
+        Firestore guarded = firestore(((FirestoreOptions) GuardedFirestore.unwrap(raw).getOptions()).toBuilder());
+        try {
+            raw.close();
+        } catch (Exception closing) {
+            // The original was never used; failing to close it doesn't affect the guarded client.
+        }
+        return guarded;
+    }
+
+    /** Whether {@code db} is a client returned by {@link #firestore}, by any store. */
+    public static boolean isGuardedClient(Object db) {
+        return db instanceof GuardedClient;
+    }
+
+    /** Marks a client returned by {@link #firestore}. */
+    public interface GuardedClient {
+        /** The store that guards this client. */
+        FirestoreStore sendproofStore();
     }
 
     /**
@@ -125,7 +164,27 @@ public final class FirestoreStore extends GuardOnlyStore {
      * @param db a client made by this store
      */
     public GuardedBulkWriter bulkWriter(Firestore db) {
-        return new GuardedBulkWriter(this, db.bulkWriter());
+        // The client's own default: throttled.
+        return bulkWriter(db, com.google.cloud.firestore.BulkWriterOptions.builder().setThrottlingEnabled(true).build());
+    }
+
+    /**
+     * Like {@link #bulkWriter(Firestore)}, with the writer's options. The writer runs its sends on an executor that only
+     * sends writes checked when they were queued: the given one, wrapped, or one the writer owns and shuts down on close.
+     */
+    public GuardedBulkWriter bulkWriter(Firestore db, com.google.cloud.firestore.BulkWriterOptions options) {
+        java.util.concurrent.ScheduledExecutorService owned = null;
+        java.util.concurrent.ScheduledExecutorService executor = options.getExecutor();
+        if (executor == null) {
+            owned = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task, "sendproof-bulk-writer");
+                thread.setDaemon(true);
+                return thread;
+            });
+            executor = owned;
+        }
+        options = options.toBuilder().setExecutor(PropagatingExecutor.checkedSends(executor)).build();
+        return new GuardedBulkWriter(this, GuardedFirestore.unwrap(db).bulkWriter(options), owned);
     }
 
     /** Guards a write that is being queued on the calling thread. */
