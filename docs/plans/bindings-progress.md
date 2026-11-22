@@ -34,9 +34,9 @@ TypeORM and the `better-sqlite3` driver passed 11 of 11 checks. The provider sel
 
 Prisma 7.10.1 with the Better SQLite driver adapter passed all 11 HTTP checks. The provider checks the physical rollback and driver completion separately from the callback failure, and a local regression covers a release without rollback acknowledgment. The fixture client is generated locally from its Prisma schema.
 
-### ASP.NET Core and Treasury
+### ASP.NET Core and the reference example
 
-The disposable ASP.NET Core/EF Core fixture passed 11 of 11 HTTP conformance checks. The Treasury profile passed 7 of 7, including independent reads of payments and balances around Preview and Send. Generic rejection, rollback-failure and asset coverage moved to the conformance runner. All 49 .NET tests passed after the migration. The in-process tests still cover model binding, delayed rollback, endpoint policy, and provider availability.
+The disposable ASP.NET Core/EF Core fixture passed 11 of 11 HTTP conformance checks. The reference example profile passed 7 of 7, including independent reads of payments and balances around Preview and Send. Generic rejection, rollback-failure and asset coverage moved to the conformance runner. All 49 .NET tests passed after the migration. The in-process tests still cover model binding, delayed rollback, endpoint policy, and provider availability.
 
 ### FastAPI
 
@@ -84,7 +84,7 @@ The Actix Web adapter shares the SQLx SQLite provider with Axum and passed 11 of
 
 ### Full matrix
 
-The final run passed all 271 tests across 25 manifest entries with zero failures or skips. Each standard fixture passed 11 tests. Treasury passed its seven profile tests. The matrix covers real HTTP transport, schema validation, authorization, independent rollback and commit checks, trace ownership and expiry, and capture limits.
+The final run passed all 271 tests across 25 manifest entries with zero failures or skips. Each standard fixture passed 11 tests. The reference example passed its seven profile tests. The matrix covers real HTTP transport, schema validation, authorization, independent rollback and commit checks, trace ownership and expiry, and capture limits.
 
 Local test totals include 49 .NET, 8 Node, 67 Python, 79 JVM, 95 PHP, 119 Ruby and 41 Rust tests, plus Go vet and race-detector suites. The Node consumer type check passed for the framework packages and Prisma. The CI workflow passed Actionlint. Go and Gradle used project-local toolchains or wrappers.
 
@@ -132,4 +132,4 @@ The providers discover tables and primary keys automatically. SQLite uses connec
 
 ### Full database matrix
 
-The full run passed 513 of 513 checks across 47 profiles, with no failures or skips. Each standard profile passed 11 checks. Treasury passed 7. Final targeted reruns passed 33 HTTP checks for Drizzle, 22 for Rust MySQL and 121 for Go. A clean Node workspace install built all ten packages, generated all three Prisma clients, passed `tsc --noEmit`, and produced ten archives containing ESM and generated declarations. The final Node local suite passed 281 tests. Actionlint and Compose configuration checks passed.
+The full run passed 513 of 513 checks across 47 profiles, with no failures or skips. Each standard profile passed 11 checks. The reference example passed 7. Final targeted reruns passed 33 HTTP checks for Drizzle, 22 for Rust MySQL and 121 for Go. A clean Node workspace install built all ten packages, generated all three Prisma clients, passed `tsc --noEmit`, and produced ten archives containing ESM and generated declarations. The final Node local suite passed 281 tests. Actionlint and Compose configuration checks passed.
