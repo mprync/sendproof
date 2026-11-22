@@ -126,10 +126,16 @@ internal class GuardedMongo : DispatchProxy
             return null;
         }
 
-        if (preview is not null && _kind == Kind.Client && method.Name == "get_Cluster")
+        if (_kind == Kind.Client && method.Name == "get_Cluster")
         {
-            // The cluster sends commands with no session and no guard (GridFS works this way): block before anything is sent.
-            capture.Check("mongodb", "Cluster", CommandKind.Write, ClusterReason);
+            // The cluster sends commands with no session and no guard (GridFS works this way): block before anything is sent,
+            // in a Preview and from code that belongs to no request while a Preview is open.
+            if (preview is not null)
+            {
+                capture.Check("mongodb", "Cluster", CommandKind.Write, ClusterReason);
+            }
+
+            capture.RefuseUnattributedWrite("mongodb", "Cluster");
         }
 
         // Properties and handle factories: wrap what they return, so a collection fetched once keeps its guard.
@@ -156,6 +162,11 @@ internal class GuardedMongo : DispatchProxy
                 {
                     var operation = rule(arguments, _collection);
                     _engine.Check(operation, operation.GetElement(0).Name, _database);
+                }
+                else if (baseName != "StartSession")
+                {
+                    // A method this guard doesn't know counts as a write, as it does in a Preview. Starting a session sends nothing.
+                    capture.RefuseUnattributedWrite("mongodb", method.Name);
                 }
             }
             catch (PreviewWriteBlockedException error)

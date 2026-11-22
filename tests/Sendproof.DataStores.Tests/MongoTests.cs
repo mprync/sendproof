@@ -738,6 +738,28 @@ public sealed class MongoTests
         Assert.Null(await f.FindAsync("guarded-background"));
     }
 
+    [ServiceFact("mongodb")]
+    public async Task GridFsWithNoRequestAttributionIsRefusedBeforeItIsSentWhileAPreviewIsOpen()
+    {
+        // GridFS sends through the client's cluster, never a guarded handle: with no request and a Preview open, reaching the
+        // cluster is refused like a write, as it is inside a Preview, instead of being sent and caught afterwards with a 500.
+        await using var f = await Fixture.StartAsync();
+        var guarded = f.App.Services.GetRequiredService<IMongoClient>();
+        f.Gates.Reset();
+        var pending = f.App.PreviewAsync("POST", "/snapshot");
+        await f.Gates.Started.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        Task write;
+        using (ExecutionContext.SuppressFlow())
+        {
+            write = Task.Run(async () => await new global::MongoDB.Driver.GridFS.GridFSBucket(guarded.GetDatabase(f.Database)).UploadFromBytesAsync("background.txt", [1, 2, 3]));
+        }
+
+        await Assert.ThrowsAsync<PreviewWriteBlockedException>(() => write);
+        f.Gates.Release.SetResult();
+        await Expect.BlockedAsync(await pending, "mongodb", "Cluster");
+        Assert.Equal(0, await f.Engine.Client.GetDatabase(f.Database).GetCollection<BsonDocument>("fs.files").CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty));
+    }
+
     // ---- Guard mode ----
 
     private static readonly BsonDocument Standalone = new() { { "isWritablePrimary", true }, { "ok", 1 } };
