@@ -10,6 +10,7 @@ use Elastic\Transport\Transport;
 use Http\Client\HttpAsyncClient;
 use Psr\Http\Client\ClientInterface;
 use Sendproof\Core\Stores\Guard;
+use Sendproof\Core\Stores\InternalProperty;
 
 /**
  * Write guard for `elasticsearch/elasticsearch` 8 and 9 (spec/data-stores.md, `guard` mode).
@@ -45,15 +46,19 @@ final class ElasticsearchGuard
         if (isset(self::$hooked[$transport])) {
             return;
         }
-        self::$hooked[$transport] = true;
 
         $search = new SearchGuard($guard, 'elasticsearch', $reads, [...self::hostPrefixes($transport), ...($pathPrefix === null ? [] : [$pathPrefix])]);
-        $current = $transport->getClient();
-        if (!$current instanceof GuardedHttpClient) {
-            // The transport keeps its client in a private property with no setter.
-            \Closure::bind(function (ClientInterface $guarded): void {
-                $this->client = $guarded;
-            }, $transport, Transport::class)(new GuardedAsyncHttpClient($current, $search));
+        // The transport keeps its client in a private property with no setter. If a release moves it,
+        // the hook refuses to start rather than leave the client sending unguarded.
+        InternalProperty::replace(
+            $transport,
+            Transport::class,
+            'client',
+            static fn (mixed $current): mixed => $current instanceof GuardedHttpClient || !$current instanceof ClientInterface ? $current : new GuardedAsyncHttpClient($current, $search),
+            'an Elasticsearch client',
+        );
+        if (!$transport->getClient() instanceof GuardedHttpClient) {
+            throw new \LogicException('Sendproof can\'t guard an Elasticsearch client: its transport no longer sends through the client the hook replaced. Pin a supported version or report it, rather than run unguarded.');
         }
         // With no async client of its own, the transport sends async requests through its main client,
         // which is guarded now. One set explicitly (or found by discovery earlier) is guarded here.
@@ -65,6 +70,8 @@ final class ElasticsearchGuard
         if ($async !== null && !$async instanceof GuardedHttpClient) {
             $transport->setAsyncClient(new GuardedAsyncHttpClient($async, $search));
         }
+        // Marked only once guarded, so a failed hook is never mistaken for a finished one.
+        self::$hooked[$transport] = true;
     }
 
     /**
@@ -87,8 +94,14 @@ final class ElasticsearchGuard
      */
     private static function hostPrefixes(Transport $transport): array
     {
+        // Best effort: without the list, a request under a host's path counts as a write unless it is a GET or HEAD.
         $pool = $transport->getNodePool();
-        $nodes = \Closure::bind(fn (): mixed => property_exists($this, 'nodes') ? $this->nodes : null, $pool, $pool::class)();
+        try {
+            $property = new \ReflectionProperty($pool, 'nodes');
+            $nodes = !$property->isStatic() && $property->isInitialized($pool) ? $property->getValue($pool) : null;
+        } catch (\ReflectionException) {
+            $nodes = null;
+        }
         $prefixes = [];
         foreach (is_array($nodes) ? $nodes : [] as $node) {
             if ($node instanceof \Elastic\Transport\NodePool\Node) {
