@@ -152,6 +152,10 @@ The guard knows which request a command belongs to through the runtime's request
 
 While any Preview is open, a write to a guarded store that carries no request is treated as that Preview's write: it is **refused before it is sent**, exactly as in step 1, and every open Preview is marked blocked (or, for a `preview`-mode store, answers 500 without confirmation). Failing the Preview after letting the write through is not enough, because a guarded store can't roll it back. Work that legitimately writes outside any request, such as background jobs, runs inside the binding's `detached` scope and is never refused. Ordinary requests that are not Previews are attributed to their own request, so their writes are never mistaken for unattributed ones.
 
+A write that carries the context of a Preview that has **ended** (a thread or task the handler started, still running after the response) is refused before it is sent, for as long as the process runs: a Preview's context stays marked as a Preview after it ends. A handler-started thread that dropped its context and writes after the Preview ended can't be told apart from background work; bindings document this limit.
+
+Clients that queue writes and send them later with automatic retries (Firestore `BulkWriter`, Elasticsearch bulk helpers and bulk indexers) are refused when the write is queued, on the caller's thread, not when the batch is sent: a refusal at send time is retried until the caller's flush or close hangs.
+
 ### Mixed SQL and guarded stores
 
 An operation that writes SQL rows and then a guarded store follows the same steps: the SQL transaction rolls back and the Preview fails. An independent read afterwards finds neither the rows nor the store write. When the guarded write comes first, the SQL writes after it still run inside the doomed transaction and roll back with it.
