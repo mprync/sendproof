@@ -8,7 +8,7 @@ Mount the Sendproof workbench inside a Rails API and preview what a request will
 | [`sendproof-activerecord`](sendproof-activerecord/README.md) | Preview provider: real SQL transactions, model change capture, SQL log with redaction. |
 | [`sendproof-rails`](sendproof-rails/README.md) | Rails engine: `config.sendproof`, router-based discovery, the `sendproof_preview` controller macro. |
 
-Tested with Ruby 3.4.3, Rails 8.0.5.2 (ActiveRecord, Action Pack), Rack 3.2.8, SQLite (`sqlite3` 2.10.2), MySQL 8.4 (Trilogy 2.13), PostgreSQL 17 (`pg` 1.7), Puma 8.1.2, and for the data stores Mongoid 9.1 on `mongo` 2.26, `redis` 5.4 on `redis-client` 0.31 and `aws-sdk-dynamodb` 1.187. Other versions and databases are not claimed.
+Tested with Ruby 3.4.3, Rails 8.0.5.2 (ActiveRecord, Action Pack), Rack 3.2.8, SQLite (`sqlite3` 2.10.2), MySQL 8.4 (Trilogy 2.13), PostgreSQL 17 (`pg` 1.7), Puma 8.1.2, and for the data stores Mongoid 9.1 on `mongo` 2.26, `redis` 5.4 on `redis-client` 0.31, `aws-sdk-dynamodb` 1.187, `elasticsearch` 8.19, `opensearch-ruby` 3.4 (against OpenSearch 2.19) and `google-cloud-firestore` 2.15. Other versions and databases are not claimed.
 
 ## Quick start (Rails)
 
@@ -43,7 +43,7 @@ Browse to `/sendproof/`. Nothing is enabled until `environments` names the runni
 
 ## Data stores
 
-MongoDB (Mongoid and the `mongo` driver), Redis (`redis-client`, `redis` 5) and DynamoDB (`aws-sdk-dynamodb`) are covered only through the clients you hook. [Data stores in the Ruby binding](data-stores.md) covers setup, the `sendproof_no_preview` mark and what each store does in a Preview.
+MongoDB (Mongoid and the `mongo` driver), Redis (`redis-client`, `redis` 5), DynamoDB (`aws-sdk-dynamodb`), Elasticsearch (`elasticsearch` 8), OpenSearch (`opensearch-ruby` 3) and Firestore (`google-cloud-firestore`, gRPC) are covered only through the clients the hooks reach. Cassandra and Cosmos DB are not supported. [Data stores in the Ruby binding](data-stores.md) covers setup, the `sendproof_no_preview` mark and what each store does in a Preview.
 
 ```ruby
 config.sendproof.data_store Sendproof::Mongoid::Store.new(name: "catalog")   # require "sendproof/mongoid"
@@ -66,7 +66,7 @@ bundle exec rake build   # packs the UI and builds the three gems into pkg/
 
 The UI is never copied by hand. `rake ui:pack` runs `node tools/pack-ui.mjs --version 0.1.0-alpha.1` and writes `sendproof/lib/sendproof/ui` (`manifest.json` plus the files), which is embedded in the `sendproof-core` gem. Each file's SHA-256 is verified against the manifest before it is served.
 
-Shared HTTP conformance, from the repository root: `node tests/conformance/run.mjs ruby-rails` (with `mongodb redis dynamodb` from `tests/conformance/compose.yml` running) and `node tests/conformance/run.mjs ruby-rails-mysql` (with `BENCH_MYSQL_URL` and the `mysql` service), and `node tests/conformance/run.mjs ruby-rails-postgresql` (with `BENCH_POSTGRES_URL` and the `postgres` service).
+Shared HTTP conformance, from the repository root: `node tests/conformance/run.mjs ruby-rails` (with `mongodb redis dynamodb` from `tests/conformance/compose.yml` and `opensearch` from its `heavy-stores` profile running, or `BENCH_STORES=mongodb,redis,dynamodb` to leave OpenSearch out) and `node tests/conformance/run.mjs ruby-rails-mysql` (with `BENCH_MYSQL_URL` and the `mysql` service), and `node tests/conformance/run.mjs ruby-rails-postgresql` (with `BENCH_POSTGRES_URL` and the `postgres` service).
 
 ## Safety model
 

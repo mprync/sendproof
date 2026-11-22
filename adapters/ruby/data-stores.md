@@ -1,6 +1,6 @@
 # Data stores in the Ruby binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the ActiveRecord provider guarantees it. For MongoDB, Redis and DynamoDB, the Ruby binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the ActiveRecord provider guarantees it. For MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore, the Ruby binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
 
 | Store | Hook | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,10 +8,15 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | the same | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | `Sendproof::Redis::Store` (`redis-client`, `redis` 5, Rails' `RedisCacheStore`) | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | `Sendproof::DynamoDB::Store` (`aws-sdk-dynamodb`, Dynamoid) | `guard` | Runs reads. The first write stops the Preview. |
+| Elasticsearch | `Sendproof::Elasticsearch::Store` (`elasticsearch` 8, and Searchkick, Chewy and elasticsearch-model on top of it) | `guard` | Runs reads. The first write stops the Preview. |
+| OpenSearch | `Sendproof::OpenSearch::Store` (`opensearch-ruby` 3) | `guard` | Runs reads. The first write stops the Preview. |
+| Google Cloud Firestore | `Sendproof::Firestore::Store` (`google-cloud-firestore` 2, over gRPC) | `guard` | Runs reads. The first write stops the Preview. |
+
+Cassandra and Azure Cosmos DB are [not supported](#unsupported-stores). None of the new stores can roll back, so all three only guard.
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
-The hooks live in the `sendproof-core` gem and load on demand, so the core gem needs none of the client gems: `require "sendproof/mongoid"`, `"sendproof/mongo"`, `"sendproof/redis"` or `"sendproof/dynamodb"` for the stores you use.
+The hooks live in the `sendproof-core` gem and load on demand, so the core gem needs none of the client gems: `require "sendproof/mongoid"`, `"sendproof/mongo"`, `"sendproof/redis"`, `"sendproof/dynamodb"`, `"sendproof/elasticsearch"`, `"sendproof/opensearch"` or `"sendproof/firestore"` for the stores you use.
 
 ## Coverage: only hooked clients are covered
 
@@ -23,6 +28,8 @@ Details per store are below. In short:
 - **Redis.** `RedisClient.register` is process-wide, so by default every `redis-client` (and `redis` 5) client in the process is guarded. Pass `global: false` to cover one client instead.
 - **DynamoDB.** Hook one client with `client:`, every client created afterwards with `global: true`, or build a client with the store's `plugin`.
 - **MongoDB.** The store hooks one `Mongo::Client` (Mongoid's `:default` client, or the one you pass) and every client derived from it with `with`. A different client is not covered.
+- **Elasticsearch and OpenSearch.** By default every client of the library is guarded, whether built before or after the store. A client that can't be guarded makes the store refuse to start, or fails when it is built. See [Elasticsearch and OpenSearch](#elasticsearch-and-opensearch).
+- **Firestore.** Create the store before any Firestore client. Every client built after it is guarded however it is configured, and the store refuses to start while an earlier client is alive. See [Firestore](#firestore).
 
 ### Writes from other threads and fibers
 
@@ -146,12 +153,66 @@ Every cleanup step runs, whatever fails: each store's abort, the SQL rollback an
 
 A raw SQL `COMMIT`, `END`, `ROLLBACK` (without `TO`), `BEGIN` or `SET autocommit` that a handler runs through the ActiveRecord connection (`execute`, `exec_query`, any model query) is refused the same way before it reaches the database, and on MySQL and MariaDB so are the statements that commit implicitly (`CREATE`, `ALTER`, `DROP` …). `SAVEPOINT` stays allowed. A statement sent on the driver's own handle (`connection.raw_connection`) is not covered.
 
+### Elasticsearch and OpenSearch
+
+```ruby
+require "sendproof/elasticsearch"   # or "sendproof/opensearch"
+config.sendproof.data_store Sendproof::Elasticsearch::Store.new(name: "search")
+config.sendproof.data_store Sendproof::OpenSearch::Store.new(name: "search")   # a second system, if the app has both
+```
+
+Both libraries send every request through a Faraday connection. The store adds a middleware at the front of each connection's stack, so a request is classified by its HTTP method and path (the table in [spec/data-stores/elasticsearch.json](../../spec/data-stores/elasticsearch.json)) before the adapter sends it. `GET` and `HEAD`, `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, point-in-time and scroll handles, and a single SQL `SELECT`, `SHOW` or `DESCRIBE` are reads. `_bulk`, `_update`, `_update_by_query`, `_delete_by_query`, `_reindex`, every `PUT` and `DELETE`, index, alias and template management, and anything the table doesn't list are writes. In a Preview the first write raises `Sendproof::PreviewWriteBlocked` and nothing of the request is sent.
+
+By default the store covers every client of its library:
+
+- A client built **before** the store is hooked in place when the store is created: its connections are rebuilt with the middleware.
+- A client built **after** the store gets the middleware as each connection is built, including a connection rebuilt by sniffing or reloading, and a client you made without a block.
+- A client that uses another HTTP transport (Curb, Manticore, or a `transport:` object of your own) can't be guarded. Creating the store raises `Sendproof::ConfigurationError` while one exists, and building one afterwards raises. Use the default Faraday transport.
+
+Pass `global: false` to guard only the clients you choose, and hook them yourself. Every other client is then not covered:
+
+```ruby
+store = Sendproof::Elasticsearch::Store.new(name: "search", global: false)
+client = Elasticsearch::Client.new(url: url) { |faraday| store.install(faraday) }  # at build time
+store.hook(Elasticsearch::Client.new(url: url))                                    # or in place
+```
+
+A path prefix in the client's URL (`https://host/search`) is removed before classifying. A raw `Faraday` connection to the same server, and any other library, is not covered. Searchkick, Chewy and elasticsearch-model use the `elasticsearch` client, so they are.
+
+The `elasticsearch` client sends its product check with your first request, and prints a "can't verify the server" warning when that request is refused. That is harmless: the Preview still answers 409.
+
+A host-declared read (`treat_as_read: ["POST /{}/_my_plugin_read"]`) is the operation name a `Db` entry shows, matched exactly.
+
+### Firestore
+
+```ruby
+require "sendproof/firestore"
+config.sendproof.data_store Sendproof::Firestore::Store.new(name: "orders")   # before any Firestore client
+```
+
+`google-cloud-firestore` talks gRPC through a generated client, and gRPC client interceptors see every call before it is sent, unary or streaming. The store hooks the one place the gem creates each Firestore channel, so the interceptor is added to every client built after the store, and a host that sets its own `config.interceptors` can't drop it. The RPC name decides: `BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `GetDocument`, `ListDocuments`, `PartitionQuery`, `ListCollectionIds` and `Listen` are reads; `Commit` with at least one write, `BatchWrite`, `Write` and the document RPCs are writes. A `Write` stream is refused before its first message. `BeginTransaction`, `Rollback` and a `Commit` with no writes change no data and run unlogged. An RPC of another service or API version is a write.
+
+- **Create the store first.** A Firestore client built before the store has no interceptor, so creating the store raises `Sendproof::ConfigurationError` while one is alive. Move the store above the code that builds the client.
+- **gRPC only.** Firestore over REST (`transport: :rest`) has no interceptor, so with the store registered, building a REST client raises.
+- **`BulkWriter` and listeners send from threads of their own.** Those threads carry no request, so a `BulkWriter` write is not refused; it fails the Preview with 500 instead (see [Writes from other threads and fibers](#writes-from-other-threads-and-fibers)). Use `batch`, `set`, `update` or `transaction` in a previewed handler.
+- **Transactions.** A transaction's reads run; its `Commit` is refused. A read-only transaction ends with no `Commit`, or an empty one, and is allowed.
+- The Firestore admin client (`google-cloud-firestore-admin-v1`) is not tested here. The hook is meant to reach it, since it names every `Google::Cloud::Firestore` stub, but don't rely on it: keep index and database administration out of previewed handlers.
+
+### Unsupported stores
+
+- **Cassandra.** The DataStax Ruby driver is unmaintained, and no other maintained Ruby client exists. A previewed handler that writes through Cassandra isn't guarded. Mark it `sendproof_no_preview` with a reason, or record the write as an effect.
+- **Azure Cosmos DB for NoSQL.** Microsoft publishes no Ruby SDK. Calls through a hand-written HTTP client aren't guarded; mark those operations the same way.
+
+A previewed handler that reaches either store writes for real, and the workbench doesn't list the store as covered.
+
 ## Host-declared reads
 
 Each store takes `treat_as_read:`, a list of exact command names the guard should let through, such as a custom Redis module read:
 
 ```ruby
 Sendproof::Redis::Store.new(treat_as_read: ["MYMODULE.GET"])
+Sendproof::Elasticsearch::Store.new(treat_as_read: ["POST /{}/_my_plugin_read"])  # the operation name of a Db entry
+Sendproof::Firestore::Store.new(treat_as_read: ["FutureReadMethod"])              # an RPC name
 ```
 
 > [!WARNING]
@@ -175,7 +236,7 @@ MySQL through Trilogy and `mysql2` does not use prepared statements, so Active R
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Session commands such as `AUTH` and `hello` are never logged, and the DynamoDB hook never sees credentials or signatures.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`, Elasticsearch and OpenSearch statements are the request body with every value replaced by `"?"` (one line per bulk line), and Firestore statements are the request message with every value replaced by `"?"`. An index or collection is the `Db` target, and an `Authorization` header, URL credentials or OAuth token never reach a capture. Session commands such as `AUTH` and `hello` are never logged, and the DynamoDB hook never sees credentials or signatures.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{ _id }` as `key`, and whole nested documents as `before` and `after`. A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 
@@ -187,10 +248,13 @@ Rails logs request parameters, and a capture copies the request log. Keep `confi
 
 ```sh
 docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb mysql
+docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch   # about 2 GB of memory
 bin/test                      # from adapters/ruby
 bin/test-mysql                # the ActiveRecord suite on MySQL (the conformance runner provides BENCH_DATABASE_URL)
-node tests/conformance/run.mjs ruby-rails
+node tests/conformance/run.mjs ruby-rails          # BENCH_STORES=mongodb,redis,dynamodb leaves out the heavy OpenSearch checks
 BENCH_MYSQL_URL='mysql://root:bench_local@127.0.0.1:53306/mysql' node tests/conformance/run.mjs ruby-rails-mysql
 ```
+
+The Elasticsearch tests run both clients against a small local HTTP server and need no service; the OpenSearch tests also run against the compose `opensearch` service and skip when it isn't answering. The Firestore tests run a gRPC server inside the test process and replay the requests recorded in [spec/data-stores/recordings/](../../spec/data-stores/recordings/README.md) through the interceptor; each suite also proves that its checks fail when the hook is removed.
 
 After changing `spec/data-stores/`, run `bundle exec rake stores:embed` to regenerate the embedded tables; a test fails when they differ.
