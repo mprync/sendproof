@@ -10,7 +10,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const spec = new URL('../../../../spec/data-stores/', import.meta.url);
 const output = new URL('../src/Stores/Tables.php', import.meta.url);
-const stores = ['redis', 'mongodb', 'dynamodb'];
+// Cassandra and Cosmos DB have no PHP hook (see adapters/php/data-stores.md); their tables are embedded
+// anyway so the parity test keeps the copy in step with the spec for every store of the batch.
+const stores = ['redis', 'mongodb', 'dynamodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore'];
 
 const constant = store => {
   // Re-serialise so the embedded text is canonical JSON whatever the spec file's formatting.

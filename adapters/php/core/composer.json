@@ -12,7 +12,10 @@
   },
   "require-dev": {
     "aws/aws-sdk-php": "^3.300",
+    "elasticsearch/elasticsearch": "^8.0 || ^9.0",
+    "google/cloud-firestore": "^2.0",
     "mongodb/mongodb": "^2.1",
+    "opensearch-project/opensearch-php": "^2.4",
     "phpunit/phpunit": "^11.0",
     "predis/predis": "^2.2 || ^3.0"
   },
@@ -35,6 +38,10 @@
   "archive": {
     "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
   },
-  "config": { "sort-packages": true },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": { "php-http/discovery": true },
+    "platform": { "ext-grpc": "1.60.0" }
+  },
   "minimum-stability": "stable"
 }

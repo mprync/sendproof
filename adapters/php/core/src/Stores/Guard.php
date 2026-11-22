@@ -22,7 +22,10 @@ use Sendproof\Core\Capture\Recorder;
 final class Guard
 {
     /** Display names used in "Preview unavailable: this operation writes to <Store>". */
-    public const STORE_NAMES = ['mongodb' => 'MongoDB', 'redis' => 'Redis', 'dynamodb' => 'DynamoDB'];
+    public const STORE_NAMES = [
+        'mongodb' => 'MongoDB', 'redis' => 'Redis', 'dynamodb' => 'DynamoDB',
+        'cassandra' => 'Cassandra', 'elasticsearch' => 'Elasticsearch', 'opensearch' => 'OpenSearch', 'cosmosdb' => 'Cosmos DB', 'firestore' => 'Firestore',
+    ];
 
     /** @param Closure(): Recorder $recorder Resolves the current request's recorder */
     public function __construct(private readonly Closure $recorder)

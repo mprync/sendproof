@@ -32,6 +32,61 @@ final class StoreClassifierTest extends TestCase
         $this->assertSame($this->spec('redis.json'), Tables::redis());
         $this->assertSame($this->spec('mongodb.json'), Tables::mongodb());
         $this->assertSame($this->spec('dynamodb.json'), Tables::dynamodb());
+        // Batch two: Cassandra and Cosmos DB have no PHP hook, but their tables stay in step with the spec.
+        $this->assertSame($this->spec('cassandra.json'), Tables::cassandra());
+        $this->assertSame($this->spec('elasticsearch.json'), Tables::elasticsearch());
+        $this->assertSame($this->spec('cosmosdb.json'), Tables::cosmosdb());
+        $this->assertSame($this->spec('firestore.json'), Tables::firestore());
+    }
+
+    public function testSearchClassifierPassesEverySharedElasticsearchVector(): void
+    {
+        $cases = $this->spec('classification-cases.json')['elasticsearch'];
+        foreach ($cases as $case) {
+            // The body reaches the hook as text, as a decoded document, or as a line list (NDJSON): none of them changes the answer.
+            $bodies = isset($case['body']) ? [$case['body'], is_string($case['body']) ? $case['body'] : json_encode($case['body'])] : [null];
+            foreach ($bodies as $body) {
+                $result = Classifier::elasticsearch($case['method'], $case['path'], $body);
+                $this->assertSame($case['expect'], $result['kind']->value, $case['method'] . ' ' . $case['path']);
+                $this->assertSame($case['operation'], $result['operation'], $case['method'] . ' ' . $case['path']);
+            }
+        }
+        $this->assertGreaterThan(60, count($cases));
+    }
+
+    public function testFirestoreClassifierPassesEverySharedVector(): void
+    {
+        $cases = $this->spec('classification-cases.json')['firestore'];
+        foreach ($cases as $case) {
+            if (isset($case['rest'])) {
+                $rpc = Classifier::firestoreRpcFromRest($case['rest']['method'], $case['rest']['path']);
+                $result = Classifier::firestore($rpc, $case['rest']['body'] ?? null);
+            } else {
+                $message = $case['message'] ?? null;
+                foreach ([$message, is_array($message) ? json_decode(json_encode($message)) : $message] as $form) {
+                    $result = Classifier::firestore($case['rpc'], $form);
+                    $this->assertSame($case['expect'], $result['kind']->value, $case['rpc']);
+                }
+            }
+            $this->assertSame($case['expect'], $result['kind']->value, json_encode($case));
+            $this->assertSame($case['operation'], $result['operation'], json_encode($case));
+        }
+        $this->assertGreaterThan(30, count($cases));
+    }
+
+    public function testSqlEndpointsAreReadsOnlyForASingleReadStatement(): void
+    {
+        $write = fn (string $query) => Classifier::elasticsearch('POST', '/_plugins/_sql', ['query' => $query])['kind'];
+        $this->assertSame(CommandKind::Read, $write('SELECT 1;'));
+        $this->assertSame(CommandKind::Read, $write("SELECT 'a;b' FROM `x;y` -- done"));
+        $this->assertSame(CommandKind::Read, $write("/* c */
+  describe tables"));
+        $this->assertSame(CommandKind::Write, $write("SELECT 'unterminated"));
+        $this->assertSame(CommandKind::Write, $write('SELECT 1 /* open'));
+        $this->assertSame(CommandKind::Write, $write('SELECT 1; SELECT 2'));
+        $this->assertSame(CommandKind::Write, $write('DELETE FROM t'));
+        $this->assertSame(CommandKind::Write, $write(''));
+        $this->assertSame(CommandKind::Write, Classifier::elasticsearch('POST', '/_sql', '[1]')['kind']);
     }
 
     public function testTheClassifiersPassEverySharedClassificationVector(): void

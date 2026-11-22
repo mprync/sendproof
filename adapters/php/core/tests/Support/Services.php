@@ -17,6 +17,7 @@ use PHPUnit\Framework\Assert;
 final class Services
 {
     private const COMMAND = 'docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb';
+    private const HEAVY_COMMAND = 'docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch';
 
     /** @var array<string,bool> */
     private static array $answers = [];
@@ -39,17 +40,31 @@ final class Services
         return getenv('BENCH_DYNAMODB_SERVER_URL') ?: 'http://127.0.0.1:58000';
     }
 
-    /** Skips the running test unless `$store` (`mongodb`, `redis` or `dynamodb`) answers. */
+    /** OpenSearch, from the compose `heavy-stores` profile. */
+    public static function opensearchUrl(): string
+    {
+        return getenv('BENCH_OPENSEARCH_SERVER_URL') ?: 'http://127.0.0.1:59200';
+    }
+
+    /** Skips the running test unless `$store` (`mongodb`, `redis`, `dynamodb` or `opensearch`) answers. */
     public static function need(string $store): void
     {
         self::$answers[$store] ??= match ($store) {
             'mongodb' => extension_loaded('mongodb') && self::mongodb(),
             'redis' => self::redisAnswers(),
             'dynamodb' => self::dynamodbAnswers(),
+            'opensearch' => self::opensearchAnswers(),
         };
         if (!self::$answers[$store]) {
-            Assert::markTestSkipped("{$store} is not answering. Start it with: " . self::COMMAND);
+            Assert::markTestSkipped("{$store} is not answering. Start it with: " . ($store === 'opensearch' ? self::HEAVY_COMMAND : self::COMMAND));
         }
+    }
+
+    private static function opensearchAnswers(): bool
+    {
+        $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+
+        return str_contains((string) @file_get_contents(self::opensearchUrl(), false, $context), 'cluster_name');
     }
 
     private static function mongodb(): bool
