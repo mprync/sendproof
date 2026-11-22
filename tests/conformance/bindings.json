@@ -29,7 +29,7 @@
     {
       "id": "dotnet-aspnetcore",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "dotnet",
       "port": 5371,

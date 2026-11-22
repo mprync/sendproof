@@ -160,7 +160,13 @@ internal class GuardedMongo : DispatchProxy
             }
             catch (PreviewWriteBlockedException error)
             {
-                return TaskFault.Create(method.ReturnType, error) ?? throw error;
+                // Fail the way the method fails: a faulted task for an async method, a throw for the rest.
+                if (TaskFault.Create(method.ReturnType, error) is { } fault)
+                {
+                    return fault;
+                }
+
+                throw;
             }
 
             return Rewrap(method, Call(method, arguments));
