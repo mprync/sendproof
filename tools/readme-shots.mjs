@@ -1,7 +1,7 @@
 // Regenerates every README image and the social preview from the running example app, in one
 // command. Nothing is stubbed: sign-in, Preview envelopes, document diffs, logs and the write guard
-// all come from the app. Start the example with its Redis and MongoDB stores (see its README,
-// "Optional data stores"), then:
+// all come from the app. Start the store example with its Redis, MongoDB and DynamoDB stores
+// (examples/StoreApi/README.md, "Run the local demo"), then:
 //
 //   npm ci --prefix tools && npx --prefix tools playwright install chromium   # once
 //   node tools/readme-shots.mjs                    # capture, compose and optimise everything
@@ -9,22 +9,23 @@
 //   node tools/readme-shots.mjs --compose-only     # re-render the frames from the last captures
 //
 // Steps: (1) the real workbench is captured at 2x into artifacts/readme/raw, light and dark;
-// (2) each docs/images/src/<name>.html frame (window chrome, backdrop, crops of the captures) is
-// rendered at 2x into docs/images/<name>-light.png and -dark.png, and social.html into
-// docs/images/social-preview.png (1280x640); (3) the PNGs are optimised with pngquant and oxipng
-// when installed, and any image over 600 KB is reported.
+// (2) each docs/images/src/<name>.html frame (window chrome, backdrop, crops of the captures, the
+// "works with" strips) is rendered at 2x into docs/images/<name>-light.png and -dark.png, and
+// social.html into docs/images/social-preview.png (1280x640); (3) the PNGs are optimised with
+// pngquant and oxipng when installed, and any image over 600 KB is reported.
 //
 // Operations are found from the app's OpenAPI document and capabilities. Override any of them with
 // an operationId: SHOT_ORDER (a write whose Preview touches SQL and MongoDB; default: POST
-// /…/orders), SHOT_LIST (a GET to Send; default: GET /…/products), SHOT_DOCS (default: SHOT_ORDER),
-// SHOT_UNAVAILABLE (default: the first `previewUnavailable` operation), SHOT_BLOCKED (a write whose
-// Preview the guard blocks with 409; optional). SENDPROOF_URL defaults to http://127.0.0.1:5189 and
-// SHOT_PERSONA to the first persona the app lists. Every Preview rolls back, so the app's data is
-// unchanged; the List Send is a read.
+// /…/orders, Place order), SHOT_LIST (a GET to Send; default: GET /…/products), SHOT_DOCS
+// (default: SHOT_ORDER), SHOT_UNAVAILABLE (default: the first `previewUnavailable` operation, Quote
+// price), SHOT_BLOCKED (a write whose Preview the guard blocks with 409; default: POST
+// /…/redemptions, Redeem coupon). SENDPROOF_URL defaults to http://127.0.0.1:5189; the frames'
+// address pill shows its host, so capture from http://localhost:5080 (the README's `dotnet run`)
+// for the published images. SHOT_PERSONA defaults to the first persona the app lists. Every Preview
+// rolls back, so the app's data is unchanged; the List Send is a read.
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const root = resolve(import.meta.dirname, '..');
@@ -37,7 +38,9 @@ const only = (args[args.indexOf('--only') + 1] ?? '').split(',').filter(name => 
 const composeOnly = args.includes('--compose-only');
 const wanted = name => !only.length || only.includes(name);
 const themes = ['light', 'dark'];
-const desktop = { width: 1480, height: 920 };
+// The desktop shots close the operations sidebar (Mod+\), so the frames can show the whole window,
+// top bar and logo included, at a size that reads at README width.
+const desktop = { width: 1320, height: 860 };
 const phone = { width: 390, height: 844 };
 const settle = page => page.waitForTimeout(400);
 
@@ -63,22 +66,33 @@ async function discover() {
   const unavailable = capabilities.previewUnavailable?.[0];
   const order = find('SHOT_ORDER', operation => operation.method === 'POST' && /\/orders$/.test(operation.path), 'the order Preview');
   const personas = await get(capabilities.authProviders.find(provider => provider.kind === 'personas')?.url ?? '/auth/personas').catch(() => []);
+  const redeem = operations.find(operation => operation.method === 'POST' && /\/redemptions$/.test(operation.path))?.id;
   return {
     apiName: capabilities.apiName,
+    document: capabilities.openApiUrl,
     persona: process.env.SHOT_PERSONA ?? personas[0]?.email,
     order,
     list: find('SHOT_LIST', operation => operation.method === 'GET' && /\/products$/.test(operation.path), 'the List Send'),
     docs: process.env.SHOT_DOCS ?? order,
     unavailable: find('SHOT_UNAVAILABLE', operation => unavailable && operation.method === unavailable.method && operation.path === unavailable.path, 'Preview unavailable'),
-    blocked: process.env.SHOT_BLOCKED,
+    // The store example's Redeem coupon runs Redis INCRBY, which the write guard stops.
+    blocked: process.env.SHOT_BLOCKED ?? redeem,
   };
 }
 
 // ---- Driving the workbench ---------------------------------------------------------------------
 
-async function workbench(browser, viewport, { theme, language = 'en', persona }) {
+/**
+ * A signed-in workbench page. `layout` is the saved pane split the app restores
+ * ({ sidebar: rem, request: share of the room beside the sidebar }), as a person who dragged the
+ * divider would have it.
+ */
+async function workbench(browser, viewport, { theme, language = 'en', persona, layout, document, settings = {} }) {
   const context = await browser.newContext({ viewport, deviceScaleFactor: 2, locale: 'en-GB', colorScheme: theme });
-  await context.addInitScript(settings => localStorage.setItem('sendproof-settings', JSON.stringify(settings)), { language, theme });
+  await context.addInitScript(({ settings, layout, key }) => {
+    localStorage.setItem('sendproof-settings', JSON.stringify(settings));
+    if (layout) localStorage.setItem(key, JSON.stringify(layout));
+  }, { settings: { ...settings, language, theme }, layout, key: `sendproof-layout:${document}` });
   const page = await context.newPage();
   page.on('pageerror', error => console.error(`  page error: ${error.message}`));
   await page.goto(`${url}/sendproof/`);
@@ -94,8 +108,22 @@ async function open(page, hash) {
   await page.reload(); // a hash change alone keeps the capabilities from before sign-in
   await page.locator('.sidebar .nav-heading').first().waitFor({ state: 'attached' });
   await page.evaluate(() => document.fonts.ready);
+  await closeSidebar(page);
   await settle(page);
 }
+
+/** Closes the operations sidebar on a desktop layout, with the app's own shortcut. */
+async function closeSidebar(page) {
+  const state = await page.evaluate(() => matchMedia('(min-width: 56.001rem)').matches ? document.querySelector('.workspace')?.dataset.sidebar ?? 'open' : 'mobile');
+  if (state !== 'open') return;
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press('ControlOrMeta+Backslash');
+  await page.waitForFunction(() => document.querySelector('.workspace')?.dataset.sidebar === 'closed', null, { timeout: 3000 })
+    .catch(() => console.warn('  the sidebar did not close'));
+}
+
+/** Scrolls every pane back to its top, so a frame never opens mid-form. */
+const toTop = page => page.evaluate(() => document.querySelectorAll('.pane-scroll, main.pane, .pane').forEach(element => { element.scrollTop = 0; }));
 
 /** Opens an operation with its documented example filled in, then picks any path record left empty. */
 async function prepare(page, operation) {
@@ -104,7 +132,8 @@ async function prepare(page, operation) {
   await page.locator('.actionbar [data-action="send"]').waitFor();
   if (await page.locator('#request-tab-Params').count()) {
     await page.locator('#request-tab-Params').click();
-    const empty = page.locator('[data-parameter-name] [role="combobox"]:has(.placeholder)');
+    // Only the path's own records: optional filters stay unset, so a list returns a full page.
+    const empty = page.locator('#parameters-path [data-parameter-name] [role="combobox"]:has(.placeholder)');
     for (let left = await empty.count(); left > 0; left--) {
       await empty.first().click();
       const option = page.locator('.lb [role="option"]').first();
@@ -115,6 +144,7 @@ async function prepare(page, operation) {
     const body = page.locator('#request-tab-Body');
     if (await body.count()) await body.click();
   }
+  await toTop(page);
   await page.waitForTimeout(250);
 }
 
@@ -151,8 +181,11 @@ async function phonePreview(page, ids) {
   await settle(page);
 }
 
+// Each capture's `layout` is the pane split it is taken with (see workbench()); with the sidebar
+// closed, the request column keeps that width and the result pane takes the rest.
 const captures = {
   'hero': {
+    layout: { sidebar: 16, request: 0.56 },
     shots: ['order-database', 'order-documents'],
     async take(page, ids, save) {
       await prepare(page, ids.order);
@@ -166,18 +199,22 @@ const captures = {
     },
   },
   'logs': {
+    // Compact density and a taller window, so the whole chain fits: the reads, the DynamoDB and
+    // Redis lookups, the SQL writes, the MongoDB commands and the app's own log line.
+    viewport: { width: 1320, height: 1240 },
+    settings: { density: 'compact' },
+    layout: { sidebar: 16, request: 0.45 },
     shots: ['order-logs'],
     async take(page, ids, save) {
       await prepare(page, ids.order);
       await run(page, 'preview', 'order preview');
       await tab(page, TABS.logs);
-      const db = page.locator('#result .log-row.is-db').first();
-      if (await db.count()) await db.click();
       await settle(page);
       await save('order-logs');
     },
   },
   'docs': {
+    layout: { sidebar: 16, request: 0.56 },
     shots: ['docs'],
     async take(page, ids, save) {
       await open(page, `docs/${ids.docs}`);
@@ -185,14 +222,19 @@ const captures = {
     },
   },
   'response': {
+    layout: { sidebar: 16, request: 0.45 },
     shots: ['response'],
     async take(page, ids, save) {
       await prepare(page, ids.list);
       await run(page, 'send', 'list send');
+      // The schema check's popover: which schema the body matched and what was checked.
+      await page.locator('.resp-head button', { hasText: /schema/i }).first().click().catch(() => console.warn('  no schema check on the List Send'));
+      await settle(page);
       await save('response');
     },
   },
   'guard': {
+    layout: { sidebar: 16, request: 0.56 },
     shots: ['unavailable', 'blocked'],
     async take(page, ids, save) {
       await prepare(page, ids.unavailable);
@@ -209,7 +251,7 @@ const captures = {
     async take(page, ids, save, browser, theme) {
       await phonePreview(page, ids);
       await save('phone');
-      const rtl = await workbench(browser, phone, { theme, language: 'ar', persona: ids.persona });
+      const rtl = await workbench(browser, phone, { theme, language: 'ar', persona: ids.persona, document: ids.document });
       try {
         await phonePreview(rtl.page, ids);
         await save('phone-rtl', rtl.page);
@@ -222,9 +264,11 @@ const captures = {
 
 /**
  * The regions the frames crop, measured in the page at capture time so the frames follow the
- * layout: `work` is the visible main pane and the result pane below the top bar, `result` the
- * result pane alone, `body` the result pane's scrolling content under its tabs, `full` the whole
- * viewport. All in CSS pixels of the capture.
+ * layout: `full` is the whole viewport (top bar and logo included), `work` the visible main pane
+ * and the result pane below the top bar, `result` the result pane alone, `body` the result pane's
+ * scrolling content under its tabs, `content` the same down to the end of what it shows, `blocked`
+ * a write-guard result down to its first next step, and `documents` the first MongoDB store
+ * section down to the end of its first document. All in CSS pixels of the capture.
  */
 const regions = page => page.evaluate(() => {
   const visible = element => element && !element.hidden && element.getClientRects().length;
@@ -238,7 +282,29 @@ const regions = page => page.evaluate(() => {
   if (main) out.work = { x: box(main).left, y: top, w: width - box(main).left, h: height - top };
   if (visible(result)) out.result = { x: box(result).left, y: top, w: box(result).width, h: height - top };
   const body = document.querySelector('#result');
-  if (visible(body)) out.body = { x: box(body).left, y: box(body).top, w: box(body).width, h: box(body).height };
+  if (visible(body)) {
+    const area = box(body);
+    out.body = { x: area.left, y: area.top, w: area.width, h: area.height };
+    const end = Math.max(...[...body.querySelectorAll(':scope > *, :scope > * > *')].filter(visible).map(element => box(element).bottom));
+    out.content = { x: area.left, y: area.top, w: area.width, h: Math.min(end + 20, area.bottom) - area.top };
+  }
+  const guard = document.querySelector('#result .blk');
+  if (visible(guard)) {
+    const pad = 22;
+    const area = box(guard);
+    const end = box(guard.querySelector('.blk-step') ?? guard.querySelector('.blk-safe') ?? guard).bottom;
+    const y = Math.max(area.top - pad, box(body).top);
+    out.blocked = { x: area.left - pad, y, w: area.width + pad * 2, h: Math.min(end + 12, height) - y };
+  }
+  const card = document.querySelector('#result [data-doc-card]');
+  const group = card?.closest('section.sg');
+  if (group) {
+    // A little air around the section, without reaching the tabs above or the next card below.
+    const pad = 14;
+    const area = box(group);
+    const y = Math.max(area.top - pad, box(body).top);
+    out.documents = { x: area.left - pad, y, w: area.width + pad * 2, h: Math.min(box(card).bottom + 6, height) - y };
+  }
   return { vw: width, vh: height, regions: out };
 });
 
@@ -249,12 +315,13 @@ async function capture(browser, ids) {
   for (const [name, plan] of Object.entries(captures).filter(([name]) => wanted(name))) {
     for (const theme of themes) {
       console.log(`capture ${name} (${theme})`);
-      const { context, page } = await workbench(browser, plan.viewport ?? desktop, { theme, persona: ids.persona });
+      const { context, page } = await workbench(browser, plan.viewport ?? desktop, { theme, persona: ids.persona, layout: plan.layout, settings: plan.settings, document: ids.document });
       const save = async (shot, target = page) => {
         await target.screenshot({ path: join(raw, `${shot}-${theme}.png`), animations: 'disabled' });
         manifest[`${shot}-${theme}`] = await regions(target);
         await writeFile(manifestFile, JSON.stringify(manifest, null, 2));
-        await writeFile(join(raw, 'manifest.js'), `window.SHOTS = ${JSON.stringify(manifest)};\n`);
+        // The frames' address pill shows the host the captures were taken from.
+        await writeFile(join(raw, 'manifest.js'), `window.SHOTS = ${JSON.stringify(manifest)};\nwindow.SHOTS_HOST = ${JSON.stringify(new URL(url).host)};\n`);
       };
       try {
         await plan.take(page, ids, save, browser, theme);
@@ -270,6 +337,8 @@ async function capture(browser, ids) {
 
 // ---- Framing -----------------------------------------------------------------------------------
 
+const frames = 'http://readme-frames.invalid';
+
 async function compose(browser) {
   await mkdir(images, { recursive: true });
   const written = [];
@@ -278,8 +347,11 @@ async function compose(browser) {
     const social = name === 'social';
     if (!wanted(name) && !(social && wanted('social'))) continue;
     const page = await browser.newPage({ deviceScaleFactor: social ? 1 : 2 });
+    // The frames are served from the repository on a private origin, not file://, so their
+    // module scripts can import the marks and the language list straight from ui/.
+    await page.route(`${frames}/**`, route => route.fulfill({ path: join(root, decodeURIComponent(new URL(route.request().url()).pathname)) }));
     for (const theme of social ? ['light'] : themes) {
-      await page.goto(`${pathToFileURL(join(sources, file)).href}?theme=${theme}`);
+      await page.goto(`${frames}/docs/images/src/${file}?theme=${theme}`);
       await page.evaluate(() => document.fonts.ready);
       await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth));
       const out = join(images, social ? 'social-preview.png' : `${name}-${theme}.png`);

@@ -1,5 +1,5 @@
-/* Shared product-shot frame for the README images. Rendered by `node tools/shoot-readme.mjs compose`
-   at 2x from the real captures in artifacts/readme/raw (made by `node tools/shoot-readme.mjs raw`). */
+/* Shared product-shot frame for the README images. Rendered at 2x by `node tools/readme-shots.mjs`
+   from the real captures it takes into artifacts/readme/raw. */
 @import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
 
 :root {
@@ -84,3 +84,21 @@ body { font-family: "Geist", ui-sans-serif, system-ui, sans-serif; color: var(--
 .phone { position: absolute; border-radius: 44px; padding: 10px; background: oklch(0.16 0.01 268); box-shadow: var(--shadow), 0 0 0 1px var(--edge), inset 0 0 0 1.5px oklch(0.35 0.01 268); }
 .phone .screen { border-radius: 34px; overflow: hidden; position: relative; background: var(--window); }
 .phone .notch { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 96px; height: 26px; border-radius: 13px; background: #000; z-index: 2; }
+
+/* The "works with" strips (works.js): chips on the backdrop, quieter than the window. */
+.works-strips { --cap: 150px; display: grid; gap: 12px; }
+.works-strips .strip { display: flex; align-items: flex-start; gap: 14px; }
+.works-strips .cap { flex: none; inline-size: var(--cap); line-height: 34px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.works-strips .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.works-strips .chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 9px; font-size: 16px; font-weight: 500; color: var(--text);
+  background: var(--chip); box-shadow: 0 0 0 1px var(--edge), 0 6px 16px -10px oklch(0.3 0.1 268 / 0.35); backdrop-filter: blur(8px); white-space: nowrap; }
+.works-strips .chip i { font-style: normal; font-weight: 400; color: var(--muted); margin-inline-start: 5px; }
+.works-strips .lang-ico { width: 17px; height: 17px; flex: none; overflow: visible; }
+.works-strips .chip.spoken { padding: 0 11px; }
+.works-strips .chip .rtl { font: 600 9.5px/1 "Geist Mono", ui-monospace, monospace; letter-spacing: 0.04em; color: var(--accent); padding: 3px 4px; border-radius: 4px;
+  background: oklch(0.50 0.19 268 / 0.10); box-shadow: inset 0 0 0 1px oklch(0.50 0.19 268 / 0.22); }
+:root.dark .works-strips .chip .rtl { color: oklch(0.80 0.11 268); background: oklch(0.70 0.15 268 / 0.14); box-shadow: inset 0 0 0 1px oklch(0.70 0.15 268 / 0.30); }
+.works-strips .chip.more { color: var(--muted); font-weight: 400; background: transparent; box-shadow: inset 0 0 0 1px var(--edge); backdrop-filter: none; }
+.works-strips .frameworks { margin: -3px 0 6px calc(var(--cap) + 14px); font-size: 14.5px; line-height: 1.5; color: var(--muted); }
+.works-strips .frameworks span { opacity: 0.55; }
+.works-strips .frameworks b { font-weight: 400; white-space: nowrap; }

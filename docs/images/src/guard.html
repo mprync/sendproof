@@ -5,8 +5,9 @@
 <title>Sendproof: Preview unavailable and blocked</title>
 <link rel="stylesheet" href="frame.css">
 <style>
-  #canvas { width: 1180px; padding: 40px 40px 52px; }
-  .blocked { right: 28px; bottom: 30px; }
+  #canvas { width: 1180px; padding: 40px 40px 84px; }
+  /* Below the empty state's first paragraph, so the panel cuts no line of text. */
+  .blocked { right: 28px; bottom: 36px; }
 </style>
 <script src="../../../artifacts/readme/raw/manifest.js"></script>
 <script src="frame.js"></script>
@@ -20,11 +21,11 @@
       <div class="tail"></div>
     </div>
     <!-- An operation the API marks preview: false because it writes to Redis: Send only, and it asks first. -->
-    <div class="crop" data-raw="unavailable" data-region="work" data-width="1030" data-height="660"><img alt=""></div>
+    <div class="crop" data-raw="unavailable" data-region="full" data-width="1030"><img alt=""></div>
   </div>
   <div class="panel blocked" data-optional-group>
     <!-- A Preview the write guard stopped: the store, the command and the 409, with nothing written. -->
-    <div class="crop" data-raw="blocked" data-region="body" data-width="460" data-height="330" data-optional><img alt=""></div>
+    <div class="crop" data-raw="blocked" data-region="blocked" data-width="620" data-optional><img alt=""></div>
   </div>
 </div>
 </body>

@@ -6,13 +6,16 @@
 //     <img alt="">
 //   </div>
 //
-// data-region is `work`, `result`, `body` or `full`; data-width is the displayed width in CSS pixels;
+// data-region is `full`, `work`, `result`, `body`, `content` or `documents` (see regions() in the
+// script); data-width is the displayed width in CSS pixels;
 // data-height (optional) trims the bottom; data-top (optional) trims the top, in capture pixels;
 // data-theme (optional) fixes the capture's theme; data-optional removes the enclosing
 // [data-optional-group] when the capture does not exist (a shot the app could not provide).
 const theme = new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light';
 document.documentElement.classList.toggle('dark', theme === 'dark');
 document.addEventListener('DOMContentLoaded', () => {
+  // The address pill names the host the captures came from (localhost:5080 for `dotnet run`).
+  if (window.SHOTS_HOST) document.querySelectorAll('.window .url b').forEach(host => { host.textContent = window.SHOTS_HOST; });
   for (const crop of document.querySelectorAll('.crop[data-raw]')) {
     const name = `${crop.dataset.raw}-${crop.dataset.theme ?? theme}`;
     const shot = window.SHOTS?.[name];

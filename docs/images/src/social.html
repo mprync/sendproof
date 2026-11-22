@@ -7,30 +7,37 @@
 <style>
   /* GitHub's social preview: 1280x640. Text stays inside a 40 px safe margin. */
   #canvas { width: 1280px; height: 640px; }
-  .copy { position: absolute; left: 72px; top: 0; bottom: 0; width: 520px; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
-  .brand { display: flex; align-items: center; gap: 14px; font-size: 34px; font-weight: 600; letter-spacing: -0.02em; }
-  /* The Dry Run mark (docs/images/logo), sized like the lockup: the darts a little taller than the capitals. */
-  .mark { display: block; width: 48px; height: 48px; color: oklch(0.50 0.19 268); --ghost: 0.4; }
-  :root.dark .mark { color: oklch(0.68 0.16 268); --ghost: 0.5; }
+  .copy { position: absolute; left: 72px; top: 96px; width: 560px; display: flex; flex-direction: column; gap: 20px; }
+  .brand { display: flex; align-items: center; gap: 13px; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; }
+  /* The Dry Run mark (docs/images/logo), monochrome like the workbench's top bar: the darts a
+     little taller than the capitals. */
+  .mark { display: block; width: 44px; height: 44px; color: #181a20; --ghost: 0.35; }
+  :root.dark .mark { color: #edeef1; --ghost: 0.4; }
   .mark svg { display: block; width: 100%; height: 100%; fill: currentColor; stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
   .mark .ghost { opacity: var(--ghost); }
-  h1 { font-size: 50px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 600; }
+  h1 { font-size: 47px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 600; }
   h1 em { font-style: normal; color: var(--accent); }
-  p { font-size: 21px; line-height: 1.45; color: var(--muted); }
-  .langs { display: flex; flex-wrap: wrap; gap: 8px; }
-  .langs span { font-size: 15px; font-weight: 500; padding: 5px 11px; border-radius: 999px; background: var(--chip); box-shadow: 0 0 0 1px var(--edge); }
-  .shot { left: 640px; top: 76px; width: 760px; }
+  p.lede { font-size: 20px; line-height: 1.45; color: var(--muted); max-width: 500px; }
+  .shot { left: 664px; top: 60px; width: 700px; }
+  /* The two strips run the full width under the copy and the shot. */
+  .band { position: absolute; left: 72px; right: 48px; bottom: 40px; }
+  .band .works-strips { --cap: 132px; gap: 9px; }
+  .band .chip { height: 32px; font-size: 15px; padding: 0 11px; }
+  .band .chip.spoken { padding: 0 10px; }
+  .band .lang-ico { width: 16px; height: 16px; }
+  .band .cap { line-height: 32px; font-size: 12px; }
+  .band .frameworks { font-size: 14px; margin-block: -2px 2px; }
 </style>
 <script src="../../../artifacts/readme/raw/manifest.js"></script>
 <script src="frame.js"></script>
+<script type="module" src="works.js"></script>
 </head>
 <body>
 <div id="canvas">
   <div class="copy">
     <div class="brand"><span class="mark"><svg viewBox="0 0 24 24"><path class="ghost" d="M1.5 5 7.57 8.15 9.11 12 7.57 15.85 1.5 19 4.3 12z"/><path d="M9 5 22.5 12 9 19 11.8 12z"/></svg></span>Sendproof</div>
     <h1>See what an API call <em>will change</em> before you send it.</h1>
-    <p>An OpenAPI workbench inside your API. Preview runs the real handler and rolls it back.</p>
-    <div class="langs"><span>.NET</span><span>Node.js</span><span>Python</span><span>Java &amp; Kotlin</span><span>Go</span><span>PHP</span><span>Ruby</span><span>Rust</span></div>
+    <p class="lede">An OpenAPI workbench inside your API. Preview runs the real handler and rolls it back.</p>
   </div>
   <div class="window shot">
     <div class="bar">
@@ -38,8 +45,10 @@
       <div class="url"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span><b>localhost:5189</b>/sendproof</span></div>
       <div class="tail"></div>
     </div>
-    <div class="crop" data-raw="order-database" data-region="result" data-width="760" data-height="600"><img alt=""></div>
+    <!-- The order Preview's result: rolled back, the stores it wrote and read, and the SQL rows. -->
+    <div class="crop" data-raw="order-database" data-region="result" data-width="700" data-height="333"><img alt=""></div>
   </div>
+  <div class="band"><div data-works="compact"></div></div>
 </div>
 </body>
 </html>
