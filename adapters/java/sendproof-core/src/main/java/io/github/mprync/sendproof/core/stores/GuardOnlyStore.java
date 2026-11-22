@@ -51,6 +51,7 @@ public abstract class GuardOnlyStore implements DataStore {
     }
 
     @Override
+    @SuppressWarnings("try")
     public final DataStoreSession begin(RequestCapture capture) {
         AutoCloseable open = StoreGuard.openPreview(capture);
         return new DataStoreSession() {
@@ -101,7 +102,7 @@ public abstract class GuardOnlyStore implements DataStore {
         static final Observation NONE = new Observation(null, null, 0);
 
         private final RequestCapture capture;
-        private final DbEntry entry;
+        private DbEntry entry;
         private final long startedNanos;
         private boolean done;
 
@@ -111,20 +112,54 @@ public abstract class GuardOnlyStore implements DataStore {
             this.startedNanos = startedNanos;
         }
 
+        /** Whether the command is being logged: false outside a capture and for a session command. */
+        public boolean logged() {
+            return capture != null;
+        }
+
+        /**
+         * Adds what is only known once the request message has been seen (a streaming call's first message), before the
+         * entry is recorded. A {@code null} argument leaves the field as it was; the statement must not carry a value.
+         */
+        public synchronized void describe(String target, String namespace, String statement) {
+            if (capture == null || done) {
+                return;
+            }
+            if (target != null) {
+                entry = entry.withTarget(target);
+            }
+            if (namespace != null) {
+                entry = entry.withNamespace(namespace);
+            }
+            if (statement != null) {
+                entry = entry.withStatement(statement);
+            }
+        }
+
         /**
          * Records the entry. Later calls do nothing.
          *
          * @param rows    documents, rows or items returned or matched, or {@code null} when unknown
          * @param failure what the store answered with, or {@code null}; only its type name is kept
          */
-        public synchronized void complete(Integer rows, Throwable failure) {
+        public void complete(Integer rows, Throwable failure) {
+            finish(rows, failure == null ? null : failure.getClass().getSimpleName());
+        }
+
+        /**
+         * Records the entry. Later calls do nothing.
+         *
+         * @param rows  documents, rows or items returned or matched, or {@code null} when unknown
+         * @param error the store's error code name, such as {@code NOT_FOUND}, or {@code null} for success
+         */
+        public synchronized void finish(Integer rows, String error) {
             if (capture == null || done) {
                 return;
             }
             done = true;
             DbEntry finished = entry.withRows(rows).withElapsed((System.nanoTime() - startedNanos) / 1_000_000.0);
-            if (failure != null) {
-                finished = finished.withError(failure.getClass().getSimpleName());
+            if (error != null) {
+                finished = finished.withError(error);
             }
             capture.db(finished);
         }

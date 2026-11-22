@@ -12,3 +12,8 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.slf4j:slf4j-simple")
 }
+
+tasks.test {
+    // The recorded requests of spec/data-stores/recordings/ replay through the hook.
+    systemProperty("sendproof.spec.dir", rootDir.resolve("../../spec").canonicalPath)
+}
