@@ -126,6 +126,52 @@ class ReactiveMongoStoreTest {
     }
 
     @Test
+    void aPreviewWhoseAbortIsLostAnswers500AtOnceAndStillReleasesItsLocksOnTheDriversOwnThreads() throws Exception {
+        try (var proxy = new MongoStoreTest.Proxy(URL)) {
+            MongoStore proxied = MongoStore.builder().build();
+            MongoClient through = MongoClients.create(MongoClientSettings.builder()
+                    .applyConnectionString(new ConnectionString("mongodb://127.0.0.1:" + proxy.port() + "/?directConnection=true"))
+                    .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(1, java.util.concurrent.TimeUnit.SECONDS))
+                    .addCommandListener(proxied.commandListener()).contextProvider((com.mongodb.reactivestreams.client.ReactiveContextProvider)
+                            proxied.reactiveContextProvider()).build());
+            try {
+                MongoClient guarded = proxied.reactive(through);
+                assertThat(proxied.describe().mode()).isEqualTo("preview");
+                var restorer = new Thread(() -> {
+                    try {
+                        Thread.sleep(5000);
+                        proxy.restore();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                long[] started = new long[1];
+                PreviewOutcome outcome = Harness.preview(() -> {
+                    ReactiveBackend.first(guarded.getDatabase(databaseName).getCollection("documents")
+                            .updateOne(new Document("_id", "seeded"), new Document("$set", new Document("name", "Preview"))));
+                    proxy.cut();
+                    restorer.start();
+                    started[0] = System.nanoTime();
+                }, proxied);
+                assertThat(java.time.Duration.ofNanos(System.nanoTime() - started[0])).isLessThan(java.time.Duration.ofSeconds(4));
+                assertThat(outcome.status()).isEqualTo(500);
+                assertThat(outcome.confirmed()).isFalse();
+                // Waits behind the Preview transaction's lock until killSessions ends it.
+                java.util.concurrent.CompletableFuture.runAsync(() -> ReactiveBackend.first(raw.getDatabase(databaseName)
+                        .getCollection("documents").updateOne(new Document("_id", "seeded"),
+                                new Document("$set", new Document("name", "After")))))
+                        .get(20, java.util.concurrent.TimeUnit.SECONDS);
+                Document seeded = ReactiveBackend.first(raw.getDatabase(databaseName).getCollection("documents")
+                        .find(new Document("_id", "seeded")).first());
+                assertThat(seeded.getString("name")).isEqualTo("After");
+                restorer.join();
+            } finally {
+                through.close();
+            }
+        }
+    }
+
+    @Test
     void anOutStageIsBlockedBeforeSending() throws Exception {
         PreviewOutcome outcome = Harness.preview(() -> assertThatThrownBy(() -> documents().aggregate(List.of(
                 new Document("$out", "archive")))).isInstanceOf(PreviewWriteBlockedException.class), store);

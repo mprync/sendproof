@@ -67,6 +67,13 @@ final class MongoEngine {
     /** The reason a standalone server, or any reply the binding doesn't recognise, runs in {@code guard} mode. */
     static final String STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions";
 
+    /**
+     * The reason when the detection {@code hello} can't be sent or answered: whether the server supports transactions is
+     * unknown, so the store runs in {@code guard} mode for now and asks again next time.
+     */
+    static final String UNREACHABLE_REASON = "Preview unavailable: couldn't reach MongoDB to check whether it supports "
+            + "transactions, so this Preview runs in guard mode";
+
     /** The default Preview time limit: below the server's 60-second {@code transactionLifetimeLimitSeconds}. */
     static final long DEFAULT_TIMEOUT_MS = 50_000;
 
@@ -87,6 +94,24 @@ final class MongoEngine {
 
     private static final ScheduledExecutorService TIMERS = Executors.newSingleThreadScheduledExecutor(task -> {
         Thread thread = new Thread(task, "sendproof-mongodb-preview-timeout");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    /** {@code NoSuchTransaction}: the server has no such transaction, so nothing holds its locks. */
+    private static final int NO_SUCH_TRANSACTION = 251;
+
+    /**
+     * How long the engine keeps trying to end a Preview transaction whose abort the server never acknowledged, and the
+     * backoff between tries. Well inside the server's 60-second transaction lifetime.
+     */
+    private static final long KILL_RETRY_LIMIT_MS = 10_000;
+    private static final long KILL_FIRST_DELAY_MS = 100;
+    private static final long KILL_MAX_DELAY_MS = 2_000;
+
+    /** Runs {@code killSessions} after a lost abort, so the Preview's reply never waits for the network. */
+    private static final java.util.concurrent.ExecutorService KILLERS = Executors.newCachedThreadPool(task -> {
+        Thread thread = new Thread(task, "sendproof-mongodb-kill-session");
         thread.setDaemon(true);
         return thread;
     });
@@ -118,8 +143,15 @@ final class MongoEngine {
         /** The session guarded handles hand to the driver in place of the handler's; never given to handler code. */
         Object driver;
         final String lsid;
-        /** Set once a command carried the session to the server. */
+        /** Set once a write carried the session to the server. */
         volatile boolean used;
+        /**
+         * Set once any command carried the session to the server: from then on the server may hold the transaction, and
+         * its locks, until an abort reaches it.
+         */
+        volatile boolean sent;
+        /** Set when the server answered the abort: acknowledged it, or said the transaction no longer exists. */
+        volatile boolean abortAcknowledged;
         volatile boolean finished;
         final Map<String, Candidate> candidates = new LinkedHashMap<>();
         final List<Filter> filters = new ArrayList<>();
@@ -168,6 +200,10 @@ final class MongoEngine {
     private final Map<RequestCapture, Mode> modes = Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<RequestCapture, PreviewState> states = Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Integer, Pending> pending = new ConcurrentHashMap<>();
+    /** Each Preview whose session is still open, by the hex of its {@code lsid}. */
+    private final Map<String, PreviewState> byLsid = new ConcurrentHashMap<>();
+    /** The Preview of each {@code abortTransaction} sent and not yet answered, by request id. */
+    private final Map<Integer, PreviewState> aborts = new ConcurrentHashMap<>();
     private volatile DataStore.Description detected;
     private volatile Mode mode;
     private final String name;
@@ -228,12 +264,14 @@ final class MongoEngine {
                     : new DataStore.Description("mongodb", name, "guard", STANDALONE_REASON);
             return detected;
         } catch (RuntimeException failure) {
-            // Unreachable or unrecognised: guard mode for now, and ask again next time.
+            // Guard mode for now, and ask again next time. A server that answered with an error is a reply this doesn't
+            // recognise; one that couldn't be reached proves nothing about transactions, and says so.
             LOG.debug("MongoDB topology detection failed; Preview runs in guard mode for now.", failure);
             if (mode == null) {
                 mode = Mode.GUARD;
             }
-            return new DataStore.Description("mongodb", name, "guard", STANDALONE_REASON);
+            return new DataStore.Description("mongodb", name, "guard",
+                    failure instanceof com.mongodb.MongoServerException ? STANDALONE_REASON : UNREACHABLE_REASON);
         }
     }
 
@@ -316,6 +354,7 @@ final class MongoEngine {
             throw failure;
         }
         states.put(capture, state);
+        byLsid.put(state.lsid, state);
         // A handler still running at the limit loses its transaction: later commands fail, nothing commits, and the
         // Preview answers 500 when it ends.
         state.timer = TIMERS.schedule(() -> {
@@ -427,6 +466,16 @@ final class MongoEngine {
             if (event.getCommand().containsKey("comment") && event.getCommand().get("comment").isString()
                     && probeToken.equals(event.getCommand().getString("comment").getValue())) {
                 probeSeen = true;
+            }
+            // Before the internal check: the engine sends the abort itself.
+            String sessionId = byLsid.isEmpty() ? null : lsidOf(event.getCommand());
+            PreviewState own = sessionId == null ? null : byLsid.get(sessionId);
+            if (own != null) {
+                if (event.getCommandName().equals("abortTransaction")) {
+                    aborts.put(event.getRequestId(), own);
+                } else {
+                    own.sent = true;
+                }
             }
             if (internalEvent(event.getRequestContext())) {
                 return;
@@ -598,6 +647,10 @@ final class MongoEngine {
     }
 
     private void succeeded(CommandSucceededEvent event) {
+        PreviewState aborted = aborts.remove(event.getRequestId());
+        if (aborted != null) {
+            aborted.abortAcknowledged = true;
+        }
         Pending taken = pending.remove(event.getRequestId());
         if (taken == null) {
             return;
@@ -646,6 +699,13 @@ final class MongoEngine {
     }
 
     private void failed(CommandFailedEvent event) {
+        PreviewState aborted = aborts.remove(event.getRequestId());
+        // NoSuchTransaction: the server has no such transaction, so nothing holds its locks. A network error proves
+        // nothing reached the server, and any other answer leaves the transaction in doubt.
+        if (aborted != null && event.getThrowable() instanceof MongoCommandException command
+                && command.getErrorCode() == NO_SUCH_TRANSACTION) {
+            aborted.abortAcknowledged = true;
+        }
         Pending taken = pending.remove(event.getRequestId());
         if (taken == null) {
             return;
@@ -677,14 +737,16 @@ final class MongoEngine {
 
     /**
      * After the handler: captures document changes, then aborts the transaction and ends the session. A capture read
-     * that fails for any reason but an already-aborted transaction rethrows after the abort, so the Preview answers 500.
-     * Nothing the Preview wrote is ever committed: no {@code commitTransaction} is ever sent for the Preview session.
+     * that fails for any reason but an already-aborted transaction rethrows after the abort, so the Preview answers 500,
+     * as does an abort the server never acknowledged. Nothing the Preview wrote is ever committed: no
+     * {@code commitTransaction} is ever sent for the Preview session.
      */
     void finish(RequestCapture capture) {
         PreviewState state = states.get(capture);
         if (state == null || state.finished) {
             return;
         }
+        boolean ended = true;
         RuntimeException failure = null;
         try {
             if (state.used) {
@@ -699,10 +761,15 @@ final class MongoEngine {
                 failure = error;
             }
         } finally {
-            end(state);
+            ended = end(state);
         }
         if (failure != null) {
             throw failure;
+        }
+        if (!ended) {
+            // The server may still hold the transaction's locks; the session is killed in the background.
+            throw new IllegalStateException(
+                    "MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.");
         }
     }
 
@@ -716,13 +783,18 @@ final class MongoEngine {
     }
 
     /**
-     * Aborts the Preview transaction and ends its session, once. An unacknowledged abort still commits nothing, because
-     * no {@code commitTransaction} is ever sent for the Preview session.
+     * Aborts the Preview transaction and ends its session, once.
+     *
+     * <p>The driver ignores abort errors, as the transactions specification requires: an unacknowledged abort still
+     * commits nothing, because no {@code commitTransaction} is ever sent for the Preview session. But the server then
+     * keeps the transaction, and its locks, until its 60-second lifetime limit. So when a command was sent on the
+     * session and the server didn't answer the abort, this returns {@code false} at once (the Preview answers 500) and
+     * kills the session in the background.
      */
-    private void end(PreviewState state) {
+    private boolean end(PreviewState state) {
         synchronized (state) {
             if (state.finished) {
-                return;
+                return true;
             }
             state.finished = true;
         }
@@ -732,11 +804,67 @@ final class MongoEngine {
         if (timer != null) {
             timer.cancel(false);
         }
-        internal(() -> {
+        boolean lost = internal(() -> {
             backend.abort(state.session);
+            return state.sent && !state.abortAcknowledged;
+        });
+        if (!lost) {
+            close(state);
+            return true;
+        }
+        KILLERS.execute(() -> kill(state));
+        return false;
+    }
+
+    /** Ends the session, after which the driver may hand its id to another operation. */
+    private void close(PreviewState state) {
+        byLsid.remove(state.lsid, state);
+        internal(() -> {
             backend.end(state.session);
             return null;
         });
+    }
+
+    /**
+     * Ends the Preview transaction with {@code killSessions} after an abort the server never answered (the connection
+     * dropped), retrying with backoff while the server can't be reached. A final failure is logged with the session id:
+     * the server ends the transaction at its lifetime limit. The session stays open until then, so the driver can't hand
+     * its id to another operation meanwhile. Each try waits at most the client's server selection timeout.
+     */
+    private void kill(PreviewState state) {
+        String failure;
+        try {
+            var session = ((com.mongodb.session.ClientSession) state.session).getServerSession();
+            // The id may still name a transaction on the server: never let the driver's pool reuse it.
+            session.markDirty();
+            var command = new BsonDocument("killSessions", new BsonArray(List.of(session.getIdentifier())));
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(KILL_RETRY_LIMIT_MS);
+            long delay = KILL_FIRST_DELAY_MS;
+            while (true) {
+                try {
+                    internal(() -> backend.command("admin", command, null));
+                    return;
+                } catch (com.mongodb.MongoSocketException | com.mongodb.MongoTimeoutException unreachable) {
+                    // A network error or no server to select: try again shortly.
+                    long left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+                    if (left <= 0) {
+                        failure = "MongoDB couldn't be reached for " + KILL_RETRY_LIMIT_MS / 1000 + " s";
+                        break;
+                    }
+                    Thread.sleep(Math.min(delay, left));
+                    delay = Math.min(delay * 2, KILL_MAX_DELAY_MS);
+                }
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            failure = "interrupted";
+        } catch (RuntimeException refused) {
+            failure = refused.getMessage();
+        } finally {
+            close(state);
+        }
+        LOG.warn("Couldn't end the transaction of MongoDB Preview session {} ({}); the server ends it, and releases its "
+                + "locks, at transactionLifetimeLimitSeconds.", state.lsid, failure);
     }
 
     /**

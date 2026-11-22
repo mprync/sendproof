@@ -466,7 +466,8 @@ class MongoStoreTest {
         MongoDatabase database = guardOnly.guard(own.getDatabase(databaseName));
 
         assertThat(guardOnly.describe().mode()).isEqualTo("guard");
-        assertThat(guardOnly.describe().reason()).contains("doesn't support transactions");
+        assertThat(guardOnly.describe().reason()).isEqualTo(MongoEngine.STANDALONE_REASON)
+                .isEqualTo("Preview unavailable: this MongoDB server doesn't support transactions");
         PreviewOutcome outcome = Harness.preview(() -> {
             // Reads run.
             assertThat(database.getCollection("documents").find().first()).isNotNull();
@@ -559,6 +560,186 @@ class MongoStoreTest {
         }, store));
         assertThat(change(envelope, "insert").get("key").get("_id").asText()).isEqualTo("hopped");
         assertThat(committed("hopped")).isZero();
+    }
+
+    @Test
+    void anUnreachableServerRunsInGuardModeWithItsOwnReasonAndIsAskedAgain() throws Exception {
+        // Nothing listens here: the hello can't be sent, which says nothing about transactions.
+        MongoStore nowhere = MongoStore.builder().build();
+        MongoClient unreachable = MongoClients.create(MongoClientSettings.builder()
+                .applyConnectionString(new ConnectionString("mongodb://127.0.0.1:1/?directConnection=true"))
+                .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+                .addCommandListener(nowhere.commandListener()).build());
+        extra.add(unreachable);
+        nowhere.sync(unreachable);
+        assertThat(nowhere.describe().mode()).isEqualTo("guard");
+        assertThat(nowhere.describe().reason()).isEqualTo(MongoEngine.UNREACHABLE_REASON).isEqualTo(
+                "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode");
+        assertThat(MongoEngine.UNREACHABLE_REASON).isNotEqualTo(MongoEngine.STANDALONE_REASON);
+        PreviewOutcome outcome = Harness.preview(() -> assertThatThrownBy(() -> nowhere.guard(unreachable.getDatabase(databaseName))
+                .getCollection("documents").insertOne(new Document("_id", "unreachable")))
+                .isInstanceOf(PreviewWriteBlockedException.class), nowhere);
+        assertThat(outcome.blocked()).isTrue();
+
+        // Once the server answers, detection runs again and Preview is available.
+        var failures = new java.util.concurrent.atomic.AtomicInteger(1);
+        MongoStore later = MongoStore.builder().build();
+        MongoClient own = withListener(later);
+        later.attach(new DelegatingBackend(SyncSupport.backend(own)) {
+            @Override
+            public BsonDocument command(String database, BsonDocument command, Object session) {
+                if (command.containsKey("hello") && failures.getAndDecrement() > 0) {
+                    throw new com.mongodb.MongoSocketOpenException("unreachable", new com.mongodb.ServerAddress());
+                }
+                return super.command(database, command, session);
+            }
+        }, SessionBinder.NONE);
+        assertThat(later.describe().reason()).isEqualTo(MongoEngine.UNREACHABLE_REASON);
+        assertThat(later.describe().mode()).isEqualTo("preview");
+    }
+
+    @Test
+    void aPreviewWhoseAbortIsLostAnswers500AtOnceAndStillReleasesItsLocks() throws Exception {
+        raw.getDatabase(databaseName).getCollection("documents").updateOne(Filters.eq("_id", "seeded"), Updates.set("n", 0));
+        try (Proxy proxy = new Proxy(URL)) {
+            // A store that reaches MongoDB only through the proxy and gives up quickly when it can't: when the
+            // connection is cut, the driver's own abort fails and the driver hides that.
+            MongoStore proxied = MongoStore.builder().build();
+            MongoClient through = MongoClients.create(MongoClientSettings.builder()
+                    .applyConnectionString(new ConnectionString("mongodb://127.0.0.1:" + proxy.port() + "/?directConnection=true"))
+                    .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(1, java.util.concurrent.TimeUnit.SECONDS))
+                    .addCommandListener(proxied.commandListener()).build());
+            extra.add(through);
+            MongoClient guarded = proxied.sync(through);
+            assertThat(proxied.describe().mode()).isEqualTo("preview");
+            var restorer = new Thread(() -> {
+                try {
+                    Thread.sleep(8000);
+                } catch (InterruptedException interrupted) {
+                    return;
+                }
+                proxy.restore();
+            });
+            long[] started = new long[1];
+            PreviewOutcome outcome = Harness.preview(() -> {
+                guarded.getDatabase(databaseName).getCollection("documents").updateOne(Filters.eq("_id", "seeded"), Updates.inc("n", 1));
+                // The network fails after the handler, before the Preview finishes, and stays down for 8 seconds.
+                proxy.cut();
+                restorer.start();
+                started[0] = System.nanoTime();
+            }, proxied);
+            Duration waited = Duration.ofNanos(System.nanoTime() - started[0]);
+            assertThat(waited).as("the reply waited for the network").isLessThan(Duration.ofSeconds(6));
+            assertThat(outcome.status()).isEqualTo(500);
+            assertThat(outcome.confirmed()).as("a rollback the server never acknowledged is never claimed").isFalse();
+            // The session is killed in the background once the network is back; without that the transaction holds its
+            // write lock until the server's 60-second lifetime limit.
+            var write = java.util.concurrent.CompletableFuture.runAsync(() -> raw.getDatabase(databaseName)
+                    .getCollection("documents").updateOne(Filters.eq("_id", "seeded"), Updates.inc("n", 10)));
+            write.get(20, java.util.concurrent.TimeUnit.SECONDS);
+            Document seeded = raw.getDatabase(databaseName).getCollection("documents").find(Filters.eq("_id", "seeded")).first();
+            assertThat(seeded.getInteger("n")).as("nothing of the Preview was committed").isEqualTo(10);
+            restorer.join();
+        }
+    }
+
+    @Test
+    void aNormalPreviewSendsNoKillSessions() throws Exception {
+        var names = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        MongoStore watched = MongoStore.builder().build();
+        MongoClient own = MongoClients.create(MongoClientSettings.builder().applyConnectionString(new ConnectionString(URL))
+                .addCommandListener(watched.commandListener())
+                .addCommandListener(new com.mongodb.event.CommandListener() {
+                    @Override
+                    public void commandStarted(com.mongodb.event.CommandStartedEvent event) {
+                        names.add(event.getCommandName());
+                    }
+                }).build());
+        extra.add(own);
+        MongoClient guarded = watched.sync(own);
+        MongoCollection<Document> collection = guarded.getDatabase(databaseName).getCollection("documents");
+        Harness.envelope(Harness.preview(() -> collection.insertOne(new Document("_id", "normal")), watched));
+        Harness.envelope(Harness.preview(() -> collection.find().first(), watched));
+        Harness.envelope(Harness.preview(() -> { }, watched));
+        Thread.sleep(500);
+        assertThat(names).contains("abortTransaction").doesNotContain("killSessions");
+        assertThat(committed("normal")).isZero();
+    }
+
+    /** A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network failing. */
+    static final class Proxy implements AutoCloseable {
+        private final java.net.ServerSocket listener;
+        private final List<java.net.Socket> open = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        private volatile boolean down;
+
+        Proxy(String url) throws java.io.IOException {
+            var upstream = new com.mongodb.ServerAddress(new ConnectionString(url).getHosts().get(0));
+            listener = new java.net.ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress());
+            Thread accept = new Thread(() -> {
+                while (!listener.isClosed()) {
+                    try {
+                        java.net.Socket client = listener.accept();
+                        if (down) {
+                            client.close();
+                            continue;
+                        }
+                        java.net.Socket server = new java.net.Socket(upstream.getHost(), upstream.getPort());
+                        open.add(client);
+                        open.add(server);
+                        pump(client, server);
+                        pump(server, client);
+                    } catch (java.io.IOException closed) {
+                        // The listener closed, or the upstream refused this connection.
+                    }
+                }
+            }, "mongo-test-proxy");
+            accept.setDaemon(true);
+            accept.start();
+        }
+
+        int port() {
+            return listener.getLocalPort();
+        }
+
+        private static void pump(java.net.Socket from, java.net.Socket to) {
+            Thread thread = new Thread(() -> {
+                try {
+                    from.getInputStream().transferTo(to.getOutputStream());
+                } catch (java.io.IOException cut) {
+                    // A cut connection.
+                } finally {
+                    try {
+                        from.close();
+                        to.close();
+                    } catch (java.io.IOException ignored) {
+                        // Already closed.
+                    }
+                }
+            });
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        /** Closes every open connection and refuses new ones until {@link #restore}. */
+        void cut() throws java.io.IOException {
+            down = true;
+            synchronized (open) {
+                for (java.net.Socket socket : open) {
+                    socket.close();
+                }
+                open.clear();
+            }
+        }
+
+        void restore() {
+            down = false;
+        }
+
+        @Override
+        public void close() throws java.io.IOException {
+            listener.close();
+            cut();
+        }
     }
 
     private final List<MongoClient> extra = new java.util.ArrayList<>();
