@@ -124,6 +124,54 @@ function guardedClient<Client extends object>(client: Client, reads: ReadonlySet
   });
 }
 
+/** Instances whose BulkWriters are guarded when a write is enqueued. */
+const guardedInstances = new WeakSet<object>();
+const bulkHooked = Symbol.for('sendproof.firestore.bulkWriter');
+const enqueueMethods = ['create', 'set', 'update', 'delete'] as const;
+
+/**
+ * Guard every `BulkWriter` of a hooked instance where a write is enqueued, not only where its batch
+ * is sent. A BulkWriter collects writes from any caller and sends a batch later, from whichever
+ * request, flush or backoff timer completes it, so the async context at the `BatchWrite` RPC may be
+ * another request's: the RPC guard alone would let a Preview's write out in a later Send's batch.
+ * The methods are replaced on the BulkWriter prototype, so writers made before the hook are
+ * covered, and act only for writers whose `firestore` is a hooked instance. The prototype is
+ * private SDK layout, so registration fails when a probe writer doesn't have it.
+ */
+function guardBulkWriters(firestore: FirestoreInstance): void {
+  const make = firestore.bulkWriter;
+  if (typeof make !== 'function') throw new TypeError('firestoreStore takes a @google-cloud/firestore 7 Firestore instance; this one has no bulkWriter().');
+  // A BulkWriter starts no timer and sends nothing until a write is enqueued. The instance counts
+  // open writers and refuses terminate() while any is open, so the probe is closed at once (close()
+  // unregisters it synchronously; flushing an empty writer sends nothing).
+  const probe = (make as () => { firestore?: unknown; close?: () => Promise<void> }).call(firestore);
+  const prototype = Object.getPrototypeOf(probe) as Record<PropertyKey, unknown> | null;
+  const layout = probe?.firestore === firestore && prototype && typeof probe.close === 'function' && enqueueMethods.every(method => typeof prototype[method] === 'function');
+  if (typeof probe?.close === 'function') probe.close().catch(() => {});
+  if (!layout) {
+    throw new TypeError('firestoreStore takes a @google-cloud/firestore 7 Firestore instance; its BulkWriter does not have the layout the hook expects.');
+  }
+  guardedInstances.add(firestore);
+  if (Object.prototype.hasOwnProperty.call(prototype, bulkHooked)) return;
+  for (const method of enqueueMethods) {
+    const original = prototype[method] as (this: { firestore?: object }, ...args: unknown[]) => unknown;
+    prototype[method] = function guardedEnqueue(this: { firestore?: object }, ...args: unknown[]) {
+      if (this?.firestore && guardedInstances.has(this.firestore)) {
+        // Refused in a Preview, and while a Preview is open for work with no request attribution. A
+        // failed write rejects its promise, as the SDK's own do: recursiveDelete() enqueues from
+        // stream listeners, where a synchronous throw would be an uncaught exception.
+        try {
+          guard('firestore', 'BatchWrite', 'write');
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
+      return original.apply(this, args);
+    };
+  }
+  Object.defineProperty(prototype, bulkHooked, { value: true });
+}
+
 /**
  * Hook a `Firestore` instance in place and return the store for `dataStores`, before or after it
  * has made requests. Hooking the same instance twice is refused, and so is an instance without the
@@ -137,6 +185,7 @@ export function firestoreStore<Firestore extends object>(firestore: Firestore, o
     throw new TypeError('firestoreStore takes a @google-cloud/firestore 7 Firestore instance; this one has no client pool to hook.');
   }
   if ((pool as unknown as Record<PropertyKey, unknown>)[hooked]) throw new TypeError('This Firestore instance is already hooked by firestoreStore.');
+  guardBulkWriters(firestore as FirestoreInstance);
   const run = pool.run.bind(pool);
   pool.run = (requestTag, requiresGrpc, operation) => run(requestTag, requiresGrpc, client => operation(guardedClient(client, reads)));
   Object.defineProperty(pool, hooked, { value: true });

@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import firestoreSdk from '@google-cloud/firestore';
 import { grpc, GrpcClient } from 'google-gax';
-import { Capture, PreviewWriteBlockedError } from '@sendproof/core';
+import { Capture, detached, PreviewWriteBlockedError } from '@sendproof/core';
 import { firestoreStore } from '@sendproof/firestore';
 import { assertBlocked, dbEntries, handle, startApp } from './support/stores.mts';
 
@@ -243,6 +243,62 @@ test('firestore: observed Send commits once and traces the request without value
   assert(entry);
   assert.equal(entry.db.target, 'orders');
   assert(!entry.db.statement.includes('o-1') && !entry.db.statement.includes('new'), 'Paths and values are replaced');
+});
+
+test('firestore: a shared BulkWriter never sends a Preview\'s write, and its unattributed sends are refused while a Preview is open', async t => {
+  const { host, received } = await fakeServer(t);
+  const firestore = new Firestore({ projectId: 'p', host, ssl: false });
+  // Made before the hook: BulkWriters already in use must be guarded too.
+  const early = firestore.bulkWriter();
+  const store = firestoreStore(firestore, { name: 'orders' });
+  t.after(() => firestore.terminate());
+  const shared = firestore.bulkWriter();
+  let open: () => void = () => {};
+  const released = new Promise<void>(resolve => { open = resolve; });
+  let entered: () => void = () => {};
+  const inside = new Promise<void>(resolve => { entered = resolve; });
+  t.after(() => open());
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/enqueue/{which}', handle(async (req, res) => {
+      const writer = req.params.which === 'early' ? early : shared;
+      void writer.set(firestore.doc(`orders/${req.params.which}`), { a: 1 }).catch(() => {});
+      res.json({ ok: true });
+    }));
+    bench.operation('POST', '/flush', handle(async (_req, res) => { await shared.flush(); await early.flush(); res.json({ ok: true }); }));
+    bench.operation('POST', '/hold', handle(async (_req, res) => { entered(); await released; res.json({ ok: true }); }));
+  }, { sqlProvider: false });
+  const batchWrites = () => received.filter(name => name === 'BatchWrite').length;
+
+  // A BulkWriter batches writes and sends them later, from whichever request or timer completes the
+  // batch: the Preview's write is refused when it is enqueued, so a later Send that flushes the
+  // shared writer in its own request sends nothing of the Preview's.
+  await assertBlocked(await app.preview('POST', '/enqueue/shared'), 'firestore', 'BatchWrite');
+  await assertBlocked(await app.preview('POST', '/enqueue/early'), 'firestore', 'BatchWrite');
+  assert.equal((await fetch(app.url + '/flush', { method: 'POST' })).status, 200);
+  assert.equal(batchWrites(), 0, 'A write a Preview enqueued must never be sent');
+
+  // The writer's own send with no request attribution while a Preview is open (background work
+  // enqueued it, a timer flushes it) is refused before it is sent, and the open Preview is blocked.
+  const pending = app.preview('POST', '/hold');
+  await inside;
+  await assert.rejects(shared.set(firestore.doc('orders/stray'), { a: 2 }), PreviewWriteBlockedError);
+  const background = detached(() => shared.set(firestore.doc('orders/background'), { a: 3 }));
+  background.catch(() => {});
+  await shared.flush();
+  await assert.rejects(background);
+  assert.equal(batchWrites(), 0, 'An unattributed BulkWriter send must not reach the server');
+  open();
+  await assertBlocked(await pending, 'firestore', 'BatchWrite');
+
+  // recursiveDelete() enqueues on its own BulkWriter from stream listeners: refused, without an uncaught exception.
+  await assert.rejects(new Capture('preview').run(() => firestore.recursiveDelete(firestore.doc('orders/tree'))));
+  assert.equal(batchWrites(), 0);
+
+  // Work in detached() is never refused, and with no Preview open the writer sends as usual.
+  await detached(async () => { const write = shared.set(firestore.doc('orders/job'), { a: 4 }); await shared.flush(); await write; });
+  assert.equal(batchWrites(), 1);
+  await early.close();
+  await shared.close();
 });
 
 test('firestore: a hooked instance works before and after its first request, and a second hook is refused', async t => {
