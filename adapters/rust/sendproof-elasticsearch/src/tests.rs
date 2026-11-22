@@ -257,6 +257,43 @@ macro_rules! engine_tests {
                 assert!(wire.sent().is_empty());
             }
 
+            /// Takes each request's node in turn, like the clients' multi-node pools.
+            #[derive(Debug, Clone)]
+            struct TwoNodes {
+                nodes: Vec<$krate::http::transport::Connection>,
+                next: Arc<std::sync::atomic::AtomicUsize>,
+            }
+
+            impl $krate::http::transport::ConnectionPool for TwoNodes {
+                fn next(&self) -> $krate::http::transport::Connection {
+                    let at = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    self.nodes[at % self.nodes.len()].clone()
+                }
+            }
+
+            /// The refusal happens above the client's connection pool: a refused write never asks the
+            /// pool for a node, so it can't mark one dead, count as a failure, or shift the rotation.
+            #[tokio::test]
+            async fn a_refused_write_does_not_touch_the_connection_pool() {
+                let (first, second, recorder) = (Wire::default(), Wire::default(), preview());
+                let urls = [first.serve().await, second.serve().await].map(|address| format!("http://{address}").parse().unwrap());
+                let pool = TwoNodes { nodes: urls.into_iter().map($krate::http::transport::Connection::new).collect(), next: Arc::default() };
+                let transport = $krate::http::transport::TransportBuilder::new(pool).build().unwrap();
+                let store = $Store::new($krate::$Client::new(transport));
+                capture::scope(recorder.clone(), async {
+                    let guarded = store.detached().client();
+                    assert!(send(&guarded, Method::Post, "/articles/_update_by_query", None).await.is_err());
+                    assert!(send(&guarded, Method::Put, "/articles/_doc/1", Some(serde_json::json!({ "title": "x" }))).await.is_err());
+                    // The next reads still use the nodes in order, starting with the first.
+                    send(&guarded, Method::Get, "/articles/_doc/a", None).await.unwrap();
+                    send(&guarded, Method::Get, "/articles/_doc/b", None).await.unwrap();
+                })
+                .await;
+                assert_eq!(first.sent(), ["GET /articles/_doc/a"], "the first node served the first read");
+                assert_eq!(second.sent(), ["GET /articles/_doc/b"], "the second node served the second read");
+                assert!(recorder.blocked().is_some());
+            }
+
             /// The negative test: without the guard the same write reaches the cluster and the Preview is
             /// not marked, which is what the conformance checks and the 409 assertions catch.
             #[tokio::test]
@@ -324,6 +361,52 @@ macro_rules! engine_tests {
                 .await;
                 assert!(wire.sent().is_empty(), "the write must not reach the cluster: {:?}", wire.sent());
                 assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
+            }
+
+            /// A task the handler started keeps the Preview's context after the response. Once the Preview
+            /// has ended its writes are still refused, for as long as the process runs.
+            #[tokio::test]
+            async fn a_write_from_a_task_that_outlives_its_preview_is_still_refused() {
+                let wire = Wire::default();
+                let store = $Store::new(client(&wire.serve().await));
+                let (release, released) = tokio::sync::oneshot::channel::<()>();
+                let (finished, result) = tokio::sync::oneshot::channel();
+                let reply = run_preview(&store, async {
+                    let guarded = store.detached().client();
+                    tokio::spawn(async move {
+                        released.await.ok();
+                        let outcome = send(&guarded, Method::Put, "/articles/_doc/late", Some(serde_json::json!({ "title": "x" }))).await.map(|_| ());
+                        let _ = finished.send(outcome);
+                    });
+                })
+                .await;
+                assert_eq!(reply.status, 200, "the Preview itself had written nothing: {}", String::from_utf8_lossy(&reply.body));
+                release.send(()).unwrap();
+                let error = result.await.unwrap().expect_err("the late write is refused");
+                assert!(blocked_by(&error).is_some_and(|blocked| blocked.operation == "index"), "{error}");
+                assert!(wire.sent().is_empty(), "the write must not reach the cluster: {:?}", wire.sent());
+            }
+
+            /// A bulk request is one `send`, refused on the caller's thread when it is made: there is no
+            /// queue behind the guard whose send-time refusal a client could retry until it hangs.
+            #[tokio::test]
+            async fn a_bulk_request_is_refused_when_it_is_made() {
+                let (wire, recorder) = (Wire::default(), preview());
+                let store = $Store::new(client(&wire.serve().await));
+                capture::scope(recorder.clone(), async {
+                    let started = Instant::now();
+                    let error = store
+                        .detached()
+                        .client()
+                        .send(Method::Post, "/_bulk", HeaderMap::new(), None::<&()>, Some("{\"index\":{\"_index\":\"articles\"}}\n{\"title\":\"x\"}\n"), None)
+                        .await
+                        .map(|_| ())
+                        .unwrap_err();
+                    assert!(blocked_by(&error).is_some_and(|blocked| blocked.operation == "bulk"));
+                    assert!(started.elapsed() < std::time::Duration::from_secs(1), "no retries");
+                })
+                .await;
+                assert!(wire.sent().is_empty());
             }
 
             #[tokio::test]

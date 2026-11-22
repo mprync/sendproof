@@ -374,6 +374,31 @@ mod server {
         fixture.drop().await;
     }
 
+    /// A task the handler started keeps the Preview's context after the response. Once the Preview has
+    /// ended its writes are still refused, for as long as the process runs.
+    #[tokio::test]
+    async fn a_write_from_a_task_that_outlives_its_preview_is_still_refused() {
+        let Some(fixture) = Fixture::new().await else { return };
+        let store = CassandraStore::new(fixture.raw.clone());
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let (finished, result) = tokio::sync::oneshot::channel();
+        let reply = run_preview(&store, async {
+            let session = store.detached().session();
+            tokio::spawn(async move {
+                released.await.ok();
+                let outcome = session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('late', 'new', 1)", ()).await.map(|_| ());
+                let _ = finished.send(outcome);
+            });
+        })
+        .await;
+        assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+        release.send(()).unwrap();
+        let error = result.await.unwrap().expect_err("the late write is refused");
+        assert!(error.blocked().is_some_and(|blocked| blocked.operation == "INSERT"), "{error}");
+        assert_eq!(fixture.ticket("late").await, None, "the write must not reach Cassandra");
+        fixture.drop().await;
+    }
+
     #[tokio::test]
     async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
         let Some(fixture) = Fixture::new().await else { return };

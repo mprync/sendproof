@@ -260,12 +260,36 @@ async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_s
     assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
 }
 
+/// A task the handler started keeps the Preview's context after the response. Once the Preview has
+/// ended its writes are still refused, for as long as the process runs.
+#[tokio::test]
+async fn a_write_from_a_task_that_outlives_its_preview_is_still_refused() {
+    let wire = Wire::default();
+    let store = RedisStore::new().connection(wire.clone());
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let (finished, result) = tokio::sync::oneshot::channel();
+    let reply = run_preview(&store, async {
+        let mut conn = store.detached().connection();
+        tokio::spawn(async move {
+            released.await.ok();
+            let outcome = redis::cmd("INCR").arg("counter:late").exec_async(&mut conn).await;
+            let _ = finished.send(outcome);
+        });
+    })
+    .await;
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    release.send(()).unwrap();
+    assert!(result.await.unwrap().is_err(), "the late write is refused");
+    assert!(wire.sent().is_empty(), "the write must not reach Redis: {:?}", wire.sent());
+}
+
 #[tokio::test]
 async fn a_detached_background_write_is_never_refused() {
     let wire = Wire::default();
     let store = RedisStore::new().connection(wire.clone());
+    // The background worker's connection is made outside any Preview, so it carries no Preview's context.
+    let mut conn = store.detached().connection();
     let reply = run_preview(&store, async {
-        let mut conn = store.detached().connection();
         tokio::spawn(sendproof_core::detached(async move { redis::cmd("INCR").arg("counter:a").exec_async(&mut conn).await.unwrap() })).await.unwrap();
     })
     .await;
