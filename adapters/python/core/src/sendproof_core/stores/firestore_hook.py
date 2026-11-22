@@ -11,9 +11,15 @@ place with a **gRPC channel interceptor**, the hook that sees every call type:
   request carries at least one write; one with none only ends a transaction that read and wrote
   nothing, so it is allowed. ``BatchWrite`` and the document RPCs are writes. A method the table
   doesn't list is a write.
-* Reads run and become a ``Db`` entry that names the RPC, the collection and the database, never a
-  value. In a Preview the first write raises
-  :class:`~sendproof_core.stores.guard.PreviewWriteBlocked` and the Preview answers 409.
+* Reads run and become a ``Db`` entry that names the RPC, the collection and the database, with the
+  request as JSON whose every literal, document paths included, is ``?``. In a Preview the first write
+  raises :class:`~sendproof_core.stores.guard.PreviewWriteBlocked` and the Preview answers 409.
+* ``bulk_writer()`` returns a writer whose ``create``, ``set``, ``update`` and ``delete`` are refused in
+  a Preview where the handler queues them, on its thread: refusing the batch on the writer's own
+  threads would be retried until ``flush()`` hangs. Its batches run in the flushing code's context.
+
+The hook overrides private methods, so registration refuses a ``google-cloud-firestore`` outside
+the verified minor versions (:mod:`sendproof_core.stores.versions`) or a client whose layout differs.
 
 How it is installed: ``Client`` takes no transport, and the GAPIC transport builds all its stubs
 from the channel it is given, so the hook swaps the client's class for a subclass whose
@@ -28,14 +34,19 @@ not covered unless it is hooked as well.
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextvars
+import inspect
+import json
 import re
 import time
 from typing import Any, Iterable, Optional
 
 from .base import DataStore
-from .classify import SESSION
+from .classify import SESSION, WRITE
 from .classify_batch_two import classify_firestore
-from .guard import check_command, read_set, store_label
+from .guard import check_command, read_set, sanitize_document, store_label
+from .versions import require_supported
 
 _DATABASE = re.compile(r"(?:^|/)databases/([^/]+)")
 
@@ -101,6 +112,24 @@ def describe_request(message: Any) -> tuple[Optional[str], Optional[str]]:
     return collection or _field(message, "collection_id") or None, database
 
 
+def describe_statement(message: Any) -> Optional[str]:
+    """The ``Db`` statement of a request: the message as JSON with every literal, document paths
+    included, replaced by ``"?"``. Field names are kept; ``None`` when the message can't be read."""
+    if message is None:
+        return None
+    try:
+        to_dict = getattr(type(message), "to_dict", None)  # a proto-plus message
+        if callable(to_dict):
+            data = to_dict(message, use_integers_for_enums=False)
+        else:
+            from google.protobuf.json_format import MessageToDict
+
+            data = MessageToDict(message)
+        return json.dumps(sanitize_document(data), separators=(",", ":")) if data else None
+    except Exception:  # an unknown message shape: log the call without a statement rather than fail it
+        return None
+
+
 class _Guard:
     """Classifies one call and writes its ``Db`` entry. Shared by the synchronous and asynchronous interceptors."""
 
@@ -115,14 +144,14 @@ class _Guard:
         if scope is None or verdict.kind == SESSION:
             return None  # outside a request, or a call that changes no data and isn't logged
         collection, database = describe_request(message)
-        return scope, verdict, collection, database, time.perf_counter()
+        return scope, verdict, collection, database, describe_statement(message), time.perf_counter()
 
     @staticmethod
     def after(pending: Optional[tuple], outcome: Any) -> None:
         """Log the call. A streaming call is logged when it is opened, so its entry has no error or timing."""
         if pending is None:
             return
-        scope, verdict, collection, database, began = pending
+        scope, verdict, collection, database, statement, began = pending
         error = None
         try:
             import grpc
@@ -132,7 +161,7 @@ class _Guard:
                 error = None if code is None or code == grpc.StatusCode.OK else code.name
         except Exception:
             error = None
-        scope.capture.record_db("firestore", verdict.operation, target=collection, namespace=database,
+        scope.capture.record_db("firestore", verdict.operation, target=collection, namespace=database, statement=statement,
                                 error=error, elapsed_ms=(time.perf_counter() - began) * 1000)
 
 
@@ -211,6 +240,60 @@ def _async_interceptors(guard: _Guard) -> list:
 
 
 _HOOKED = "_sendproof_firestore_store"
+_bulk_writer_classes: dict[tuple[type, int], type] = {}
+
+
+class _ContextExecutor(concurrent.futures.ThreadPoolExecutor):
+    """A thread pool that runs each task in the context of the code that submitted it.
+
+    ``BulkWriter`` submits its batches from the thread that queued or flushed them, so its sends
+    keep that request's attribution instead of arriving with none.
+    """
+
+    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        return super().submit(contextvars.copy_context().run, fn, *args, **kwargs)
+
+
+def _guarded_bulk_writer_class(base: type, store: "FirestoreStore") -> type:
+    """A ``BulkWriter`` subclass whose writes are refused in a Preview before they are queued."""
+
+    def guarded(name: str) -> Any:
+        original = getattr(base, name)
+
+        def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+            check_command("firestore", "BatchWrite", WRITE)
+            return original(self, *args, **kwargs)
+
+        method.__name__ = name
+        return method
+
+    namespace: dict[str, Any] = {name: guarded(name) for name in ("create", "set", "update", "delete")}
+    namespace.update({"_instantiate_executor": lambda self: _ContextExecutor(), _HOOKED: store, "__module__": __name__})
+    return type(f"Guarded{base.__name__}", (base,), namespace)
+
+
+def _check_layout(base: type, asynchronous: bool) -> None:
+    """Refuse a client class whose private layout isn't the one the hook overrides."""
+    from google.cloud.firestore_v1 import base_client
+
+    problems = []
+    helper = getattr(base, "_firestore_api_helper", None)
+    try:
+        parameters = list(inspect.signature(helper).parameters) if callable(helper) else []
+    except (TypeError, ValueError):
+        parameters = []
+    if parameters != ["self", "transport", "client_class", "client_module"]:
+        problems.append("_firestore_api_helper(transport, client_class, client_module)")
+    if not hasattr(base, "_firestore_api_internal"):
+        problems.append("_firestore_api_internal")
+    if not callable(getattr(base, "bulk_writer", None)):
+        problems.append("bulk_writer")
+    if asynchronous:
+        problems += [name for name in ("_emulator_channel", "_to_sync_copy") if not callable(getattr(base, name, None))]
+        if not hasattr(base_client, "_GRPC_MSG_SIZE_OPTIONS"):
+            problems.append("base_client._GRPC_MSG_SIZE_OPTIONS")
+    if problems:
+        raise TypeError(f"This google-cloud-firestore client has no {', '.join(problems)}; firestore_store can't guard it.")
 
 
 class FirestoreStore(DataStore):
@@ -261,9 +344,12 @@ class FirestoreStore(DataStore):
                 return super().create_channel(*args, **kwargs)
 
             def __init__(self, *args: Any, channel: Any = None, **kwargs: Any) -> None:
-                for shape in ("unary_unary", "unary_stream", "stream_unary", "stream_stream"):
+                # Every call shape must carry its interceptor. A channel whose layout differs, or one
+                # built without them, is refused rather than used unguarded.
+                ours = store._interceptor(True)
+                for shape, interceptor in zip(("unary_unary", "unary_stream", "stream_unary", "stream_stream"), ours):
                     found = getattr(channel, f"_{shape}_interceptors", None)
-                    if found is not None and not any(ours in found for ours in store._interceptor(True)):
+                    if not isinstance(found, list) or interceptor not in found:
                         raise TypeError("firestore_store needs the client's channel to carry its interceptors.")
                 super().__init__(*args, channel=channel, **kwargs)
 
@@ -276,7 +362,11 @@ class FirestoreStore(DataStore):
         def _firestore_api_helper(self: Any, transport: type, client_class: Any, client_module: Any) -> Any:
             return base._firestore_api_helper(self, store._guarded_transport(transport, asynchronous), client_class, client_module)
 
-        namespace: dict[str, Any] = {"_firestore_api_helper": _firestore_api_helper, "__module__": __name__, _HOOKED: self}
+        def bulk_writer(self: Any, *args: Any, **kwargs: Any) -> Any:
+            return store._guard_bulk_writer(base.bulk_writer(self, *args, **kwargs))
+
+        namespace: dict[str, Any] = {"_firestore_api_helper": _firestore_api_helper, "bulk_writer": bulk_writer,
+                                     "__module__": __name__, _HOOKED: self}
 
         if asynchronous:
             def _emulator_channel(self: Any, transport: type) -> Any:
@@ -298,9 +388,37 @@ class FirestoreStore(DataStore):
             namespace["_to_sync_copy"] = _to_sync_copy
         return type(f"Guarded{base.__name__}", (base,), namespace)
 
+    def _guard_bulk_writer(self, writer: Any) -> Any:
+        """Guard a ``BulkWriter``: refuse its writes where the handler queues them, and send its batches
+        in the context of the code that flushed them.
+
+        A ``BulkWriter`` sends ``BatchWrite`` from its own executor threads. Refusing there would leave
+        the refused batch counted in flight, and enough of those stall ``flush()`` for good, so in a
+        Preview ``create``, ``set``, ``update`` and ``delete`` are refused before anything is queued.
+        Outside a Preview its batches run in the flushing code's context, so an observed Send logs them.
+        """
+        base = type(writer)
+        if getattr(base, _HOOKED, None) is not None:
+            return writer
+        missing = [name for name in ("create", "set", "update", "delete", "_executor") if not hasattr(writer, name)]
+        if missing:
+            raise TypeError(f"This google-cloud-firestore BulkWriter has no {', '.join(missing)}; firestore_store can't guard it.")
+        guarded = _bulk_writer_classes.get((base, id(self)))
+        if guarded is None:
+            guarded = _bulk_writer_classes[(base, id(self))] = _guarded_bulk_writer_class(base, self)
+        previous = writer._executor
+        writer.__class__ = guarded
+        writer._executor = _ContextExecutor()
+        previous.shutdown(wait=False)
+        return writer
+
     # ------------------------------------------------------------------ hooking
     def guard_client(self, client: Any) -> None:
-        """Guard a Firestore client in place. Hooking a client twice is refused."""
+        """Guard a Firestore client in place. Hooking a client twice is refused.
+
+        The hook overrides private methods of the client, so a version outside the verified range
+        (:data:`~sendproof_core.stores.versions.SUPPORTED`) or a client whose layout differs is refused here.
+        """
         from google.cloud.firestore_v1.async_client import AsyncClient
         from google.cloud.firestore_v1.client import Client
 
@@ -312,8 +430,8 @@ class FirestoreStore(DataStore):
             asynchronous = False
         else:
             raise TypeError("firestore_store takes a google-cloud-firestore Client or AsyncClient.")
-        if "_firestore_api_helper" not in dir(client):
-            raise TypeError("This google-cloud-firestore version has no _firestore_api_helper; 2.x is expected.")
+        require_supported("google-cloud-firestore", "firestore_store")
+        _check_layout(type(client), asynchronous)
         client.__class__ = self._guarded_client_class(type(client), asynchronous)
         previous = getattr(client, "_firestore_api_internal", None)
         if previous is not None:  # already used: rebuild it over a guarded channel at the next call

@@ -87,7 +87,7 @@ def replay_every_recording(hooked: bool) -> int:
                     if expected["kind"] == "read":
                         logged = db_entries(scope, "firestore", expected["operation"])
                         assert len(logged) == 1, recording["name"]
-                        assert "statement" not in logged[0]["db"], "Firestore entries name collections, never values"
+                        assert_values_hidden(logged[0]["db"].get("statement"), entry["rest"].get("body"), recording["name"])
             plain, observed = Channel(), Channel()
             call_through(interceptor, plain, rpc, message)
             with active(observed_scope()):
@@ -95,6 +95,25 @@ def replay_every_recording(hooked: bool) -> int:
             assert plain.sent == [rpc] and observed.sent == [rpc], recording["name"]
             replayed += 1
     return replayed
+
+
+def leaves(value: Any) -> list:
+    if isinstance(value, dict):
+        return [leaf for inner in value.values() for leaf in leaves(inner)]
+    if isinstance(value, list):
+        return [leaf for inner in value for leaf in leaves(inner)]
+    return [value]
+
+
+def assert_values_hidden(statement: Any, body: Any, name: str) -> None:
+    """A read's statement keeps the request's field names and replaces every literal, document paths included, with ``?``."""
+    if not body:
+        return
+    assert isinstance(statement, str), name
+    assert set(leaves(json.loads(statement))) == {"?"}, name
+    for literal in leaves(body):
+        if isinstance(literal, str) and len(literal) > 2:
+            assert literal not in statement, f"{name}: {literal!r} reached the statement"
 
 
 class PassThrough:
@@ -234,7 +253,9 @@ def test_the_real_client_runs_reads_and_refuses_every_write_before_it_is_sent(em
         assert scope.capture.blocked["operation"] == "Commit" and scope.capture.blocked["store"] == "firestore"
         reads = db_entries(scope, "firestore", "RunQuery")
         assert reads[0]["db"]["target"] == "orders" and reads[0]["db"]["namespace"] == "(default)"
-        assert "statement" not in reads[0]["db"]
+        statement = json.loads(reads[0]["db"]["statement"])
+        assert "structured_query" in statement and "orders" not in reads[0]["db"]["statement"]
+        assert '"a"' not in reads[0]["db"]["statement"].replace('"field_path":"?"', "")  # the filter's value is hidden
     assert store.describe() == {"system": "firestore", "name": "profiles", "mode": "guard"}
 
 
@@ -271,16 +292,62 @@ def test_a_write_stream_on_a_real_channel_is_refused_before_any_message(emulator
     assert "Write" not in emulator
 
 
-def test_the_bulk_writers_threads_have_no_request_so_they_fail_the_preview(emulator):
-    """``bulk_writer`` sends ``BatchWrite`` from its own threads, which carry no request context: the write
-    can't be refused there, so the Preview must fail instead of claiming a rollback."""
+def test_the_bulk_writer_is_refused_in_the_handler_before_anything_is_queued_or_sent(emulator):
+    """``bulk_writer`` sends ``BatchWrite`` from its own threads. Its writes are refused where the handler
+    queues them, so nothing reaches the server and the writer never holds a refused batch in flight."""
     client = firestore.Client(project="bench")
     firestore_store(client)
+    orders = client.collection("orders")
     with active(preview_scope()) as scope:
         writer = client.bulk_writer()
+        for write in (lambda: writer.set(orders.document("bulk"), {"x": 1}), lambda: writer.create(orders.document("c"), {"x": 1}),
+                      lambda: writer.update(orders.document("u"), {"x": 1}), lambda: writer.delete(orders.document("d"))):
+            with pytest.raises(PreviewWriteBlocked) as blocked:
+                write()
+            assert blocked.value.operation == "BatchWrite"
+        writer.close()
+        with pytest.raises(PreviewWriteBlocked):  # recursive_delete deletes through a bulk writer
+            client.recursive_delete(orders.document("tree"))
+        assert scope.capture.blocked["operation"] == "BatchWrite" and scope.capture.fault is None
+    assert "BatchWrite" not in emulator
+    writer = client.bulk_writer()  # outside a Preview the writer sends, from its own threads
+    writer.set(orders.document("plain"), {"x": 1})
+    writer.close()
+    assert "BatchWrite" in emulator
+
+
+def test_a_bulk_writer_built_directly_is_refused_on_its_own_threads_before_sending(emulator):
+    """A ``BulkWriter`` the hook never saw created sends from executor threads with no request: the
+    send is refused there, before it reaches the channel, and every open Preview is blocked."""
+    from google.cloud.firestore_v1.bulk_writer import BulkWriter
+
+    client = firestore.Client(project="bench")
+    firestore_store(client)
+    with active(preview_scope()) as scope, active(preview_scope()) as other:
+        writer = BulkWriter(client=client)
         writer.set(client.collection("orders").document("bulk"), {"x": 1})
         writer.close()
-        assert isinstance(scope.capture.fault, Exception) and "outside any request" in str(scope.capture.fault)
+        assert scope.capture.blocked["operation"] == other.capture.blocked["operation"] == "BatchWrite"
+    assert "BatchWrite" not in emulator
+
+
+def test_a_write_from_a_thread_without_the_request_is_refused_before_it_is_sent(emulator):
+    client = firestore.Client(project="bench")
+    firestore_store(client)
+    refused: list = []
+
+    def stray() -> None:
+        try:
+            client.collection("orders").document("bg").set({"x": 1})
+        except PreviewWriteBlocked as error:
+            refused.append(error.operation)
+
+    with active(preview_scope()) as scope:
+        thread = threading.Thread(target=stray)
+        thread.start()
+        thread.join()
+        assert refused == ["Commit"] and scope.capture.blocked["operation"] == "Commit"
+    assert "Commit" not in emulator
     with active(preview_scope()) as scope:
         def marked() -> None:
             with detached():
@@ -288,7 +355,8 @@ def test_the_bulk_writers_threads_have_no_request_so_they_fail_the_preview(emula
         thread = threading.Thread(target=marked)
         thread.start()
         thread.join()
-        assert scope.capture.fault is None
+        assert scope.capture.fault is None and scope.capture.blocked is None
+    assert "Commit" in emulator
 
 
 def test_hooking_a_client_twice_is_refused_and_only_firestore_clients_are_accepted(emulator):
@@ -319,10 +387,102 @@ def test_the_async_client_and_its_synchronous_copy_are_guarded(emulator):
             assert blocked.value.operation == "Write"
             assert db_entries(scope, "firestore", "RunQuery")
             assert scope.capture.blocked["operation"] == "Commit"
-        # The synchronous copy ``bulk_writer`` uses is guarded as well.
+        # The synchronous copy ``bulk_writer`` uses is guarded as well, and so is the bulk writer itself.
         with active(preview_scope()):
             with pytest.raises(PreviewWriteBlocked):
                 client._to_sync_copy().collection("orders").document("c").set({"a": 1})
+            writer = client.bulk_writer()
+            with pytest.raises(PreviewWriteBlocked):
+                writer.set(orders.document("bulk"), {"a": 1})
+            writer.close()
 
     asyncio.run(run())
     assert [name for name in emulator if name not in ("RunQuery",)] == []
+
+
+# ------------------------------------------------------------------ clients built for a real project (no emulator)
+@pytest.fixture
+def production(monkeypatch):
+    """Client options for a real endpoint: TLS and credentials, no emulator. Nothing listens there, so
+    any request that does go out fails to connect instead of being refused."""
+    from google.auth.credentials import AnonymousCredentials
+
+    monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+    return {"project": "bench", "credentials": AnonymousCredentials(), "client_options": {"api_endpoint": "127.0.0.1:9"}}
+
+
+@pytest.mark.parametrize("hooked", [True, False])
+def test_a_client_for_a_real_project_refuses_writes_before_connecting(production, hooked):
+    """The non-emulator path builds its channel with ``create_channel``; ``hooked=False`` is the control."""
+    client = firestore.Client(**production)
+    if hooked:
+        firestore_store(client)
+    with active(preview_scope()):
+        outcome = attempt(lambda: client.collection("orders").document("o1").set({"a": 1}, retry=None, timeout=2))
+    assert outcome == ("blocked Commit" if hooked else "ran")
+
+
+@pytest.mark.parametrize("hooked", [True, False])
+def test_an_async_client_for_a_real_project_refuses_writes_and_write_streams_before_connecting(production, hooked):
+    async def run() -> list:
+        client = firestore.AsyncClient(**production)
+        if hooked:
+            firestore_store(client)
+        outcomes = []
+        with active(preview_scope()):
+            for write in (lambda: client.collection("orders").document("o1").set({"a": 1}, retry=None, timeout=2),):
+                try:
+                    await write()
+                    outcomes.append("ran")
+                except PreviewWriteBlocked as blocked:
+                    outcomes.append("blocked " + blocked.operation)
+                except Exception:
+                    outcomes.append("ran")
+            try:
+                async for _ in client._firestore_api.transport.write(iter([types.WriteRequest()]), timeout=2):
+                    pass
+                outcomes.append("ran")
+            except PreviewWriteBlocked as blocked:
+                outcomes.append("blocked " + blocked.operation)
+            except Exception:
+                outcomes.append("ran")
+        return outcomes
+
+    assert asyncio.run(run()) == (["blocked Commit", "blocked Write"] if hooked else ["ran", "ran"])
+
+
+def test_an_async_channel_without_the_interceptors_is_refused_rather_than_used(production):
+    """The asynchronous transport takes its interceptors when the channel is made. A channel that
+    lacks them, or whose layout differs, must stop the client before its first call."""
+    from google.cloud.firestore_v1.services.firestore.transports.grpc_asyncio import FirestoreGrpcAsyncIOTransport
+
+    store = firestore_store_without_client()
+    guarded = store._guarded_transport(FirestoreGrpcAsyncIOTransport, True)
+
+    class Unknown:  # a channel class whose interceptor lists are not where the hook looks
+        pass
+
+    async def run() -> None:
+        for channel in (grpc.aio.insecure_channel("127.0.0.1:9"), Unknown()):
+            with pytest.raises(TypeError, match="interceptors"):
+                guarded(host="127.0.0.1:9", channel=channel, credentials=production["credentials"])
+
+    asyncio.run(run())
+
+
+def test_registration_refuses_an_unsupported_version_or_a_changed_client_layout(emulator, monkeypatch):
+    from sendproof_core.stores import versions
+
+    with monkeypatch.context() as patch:
+        patch.setattr(versions, "installed", lambda distribution: "2.35.0")
+        with pytest.raises(TypeError, match="google-cloud-firestore>=2.34,<2.35"):
+            firestore_store(firestore.Client(project="bench"))
+
+    class Changed(firestore.Client):
+        def _firestore_api_helper(self, transport, client_class):  # a different private signature
+            raise AssertionError("never called")
+
+    client = Changed(project="bench")
+    with pytest.raises(TypeError, match="_firestore_api_helper"):
+        firestore_store(client)
+    assert getattr(type(client), "_sendproof_firestore_store", None) is None  # left as it was, not half-hooked
