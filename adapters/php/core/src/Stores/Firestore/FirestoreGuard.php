@@ -7,6 +7,7 @@ namespace Sendproof\Core\Stores\Firestore;
 use Google\ApiCore\Transport\TransportInterface;
 use Google\Cloud\Firestore\FirestoreClient;
 use Sendproof\Core\Stores\Guard;
+use Sendproof\Core\Stores\InternalProperty;
 
 /**
  * Write guard for `google/cloud-firestore` 2 (spec/data-stores.md, `guard` mode).
@@ -42,21 +43,37 @@ final class FirestoreGuard
         if (isset(self::$hooked[$client])) {
             return;
         }
-        $gapic = $client instanceof FirestoreClient
-            ? \Closure::bind(fn (): object => $this->gapicClient, $client, FirestoreClient::class)()
-            : $client;
-        if (!property_exists($gapic, 'transport')) {
-            throw new \LogicException(sprintf('Sendproof can\'t guard a %s: it has no gax transport.', $gapic::class));
+        // The handwritten client keeps its generated client, and gax keeps the transport, in private
+        // properties with no setters. If a release moves either, the hook refuses to start.
+        $gapic = $client instanceof FirestoreClient ? InternalProperty::read($client, FirestoreClient::class, 'gapicClient', 'a Firestore client') : $client;
+        if (!is_object($gapic)) {
+            throw new \LogicException(sprintf('Sendproof can\'t guard a Firestore client: it holds a %s, not a generated client.', get_debug_type($gapic)));
         }
-        \Closure::bind(function (Guard $guard, ?array $reads): void {
-            if ($this->transport === null) {
-                throw new \LogicException('Sendproof can\'t guard a Firestore client that was closed.');
+        self::guardTransport($gapic, $guard, $reads);
+        // An admin client polls, cancels and deletes its long-running operations through an operations
+        // client with a transport of its own. Cancelling or deleting one is a write.
+        if (method_exists($gapic, 'getOperationsClient')) {
+            $operations = $gapic->getOperationsClient();
+            if (is_object($operations)) {
+                self::guardTransport($operations, $guard, $reads);
             }
-            if (!$this->transport instanceof GuardedFirestoreTransport) {
-                $this->transport = new GuardedFirestoreTransport($this->transport, $guard, $reads);
-            }
-        }, $gapic, $gapic::class)($guard, $reads);
+        }
         self::$hooked[$client] = true;
+    }
+
+    /** @param array<string,true>|null $reads */
+    private static function guardTransport(object $gapic, Guard $guard, ?array $reads): void
+    {
+        InternalProperty::replace($gapic, $gapic::class, 'transport', static function (mixed $transport) use ($guard, $reads, $gapic): mixed {
+            if ($transport instanceof GuardedFirestoreTransport) {
+                return $transport;
+            }
+            if (!$transport instanceof TransportInterface) {
+                throw new \LogicException(sprintf('Sendproof can\'t guard a %s: it has no gax transport (closed, or not a generated client).', $gapic::class));
+            }
+
+            return new GuardedFirestoreTransport($transport, $guard, $reads);
+        }, sprintf('a %s', $gapic::class));
     }
 
     /**

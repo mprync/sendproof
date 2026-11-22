@@ -145,6 +145,37 @@ final class FirestoreStoreTest extends TestCase
         $this->assertSame([], $fake->sent, 'The late write was never sent');
     }
 
+    /**
+     * spec/data-stores.md wants queued writes refused when they are queued, because a refusal at send
+     * time is retried until flush or close hangs. PHP's BulkWriter queues without any call the guard
+     * can see, so the refusal comes at send time; this proves that in PHP it is never retried: the
+     * send runs on the caller's call, and the refusal isn't an ApiException, the only failure the
+     * writer retries. flush(true), which waits out retries, and close() return at once.
+     */
+    public function testARefusedBulkWriterFlushIsNeverRetriedAndCloseDoesNotHang(): void
+    {
+        [$recorder, $client, $fake, $store] = $this->hooked();
+        $writer = $client->bulkWriter();
+        $attempts = 0;
+        $started = microtime(true);
+        $result = $this->preview($recorder, [$store], function () use ($writer, $client, &$attempts): void {
+            $writer->set($client->collection('orders')->document('a'), ['status' => 'new']);
+            $writer->delete($client->collection('orders')->document('b'));
+            foreach ([static fn () => $writer->flush(true), static fn () => $writer->close()] as $send) {
+                try {
+                    $send();
+                } catch (PreviewWriteBlockedException) {
+                    $attempts++;
+                }
+            }
+        });
+        $this->assertSame(2, $attempts, 'Each send was refused to its caller');
+        $this->assertLessThan(2.0, microtime(true) - $started, 'No retry backoff ran');
+        $this->assertSame(409, $result->status);
+        $this->assertSame('BatchWrite', $result->problem()['operation']);
+        $this->assertSame([], $fake->sent);
+    }
+
     public function testATransactionThatOnlyReadsRunsAndNothingItSendsWrites(): void
     {
         [$recorder, $client, $fake, $store] = $this->hooked();
@@ -193,6 +224,27 @@ final class FirestoreStoreTest extends TestCase
         $this->assertSame(409, $result->status);
         $this->assertSame('DeleteIndex', $result->problem()['operation']);
         $this->assertSame(['google.firestore.admin.v1.FirestoreAdmin/GetField'], $fake->sent);
+    }
+
+    public function testAnAdminClientsLongRunningOperationsAreGuardedToo(): void
+    {
+        // Cancelling or deleting an export or import goes through the admin client's operations client,
+        // a generated client with a transport of its own.
+        $recorder = new Recorder();
+        $fake = new RecordingFirestoreTransport();
+        $admin = new \Google\Cloud\Firestore\Admin\V1\Client\FirestoreAdminClient(['transport' => $fake, 'credentials' => new \Google\ApiCore\CredentialsWrapper(new \Google\Auth\Credentials\InsecureCredentials())]);
+        FirestoreGuard::install($admin, new Guard(static fn () => $recorder));
+        foreach (['cancel' => fn () => $admin->getOperationsClient()->cancelOperation(new \Google\LongRunning\CancelOperationRequest(['name' => 'projects/p/databases/(default)/operations/o'])),
+            'delete' => fn () => $admin->getOperationsClient()->deleteOperation(new \Google\LongRunning\DeleteOperationRequest(['name' => 'projects/p/databases/(default)/operations/o']))] as $name => $call) {
+            $result = $this->preview($recorder, [new GuardOnlyStore('firestore')], function () use ($call): void {
+                try {
+                    $call();
+                } catch (PreviewWriteBlockedException) {
+                }
+            });
+            $this->assertSame(409, $result->status, $name);
+        }
+        $this->assertSame([], $fake->sent, 'No operation call may reach the network during a Preview.');
     }
 
     public function testOutsideAPreviewEveryCallIsSentAndObservedSendLogsEachOnce(): void
