@@ -140,6 +140,29 @@ internal class GuardedMongo : DispatchProxy
 
         if (preview is null)
         {
+            // No Preview in this context: an ordinary request, observed Send or detached work passes. A write that belongs to no
+            // request while a Preview is open is refused here, before it is sent (the engine decides).
+            try
+            {
+                var rules = _kind switch
+                {
+                    Kind.Client => ClientRules,
+                    Kind.Database => DatabaseRules,
+                    Kind.Collection => CollectionRules,
+                    Kind.Indexes => IndexRules,
+                    _ => null
+                };
+                if (rules is not null && rules.TryGetValue(baseName, out var rule))
+                {
+                    var operation = rule(arguments, _collection);
+                    _engine.Check(operation, operation.GetElement(0).Name, _database);
+                }
+            }
+            catch (PreviewWriteBlockedException error)
+            {
+                return TaskFault.Create(method.ReturnType, error) ?? throw error;
+            }
+
             return Rewrap(method, Call(method, arguments));
         }
 

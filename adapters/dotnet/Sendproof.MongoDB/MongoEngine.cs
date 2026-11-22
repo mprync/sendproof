@@ -307,6 +307,13 @@ internal sealed class MongoEngine
     {
         if (_capture.Current is not { InPreview: true } preview)
         {
+            // A write through a guarded handle that carries no request, while a Preview is open, is refused before it is sent:
+            // it blocks every open Preview with a 409, whatever the mode, because nothing reached the server.
+            if (MongoClassifier.Classify(command, _reads).Kind == CommandKind.Write)
+            {
+                _capture.RefuseUnattributedWrite("mongodb", operation);
+            }
+
             return;
         }
 

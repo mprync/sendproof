@@ -717,6 +717,27 @@ public sealed class MongoTests
         }
     }
 
+    [ServiceFact("mongodb")]
+    public async Task AGuardedWriteWithNoRequestAttributionIsRefusedBeforeItIsSentAndBlocksThePreviewWith409()
+    {
+        await using var f = await Fixture.StartAsync();
+        var guarded = f.App.Services.GetRequiredService<IMongoClient>();
+        f.Gates.Reset();
+        var pending = f.App.PreviewAsync("POST", "/snapshot");
+        await f.Gates.Started.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        Task write;
+        using (ExecutionContext.SuppressFlow())
+        {
+            write = Task.Run(async () => await Documents(guarded, f.Database).InsertOneAsync(new BsonDocument("_id", "guarded-background")));
+        }
+
+        // Nothing reached the server, so the Preview answers 409 (the 500 is for a write seen after it was sent, by the tripwire).
+        await Assert.ThrowsAsync<PreviewWriteBlockedException>(() => write);
+        f.Gates.Release.SetResult();
+        await Expect.BlockedAsync(await pending, "mongodb", "insert");
+        Assert.Null(await f.FindAsync("guarded-background"));
+    }
+
     // ---- Guard mode ----
 
     private static readonly BsonDocument Standalone = new() { { "isWritablePrimary", true }, { "ok", 1 } };
