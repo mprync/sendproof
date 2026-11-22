@@ -55,11 +55,12 @@ export interface DataStoreDescription {
 }
 
 /**
- * A hooked data store, as returned by `redisStore`, `dynamoStore`, `mongoStore` and
- * `mongooseStore`. The core advertises it in discovery and calls it around every Preview.
+ * A hooked data store, as returned by `redisStore`, `dynamoStore`, `mongoStore`, `mongooseStore`,
+ * `cassandraStore`, `elasticsearchStore`, `opensearchStore`, `cosmosStore` and `firestoreStore`.
+ * The core advertises it in discovery and calls it around every Preview.
  */
 export interface DataStore {
-  /** Store id: `mongodb`, `redis` or `dynamodb`. */
+  /** Store id: `mongodb`, `redis`, `dynamodb`, `cassandra`, `elasticsearch`, `opensearch`, `cosmosdb` or `firestore`. */
   readonly system: string;
   /** Describe the store for discovery. May detect the server topology on first call. */
   describe(): Promise<DataStoreDescription>;

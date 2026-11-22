@@ -11,7 +11,10 @@ import { attributed, currentPreview, openPreviews } from '../capture.js';
 import type { CommandKind } from './classify.js';
 
 /** Display names used in "Preview unavailable: this operation writes to <Store>". */
-export const storeNames: Readonly<Record<string, string>> = Object.freeze({ mongodb: 'MongoDB', redis: 'Redis', dynamodb: 'DynamoDB' });
+export const storeNames: Readonly<Record<string, string>> = Object.freeze({
+  mongodb: 'MongoDB', redis: 'Redis', dynamodb: 'DynamoDB',
+  cassandra: 'Cassandra', elasticsearch: 'Elasticsearch', opensearch: 'OpenSearch', cosmosdb: 'Cosmos DB', firestore: 'Firestore',
+});
 
 /** The display name of a store id; unknown ids are shown as given. */
 export const storeName = (store: string): string => storeNames[store] ?? store;

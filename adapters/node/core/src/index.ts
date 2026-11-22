@@ -16,7 +16,12 @@ export {
   guard, PreviewTransactionControlError, PreviewWriteBlockedError, readSet, refuseInPreview, sanitizeDocument, storeLabel, storeName, storeNames,
   unattributedWrite, writeReason,
 } from './stores/guard.js';
-export { dynamodbTable, mongodbTable, redisTable } from './stores/tables.js';
+export {
+  cassandraTarget, classifyCassandra, classifyCassandraMessage, classifyCosmos, classifyElasticsearch, classifyFirestore, cosmosOperation, cosmosTarget,
+  elasticsearchTarget, firestoreRpc, namesTrigger, sanitizeStatement, statementShape,
+  type Classified, type CosmosRequest, type StatementDialect, type StatementShape,
+} from './stores/classify-batch-two.js';
+export { cassandraTable, cosmosdbTable, dynamodbTable, elasticsearchTable, firestoreTable, mongodbTable, redisTable } from './stores/tables.js';
 export {
   controlsTransaction, endsTransaction, isRollback, mayWrite, previewSavepoint, previewSavepointHeld, rollsBackTransaction, setPreviewSavepoint, refusedStatement, safeProcedureNames,
   splitStatements, type AdapterProvider,
@@ -152,7 +157,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     onError = () => {},
   } = options;
   if (!Array.isArray(dataStores) || dataStores.some(store => typeof store?.system !== 'string' || typeof store.describe !== 'function')) {
-    throw new TypeError('dataStores takes stores made by redisStore, dynamoStore, mongoStore or mongooseStore.');
+    throw new TypeError('dataStores takes stores made by redisStore, dynamoStore, mongoStore, mongooseStore, cassandraStore, elasticsearchStore, opensearchStore, cosmosStore or firestoreStore.');
   }
   // Without a SQL provider, hooked stores alone can carry a Preview: MongoDB rolls back its own
   // transaction in finishPreview and guarded stores block writes, so the dispatch needs no wrapper.
