@@ -99,6 +99,8 @@ final class MongoEngine
      */
     private static array $lost = [];
     private static bool $shutdownRegistered = false;
+    /** A PSR-3 logger (any object with `warning(string, array)`) for transactions the engine couldn't end; `error_log()` when null. */
+    private static ?object $logger = null;
     /** Set while this engine aborts a Preview transaction: whether the driver sent the abort, and whether the server acknowledged it. */
     private ?\stdClass $aborting = null;
     /** The `comment` of this engine's own `hello`: seeing it proves the monitor is installed on this client. */
@@ -631,16 +633,30 @@ final class MongoEngine
     }
 
     /**
+     * Sends the warning about a Preview transaction the engine couldn't end to `$logger`, a PSR-3
+     * logger such as the framework's (any object with `warning(string $message, array $context)`).
+     * Null restores the default, `error_log()`.
+     */
+    public static function useLogger(?object $logger): void
+    {
+        if ($logger !== null && !method_exists($logger, 'warning')) {
+            throw new \InvalidArgumentException('The MongoDB warning logger needs a warning(string, array) method, as a PSR-3 logger has.');
+        }
+        self::$logger = $logger;
+    }
+
+    /**
      * Ends every Preview transaction whose abort no reply acknowledged, with `killSessions` on its
      * session. With `$wait`, it retries with backoff (100 ms doubling to 2 s) while the server can't
      * be reached, until about 10 s after the abort was lost; a final failure is logged with the
-     * session id through `error_log()`, and the server then ends the transaction, and releases its
-     * locks, at its lifetime limit. Without `$wait`, it tries each once and keeps the ones that fail
-     * for later.
+     * session id as a warning through the logger given to {@see useLogger()}, or `error_log()`, and
+     * the server then ends the transaction, and releases its locks, at its lifetime limit. Without
+     * `$wait`, it tries each once and keeps the ones that fail for later.
      *
      * The engine runs it from a shutdown function, after the response is sent, and once more as the
-     * next Preview begins. A long-lived worker (Octane, RoadRunner, FrankenPHP) can call it between
-     * requests.
+     * next Preview begins. The Laravel and Symfony adapters also run it after every request
+     * (`terminating()`, `kernel.terminate`), so a long-lived worker (Octane, RoadRunner, FrankenPHP)
+     * kills a lost session promptly; any other long-lived worker should call it between requests.
      */
     public static function endLostTransactions(bool $wait = true): void
     {
@@ -653,7 +669,12 @@ final class MongoEngine
             unset(self::$lost[$key]);
             if ($failure !== null) {
                 $id = self::lsidHex($session->getLogicalSessionId()) ?? 'unknown';
-                error_log("Sendproof warning: couldn't end a MongoDB Preview transaction (session {$id}): {$failure}. The server ends it, and releases its locks, at transactionLifetimeLimitSeconds.");
+                $message = "Sendproof couldn't end a MongoDB Preview transaction (session {$id}): {$failure}. The server ends it, and releases its locks, at transactionLifetimeLimitSeconds.";
+                if (self::$logger !== null) {
+                    self::$logger->warning($message, ['session' => $id]);
+                } else {
+                    error_log('Sendproof warning: ' . $message);
+                }
             }
             $engine->release($session);
         }

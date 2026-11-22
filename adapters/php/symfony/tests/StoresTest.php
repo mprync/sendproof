@@ -28,6 +28,7 @@ use Sendproof\Symfony\DependencyInjection\Configuration;
 use Sendproof\Symfony\DependencyInjection\DataStorePass;
 use Sendproof\Symfony\Doctrine\DoctrinePreviewProvider;
 use Sendproof\Symfony\Http\RouteCatalog;
+use Sendproof\Symfony\Stores\MongoLostSessions;
 use Sendproof\Symfony\Identity\DefaultIdentityResolver;
 use Sendproof\Symfony\SendproofManager;
 use Sendproof\Symfony\Stores\HookedStores;
@@ -61,6 +62,48 @@ final class StoresTest extends DoctrineTestCase
         $this->assertSame([], $config['data_stores']);
         $config = (new Processor())->processConfiguration(new Configuration(), [['data_stores' => ['mongodb' => ['clients' => ['app.mongo']]]]]);
         $this->assertSame(['clients' => ['app.mongo'], 'name' => null, 'treat_as_read' => null, 'preview_timeout_ms' => 50000], $config['data_stores']['mongodb']);
+    }
+
+    /**
+     * A session whose abort was lost is killed on `kernel.terminate`, after every request, as a
+     * long-lived worker (RoadRunner, FrankenPHP, a kept kernel) runs no shutdown function between
+     * requests. Its abort was lost long ago and its engine's server can't be reached, so the one try
+     * fails and the warning goes to the application's logger.
+     */
+    public function testALostMongoSessionIsEndedOnKernelTerminateAndItsWarningGoesToTheLogger(): void
+    {
+        $container = $this->container(['enabled' => true, 'data_stores' => ['mongodb' => ['clients' => ['app.mongo']]]]);
+        $container->register('test.log', \Monolog\Handler\TestHandler::class)->setPublic(true);
+        $container->register('logger', \Monolog\Logger::class)->setArguments(['test', [new \Symfony\Component\DependencyInjection\Reference('test.log')]])->setPublic(true);
+        $listener = MongoLostSessions::class;
+        $this->assertTrue($container->hasDefinition($listener), 'The listener is registered when a MongoDB client is listed.');
+        $this->assertSame([['event' => 'kernel.terminate', 'method' => 'onTerminate']], $container->getDefinition($listener)->getTag('kernel.event_listener'));
+        $container->getDefinition($listener)->setPublic(true);
+        $container->compile();
+
+        $engine = \Sendproof\Core\Stores\MongoDb\MongoEngine::class;
+        $recorder = new Recorder();
+        $nowhere = new $engine(new \MongoDB\Driver\Manager('mongodb://127.0.0.1:1/?directConnection=true'), new \Sendproof\Core\Stores\Guard(static fn () => $recorder));
+        $url = getenv('BENCH_MONGODB_SERVER_URL') ?: 'mongodb://127.0.0.1:57017/?directConnection=true';
+        try {
+            $session = (new MongoClient($url . '&appName=symfony-lost&serverSelectionTimeoutMS=1500'))->getManager()->startSession();
+        } catch (\MongoDB\Driver\Exception\ConnectionException) {
+            $this->markTestSkipped('MongoDB is not answering; start it with: docker compose -f tests/conformance/compose.yml up -d --wait mongodb');
+        }
+        $lost = new \ReflectionProperty($engine, 'lost');
+        $lost->setValue(null, [...$lost->getValue(), [$nowhere, $session, hrtime(true) - 20_000_000_000]]);
+        $id = $engine::lsidHex($session->getLogicalSessionId());
+        try {
+            $container->get($listener)->onTerminate();
+        } finally {
+            $engine::useLogger(null);
+        }
+
+        $this->assertSame([], $lost->getValue(), 'The lost session was handled after the request.');
+        $this->assertTrue($container->get('test.log')->hasWarningThatContains("couldn't end a MongoDB Preview transaction (session {$id})"), 'The warning reached the logger.');
+
+        $without = $this->container(['enabled' => true, 'data_stores' => ['redis' => ['clients' => ['app.redis']]]]);
+        $this->assertFalse($without->hasDefinition($listener), 'No MongoDB client, no listener.');
     }
 
     public function testListedClientsAreHookedWhenTheContainerBuildsThemAndWritesAreRefused(): void

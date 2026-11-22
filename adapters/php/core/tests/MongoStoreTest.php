@@ -739,6 +739,57 @@ final class MongoStoreTest extends TestCase
         $this->assertGreaterThan(7, $elapsed, 'The window retries for about 10 s.');
     }
 
+    /**
+     * Holds a session as if its abort was lost more than 10 s ago, on an engine whose server can't be
+     * reached: the next {@see MongoEngine::endLostTransactions()} tries once and gives up with a warning.
+     */
+    private function holdAnExpiredLostSession(): string
+    {
+        $recorder = new Recorder();
+        $nowhere = new MongoEngine(new \MongoDB\Driver\Manager('mongodb://127.0.0.1:1/?directConnection=true'), new Guard(static fn () => $recorder));
+        $session = $this->raw->getManager()->startSession();
+        $lost = new \ReflectionProperty(MongoEngine::class, 'lost');
+        $lost->setValue(null, [...$lost->getValue(), [$nowhere, $session, hrtime(true) - 20_000_000_000]]);
+
+        return MongoEngine::lsidHex($session->getLogicalSessionId());
+    }
+
+    public function testTheWarningGoesToTheGivenLoggerOrElseToErrorLog(): void
+    {
+        $logger = new class {
+            /** @var list<array{0:string,1:array<string,mixed>}> */
+            public array $warnings = [];
+
+            public function warning(string $message, array $context = []): void
+            {
+                $this->warnings[] = [$message, $context];
+            }
+        };
+        MongoEngine::useLogger($logger);
+        try {
+            $id = $this->holdAnExpiredLostSession();
+            MongoEngine::endLostTransactions();
+        } finally {
+            MongoEngine::useLogger(null);
+        }
+        $this->assertCount(1, $logger->warnings);
+        $this->assertStringContainsString("couldn't end a MongoDB Preview transaction (session {$id})", $logger->warnings[0][0]);
+        $this->assertSame(['session' => $id], $logger->warnings[0][1]);
+
+        $file = tempnam(sys_get_temp_dir(), 'sendproof-log');
+        $previous = ini_set('error_log', $file);
+        try {
+            $id = $this->holdAnExpiredLostSession();
+            MongoEngine::endLostTransactions();
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+        $this->assertStringContainsString("Sendproof warning: Sendproof couldn't end a MongoDB Preview transaction (session {$id})", (string) file_get_contents($file));
+        unlink($file);
+        $this->expectException(\InvalidArgumentException::class);
+        MongoEngine::useLogger(new \stdClass());
+    }
+
     public function testANormalPreviewSendsNoKillSessions(): void
     {
         $names = new class implements \MongoDB\Driver\Monitoring\CommandSubscriber {

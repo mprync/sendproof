@@ -9,6 +9,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Redis\RedisManager;
 use MongoDB\Laravel\Connection as MongoConnection;
+use Psr\Log\LoggerInterface;
 use Sendproof\Core\Stores\DataStore;
 use Sendproof\Core\Stores\DynamoDb\DynamoGuard;
 use Sendproof\Core\Stores\Firestore\FirestoreGuard;
@@ -143,6 +144,11 @@ final class DataStores
             (int) ($config['preview_timeout_ms'] ?? MongoEngine::DEFAULT_TIMEOUT_MS),
         );
         $guarded = new GuardedClient($client, new MongoHook($engine));
+        // A Preview whose abort was lost holds its session until it is killed. Do it once each request
+        // is done: a long-lived worker (Octane, RoadRunner, FrankenPHP) runs no shutdown function between
+        // requests. A kill that fails is a warning in Laravel's log.
+        MongoEngine::useLogger($app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null);
+        $app->terminating(static fn () => MongoEngine::endLostTransactions());
         // The connection has no setter for its client, so replace it from inside. Its `getClient()`,
         // `getDatabase()` and `getCollection()` then hand out guarded handles, and the transaction
         // helpers (`DB::transaction()`) start their session on the guarded client.

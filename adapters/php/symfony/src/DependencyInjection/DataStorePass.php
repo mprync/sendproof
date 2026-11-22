@@ -6,11 +6,13 @@ namespace Sendproof\Symfony\DependencyInjection;
 
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Symfony\Stores\ClientHooks;
 use Sendproof\Symfony\Stores\HookedStores;
+use Sendproof\Symfony\Stores\MongoLostSessions;
 
 /**
  * Hooks the client services named in `sendproof.data_stores`, but only when Sendproof is enabled
@@ -50,6 +52,13 @@ final class DataStorePass implements CompilerPassInterface
                     $container->findDefinition($id)->setConfigurator([new Reference(ClientHooks::class), $system]);
                 }
             }
+        }
+        if (isset($stores['mongodb'])) {
+            // Kills the sessions of Previews whose abort was lost once each request is done, and sends a
+            // failed kill's warning to the application's logger.
+            $container->setDefinition(MongoLostSessions::class, (new Definition(MongoLostSessions::class, [new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
+                ->setPublic(false)
+                ->addTag('kernel.event_listener', ['event' => 'kernel.terminate', 'method' => 'onTerminate']));
         }
         $container->setDefinition(HookedStores::class, (new Definition(HookedStores::class, [
             new \Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument($locator), $stores,

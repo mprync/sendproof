@@ -40,6 +40,8 @@ class MongoPreviewTest extends StoresTestCase
         $app['config']->set('database.connections.mongodb', ['driver' => 'mongodb', 'dsn' => Services::mongodbUrl() . '&appName=laravel-hooked', 'database' => $this->database]);
         $app['config']->set('sendproof.data_stores', ['mongodb' => ['connection' => 'mongodb', 'name' => 'catalog']]);
         $app['config']->set('sendproof.provider', $this->sqlProvider());
+        $app['config']->set('logging.channels.sendproof-test', ['driver' => 'monolog', 'handler' => \Monolog\Handler\TestHandler::class]);
+        $app['config']->set('logging.default', 'sendproof-test');
         $this->reader = new Client(Services::mongodbUrl() . '&appName=laravel-reader');
         $this->reader->selectCollection($this->database, 'documents')->insertOne(['_id' => 'seeded', 'name' => 'Seeded', 'profile' => ['city' => 'Leeds'], 'password_hash' => 'hashed:seeded']);
     }
@@ -49,7 +51,31 @@ class MongoPreviewTest extends StoresTestCase
         if (isset($this->reader, $this->database)) {
             $this->reader->dropDatabase($this->database);
         }
+        \Sendproof\Core\Stores\MongoDb\MongoEngine::useLogger(null);
         parent::tearDown();
+    }
+
+    /**
+     * A session whose abort was lost is killed when the request terminates, as in a long-lived worker
+     * (Octane, RoadRunner, FrankenPHP) where no shutdown function runs between requests. Its abort was
+     * lost long ago and its engine's server can't be reached, so the one try fails and the warning
+     * goes to Laravel's log.
+     */
+    public function testALostSessionIsEndedAfterEachRequestAndItsWarningGoesToLaravelsLog(): void
+    {
+        $engine = \Sendproof\Core\Stores\MongoDb\MongoEngine::class;
+        $recorder = new \Sendproof\Core\Capture\Recorder();
+        $nowhere = new $engine(new \MongoDB\Driver\Manager('mongodb://127.0.0.1:1/?directConnection=true'), new \Sendproof\Core\Stores\Guard(static fn () => $recorder));
+        $session = $this->reader->getManager()->startSession();
+        $lost = new \ReflectionProperty($engine, 'lost');
+        $lost->setValue(null, [...$lost->getValue(), [$nowhere, $session, hrtime(true) - 20_000_000_000]]);
+        $id = $engine::lsidHex($session->getLogicalSessionId());
+
+        $this->app->terminate();
+
+        $this->assertSame([], $lost->getValue(), 'The lost session was handled after the request.');
+        $handler = $this->app->make('log')->channel('sendproof-test')->getLogger()->getHandlers()[0];
+        $this->assertTrue($handler->hasWarningThatContains("couldn't end a MongoDB Preview transaction (session {$id})"), 'The warning reached Laravel\'s log.');
     }
 
     private function seeded(string $id): mixed
