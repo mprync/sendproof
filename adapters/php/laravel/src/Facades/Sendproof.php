@@ -20,6 +20,9 @@ use Sendproof\Laravel\SendproofManager;
  * @method static void identifyUsing(Closure $resolver)
  * @method static void authorizeUsing(Closure $authorizer)
  * @method static \Aws\DynamoDb\DynamoDbClient hookDynamoDb(\Aws\DynamoDb\DynamoDbClient $client, ?string $name = null)
+ * @method static \Elastic\Elasticsearch\Client hookElasticsearch(\Elastic\Elasticsearch\Client $client, ?string $name = null)
+ * @method static \OpenSearch\Client hookOpenSearch(\OpenSearch\Client $client, ?string $name = null)
+ * @method static \Google\Cloud\Firestore\FirestoreClient hookFirestore(\Google\Cloud\Firestore\FirestoreClient $client, ?string $name = null)
  *
  * @see SendproofManager
  */

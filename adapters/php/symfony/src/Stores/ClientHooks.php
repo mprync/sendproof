@@ -9,18 +9,24 @@ use MongoDB\Client as MongoClient;
 use Predis\Client as PredisClient;
 use Sendproof\Core\Capture\Recorder;
 use Sendproof\Core\Stores\DynamoDb\DynamoGuard;
+use Sendproof\Core\Stores\Firestore\FirestoreGuard;
 use Sendproof\Core\Stores\Guard;
 use Sendproof\Core\Stores\MongoDb\GuardedClient;
 use Sendproof\Core\Stores\MongoDb\MongoEngine;
 use Sendproof\Core\Stores\MongoDb\MongoHook;
 use Sendproof\Core\Stores\Redis\PredisGuard;
 use Sendproof\Core\Stores\Redis\RedisHook;
+use Sendproof\Core\Stores\Search\ElasticsearchGuard;
+use Sendproof\Core\Stores\Search\OpenSearchGuard;
 
 /**
  * Installs the write guard on the client services listed in `sendproof.data_stores`. The container
  * calls these when it builds a client: {@see redis()} and {@see dynamodb()} as service
  * configurators, which hook the client in place, and {@see mongodb()} as the factory of a
  * decorator, which returns the guarded client in the original's place.
+ *
+ * The Elasticsearch, OpenSearch and Firestore clients are hooked in place by service configurators,
+ * like DynamoDB's.
  *
  * Only commands sent through these clients are covered. A client built elsewhere, a second client
  * for the same store, and phpredis `\Redis` objects (which Symfony Cache builds itself) are not.
@@ -45,6 +51,30 @@ final class ClientHooks
     public function dynamodb(DynamoDbClient $client): void
     {
         DynamoGuard::install($client, $this->guard, Guard::readSet($this->config['dynamodb']['treat_as_read'] ?? null));
+    }
+
+    /** Service configurator for an Elasticsearch client. */
+    public function elasticsearch(\Elastic\Elasticsearch\Client $client): void
+    {
+        $config = $this->config['elasticsearch'] ?? [];
+        ElasticsearchGuard::install($client, $this->guard, Guard::readSet($config['treat_as_read'] ?? null), $config['path_prefix'] ?? null);
+    }
+
+    /**
+     * Service configurator for an OpenSearch client.
+     *
+     * @throws \LogicException when the client sends through a transport Sendproof can't guard, which fails the container build of that service
+     */
+    public function opensearch(\OpenSearch\Client $client): void
+    {
+        $config = $this->config['opensearch'] ?? [];
+        OpenSearchGuard::install($client, $this->guard, Guard::readSet($config['treat_as_read'] ?? null), $config['path_prefix'] ?? null);
+    }
+
+    /** Service configurator for a Firestore client. */
+    public function firestore(\Google\Cloud\Firestore\FirestoreClient $client): void
+    {
+        FirestoreGuard::install($client, $this->guard, Guard::readSet($this->config['firestore']['treat_as_read'] ?? null));
     }
 
     /** Factory for the decorator of a MongoDB client: returns the guarded client. */

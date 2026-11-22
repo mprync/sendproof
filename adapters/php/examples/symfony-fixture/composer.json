@@ -11,6 +11,7 @@
     "doctrine/doctrine-bundle": "^2.13|^3.0",
     "doctrine/orm": "^3.0",
     "mongodb/mongodb": "^2.1",
+    "opensearch-project/opensearch-php": "^2.4",
     "predis/predis": "^2.2 || ^3.0",
     "symfony/framework-bundle": "^7.0|^8.0",
     "symfony/mailer": "^7.0|^8.0",
@@ -25,7 +26,7 @@
     { "type": "path", "url": "../../core", "options": { "symlink": true } },
     { "type": "path", "url": "../../symfony", "options": { "symlink": true } }
   ],
-  "config": { "sort-packages": true, "allow-plugins": { "symfony/runtime": true, "symfony/flex": false } },
+  "config": { "sort-packages": true, "allow-plugins": { "symfony/runtime": true, "symfony/flex": false, "php-http/discovery": true } },
   "minimum-stability": "dev",
   "prefer-stable": true
 }

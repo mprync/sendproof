@@ -11,12 +11,15 @@ use Illuminate\Redis\RedisManager;
 use MongoDB\Laravel\Connection as MongoConnection;
 use Sendproof\Core\Stores\DataStore;
 use Sendproof\Core\Stores\DynamoDb\DynamoGuard;
+use Sendproof\Core\Stores\Firestore\FirestoreGuard;
 use Sendproof\Core\Stores\Guard;
 use Sendproof\Core\Stores\GuardOnlyStore;
 use Sendproof\Core\Stores\MongoDb\GuardedClient;
 use Sendproof\Core\Stores\MongoDb\MongoEngine;
 use Sendproof\Core\Stores\MongoDb\MongoHook;
 use Sendproof\Core\Stores\MongoDb\MongoStore;
+use Sendproof\Core\Stores\Search\ElasticsearchGuard;
+use Sendproof\Core\Stores\Search\OpenSearchGuard;
 use Sendproof\Laravel\Redis\GuardedPhpRedisConnector;
 use Sendproof\Laravel\Redis\GuardedPredisConnector;
 
@@ -28,6 +31,8 @@ use Sendproof\Laravel\Redis\GuardedPredisConnector;
  *   in place by guarded ones, so Eloquent models, the query builder and `DB::connection()` use them.
  * - `redis`: Laravel's Redis manager. Every connection it creates afterwards is guarded.
  * - `dynamodb`: the listed `Aws\DynamoDb\DynamoDbClient` services, hooked in place.
+ * - `elasticsearch`, `opensearch`, `firestore`: the listed client services (`Elastic\Elasticsearch\Client`,
+ *   `OpenSearch\Client`, `Google\Cloud\Firestore\FirestoreClient`), hooked in place.
  */
 final class DataStores
 {
@@ -47,8 +52,80 @@ final class DataStores
         if (isset($config['dynamodb'])) {
             $stores[] = self::dynamodb($app, $config['dynamodb'], $guard);
         }
+        if (isset($config['elasticsearch'])) {
+            $stores[] = self::elasticsearch($app, $config['elasticsearch'], $guard);
+        }
+        if (isset($config['opensearch'])) {
+            $stores[] = self::opensearch($app, $config['opensearch'], $guard);
+        }
+        if (isset($config['firestore'])) {
+            $stores[] = self::firestore($app, $config['firestore'], $guard);
+        }
 
         return $stores;
+    }
+
+    /**
+     * Hooks every client the container resolves for the listed ids or class names, now and later, and
+     * refuses a listed id that isn't a `$class`. A binding that isn't shared, or one the application
+     * rebinds, builds new clients after boot: each is hooked as the container hands it out, so none
+     * is left unguarded. A client the container doesn't hold is hooked with the manager's `hook*()` method.
+     *
+     * @param array<string,mixed> $config
+     * @param class-string $class
+     * @param \Closure(object):void $install
+     */
+    private static function hookClients(Application $app, array $config, string $class, string $option, \Closure $install): void
+    {
+        foreach ((array) ($config['clients'] ?? []) as $id) {
+            if (is_string($id)) {
+                $app->afterResolving($id, static function (mixed $client) use ($class, $install): void {
+                    if ($client instanceof $class) {
+                        $install($client);
+                    }
+                });
+            }
+            $client = is_object($id) ? $id : $app->make($id);
+            if (!$client instanceof $class) {
+                throw new \InvalidArgumentException(sprintf('sendproof.data_stores.%s must name %s services.', $option, $class));
+            }
+            $install($client);
+        }
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function elasticsearch(Application $app, array $config, Guard $guard): GuardOnlyStore
+    {
+        $reads = Guard::readSet($config['treat_as_read'] ?? null);
+        $prefix = isset($config['path_prefix']) ? (string) $config['path_prefix'] : null;
+        self::hookClients($app, $config, \Elastic\Elasticsearch\Client::class, 'elasticsearch.clients', static function (object $client) use ($guard, $reads, $prefix): void {
+            ElasticsearchGuard::install($client, $guard, $reads, $prefix);
+        });
+
+        return new GuardOnlyStore('elasticsearch', Guard::storeLabel($config['name'] ?? null));
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function opensearch(Application $app, array $config, Guard $guard): GuardOnlyStore
+    {
+        $reads = Guard::readSet($config['treat_as_read'] ?? null);
+        $prefix = isset($config['path_prefix']) ? (string) $config['path_prefix'] : null;
+        self::hookClients($app, $config, \OpenSearch\Client::class, 'opensearch.clients', static function (object $client) use ($guard, $reads, $prefix): void {
+            OpenSearchGuard::install($client, $guard, $reads, $prefix);
+        });
+
+        return new GuardOnlyStore('opensearch', Guard::storeLabel($config['name'] ?? null));
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function firestore(Application $app, array $config, Guard $guard): GuardOnlyStore
+    {
+        $reads = Guard::readSet($config['treat_as_read'] ?? null);
+        self::hookClients($app, $config, \Google\Cloud\Firestore\FirestoreClient::class, 'firestore.clients', static function (object $client) use ($guard, $reads): void {
+            FirestoreGuard::install($client, $guard, $reads);
+        });
+
+        return new GuardOnlyStore('firestore', Guard::storeLabel($config['name'] ?? null));
     }
 
     /** @param array<string,mixed> $config */

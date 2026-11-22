@@ -17,7 +17,10 @@
   },
   "require-dev": {
     "aws/aws-sdk-php": "^3.300",
+    "elasticsearch/elasticsearch": "^8.0 || ^9.0",
+    "google/cloud-firestore": "^2.0",
     "mongodb/laravel-mongodb": "^5.12",
+    "opensearch-project/opensearch-php": "^2.4",
     "orchestra/testbench": "^9.0|^10.0|^11.0",
     "phpunit/phpunit": "^11.0",
     "predis/predis": "^2.2 || ^3.0"
@@ -25,7 +28,10 @@
   "suggest": {
     "mongodb/laravel-mongodb": "Preview MongoDB on a replica set and guard it on a standalone server (needs ext-mongodb)",
     "predis/predis": "Guard Redis writes during a Preview",
-    "aws/aws-sdk-php": "Guard DynamoDB writes during a Preview"
+    "aws/aws-sdk-php": "Guard DynamoDB writes during a Preview",
+    "elasticsearch/elasticsearch": "Guard Elasticsearch writes during a Preview",
+    "opensearch-project/opensearch-php": "Guard OpenSearch writes during a Preview",
+    "google/cloud-firestore": "Guard Firestore writes during a Preview (needs ext-grpc)"
   },
   "autoload": {
     "psr-4": { "Sendproof\\Laravel\\": "src/" }
@@ -48,6 +54,10 @@
   "archive": {
     "exclude": ["/vendor", "/tests", "/phpunit.xml", "/.phpunit.result.cache", "/.phpunit.cache", "/composer.lock"]
   },
-  "config": { "sort-packages": true },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": { "php-http/discovery": true },
+    "platform": { "ext-grpc": "1.60.0" }
+  },
   "minimum-stability": "stable"
 }

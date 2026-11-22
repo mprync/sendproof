@@ -164,6 +164,52 @@ final class SendproofManager
         return $client;
     }
 
+    /**
+     * Hooks an Elasticsearch client at runtime, for clients the container doesn't hold. The client is
+     * guarded in place.
+     */
+    public function hookElasticsearch(\Elastic\Elasticsearch\Client $client, ?string $name = null): \Elastic\Elasticsearch\Client
+    {
+        \Sendproof\Core\Stores\Search\ElasticsearchGuard::install($client, $this->guard());
+        $this->describeStore('elasticsearch', $name);
+
+        return $client;
+    }
+
+    /**
+     * Hooks an OpenSearch client at runtime, for clients the container doesn't hold. The client is
+     * guarded in place.
+     *
+     * @throws \LogicException when the client sends through a transport Sendproof can't guard
+     */
+    public function hookOpenSearch(\OpenSearch\Client $client, ?string $name = null): \OpenSearch\Client
+    {
+        \Sendproof\Core\Stores\Search\OpenSearchGuard::install($client, $this->guard());
+        $this->describeStore('opensearch', $name);
+
+        return $client;
+    }
+
+    /**
+     * Hooks a Firestore client at runtime, for clients the container doesn't hold. The client is
+     * guarded in place.
+     */
+    public function hookFirestore(\Google\Cloud\Firestore\FirestoreClient $client, ?string $name = null): \Google\Cloud\Firestore\FirestoreClient
+    {
+        \Sendproof\Core\Stores\Firestore\FirestoreGuard::install($client, $this->guard());
+        $this->describeStore('firestore', $name);
+
+        return $client;
+    }
+
+    /** Adds a store to discovery once, for a client hooked at runtime. */
+    private function describeStore(string $system, ?string $name): void
+    {
+        if (!array_filter($this->stores, static fn (DataStore $store): bool => $store->system() === $system)) {
+            $this->stores[] = new \Sendproof\Core\Stores\GuardOnlyStore($system, Guard::storeLabel($name));
+        }
+    }
+
     public function traces(): TraceStore
     {
         return $this->store ??= new FileTraceStore(

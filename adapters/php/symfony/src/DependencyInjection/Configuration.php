@@ -66,6 +66,9 @@ final class Configuration implements ConfigurationInterface
                         ->append($this->store('mongodb', 'MongoDB\\Client service ids (decorated with the guarded client).', true))
                         ->append($this->store('redis', 'Predis\\Client service ids.'))
                         ->append($this->store('dynamodb', 'Aws\\DynamoDb\\DynamoDbClient service ids.'))
+                        ->append($this->store('elasticsearch', 'Elastic\\Elasticsearch\\Client service ids.', prefix: true))
+                        ->append($this->store('opensearch', 'OpenSearch\\Client service ids.', prefix: true))
+                        ->append($this->store('firestore', 'Google\\Cloud\\Firestore\\FirestoreClient service ids.'))
                     ->end()
                 ->end()
                 ->scalarNode('ui_path')->defaultNull()->info('Directory of the embedded UI bundle. Defaults to the sendproof/core copy.')->end()
@@ -75,7 +78,7 @@ final class Configuration implements ConfigurationInterface
     }
 
     /** The shape of one `data_stores` entry. */
-    private function store(string $system, string $clients, bool $timeout = false): \Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition
+    private function store(string $system, string $clients, bool $timeout = false, bool $prefix = false): \Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition
     {
         $node = (new TreeBuilder($system))->getRootNode();
         $node->children()
@@ -83,6 +86,9 @@ final class Configuration implements ConfigurationInterface
             ->scalarNode('name')->defaultNull()->info('Display label for discovery, such as "cache". Never a URL, host or credentials.')->end()
             ->arrayNode('treat_as_read')->info('Command names you state never write. Exact names only; a listed write is not blocked.')->scalarPrototype()->end()->defaultNull()->end()
         ->end();
+        if ($prefix) {
+            $node->children()->scalarNode('path_prefix')->defaultNull()->info('A path the hosts carry that the shared table does not know, such as /search for https://proxy/search.')->end()->end();
+        }
         if ($timeout) {
             $node->children()->integerNode('preview_timeout_ms')->defaultValue(50000)->min(1)->info('How long a Preview may hold its MongoDB transaction, below the server limit of 60 seconds.')->end()->end();
         }

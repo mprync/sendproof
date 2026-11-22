@@ -10,6 +10,7 @@
     "aws/aws-sdk-php": "^3.300",
     "laravel/framework": "^11.0|^12.0|^13.0",
     "mongodb/laravel-mongodb": "^5.0",
+    "opensearch-project/opensearch-php": "^2.4",
     "predis/predis": "^2.2 || ^3.0",
     "sendproof/core": "*@dev",
     "sendproof/laravel": "*@dev"
@@ -19,7 +20,7 @@
     { "type": "path", "url": "../../core", "options": { "symlink": true } },
     { "type": "path", "url": "../../laravel", "options": { "symlink": true } }
   ],
-  "config": { "sort-packages": true, "optimize-autoloader": false },
+  "config": { "sort-packages": true, "optimize-autoloader": false, "allow-plugins": { "php-http/discovery": true } },
   "minimum-stability": "dev",
   "prefer-stable": true
 }

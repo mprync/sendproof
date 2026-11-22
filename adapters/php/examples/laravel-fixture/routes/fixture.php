@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Route;
+use OpenSearch\Client as OpenSearchClient;
 use Symfony\Component\HttpFoundation\Cookie;
 use Sendproof\Laravel\Facades\Sendproof;
 
@@ -344,13 +345,61 @@ if (getenv('BENCH_DYNAMODB_URL')) {
     });
 }
 
+if (getenv('BENCH_OPENSEARCH_URL')) {
+    $index = (string) getenv('BENCH_OPENSEARCH_INDEX');
+    $article = static fn (string $id, array $source): array => ['id' => $id, 'title' => $source['title'] ?? null, 'views' => isset($source['views']) ? (int) $source['views'] : null];
+    // The upsert of the contract: `views` counts the touches, and a first touch creates the document.
+    $touch = static fn (string $id): array => app(OpenSearchClient::class)->update([
+        'index' => $index, 'id' => $id, 'refresh' => 'true', '_source' => 'true',
+        'body' => ['script' => ['source' => 'ctx._source.views += params.step', 'params' => ['step' => 1]], 'upsert' => ['title' => 'Untitled', 'views' => 1]],
+    ]);
+
+    Route::middleware(['fixture.user', 'fixture.admin'])->group(function () use ($index, $article, $touch): void {
+        // A read sent as a POST: the method alone must not decide.
+        Route::get('/articles/{id}', function (string $id) use ($index, $article) {
+            $found = app(OpenSearchClient::class)->search(['index' => $index, 'body' => ['query' => ['ids' => ['values' => [$id]]], 'size' => 1]]);
+            abort_if(empty($found['hits']['hits']), 404);
+
+            return response()->json($article($id, $found['hits']['hits'][0]['_source']));
+        })->sendproofPreview();
+
+        Route::post('/articles/{id}/touch', fn (string $id) => response()->json($article($id, $touch($id)['get']['_source'])))->sendproofPreview();
+
+        // _update_by_query is a POST with a query, like a search. A store error is answered as 404, even a refusal.
+        Route::post('/articles/{id}/hide', function (string $id) use ($index) {
+            try {
+                $result = app(OpenSearchClient::class)->updateByQuery([
+                    'index' => $index, 'refresh' => 'true',
+                    'body' => ['query' => ['ids' => ['values' => [$id]]], 'script' => ['source' => 'ctx._source.hidden = true']],
+                ]);
+            } catch (Throwable) {
+                abort(404);
+            }
+            abort_if(($result['updated'] ?? 0) < 1, 404);
+
+            return response()->json(['id' => $id, 'hidden' => true]);
+        })->sendproofPreview();
+
+        Route::delete('/articles/{id}', function (string $id) use ($index) {
+            app(OpenSearchClient::class)->delete(['index' => $index, 'id' => $id, 'refresh' => 'true']);
+
+            return response()->noContent();
+        })->sendproofPreview(false, stores: ['opensearch']);
+    });
+}
+
 // Mixed SQL and guarded store: the SQL insert rolls back with the blocked Preview.
-if (getenv('BENCH_REDIS_URL') || getenv('BENCH_DYNAMODB_URL')) {
+if (getenv('BENCH_REDIS_URL') || getenv('BENCH_DYNAMODB_URL') || getenv('BENCH_OPENSEARCH_URL')) {
     Route::middleware(['fixture.user', 'fixture.admin'])->post('/items/{id}/remember', function (Request $request, string $id) {
         $data = $request->validate(['name' => 'required|string|max:200']);
         Item::create(['id' => $id, 'name' => $data['name']]);
         if ($request->query('store') === 'redis') {
             Redis::incr(getenv('BENCH_REDIS_PREFIX') . 'counter:item-' . $id);
+        } elseif ($request->query('store') === 'opensearch') {
+            app(OpenSearchClient::class)->update([
+                'index' => (string) getenv('BENCH_OPENSEARCH_INDEX'), 'id' => 'item-' . $id, 'refresh' => 'true',
+                'body' => ['script' => ['source' => 'ctx._source.views += params.step', 'params' => ['step' => 1]], 'upsert' => ['title' => 'Untitled', 'views' => 1]],
+            ]);
         } else {
             app(DynamoDbClient::class)->updateItem([
                 'TableName' => (string) getenv('BENCH_DYNAMODB_TABLE'), 'Key' => ['id' => ['S' => 'item-' . $id]],

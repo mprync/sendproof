@@ -93,6 +93,122 @@ final class StoresTest extends DoctrineTestCase
         $this->assertEqualsCanonicalizing(['mongodb', 'redis', 'dynamodb'], array_map(static fn ($store): string => $store->system(), $container->get(HookedStores::class)->all()));
     }
 
+    /** @var list<string> what the fake transports of the search and Firestore clients received */
+    public static array $sent = [];
+
+    /** A fake PSR-18 client for the Elasticsearch and OpenSearch clients. */
+    private static function http(): \Psr\Http\Client\ClientInterface
+    {
+        return new class implements \Psr\Http\Client\ClientInterface {
+            public function sendRequest(\Psr\Http\Message\RequestInterface $request): \Psr\Http\Message\ResponseInterface
+            {
+                StoresTest::$sent[] = $request->getMethod() . ' ' . $request->getUri()->getPath();
+
+                return new \GuzzleHttp\Psr7\Response(200, ['X-Elastic-Product' => 'Elasticsearch', 'Content-Type' => 'application/json'], '{"hits":{"hits":[]},"result":"created"}');
+            }
+        };
+    }
+
+    public static function elasticsearchClient(): \Elastic\Elasticsearch\Client
+    {
+        return \Elastic\Elasticsearch\ClientBuilder::create()->setHosts(['http://es.test:9200'])->setHttpClient(self::http())->build();
+    }
+
+    /** OpenSearch with the legacy `ClientBuilder` (RingPHP handler), the transport the Symfony fixture uses. */
+    public static function opensearchClient(): \OpenSearch\Client
+    {
+        $handler = static function (array $request): \GuzzleHttp\Ring\Future\CompletedFutureArray {
+            StoresTest::$sent[] = $request['http_method'] . ' ' . explode('?', $request['uri'])[0];
+
+            return new \GuzzleHttp\Ring\Future\CompletedFutureArray([
+                'status' => 200, 'reason' => 'OK', 'effective_url' => 'http://os.test:9200' . $request['uri'], 'headers' => ['Content-Type' => ['application/json']],
+                'body' => fopen('data://text/plain,' . rawurlencode('{"hits":{"hits":[]}}'), 'r'), 'transfer_stats' => ['total_time' => 0.001],
+            ]);
+        };
+
+        return \OpenSearch\ClientBuilder::create()->setHosts(['http://os.test:9200'])->setHandler($handler)->build();
+    }
+
+    public static function firestoreClient(): \Google\Cloud\Firestore\FirestoreClient
+    {
+        $transport = new class implements \Google\ApiCore\Transport\TransportInterface {
+            public function startUnaryCall(\Google\ApiCore\Call $call, array $options)
+            {
+                StoresTest::$sent[] = $call->getMethod();
+                $type = $call->getDecodeType();
+
+                return new \GuzzleHttp\Promise\FulfilledPromise($type === null ? null : new $type());
+            }
+
+            public function startServerStreamingCall(\Google\ApiCore\Call $call, array $options)
+            {
+                StoresTest::$sent[] = $call->getMethod();
+            }
+
+            public function startClientStreamingCall(\Google\ApiCore\Call $call, array $options)
+            {
+                StoresTest::$sent[] = $call->getMethod();
+            }
+
+            public function startBidiStreamingCall(\Google\ApiCore\Call $call, array $options)
+            {
+                StoresTest::$sent[] = $call->getMethod();
+            }
+
+            public function close()
+            {
+            }
+        };
+        putenv('FIRESTORE_EMULATOR_HOST=127.0.0.1:1');
+        try {
+            return new \Google\Cloud\Firestore\FirestoreClient(['projectId' => 'bench', 'transport' => $transport]);
+        } finally {
+            putenv('FIRESTORE_EMULATOR_HOST');
+        }
+    }
+
+    public function testSearchAndFirestoreClientsAreHookedByTheirServiceConfigurators(): void
+    {
+        self::$sent = [];
+        $settings = (new Processor())->processConfiguration(new Configuration(), [['enabled' => true, 'data_stores' => [
+            'elasticsearch' => ['clients' => ['app.es'], 'name' => 'search', 'path_prefix' => '/proxy'],
+            'opensearch' => ['clients' => ['app.os'], 'name' => 'articles'],
+            'firestore' => ['clients' => ['app.fs'], 'name' => 'docs'],
+        ]]]);
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'dev');
+        $container->setParameter('sendproof.settings', $settings);
+        $container->register(Recorder::class, Recorder::class)->setPublic(true);
+        $container->register('sendproof.manager', \stdClass::class)->setArguments([null, null, null, null, null, null, null, null, null])->setPublic(true);
+        $container->register('app.es', \Elastic\Elasticsearch\Client::class)->setFactory([self::class, 'elasticsearchClient'])->setPublic(true);
+        $container->register('app.os', \OpenSearch\Client::class)->setFactory([self::class, 'opensearchClient'])->setPublic(true);
+        $container->register('app.fs', \Google\Cloud\Firestore\FirestoreClient::class)->setFactory([self::class, 'firestoreClient'])->setPublic(true);
+        (new DataStorePass())->process($container);
+        $container->getDefinition(HookedStores::class)->setPublic(true);
+        $container->compile();
+        $recorder = $container->get(Recorder::class);
+
+        $recorder->begin(true);
+        // Reads run, even under the configured path prefix.
+        $container->get('app.es')->search(['index' => 'articles', 'body' => ['query' => ['match_all' => new \stdClass()]]]);
+        $container->get('app.os')->search(['index' => 'articles', 'body' => ['query' => ['match_all' => new \stdClass()]]]);
+        $this->assertSame(['POST /articles/_search', 'POST /articles/_search'], self::$sent);
+        foreach ([
+            'Elasticsearch' => fn () => $container->get('app.es')->index(['index' => 'articles', 'id' => '1', 'body' => ['t' => 1]]),
+            'OpenSearch' => fn () => $container->get('app.os')->delete(['index' => 'articles', 'id' => '1']),
+            'Firestore' => fn () => $container->get('app.fs')->collection('orders')->document('o-1')->delete(),
+        ] as $store => $write) {
+            try {
+                $write();
+                $this->fail("{$store} write was not refused.");
+            } catch (PreviewWriteBlockedException $refusal) {
+                $this->assertStringContainsString($store, $refusal->getMessage());
+            }
+        }
+        $this->assertCount(2, self::$sent, 'No write reached a store.');
+        $this->assertEqualsCanonicalizing(['elasticsearch', 'opensearch', 'firestore'], array_map(static fn ($store): string => $store->system(), $container->get(HookedStores::class)->all()));
+    }
+
     public function testNothingIsHookedWhenSendproofIsDisabledOrTheEnvironmentIsNotListed(): void
     {
         foreach ([['enabled' => false], ['enabled' => true, 'environments' => ['test']]] as $enabled) {

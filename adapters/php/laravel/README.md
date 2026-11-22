@@ -127,4 +127,4 @@ The Laravel conformance fixture is in [`../examples/laravel-fixture`](../example
 
 ## Data stores
 
-Preview can also cover MongoDB (`mongodb/laravel-mongodb`), Redis (Predis and phpredis) and DynamoDB. List the stores in `sendproof.data_stores`, and mark an operation you know writes to a guarded store with `->sendproofPreview(false, 'Clears the Redis session')`. Only the clients you hook are covered. See [data stores in the PHP binding](../data-stores.md).
+Preview can also cover MongoDB (`mongodb/laravel-mongodb`), Redis (Predis and phpredis), DynamoDB, Elasticsearch, OpenSearch and Firestore. List the stores in `sendproof.data_stores`, and mark an operation you know writes to a guarded store with `->sendproofPreview(false, 'Clears the Redis session')`. Only the clients you hook are covered. See [data stores in the PHP binding](../data-stores.md).

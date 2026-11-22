@@ -19,5 +19,6 @@ return [
         'mongodb' => getenv('BENCH_MONGODB_URL') ? ['connection' => 'mongodb', 'name' => 'catalog'] : null,
         'redis' => getenv('BENCH_REDIS_URL') ? ['name' => 'cache'] : null,
         'dynamodb' => getenv('BENCH_DYNAMODB_URL') ? ['clients' => [DynamoDbClient::class], 'name' => 'orders'] : null,
+        'opensearch' => getenv('BENCH_OPENSEARCH_URL') ? ['clients' => [OpenSearch\Client::class], 'name' => 'articles'] : null,
     ]),
 ];

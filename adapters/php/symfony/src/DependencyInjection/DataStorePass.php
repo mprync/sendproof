@@ -16,8 +16,8 @@ use Sendproof\Symfony\Stores\HookedStores;
  * Hooks the client services named in `sendproof.data_stores`, but only when Sendproof is enabled
  * for this kernel environment, so a disabled application never touches a data store client.
  *
- * Predis and DynamoDB clients get a service configurator; MongoDB clients are decorated by the
- * guarded client. A client service that is not listed is not covered.
+ * Predis, DynamoDB, Elasticsearch, OpenSearch and Firestore clients get a service configurator;
+ * MongoDB clients are decorated by the guarded client. A client service that is not listed is not covered.
  */
 final class DataStorePass implements CompilerPassInterface
 {

@@ -122,6 +122,29 @@ final class FirestoreStoreTest extends TestCase
         $this->assertSame(['BatchGetDocuments', 'RunQuery'], array_values(array_diff($fake->methods(), ['BeginTransaction', 'Rollback'])), 'No write may reach the network during a Preview.');
     }
 
+    public function testABulkWriterThatFlushesAfterThePreviewHasEndedIsStillRefused(): void
+    {
+        // A BulkWriter batches writes and sends them on flush(), which a handler can leave to a shutdown
+        // function, a destructor or an after-response callback: after the Preview ended, in the same
+        // request. Every write of a PHP process during a Preview's request belongs to that Preview
+        // (there are no background threads), so the scope outlives the Preview and refuses it unsent.
+        [$recorder, $client, $fake, $store] = $this->hooked();
+        $writer = $client->bulkWriter();
+        $result = $this->preview($recorder, [$store], function () use ($writer, $client): void {
+            $writer->set($client->collection('orders')->document('late'), ['status' => 'new']);
+        });
+        $this->assertTrue($result->isConfirmed(), 'The handler only queued the write');
+        $this->assertTrue($recorder->inPreviewScope(), 'The Preview scope lasts to the end of the request');
+        try {
+            $writer->flush();
+            $this->fail('The late flush was not refused.');
+        } catch (PreviewWriteBlockedException $refusal) {
+            $this->assertSame('BatchWrite', $refusal->operation);
+        }
+        $this->assertSame('firestore', $recorder->blocked()['store'], 'The refusal blocks the Preview');
+        $this->assertSame([], $fake->sent, 'The late write was never sent');
+    }
+
     public function testATransactionThatOnlyReadsRunsAndNothingItSendsWrites(): void
     {
         [$recorder, $client, $fake, $store] = $this->hooked();

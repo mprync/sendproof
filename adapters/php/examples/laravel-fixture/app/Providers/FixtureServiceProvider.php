@@ -11,6 +11,8 @@ use Illuminate\Auth\GenericUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\ServiceProvider;
+use OpenSearch\Client as OpenSearchClient;
+use OpenSearch\GuzzleClientFactory;
 
 /** Signed-cookie authentication plus the scenario switches of the conformance fixture. */
 final class FixtureServiceProvider extends ServiceProvider
@@ -60,6 +62,10 @@ final class FixtureServiceProvider extends ServiceProvider
                 'region' => getenv('AWS_REGION') ?: 'us-east-1', 'version' => 'latest', 'endpoint' => $url,
                 'credentials' => ['key' => getenv('AWS_ACCESS_KEY_ID'), 'secret' => getenv('AWS_SECRET_ACCESS_KEY')],
             ]));
+        }
+        if (($url = getenv('BENCH_OPENSEARCH_URL')) !== false && $url !== '') {
+            // The PSR-18 transport of opensearch-php 2 (the Symfony fixture uses the legacy ClientBuilder).
+            $this->app->singleton(OpenSearchClient::class, fn () => (new GuzzleClientFactory())->create(['base_uri' => $url]));
         }
     }
 

@@ -4,10 +4,13 @@ use Aws\DynamoDb\DynamoDbClient;
 use Doctrine\ORM\EntityManagerInterface;
 use Fixture\Store\DynamoController;
 use Fixture\Store\MongoController;
+use Fixture\Store\OpenSearchController;
 use Fixture\Store\RedisController;
 use Fixture\Store\RememberController;
 use Fixture\Support\FailingRollbackProvider;
+use Fixture\Support\OpenSearchFactory;
 use MongoDB\Client as MongoClient;
+use OpenSearch\Client as OpenSearchClient;
 use Predis\Client as PredisClient;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Sendproof\Symfony\Doctrine\OrmChangeCollector;
@@ -45,11 +48,17 @@ return static function (ContainerConfigurator $container): void {
         $services->alias(DynamoDbClient::class, 'app.dynamo');
         $services->set(DynamoController::class)->public()->tag('controller.service_arguments');
     }
-    if (getenv('BENCH_REDIS_URL') || getenv('BENCH_DYNAMODB_URL')) {
+    if ($url = getenv('BENCH_OPENSEARCH_URL')) {
+        $services->set('app.opensearch', OpenSearchClient::class)->factory([OpenSearchFactory::class, 'create'])->args([$url])->public();
+        $services->alias(OpenSearchClient::class, 'app.opensearch');
+        $services->set(OpenSearchController::class)->public()->tag('controller.service_arguments');
+    }
+    if (getenv('BENCH_REDIS_URL') || getenv('BENCH_DYNAMODB_URL') || getenv('BENCH_OPENSEARCH_URL')) {
         $services->set(RememberController::class)->public()->tag('controller.service_arguments')->args([
             service(EntityManagerInterface::class),
             service('app.redis')->nullOnInvalid(),
             service('app.dynamo')->nullOnInvalid(),
+            service('app.opensearch')->nullOnInvalid(),
         ]);
     }
 };

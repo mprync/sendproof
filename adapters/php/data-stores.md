@@ -1,6 +1,6 @@
 # Data stores in the PHP binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis and DynamoDB, the PHP binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). It works in Laravel and Symfony, and the hooks live in `sendproof/core`, so a plain PHP application can use them too.
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore, the PHP binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md). It works in Laravel and Symfony, and the hooks live in `sendproof/core`, so a plain PHP application can use them too.
 
 | Store | Client | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,10 +8,24 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | the same | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | Predis; phpredis through Laravel's Redis manager | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | `aws/aws-sdk-php` `DynamoDbClient` | `guard` | Runs reads. The first write stops the Preview. |
+| Elasticsearch | `elasticsearch/elasticsearch` 8 and 9 `Client` | `guard` | Runs reads, including searches sent as a `POST`. The first write stops the Preview. |
+| OpenSearch | `opensearch-project/opensearch-php` 2 `Client`, on its PSR-18 transport or its legacy `ClientBuilder` transport | `guard` | Runs reads, including searches sent as a `POST`. The first write stops the Preview. |
+| Firestore | `google/cloud-firestore` 2 `FirestoreClient` (needs `ext-grpc`) | `guard` | Runs reads. The first write stops the Preview. |
+
+None of these four guard-only stores can roll back, so a Preview never changes them: it either reads or stops at the first write, with a 409.
+
+### Stores the PHP binding doesn't support
+
+| Store | Why |
+| --- | --- |
+| Cassandra | No maintained PHP driver: the DataStax PHP extension is unmaintained, and nothing else gives a hook at the statement level. A handler that writes to Cassandra is not guarded. Mark such an operation `preview: false`. |
+| Azure Cosmos DB | Microsoft ships no PHP SDK, so there is no client to hook. A handler that calls the REST API directly is not guarded. Mark such an operation `preview: false`. |
+
+Their classification tables (`cassandra.json`, `cosmosdb.json`) are embedded in `core/src/Stores/Tables.php` so the parity test covers every table of the batch, but nothing in the binding uses them.
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
-The MongoDB hook needs `ext-mongodb` 1.21 or later (2.x with `mongodb/mongodb` 2.1 or later). phpredis needs `ext-redis`. Install the client packages you use; Sendproof lists them as suggestions and loads a hook only when its package is present.
+The MongoDB hook needs `ext-mongodb` 1.21 or later (2.x with `mongodb/mongodb` 2.1 or later). phpredis needs `ext-redis`. The Firestore client needs `ext-grpc` and `ext-protobuf` is recommended. Install the client packages you use; Sendproof lists them as suggestions and loads a hook only when its package is present.
 
 ## Coverage: only hooked clients are covered
 
@@ -22,7 +36,7 @@ One case the driver makes visible: the MongoDB extension pools clients that have
 
 Each MongoDB hook proves its monitor is installed on its own client: its topology `hello` carries a unique comment, and the hook must see it. When it doesn't (the subscriber was removed, say), discovery shows the store in `guard` mode with the reason "Sendproof's command monitor doesn't see this MongoDB client's commands", and a Preview answers 500 rather than run without the tripwire.
 
-PHP serves one request at a time in each worker process, so every command a process sends while a Preview is open belongs to that Preview, and the Preview's scope lasts to the end of the request (terminating callbacks and `dispatchAfterResponse()` jobs included). There is no unattributed in-process write to fail on, and no detached marker to set. Work in another process (a queue worker, an Octane task worker) uses that process's clients: it is not part of the Preview and not covered. Fiber or event-loop servers that run several requests in one process (ReactPHP, AMPHP, Swoole coroutines) are not supported.
+PHP serves one request at a time in each worker process, so every command a process sends while a Preview is open belongs to that Preview, and the Preview's scope lasts to the end of the request (terminating callbacks and `dispatchAfterResponse()` jobs included). There is no unattributed in-process write to fail on, and no detached marker to set. The spec's rule for writes with no request (a client's background writer) is met the same way: PHP has no background threads, so a deferred write, such as a Firestore `BulkWriter` flushed from a destructor, a shutdown function or an after-response callback, runs in the Preview's own request, finds the scope still open and is refused before it is sent (a unit test queues a write, lets the Preview end and flushes late). Work in another process (a queue worker, an Octane task worker) uses that process's clients: it is not part of the Preview and not covered. Fiber or event-loop servers that run several requests in one process (ReactPHP, AMPHP, Swoole coroutines) are not supported.
 
 ## Register the stores
 
@@ -36,12 +50,16 @@ Hooks are installed only when Sendproof is enabled for the environment (`enabled
     'mongodb' => ['connection' => 'mongodb', 'name' => 'catalog'],
     'redis' => ['name' => 'cache'],
     'dynamodb' => ['clients' => [Aws\DynamoDb\DynamoDbClient::class], 'name' => 'orders'],
+    'elasticsearch' => ['clients' => [Elastic\Elasticsearch\Client::class], 'name' => 'search'],
+    'opensearch' => ['clients' => [OpenSearch\Client::class], 'name' => 'articles'],
+    'firestore' => ['clients' => [Google\Cloud\Firestore\FirestoreClient::class], 'name' => 'docs'],
 ],
 ```
 
 - `mongodb.connection` names a `mongodb/laravel-mongodb` connection. Its client and database are replaced in place by guarded ones, so Eloquent models, the query builder and `DB::connection('mongodb')` all use them. A connection rebuilt after `DB::purge()` or `DB::reconnect()` gets the same guarded client.
 - `redis` hooks Laravel's Redis manager: every Predis or phpredis connection it creates afterwards is guarded, including the ones the cache, session and queue drivers use.
 - `dynamodb.clients` lists container ids or class names of `DynamoDbClient` services. Every client the container resolves for them is hooked, including the new client a binding that isn't shared builds on each resolve. For a client the container doesn't hold, call `Sendproof::hookDynamoDb($client)` once, at startup.
+- `elasticsearch.clients`, `opensearch.clients` and `firestore.clients` list container ids or class names of `Elastic\Elasticsearch\Client`, `OpenSearch\Client` and `Google\Cloud\Firestore\FirestoreClient` services. They work like `dynamodb.clients`: every client the container resolves is hooked, including the new client of a binding that isn't shared, and an id that resolves to anything else fails at startup. For a client the container doesn't hold, call `Sendproof::hookElasticsearch($client)`, `hookOpenSearch($client)` or `hookFirestore($client)` once, at startup. `elasticsearch` and `opensearch` also take `path_prefix` when the hosts carry a path (`https://proxy/search`).
 
 `name` is the label the workbench shows. It must be a display name such as `catalog`, never a URL, host name or credentials; a value that looks like one is refused.
 
@@ -55,9 +73,12 @@ sendproof:
         mongodb: { clients: [app.mongo_client], name: catalog }
         redis: { clients: [app.predis], name: cache }
         dynamodb: { clients: [Aws\DynamoDb\DynamoDbClient], name: orders }
+        elasticsearch: { clients: [app.elasticsearch], name: search }
+        opensearch: { clients: [app.opensearch], name: articles }
+        firestore: { clients: [app.firestore], name: docs }
 ```
 
-Each id names a service. A Predis or DynamoDB service gets a service configurator that hooks it when the container builds it; a `MongoDB\Client` service is decorated under its own id, so everything that uses it gets the guarded client. An id that is not a service fails the container build. Sendproof builds every listed client at the start of a Preview, so the hooks are in place even for a handler that uses a client lazily.
+Each id names a service. A Predis, DynamoDB, Elasticsearch, OpenSearch or Firestore service gets a service configurator that hooks it when the container builds it; a `MongoDB\Client` service is decorated under its own id, so everything that uses it gets the guarded client. An id that is not a service fails the container build. Sendproof builds every listed client at the start of a Preview, so the hooks are in place even for a handler that uses a client lazily.
 
 The Symfony bundle guards Predis only. A phpredis `\Redis`, `\RedisArray` or `\RedisCluster` service, including the one Symfony Cache builds from a `redis://` DSN, is not covered: guarding it means a subclass that overrides every one of the extension's several hundred command methods, with no single send path to hook as Laravel's connection offers. Use a Predis client (`class: Predis\Client`, or `RedisAdapter::createConnection($dsn, ['class' => \Predis\Client::class])`) for the Redis your handlers write to, and list that service.
 
@@ -116,6 +137,21 @@ Session commands (`AUTH`, `HELLO`, `SELECT`, `PING`…) are never guarded or log
 
 `DynamoGuard` adds one middleware at the start of the AWS SDK's handler list, which runs before a request is validated, serialised or signed, so credentials and signatures never reach a capture. `Marshaler`, `WriteRequestBatch` and the session handler all send through the client, so hooking it covers them.
 
+### Elasticsearch and OpenSearch
+
+One shared table (`elasticsearch.json`) classifies both engines by HTTP method and path, and the 409 and the `Db` entry report `elasticsearch` or `opensearch` as the store. A `POST` is not a write by itself: `_search`, `_msearch`, `_count`, `_mget` and the other read endpoints take their query in a `POST` body and run. `_bulk`, `_update_by_query`, `_delete_by_query`, `_reindex`, every document write and every index, alias, template and script change are writes, as is any request the table doesn't know. The SQL endpoints (`_sql`, `_plugins/_sql`) are reads only for a single `SELECT`, `SHOW` or `DESCRIBE`. Point-in-time and scroll handles are session state: they run and aren't logged. `treat_as_read` names an endpoint by its operation name, such as `update_by_query`.
+
+- **Elasticsearch** (`elasticsearch/elasticsearch` 8 and 9): the transport sends every typed call, helper and raw `sendRequest()` through one PSR-18 client, and through an HTTPlug async client in async mode. `ElasticsearchGuard::install()` replaces both in place, so it covers a client that already exists; a refused async write throws from the call itself, before a promise exists. To build a client with the guard from the start, pass `ElasticsearchGuard::httpClient($inner, $guard)` to both `ClientBuilder::setHttpClient()` and `setAsyncHttpClient()`. Paths of the transport's own hosts (`https://host/search`) are ignored when classifying.
+- **OpenSearch** (`opensearch-project/opensearch-php` 2): the library has two ways to send. `OpenSearchGuard::install()` finds which one a client uses and hooks it in place: the PSR-18 transport (`GuzzleClientFactory`, `SymfonyClientFactory`) gets a decorated HTTP client, and the legacy `ClientBuilder` transport (deprecated by the library since 2.4) gets a wrapped RingPHP handler on every connection and on the factory that makes more, so connections a sniffing pool discovers later are guarded too. A client with another kind of transport is refused at startup rather than left unguarded. To build a client with the guard from the start, use `OpenSearchGuard::httpClient()` with `TransportFactory::setHttpClient()`, or `OpenSearchGuard::handler()` with `ClientBuilder::setHandler()`. The library's `ClientBuilder` has no `setHttpClient()`; that exists only on the PSR-18 side.
+
+The guard reads only the method, path, query and body of a request. It never reads or logs a header, an API key, a password or a signature, and a host name never reaches a `Db` entry.
+
+### Firestore
+
+`FirestoreGuard::install()` replaces the transport of the SDK's generated client, which `FirestoreClient`, `DocumentReference`, `Query`, `Transaction`, `BulkWriter` and the rest share. Every call of the SDK reaches the network through the four methods of gax's `TransportInterface`, over gRPC or REST alike, so the guard sees unary calls and streams, and `Write`, a bidirectional stream, is refused before it opens. Reads (`BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `ListDocuments`, `ListCollectionIds`, `PartitionQuery`, `Listen`) run. `BeginTransaction` and `Rollback` hold and release a transaction and change no data, so they are allowed and not logged. `Commit` is a write when it carries at least one write; an empty `Commit` that ends a read-only transaction is allowed, and one the hook can't read is a write. `BatchWrite` and the document methods are writes, and so is a method of another service or API version; Admin methods are reads only when they start with `Get` or `List`. To build a client with the guard from the start, give `FirestoreGuard::transport($inner, $guard)` to the client's `transport` option.
+
+The Admin client (`Google\Cloud\Firestore\Admin\V1\Client\FirestoreAdminClient`) and a generated V1 client used on its own are separate clients: pass them to `FirestoreGuard::install()` too, or they are not covered. Statements in `Db` entries are the request's proto3 JSON with every value replaced by `?`.
+
 ## Mark an operation `preview: false`
 
 An operation you know writes to a guarded store, such as one that clears a Redis session, can be marked `preview: false`. The workbench then shows "Preview unavailable" with your reason before anyone tries, and a Preview of it is refused (409, never confirmed) without running the handler. Send still runs it. The binding never infers the mark; without it the operation is advertised and the guard decides at run time.
@@ -167,6 +203,16 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 - Document `before` images are read at the Preview transaction's snapshot time, so a concurrent commit by another request never shows up as a change.
 - `createCollection()` fails inside a Preview, because MongoDB refuses an explicit `create` in a transaction with snapshot read concern. Inserting into a new collection creates it and rolls back.
 
+## Elasticsearch, OpenSearch and Firestore limits
+
+- A Preview never changes these stores, so it can't show what a write would have done: the first write stops it with a 409. Mark a route you know writes with `preview: false` to say so before anyone tries.
+- A hook covers only the client it is installed on. A second client, one built inside a handler, an `Admin` or generated Firestore client you didn't pass to `install()`, and a raw socket or `curl` call are not guarded. A client built before the hook is covered by `install()`; a client built after it is covered when the container resolves it from a listed id, and otherwise by calling `install()` (or the manager's `hook*()` method) yourself.
+- `Transport::setAsyncClient()` on an Elasticsearch client, or `Connection` replacement on an OpenSearch legacy pool, after the hook, with an unguarded object, bypasses it. Sendproof can't see that call; don't do it.
+- OpenSearch clients with a transport other than the two the library ships are refused at startup.
+- Reads are logged with the request body's literals replaced by `?` and, for a search, the number of hits returned. A request or reply body over 1 MiB is not parsed for the log. A request body that isn't seekable is not read: its `Db` entry has no statement, and a SQL request with such a body is treated as a write.
+- Firestore needs `ext-grpc` at run time. The hook itself is pure PHP, and its tests run without the extension against the real SDK over a fake transport; the gRPC channel is the SDK's and was not exercised in this binding's tests.
+- The `Listen` stream is a read and is logged when it opens, without rows. A stream's replies arrive after the hook has returned, so a stream's `Db` entry carries no row count.
+
 ## Previews on MySQL take turns
 
 MySQL and MariaDB deadlock when three or more Previews insert the same new key at once and the first rolls back. The Eloquent and Doctrine providers therefore let one Preview run at a time on each MySQL database. PHP serves requests in separate worker processes, so the turn is an advisory file lock in the system temporary directory, which orders the Previews of every process on the host, a wider guarantee than the per-process turn of the other bindings. Previews sent to different hosts of one application still run at the same time and can still deadlock; the Preview then fails safely and nothing is written. Sends and observed Sends never wait.
@@ -177,7 +223,7 @@ MySQL and MariaDB deadlock when three or more Previews insert the same new key a
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`, Elasticsearch and OpenSearch statements are the request body with every value replaced by `?` (one line per NDJSON line), and Firestore statements are the request in proto3 JSON with every value replaced by `?`. Session commands such as `AUTH` and `hello` are never logged.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{ _id }` as `key`, and whole nested documents as `before` and `after` in MongoDB Extended JSON relaxed form. A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 
@@ -187,6 +233,12 @@ The classification tables are embedded in `core/src/Stores/Tables.php`, generate
 
 ```sh
 docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb
+docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch
 sh adapters/php/scripts/test.sh
 node tests/conformance/run.mjs php-laravel php-symfony
+BENCH_STORES=mongodb,redis,dynamodb node tests/conformance/run.mjs php-laravel php-symfony   # what CI's main matrix runs
 ```
+
+The Elasticsearch and OpenSearch tests run on the real client libraries over a fake transport (the OpenSearch ones also against the `opensearch` service, which they skip when it doesn't answer). The Firestore tests run the real SDK over a fake gax transport, and replay every request of [spec/data-stores/recordings/firestore.json](../../spec/data-stores/recordings/README.md) through the hook, outside and inside a Preview, with a variant that removes the hook and fails. The conformance entries list `opensearch`: `php-laravel` uses the PSR-18 transport and `php-symfony` the legacy `ClientBuilder` transport, so the two between them cover both.
+
+The Firestore SDK requires `ext-grpc`, which the development setup doesn't install; `composer.json` declares `config.platform.ext-grpc` so `composer install` still resolves it. Remove that line if you run Firestore for real.

@@ -25,6 +25,7 @@ return static function (ContainerConfigurator $container): void {
             'mongodb' => getenv('BENCH_MONGODB_URL') ? ['clients' => ['app.mongo'], 'name' => 'catalog'] : null,
             'redis' => getenv('BENCH_REDIS_URL') ? ['clients' => ['app.redis'], 'name' => 'cache'] : null,
             'dynamodb' => getenv('BENCH_DYNAMODB_URL') ? ['clients' => ['app.dynamo'], 'name' => 'orders'] : null,
+            'opensearch' => getenv('BENCH_OPENSEARCH_URL') ? ['clients' => ['app.opensearch'], 'name' => 'articles'] : null,
         ]),
         'trace' => ['ttl' => (int) (getenv('SENDPROOF_TRACE_TTL') ?: 5), 'path' => getenv('FIXTURE_DIR') . '/traces'],
     ]);

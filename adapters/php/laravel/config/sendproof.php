@@ -65,7 +65,11 @@ return [
     //   'mongodb'  => ['connection' => 'mongodb', 'name' => 'catalog'],   // a mongodb/laravel-mongodb connection
     //   'redis'    => ['name' => 'cache'],                                  // every connection Laravel's Redis manager creates
     //   'dynamodb' => ['clients' => [DynamoDbClient::class], 'name' => 'orders'],
+    //   'elasticsearch' => ['clients' => [Elastic\Elasticsearch\Client::class], 'name' => 'search'],
+    //   'opensearch'    => ['clients' => [OpenSearch\Client::class], 'name' => 'search'],
+    //   'firestore'     => ['clients' => [Google\Cloud\Firestore\FirestoreClient::class], 'name' => 'docs'],
     // Each also takes 'treat_as_read' (exact command names you state never write); mongodb takes 'preview_timeout_ms'.
+    // elasticsearch and opensearch also take 'path_prefix' for a host such as https://proxy/search.
     // See adapters/php/data-stores.md. Mark an operation with ->sendproofPreview(false, 'reason') when you know it writes to one.
     'data_stores' => [],
 

@@ -22,7 +22,10 @@
   "suggest": {
     "mongodb/mongodb": "Guarded MongoDB client and Preview transactions (needs ext-mongodb)",
     "predis/predis": "Write guard for Predis Redis clients",
-    "aws/aws-sdk-php": "Write guard for DynamoDB clients"
+    "aws/aws-sdk-php": "Write guard for DynamoDB clients",
+    "elasticsearch/elasticsearch": "Write guard for Elasticsearch 8 and 9 clients",
+    "opensearch-project/opensearch-php": "Write guard for OpenSearch 2 clients (PSR-18 and legacy transports)",
+    "google/cloud-firestore": "Write guard for Firestore clients (needs ext-grpc)"
   },
   "autoload": {
     "psr-4": { "Sendproof\\Core\\": "src/" }
