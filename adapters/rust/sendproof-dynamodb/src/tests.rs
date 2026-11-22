@@ -170,22 +170,24 @@ async fn run_preview<F: std::future::Future<Output = ()>>(store: &DynamoStore, h
 }
 
 #[tokio::test]
-async fn an_unattributed_write_while_a_preview_is_open_fails_it() {
+async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent() {
     let store = DynamoStore::new();
     let (client, sent) = client(&store, "{}");
     let reply = run_preview(&store, async {
-        // A spawned task has no request scope: the write is sent, and nothing can say whose it was.
-        tokio::spawn(async move { client.put_item().table_name("orders").item("id", id("a")).send().await.unwrap() }).await.unwrap();
+        // A spawned task has no request scope, like a client's own background writer: nothing can say
+        // whose write it is, so it is the Preview's, and it is refused.
+        let result = tokio::spawn(async move { client.put_item().table_name("orders").item("id", id("a")).send().await }).await.unwrap();
+        assert!(result.is_err());
     })
     .await;
-    assert_eq!(sent.load(Ordering::SeqCst), 1);
-    assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(sent.load(Ordering::SeqCst), 0, "the write must not reach DynamoDB");
+    assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
 }
 
 #[tokio::test]
 async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
     let store = DynamoStore::new();
-    let (client, _) = client(&store, "{}");
+    let (client, sent) = client(&store, "{}");
     let reply = run_preview(&store, async {
         tokio::spawn(sendproof_core::detached(
             async move { client.put_item().table_name("orders").item("id", id("a")).send().await.unwrap() },
@@ -195,6 +197,7 @@ async fn a_detached_background_write_leaves_an_open_preview_confirmable() {
     })
     .await;
     assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+    assert_eq!(sent.load(Ordering::SeqCst), 1, "detached work is never refused");
 }
 
 #[tokio::test]

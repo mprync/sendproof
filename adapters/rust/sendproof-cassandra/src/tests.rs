@@ -220,8 +220,10 @@ mod server {
     }
 
     /// A number that differs between the tests of one process.
-    fn unique_tag() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos())
+    fn unique_tag() -> String {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+        format!("{seconds}_{}", COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
     }
 
     #[tokio::test]
@@ -352,18 +354,23 @@ mod server {
     }
 
     #[tokio::test]
-    async fn an_unattributed_write_while_a_preview_is_open_fails_it() {
+    async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent() {
         let Some(fixture) = Fixture::new().await else { return };
         let store = CassandraStore::new(fixture.raw.clone());
         let session = store.detached().session();
         let reply = run_preview(&store, async {
-            // A spawned task has no request scope: the write is sent, and nothing can say whose it was.
-            tokio::spawn(async move { session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('orphan', 'new', 1)", ()).await.unwrap() })
-                .await
-                .unwrap();
+            // A spawned task has no request scope, like a client's own background writer: nothing can
+            // say whose write it is, so it is the Preview's, and it is refused.
+            let error = tokio::spawn(async move {
+                session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('orphan', 'new', 1)", ()).await.unwrap_err()
+            })
+            .await
+            .unwrap();
+            assert!(error.blocked().is_some_and(|blocked| blocked.operation == "INSERT"), "{error}");
         })
         .await;
-        assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+        assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
+        assert_eq!(fixture.ticket("orphan").await, None, "the write must not reach Cassandra");
         fixture.drop().await;
     }
 
@@ -381,6 +388,7 @@ mod server {
         })
         .await;
         assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+        assert_eq!(fixture.ticket("background").await, Some(("new".into(), 1)), "detached work is never refused");
         fixture.drop().await;
     }
 }

@@ -265,7 +265,8 @@ impl Hook {
     }
 
     fn admit(&self, operation: &str, kind: CommandKind, text: &str, target_of: Option<&str>) -> Result<Option<Pending>, PreviewWriteBlocked> {
-        self.open.refuse_unattributed(&self.scope, SYSTEM, operation, kind);
+        // A write no request sent, while a Preview is open, is refused before it is sent.
+        self.open.block_unattributed(&self.scope, SYSTEM, operation, kind)?;
         self.scope.guard(SYSTEM, operation, kind, None)?;
         if matches!(kind, CommandKind::Session | CommandKind::Transaction) {
             return Ok(None);

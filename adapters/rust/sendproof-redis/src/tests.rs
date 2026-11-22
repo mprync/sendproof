@@ -226,6 +226,53 @@ async fn the_checks_fail_when_the_connection_is_not_guarded() {
     assert!(recorder.blocked().is_none(), "and the Preview would be confirmed");
 }
 
+/// Runs a Preview of `POST /things` through the core pipeline, with `store` registered.
+async fn run_preview<F: std::future::Future<Output = ()>>(store: &RedisStore, handler: F) -> sendproof_core::Reply {
+    use sendproof_core::{Core, Headers, Inner, PreviewState};
+    let config = sendproof_core::Config::builder("Test")
+        .environment("Development")
+        .enable_in(["Development"])
+        .preview_operation("POST", "/things")
+        .data_store(store.clone())
+        .build()
+        .unwrap();
+    let core = Core::new(config);
+    let state = PreviewState::new(&core, Instant::now());
+    state.enroll(&core, "POST", Some("/things"), &Headers::new()).await.expect("enrolled");
+    capture::scope(state.recorder(), handler).await;
+    state.complete();
+    state.finish(Ok(Inner { status: 200, headers: Headers::new(), body: b"{}".to_vec() })).await
+}
+
+#[tokio::test]
+async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent() {
+    let wire = Wire::default();
+    let store = RedisStore::new().connection(wire.clone());
+    let reply = run_preview(&store, async {
+        // A spawned task has no request scope, like a connection used from background work: nothing can
+        // say whose write it is, so it is the Preview's, and it is refused.
+        let mut conn = store.detached().connection();
+        let result = tokio::spawn(async move { redis::cmd("INCR").arg("counter:a").exec_async(&mut conn).await }).await.unwrap();
+        assert!(result.is_err());
+    })
+    .await;
+    assert!(wire.sent().is_empty(), "the write must not reach Redis: {:?}", wire.sent());
+    assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
+}
+
+#[tokio::test]
+async fn a_detached_background_write_is_never_refused() {
+    let wire = Wire::default();
+    let store = RedisStore::new().connection(wire.clone());
+    let reply = run_preview(&store, async {
+        let mut conn = store.detached().connection();
+        tokio::spawn(sendproof_core::detached(async move { redis::cmd("INCR").arg("counter:a").exec_async(&mut conn).await.unwrap() })).await.unwrap();
+    })
+    .await;
+    assert_eq!(wire.sent(), ["INCR"]);
+    assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+}
+
 #[test]
 fn a_label_that_looks_like_a_connection_string_is_refused() {
     assert!(RedisStore::new().name("cache").is_ok());

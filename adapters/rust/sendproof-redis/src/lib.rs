@@ -64,7 +64,8 @@ use std::{
 use redis::{Arg, Cmd, ErrorKind, Pipeline, RedisError, RedisFuture, Value, aio::ConnectionLike};
 use sendproof_core::{
     BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, Enrollment, NotEnrolled, StoreDescription, StoreMode, StoreScope,
-    stores::{classify_redis, exact_names, store_label},
+    PreviewSession,
+    stores::{OpenPreviews, classify_redis, exact_names, store_label},
 };
 
 /// The store id used in capabilities, `Db` entries and the blocked response.
@@ -75,6 +76,8 @@ struct Settings {
     name: Option<String>,
     reads: HashSet<String>,
     connection: Option<SharedConnection>,
+    /// The Previews open on this store: a write no request sent is refused while one is open.
+    open: OpenPreviews,
 }
 
 /// A connection that can be cloned for each request and shared across threads.
@@ -186,6 +189,16 @@ impl DataStore for RedisStore {
         let name = self.settings.name.clone();
         Box::pin(async move { StoreDescription { system: SYSTEM.into(), name, mode: StoreMode::Guard, reason: None } })
     }
+
+    /// Registers the Preview as open on this store until it finishes, so a write no request sent (a
+    /// spawned task, a connection used from background work) is refused. Nothing is started on Redis.
+    fn begin_preview<'a>(
+        &'a self,
+        extensions: &'a mut http::Extensions,
+    ) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, sendproof_core::BoxError>> {
+        let begun = self.settings.open.begin(extensions).map(Some);
+        Box::pin(async move { begun })
+    }
 }
 
 /// The Redis handle of one request. Take it as a handler argument, then use
@@ -251,7 +264,9 @@ impl<C> GuardedConnection<C> {
     /// Classifies a command and refuses it in a Preview when it is a write.
     fn check(&self, command: &Command<'_>) -> Result<CommandKind, RedisError> {
         let kind = command.kind(&self.settings.reads);
-        self.scope.guard(SYSTEM, &command.name, kind, None).map_err(|blocked| {
+        // A write no request sent, while a Preview is open, is refused before it is packed.
+        let unattributed = self.settings.open.block_unattributed(&self.scope, SYSTEM, &command.name, kind);
+        unattributed.and_then(|()| self.scope.guard(SYSTEM, &command.name, kind, None)).map_err(|blocked| {
             // The mark is recorded; the handler sees an ordinary client error naming the store and command.
             RedisError::from((ErrorKind::Client, "Preview unavailable", blocked.to_string()))
         })?;

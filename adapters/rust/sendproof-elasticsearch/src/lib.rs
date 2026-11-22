@@ -124,7 +124,8 @@ impl Hook {
     /// `Ok(None)` is a request that is allowed and not logged.
     pub(crate) fn check(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<Option<Pending>, PreviewWriteBlocked> {
         let classified = classify_search(method, path, body, Some(&self.reads));
-        self.open.refuse_unattributed(&self.scope, self.system, &classified.operation, classified.kind);
+        // A write no request sent, while a Preview is open, is refused before it is sent.
+        self.open.block_unattributed(&self.scope, self.system, &classified.operation, classified.kind)?;
         self.scope.guard(self.system, &classified.operation, classified.kind, None)?;
         if matches!(classified.kind, CommandKind::Session | CommandKind::Transaction) {
             return Ok(None);

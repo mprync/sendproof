@@ -307,17 +307,23 @@ macro_rules! engine_tests {
             }
 
             #[tokio::test]
-            async fn an_unattributed_write_while_a_preview_is_open_fails_it() {
+            async fn an_unattributed_write_while_a_preview_is_open_is_refused_before_it_is_sent() {
                 let wire = Wire::default();
                 let store = $Store::new(client(&wire.serve().await));
                 let guarded = store.detached().client();
                 let reply = run_preview(&store, async {
-                    // A spawned task has no request scope: the write is sent, and nothing can say whose it was.
-                    tokio::spawn(async move { send(&guarded, Method::Put, "/articles/_doc/orphan", Some(serde_json::json!({ "title": "x" }))).await.unwrap() }).await.unwrap();
+                    // A spawned task has no request scope, like a client's own background writer: nothing
+                    // can say whose write it is, so it is the Preview's, and it is refused.
+                    let error = tokio::spawn(async move {
+                        send(&guarded, Method::Put, "/articles/_doc/orphan", Some(serde_json::json!({ "title": "x" }))).await.map(|_| ()).unwrap_err()
+                    })
+                    .await
+                    .unwrap();
+                    assert!(blocked_by(&error).is_some_and(|blocked| blocked.operation == "index"), "{error}");
                 })
                 .await;
-                assert_eq!(wire.sent().len(), 1);
-                assert_eq!(reply.status, 500, "{}", String::from_utf8_lossy(&reply.body));
+                assert!(wire.sent().is_empty(), "the write must not reach the cluster: {:?}", wire.sent());
+                assert_eq!(reply.status, 409, "{}", String::from_utf8_lossy(&reply.body));
             }
 
             #[tokio::test]
@@ -334,6 +340,7 @@ macro_rules! engine_tests {
                 })
                 .await;
                 assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+                assert_eq!(wire.sent(), ["PUT /articles/_doc/background"], "detached work is never refused");
             }
         }
     };
@@ -401,7 +408,14 @@ mod server {
                 eprintln!("skipped: OpenSearch isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch)");
                 return None;
             }
-            let index = format!("sp_test_{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos()));
+            // The clock alone isn't enough: tests start together and the clock's resolution is coarse.
+            static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let index = format!(
+                "sp_test_{}_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs()),
+                COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            );
             let (status, body) = call(&raw, Method::Put, &index, Some(json!({ "mappings": { "properties": { "title": { "type": "keyword" }, "views": { "type": "integer" } } } }))).await;
             assert_eq!(status, 200, "{body}");
             let (status, body) = call(&raw, Method::Put, &format!("/{index}/_doc/seeded?refresh=true"), Some(json!({ "title": "Seeded", "views": 3 }))).await;
