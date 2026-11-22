@@ -13,12 +13,12 @@
 //                     highlighted commands, redacted parameters, copy buttons.
 //
 // Scenes (?nosql=…), each on a real operation from mocks/spec.js:
-//   changes   Approve payment, a Preview that changed SQL rows and MongoDB documents
-//             (dscroll=payments brings the payments document to the top)
+//   changes   Ship order, a Preview that changed SQL rows and MongoDB documents
+//             (dscroll=orders brings the orders document to the top)
 //   logs      the same Preview's Logs tab (open=mongo|redis|dynamo, copied=cmd)
-//   known     Quote FX rate, marked preview: false: Preview disabled, the reason docked at
+//   known     Price cart, marked preview: false: Preview disabled, the reason docked at
 //             the button (confirm=1 shows Send's confirmation)
-//   blocked   Book FX deal, a Preview stopped by the write guard at Redis INCRBY (409)
+//   blocked   Redeem coupon, a Preview stopped by the write guard at Redis INCRBY (409)
 // Other parameters: theme=dark, lang=de|ar, text=130, mview=result (phones).
 (function () {
   const TB = window.TB;
@@ -206,46 +206,48 @@
     </article>`;
   }
 
-  /* ---------- Approve payment: one Preview across SQLite and MongoDB ---------- */
-  const PAY = '7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13';
+  /* ---------- Ship order: one Preview across SQLite and MongoDB ---------- */
+  const ORD = '7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13';
   const oid = x => ({ $oid: x }), dt = x => ({ $date: x }), dec = x => ({ $numberDecimal: x });
-  const paymentBefore = {
-    _id: oid('6740a1c2e5b8f1a9c4d3e201'), paymentId: PAY, reference: 'INV-2026-1184 / Q4 freight', status: 'PendingApproval',
-    amount: { value: dec('50000.00'), currency: 'EUR' },
-    beneficiary: {
-      name: 'Northwind Logistics GmbH', iban: 'DE89 3704 0044 0532 0130 00', bic: 'COBADEFFXXX',
-      address: { street: 'Am Sandtorkai 52', city: 'Hamburg', postcode: '20457', country: 'DE' },
-      screening: { status: 'Pending', provider: 'sanctions-eu' },
+  const orderBefore = {
+    _id: oid('6740a1c2e5b8f1a9c4d3e201'), orderId: ORD, number: 'ORD-2026-000187', reference: 'PO-2026-1184 / Q4 desk setup', status: 'Packed',
+    amount: { value: dec('142.20'), currency: 'EUR' },
+    customer: {
+      name: 'Priya Raman', email: 'priya.raman@example.com',
+      address: { street: '14 Marlay Park Road', city: 'Dublin', postcode: 'D16 X2P4', country: 'IE' },
+      fraudCheck: { status: 'Pending', provider: 'riskwatch' },
       webhookSecret: '[REDACTED]',
     },
-    fees: [{ type: 'SEPA', amount: dec('0.20'), bearer: 'SHA' }, { type: 'FX', amount: dec('12.50'), bearer: 'OUR' }],
-    approvals: [],
-    holdReason: 'Awaiting second approver',
-    audit: { createdAt: dt('2026-11-20T09:14:52Z'), createdBy: 'jon.ops@acme.dev', updatedAt: dt('2026-11-20T09:15:03Z'), version: 3 },
+    lines: [{ sku: 'APP-MCS-HGR-M', quantity: 2, shipped: 0, unitPrice: dec('71.10') }, { sku: 'ELE-SDL-WHI', quantity: 1, shipped: 0, unitPrice: dec('59.90') }],
+    packages: [{ type: 'Box M', weightGrams: 1380, label: 'pending' }],
+    events: [],
+    holdReason: 'Waiting for a carrier label',
+    audit: { createdAt: dt('2026-11-20T09:14:52Z'), createdBy: 'sam.support@acme.dev', updatedAt: dt('2026-11-20T09:15:03Z'), version: 3 },
   };
-  const paymentAfter = {
-    _id: paymentBefore._id, paymentId: PAY, reference: paymentBefore.reference, status: 'Approved', amount: paymentBefore.amount,
-    beneficiary: { ...paymentBefore.beneficiary, screening: { status: 'Cleared', provider: 'sanctions-eu', checkedAt: dt('2026-11-21T14:02:10Z') } },
-    fees: [paymentBefore.fees[0], { type: 'FX', amount: dec('14.75'), bearer: 'OUR' }, { type: 'Priority', amount: dec('5.00'), bearer: 'OUR' }],
-    approvals: [{ by: 'ada.admin@acme.dev', role: 'admin', decision: 'Approved', comment: 'Matches the invoice and PO.', at: dt('2026-11-21T14:02:11Z'), signatureToken: '[REDACTED]' }],
-    release: { scheduledFor: dt('2026-11-23T00:00:00Z'), rail: 'SEPA', cutoff: '14:30 CET' },
-    audit: { ...paymentBefore.audit, updatedAt: dt('2026-11-21T14:02:11Z'), updatedBy: 'ada.admin@acme.dev', version: 4 },
+  const orderAfter = {
+    _id: orderBefore._id, orderId: ORD, number: orderBefore.number, reference: orderBefore.reference, status: 'Shipped', amount: orderBefore.amount,
+    customer: { ...orderBefore.customer, fraudCheck: { status: 'Cleared', provider: 'riskwatch', checkedAt: dt('2026-11-21T14:02:10Z') } },
+    lines: [{ ...orderBefore.lines[0], shipped: 2 }, { ...orderBefore.lines[1], shipped: 1 }],
+    packages: [{ type: 'Box M', weightGrams: 1420, label: 'printed' }, { type: 'Satchel', weightGrams: 210, label: 'printed' }],
+    events: [{ by: 'ada.admin@acme.dev', role: 'admin', type: 'Shipped', comment: 'All lines packed and labelled.', at: dt('2026-11-21T14:02:11Z'), webhookToken: '[REDACTED]' }],
+    dispatch: { scheduledFor: dt('2026-11-23T00:00:00Z'), carrier: 'DHL Express', service: 'Standard', cutoff: '17:00 IST' },
+    audit: { ...orderBefore.audit, updatedAt: dt('2026-11-21T14:02:11Z'), updatedBy: 'ada.admin@acme.dev', version: 4 },
   };
   const docs = [
-    { op: 'update', collection: 'payments', ns: 'treasury', id: paymentBefore._id, before: paymentBefore, after: paymentAfter },
-    { op: 'insert', collection: 'audit_events', ns: 'treasury', id: oid('6740a1d03b9e7c21f4a8e5b7'),
-      after: { _id: oid('6740a1d03b9e7c21f4a8e5b7'), type: 'payment.approved', paymentId: PAY, actor: { email: 'ada.admin@acme.dev', role: 'admin', sessionToken: '[REDACTED]' }, at: dt('2026-11-21T14:02:11Z'), changes: ['status', 'approvals', 'release'] } },
-    { op: 'insert', via: 'upsert', collection: 'beneficiary_profiles', ns: 'treasury', id: 'cp_5b7c0000b123',
-      after: { _id: 'cp_5b7c0000b123', name: 'Northwind Logistics GmbH', lastPaidAt: dt('2026-11-21T14:02:11Z'), totals: { EUR: dec('50000.00') }, payments: 1 } },
-    { op: 'update', via: 'replace', collection: 'approval_snapshots', ns: 'treasury', id: 'pay_7d2e41a0',
-      before: { _id: 'pay_7d2e41a0', policy: { id: 'pol_high_value', threshold: dec('25000.00'), required: 2 }, approvers: ['jon.ops@acme.dev'], decided: false, note: 'Waiting for a second approver' },
-      after: { _id: 'pay_7d2e41a0', policy: { id: 'pol_high_value', threshold: dec('25000.00'), required: 2 }, approvers: ['jon.ops@acme.dev', 'ada.admin@acme.dev'], decided: true, decidedAt: dt('2026-11-21T14:02:11Z') } },
-    { op: 'delete', collection: 'payment_holds', ns: 'treasury', id: oid('6740a0f71c2d9e8b5a3f6c10'),
-      before: { _id: oid('6740a0f71c2d9e8b5a3f6c10'), paymentId: PAY, reason: 'SecondApprovalRequired', placedBy: 'policy-engine', placedAt: dt('2026-11-20T09:15:03Z') } },
+    { op: 'update', collection: 'orders', ns: 'store', id: orderBefore._id, before: orderBefore, after: orderAfter },
+    { op: 'insert', collection: 'order_events', ns: 'store', id: oid('6740a1d03b9e7c21f4a8e5b7'),
+      after: { _id: oid('6740a1d03b9e7c21f4a8e5b7'), type: 'order.shipped', orderId: ORD, actor: { email: 'ada.admin@acme.dev', role: 'admin', sessionToken: '[REDACTED]' }, at: dt('2026-11-21T14:02:11Z'), changes: ['status', 'packages', 'dispatch'] } },
+    { op: 'insert', via: 'upsert', collection: 'customer_profiles', ns: 'store', id: 'cus_3f9c0000a21e',
+      after: { _id: 'cus_3f9c0000a21e', name: 'Priya Raman', lastOrderAt: dt('2026-11-21T14:02:11Z'), totals: { EUR: dec('142.20') }, orders: 1 } },
+    { op: 'update', via: 'replace', collection: 'review_invites', ns: 'store', id: 'ord_7d2e41a0',
+      before: { _id: 'ord_7d2e41a0', rule: { id: 'rv_after_delivery', delayDays: 7, channel: 'email' }, recipients: ['priya.raman@example.com'], scheduled: false, note: 'Waiting for the order to ship' },
+      after: { _id: 'ord_7d2e41a0', rule: { id: 'rv_after_delivery', delayDays: 7, channel: 'email' }, recipients: ['priya.raman@example.com'], scheduled: true, sendAfter: dt('2026-11-30T09:00:00Z') } },
+    { op: 'delete', collection: 'stock_holds', ns: 'store', id: oid('6740a0f71c2d9e8b5a3f6c10'),
+      before: { _id: oid('6740a0f71c2d9e8b5a3f6c10'), orderId: ORD, reason: 'ReservedForPaidOrder', placedBy: 'stock-engine', placedAt: dt('2026-11-20T09:15:03Z') } },
   ];
   const rows = [
-    { op: 'update', table: 'Payments', keyName: 'Id', key: '7d2e41a0…9f13', before: { Status: 'PendingApproval', ApprovedAt: null, ApprovedBy: null, Amount: '50000.00' }, after: { Status: 'Approved', ApprovedAt: '2026-11-21 14:02:11', ApprovedBy: 'ada.admin@acme.dev', Amount: '50000.00' } },
-    { op: 'insert', table: 'Approvals', keyName: 'Id', key: '9b1f6c3e…07d4', after: { Id: '9b1f6c3e-2a7d-4b10-9e55-0c8a1d3f07d4', PaymentId: PAY, Decision: 'Approved', DecidedBy: 'ada.admin@acme.dev', DecidedAt: '2026-11-21 14:02:11', Comment: 'Matches the invoice and PO.' }, limit: 4 },
+    { op: 'update', table: 'Orders', keyName: 'Id', key: '7d2e41a0…9f13', before: { Status: 'Packed', ShippedAt: null, ShippedBy: null, Amount: '142.20' }, after: { Status: 'Shipped', ShippedAt: '2026-11-21 14:02:11', ShippedBy: 'ada.admin@acme.dev', Amount: '142.20' } },
+    { op: 'insert', table: 'Shipments', keyName: 'Id', key: '9b1f6c3e…07d4', after: { Id: '9b1f6c3e-2a7d-4b10-9e55-0c8a1d3f07d4', OrderId: ORD, Carrier: 'DHL Express', TrackingNumber: 'JD014600006281', ShippedAt: '2026-11-21 14:02:11', Notified: 'true' }, limit: 4 },
   ];
 
   /** One store's group: its mark, name, database and what happened to it. */
@@ -265,10 +267,10 @@
     </nav>`;
     return `<div class="banner">${ico('undo')}<div><strong>Rolled back. Nothing was saved.</strong> These are the rows and documents this request would write, as Ada Admin.</div></div>
       ${strip}
-      ${group('sqlite', 'treasury-demo.db', 'Rolled back', '2 rows', rows.map(rowCard).join(''))}
-      ${group('mongodb', 'treasury', 'Transaction aborted', '5 documents', docs.map(c => docCard(c)).join(''))}
+      ${group('sqlite', 'store-demo.db', 'Rolled back', '2 rows', rows.map(rowCard).join(''))}
+      ${group('mongodb', 'store', 'Transaction aborted', '5 documents', docs.map(c => docCard(c)).join(''))}
       <p class="cov6">${ico('shield', 'i i-sm')}<span>Covered in Development: SQLite and MongoDB roll back; Redis <code>cache</code> and DynamoDB <code>idempotency</code> block writes. Stores and clients Sendproof didn’t hook aren’t covered.</span></p>
-      <div class="effect">${ico('mail')}<div class="grow"><div class="t">1 email held back</div><div class="s ltr" dir="ltr">PaymentApprovedNotification → treasury-ops@acme.dev</div></div><button class="btn btn-ghost btn-sm">View</button></div>`;
+      <div class="effect">${ico('mail')}<div class="grow"><div class="t">1 email held back</div><div class="s ltr" dir="ltr">OrderShippedNotification → priya.raman@example.com</div></div><button class="btn btn-ghost btn-sm">View</button></div>`;
   }
 
   /* ---------- Command logs ---------- */
@@ -286,8 +288,8 @@
     return `<span class="j6-p">${o}</span>\n${inner.map(x => pad + x).join('<span class="j6-p">,</span>\n')}\n${end}<span class="j6-p">${c}</span>`;
   }
   const mongoUpdate = {
-    update: 'payments', $db: 'treasury',
-    updates: [{ q: { _id: '?', status: '?' }, u: { $set: { status: '?', 'fees.1.amount': '?', 'beneficiary.screening': '?', release: '?', 'audit.updatedAt': '?', 'audit.updatedBy': '?' }, $push: { approvals: '?', fees: '?' }, $unset: { holdReason: '?' }, $inc: { 'audit.version': '?' } }, upsert: '?' }],
+    update: 'orders', $db: 'store',
+    updates: [{ q: { _id: '?', status: '?' }, u: { $set: { status: '?', 'packages.0.weightGrams': '?', 'customer.fraudCheck': '?', dispatch: '?', 'audit.updatedAt': '?', 'audit.updatedBy': '?' }, $push: { events: '?', packages: '?' }, $unset: { holdReason: '?' }, $inc: { 'audit.version': '?' } }, upsert: '?' }],
     ordered: '?', txnNumber: '?', autocommit: '?',
   };
   const redisCmd = cmd => cmd.split(' ').map((w, i) => i === 0 ? `<span class="rc6-c">${esc(w)}</span>` : w === '?' ? '<span class="ph6" title="Value hidden">?</span>' : `<span class="rc6-k">${esc(w)}</span>`).join(' ');
@@ -296,49 +298,49 @@
 
   // [ms, level, took, store, source label, message html, detail key]
   const logRows = [
-    ['0.0', 'INF', '', null, 'Hosting', 'Request starting <code>POST /api/v2/approvals/7d2e41a0…/approve</code> 64 bytes'],
+    ['0.0', 'INF', '', null, 'Hosting', 'Request starting <code>POST /api/v2/orders/7d2e41a0…/shipments</code> 64 bytes'],
     ['1.1', 'INF', '', null, 'Auth', 'Signed in as <span class="prop">ada.admin@acme.dev</span> with roles <span class="prop">admin</span>'],
     ['2.4', 'DB', '0.6', 'dynamodb', 'DynamoDB', '<span class="dbm6"><b>GetItem</b> idempotency-keys</span>'],
     ['3.0', 'DB', '0.9', 'dynamodb', 'DynamoDB', `<span class="dbm6"><b>ExecuteStatement</b> idempotency-keys</span><span class="dbs6">SELECT status, responseHash FROM "idempotency-keys" WHERE pk = ? AND sk = ?</span>`, 'dynamo'],
-    ['3.9', 'DB', '0.4', 'redis', 'Redis', `<code class="rc6">${redisCmd('HMGET limits:approvals:ada.admin ? ?')}</code>`, 'redis'],
-    ['5.2', 'SQL', '2.8', 'sqlite', 'EF Core', '<code>SELECT p.Id, p.Status, p.Amount FROM Payments AS p WHERE p.Id = @p0</code>'],
-    ['9.8', 'DB', '1.2', 'mongodb', 'MongoDB', '<span class="dbm6"><b>find</b> payments</span><span class="dbs6">{"find":"payments","filter":{"paymentId":"?"},"limit":"?"}</span>'],
-    ['14.6', 'INF', '', null, 'ApprovalPolicy', 'Second approval satisfies <span class="prop">pol_high_value</span>'],
-    ['18.3', 'SQL', '3.4', 'sqlite', 'EF Core', '<code>UPDATE Payments SET Status = @p0, ApprovedAt = @p1, ApprovedBy = @p2 WHERE Id = @p3</code>'],
-    ['22.0', 'SQL', '2.1', 'sqlite', 'EF Core', '<code>INSERT INTO Approvals (Id, PaymentId, Decision, DecidedBy, DecidedAt, Comment) VALUES (@p0, …)</code>'],
-    ['25.7', 'DB', '1.8', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> payments</span><span class="dbs6">{"update":"payments","updates":[{"q":{"_id":"?","status":"?"},"u":{"$set":…}}]}</span>', 'mongo'],
-    ['29.9', 'DB', '0.9', 'mongodb', 'MongoDB', '<span class="dbm6"><b>insert</b> audit_events</span><span class="dbs6">{"insert":"audit_events","documents":["?"]}</span>'],
-    ['31.4', 'DB', '1.1', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> beneficiary_profiles</span><span class="dbs6">{"update":"beneficiary_profiles","updates":[{"q":{"_id":"?"},"u":{"$set":"?","$inc":"?"},"upsert":"?"}]}</span>'],
-    ['33.0', 'DB', '0.7', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> approval_snapshots</span><span class="dbs6">{"update":"approval_snapshots","updates":[{"q":{"_id":"?"},"u":"?"}]}</span>'],
-    ['34.2', 'DB', '0.6', 'mongodb', 'MongoDB', '<span class="dbm6"><b>delete</b> payment_holds</span><span class="dbs6">{"delete":"payment_holds","deletes":[{"q":{"paymentId":"?"},"limit":"?"}]}</span>'],
-    ['38.1', 'INF', '', null, 'PaymentService', 'Approved payment <span class="prop">7d2e41a0…9f13</span>; release on <span class="prop">23 Nov 2026</span>'],
+    ['3.9', 'DB', '0.4', 'redis', 'Redis', `<code class="rc6">${redisCmd('HMGET limits:shipments:ada.admin ? ?')}</code>`, 'redis'],
+    ['5.2', 'SQL', '2.8', 'sqlite', 'EF Core', '<code>SELECT o.Id, o.Status, o.Amount FROM Orders AS o WHERE o.Id = @p0</code>'],
+    ['9.8', 'DB', '1.2', 'mongodb', 'MongoDB', '<span class="dbm6"><b>find</b> orders</span><span class="dbs6">{"find":"orders","filter":{"orderId":"?"},"limit":"?"}</span>'],
+    ['14.6', 'INF', '', null, 'ShippingPolicy', 'Every line is paid and packed: <span class="prop">DHL Express</span> collects on <span class="prop">23 Nov 2026</span>'],
+    ['18.3', 'SQL', '3.4', 'sqlite', 'EF Core', '<code>UPDATE Orders SET Status = @p0, ShippedAt = @p1, ShippedBy = @p2 WHERE Id = @p3</code>'],
+    ['22.0', 'SQL', '2.1', 'sqlite', 'EF Core', '<code>INSERT INTO Shipments (Id, OrderId, Carrier, TrackingNumber, ShippedAt, Notified) VALUES (@p0, …)</code>'],
+    ['25.7', 'DB', '1.8', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> orders</span><span class="dbs6">{"update":"orders","updates":[{"q":{"_id":"?","status":"?"},"u":{"$set":…}}]}</span>', 'mongo'],
+    ['29.9', 'DB', '0.9', 'mongodb', 'MongoDB', '<span class="dbm6"><b>insert</b> order_events</span><span class="dbs6">{"insert":"order_events","documents":["?"]}</span>'],
+    ['31.4', 'DB', '1.1', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> customer_profiles</span><span class="dbs6">{"update":"customer_profiles","updates":[{"q":{"_id":"?"},"u":{"$set":"?","$inc":"?"},"upsert":"?"}]}</span>'],
+    ['33.0', 'DB', '0.7', 'mongodb', 'MongoDB', '<span class="dbm6"><b>update</b> review_invites</span><span class="dbs6">{"update":"review_invites","updates":[{"q":{"_id":"?"},"u":"?"}]}</span>'],
+    ['34.2', 'DB', '0.6', 'mongodb', 'MongoDB', '<span class="dbm6"><b>delete</b> stock_holds</span><span class="dbs6">{"delete":"stock_holds","deletes":[{"q":{"orderId":"?"},"limit":"?"}]}</span>'],
+    ['38.1', 'INF', '', null, 'ShipmentService', 'Shipped order <span class="prop">7d2e41a0…9f13</span>; carrier collects on <span class="prop">23 Nov 2026</span>'],
   ];
   const detail = {
     mongo: () => `
-      <dl class="log-props"><div><dt>Store</dt><dd>MongoDB · <code>treasury</code></dd></div><div><dt>Collection</dt><dd><code>payments</code></dd></div><div><dt>Took</dt><dd>1.8 ms</dd></div><div><dt>Documents</dt><dd>1 matched · 1 modified</dd></div><div><dt>Session</dt><dd>Preview transaction</dd></div></dl>
+      <dl class="log-props"><div><dt>Store</dt><dd>MongoDB · <code>store</code></dd></div><div><dt>Collection</dt><dd><code>orders</code></dd></div><div><dt>Took</dt><dd>1.8 ms</dd></div><div><dt>Documents</dt><dd>1 matched · 1 modified</dd></div><div><dt>Session</dt><dd>Preview transaction</dd></div></dl>
       <div class="sql-wrap cmd6"><div class="sql-bar">${logo('mongodb', 'lg-14')}<span>Command · values hidden</span><span class="spacer"></span>${copyBtn('Copy command', { state: q.copied === 'cmd' ? 'copied' : 'idle', size: 'btn-xs' })}</div>
         <pre class="sql cmd6-json" dir="ltr">${jsonCmd(mongoUpdate)}</pre></div>
       <div class="prm6"><div class="prm6-h">Parameters <span class="faint">15</span><span class="spacer"></span><span class="faint">Secret names are never captured</span></div>
         <dl class="params" dir="ltr">
           <dt>updates[0].q._id</dt><dd>ObjectId("6740a1c2e5b8f1a9c4d3e201")</dd>
-          <dt>updates[0].u.$set.status</dt><dd>Approved</dd>
-          <dt>updates[0].u.$push.approvals.signatureToken</dt><dd><span class="rd6">${ico('lock', 'i i-sm')}redacted</span></dd>
-          <dt>updates[0].u.$push.approvals.by</dt><dd>ada.admin@acme.dev</dd>
-          <dt>updates[0].u.$set.fees.1.amount</dt><dd>Decimal128("14.75")</dd>
-          <dt>updates[0].q.status</dt><dd>PendingApproval</dd>
+          <dt>updates[0].u.$set.status</dt><dd>Shipped</dd>
+          <dt>updates[0].u.$push.events.webhookToken</dt><dd><span class="rd6">${ico('lock', 'i i-sm')}redacted</span></dd>
+          <dt>updates[0].u.$push.events.by</dt><dd>ada.admin@acme.dev</dd>
+          <dt>updates[0].u.$set.packages.0.weightGrams</dt><dd>Int32(1420)</dd>
+          <dt>updates[0].q.status</dt><dd>Packed</dd>
         </dl><button class="link-btn6" type="button">Show 9 more parameters</button></div>
       <div class="fx-acts">${copyTextBtn('Copy as mongosh', { cls: 'btn-sm' })}${copyTextBtn('Copy entry as JSON', { cls: 'btn-sm' })}</div>`,
     redis: () => `
-      <dl class="log-props"><div><dt>Store</dt><dd>Redis · <code>cache</code> · db 0</dd></div><div><dt>Key</dt><dd><code>limits:approvals:ada.admin</code></dd></div><div><dt>Took</dt><dd>0.4 ms</dd></div><div><dt>Kind</dt><dd>Read · allowed during Preview</dd></div></dl>
+      <dl class="log-props"><div><dt>Store</dt><dd>Redis · <code>cache</code> · db 0</dd></div><div><dt>Key</dt><dd><code>limits:shipments:ada.admin</code></dd></div><div><dt>Took</dt><dd>0.4 ms</dd></div><div><dt>Kind</dt><dd>Read · allowed during Preview</dd></div></dl>
       <div class="sql-wrap cmd6"><div class="sql-bar">${logo('redis', 'lg-14')}<span>Command · key kept, arguments hidden</span><span class="spacer"></span>${copyBtn('Copy command', { size: 'btn-xs' })}</div>
-        <pre class="sql" dir="ltr">${redisCmd('HMGET limits:approvals:ada.admin ? ?')}</pre></div>
+        <pre class="sql" dir="ltr">${redisCmd('HMGET limits:shipments:ada.admin ? ?')}</pre></div>
       <p class="prm6-note">${ico('lock', 'i i-sm')}Redis arguments have no names to check, so every argument after the key is hidden.</p>`,
     dynamo: () => `
       <dl class="log-props"><div><dt>Store</dt><dd>DynamoDB · <code>idempotency</code></dd></div><div><dt>Table</dt><dd><code>idempotency-keys</code></dd></div><div><dt>Took</dt><dd>0.9 ms</dd></div><div><dt>Items</dt><dd>0 returned</dd></div></dl>
       <div class="sql-wrap cmd6"><div class="sql-bar">${logo('dynamodb', 'lg-14')}<span>PartiQL · ExecuteStatement</span><span class="spacer"></span>${copyBtn('Copy statement', { state: q.copied === 'cmd' ? 'copied' : 'idle', size: 'btn-xs' })}</div>
         <pre class="sql" dir="ltr">${partiql('SELECT status, responseHash\nFROM "idempotency-keys"\nWHERE pk = ? AND sk = ?')}</pre></div>
       <div class="prm6"><div class="prm6-h">Parameters <span class="faint">2</span></div>
-        <dl class="params" dir="ltr"><dt>1</dt><dd>approve#7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13</dd><dt>2</dt><dd>ada.admin@acme.dev</dd></dl></div>
+        <dl class="params" dir="ltr"><dt>1</dt><dd>ship#7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13</dd><dt>2</dt><dd>ada.admin@acme.dev</dd></dl></div>
       <div class="fx-acts">${copyTextBtn('Copy with values', { cls: 'btn-sm' })}${copyTextBtn('Copy entry as JSON', { cls: 'btn-sm' })}</div>`,
   };
   function logs() {
@@ -376,13 +378,13 @@
   document.title = 'Sendproof · v6 mock';
   const V = TB.v5;
   const scene = q.nosql || 'changes';
-  const opid = { changes: 'ApprovalsController.Approve', logs: 'ApprovalsController.Approve', known: 'FxController.Quote', blocked: 'FxController.Book' }[scene];
+  const opid = { changes: 'ShipmentsController.Create', logs: 'ShipmentsController.Create', known: 'CartsController.Quote', blocked: 'CouponsController.Redeem' }[scene];
   const S = TB.schema;
   const op = S.operations.find(o => o.id === opid);
   const swap = (sel, html) => document.querySelector(sel)?.replaceWith(Object.assign(document.createElement('template'), { innerHTML: html.trim() }).content.firstElementChild);
 
   // The sidebar: bring the operation into view, and mark the operation that can't Preview.
-  const quote = [...document.querySelectorAll('.nav-item')].find(a => a.title === 'Quote FX rate');
+  const quote = [...document.querySelectorAll('.nav-item')].find(a => a.title === 'Price cart');
   quote?.insertAdjacentHTML('beforeend', `<span class="nav6-np" title="${esc(s('pv.tip'))}">${ico('flask-off', 'i i-sm')}<span class="sr-only">${esc(s('pv.side'))}</span></span>`);
   requestAnimationFrame(() => {
     const here = document.querySelector('.nav-item[aria-current]');
@@ -393,34 +395,31 @@
   /* ---------- Request pane: this operation's own form ---------- */
   const fields = {
     changes: () => [
-      { name: 'paymentId', kind: 'lookup', label: 'paymentId', type: 'uuid', desc: 'The payment’s ID, from <a href="#" class="op-link">GET List approval queue</a>.', picked: ['€', 'PAY-2026-0412', '€50,000.00 · Northwind Logistics GmbH'], status: 'Sends <code>7d2e41a0…9f13</code>' },
+      { name: 'orderId', kind: 'lookup', label: 'orderId', type: 'uuid', desc: 'The order’s ID, from <a href="#" class="op-link">GET List orders</a>.', picked: ['O', 'ORD-2026-000187', '€142.20 · Priya Raman'], status: 'Sends <code>7d2e41a0…9f13</code>' },
     ],
     known: () => [
-      { name: 'pair', kind: 'select', label: 'pair', type: 'FxPair', desc: 'The currency pair to quote, base currency first.', value: 'EURUSD', options: [{ v: 'EURUSD' }], half: true },
-      { name: 'type', kind: 'radio', label: 'type', type: 'FxDealType', desc: 'Spot or forward.', value: 'Forward', options: [{ v: 'Spot' }, { v: 'Forward' }], half: true },
-      { name: 'side', kind: 'radio', label: 'side', type: 'FxSide', desc: 'Whether Acme wants to buy or sell the base currency.', value: 'Buy', options: [{ v: 'Buy' }, { v: 'Sell' }] },
-      { name: 'baseAmount', kind: 'money', label: 'baseAmount', type: 'decimal', desc: 'The amount of the base currency, to at most two decimal places.', value: decimal(500000), currency: 'EUR', half: true, status: `<bdi>${decimal(1)} – ${decimal(999999999999.99)}</bdi>` },
-      { name: 'valueDate', kind: 'date', label: 'valueDate', type: 'date', optional: true, desc: 'The value date of a forward deal, 3 to 365 days from today.', value: date('2027-01-19'), trail: weekday('2027-01-19'), half: true, status: new Intl.RelativeTimeFormat(window.i18n.locale, { numeric: 'auto' }).format(59, 'day') },
+      { name: 'shipTo', kind: 'select', label: 'shipTo', type: 'string', desc: 'The ISO 3166-1 alpha-2 country the order ships to.', value: 'IE', options: [{ v: 'IE' }], half: true },
+      { name: 'shippingMethod', kind: 'radio', label: 'shippingMethod', type: 'ShippingMethod', desc: 'How the order would be delivered.', value: 'Express', options: [{ v: 'Standard' }, { v: 'Express' }, { v: 'Same day' }], half: true },
+      { name: 'couponCode', kind: 'text', label: 'couponCode', type: 'string', optional: true, desc: 'A coupon to apply, such as SPRING25.', value: 'SPRING25', mono: true },
+      { name: 'currency', kind: 'select', label: 'currency', type: 'Currency', optional: true, desc: 'Quote in this currency instead of the cart’s.', value: 'EUR', options: [{ v: 'EUR' }], half: true },
+      { name: 'validForMinutes', kind: 'number', label: 'validForMinutes', type: 'int32', optional: true, desc: 'How long the quote stays valid, 5 to 60 minutes.', value: '15', mono: true, half: true, status: `<bdi>${num(5)} – ${num(60)}</bdi>` },
     ],
     blocked: () => [
-      { name: 'pair', kind: 'select', label: 'pair', type: 'FxPair', desc: 'The currency pair, base currency first.', value: 'EURUSD', options: [{ v: 'EURUSD' }], half: true },
-      { name: 'type', kind: 'radio', label: 'type', type: 'FxDealType', desc: 'Spot or forward.', value: 'Spot', options: [{ v: 'Spot' }, { v: 'Forward' }], half: true },
-      { name: 'side', kind: 'radio', label: 'side', type: 'FxSide', desc: 'Whether Acme buys or sells the base currency.', value: 'Buy', options: [{ v: 'Buy' }, { v: 'Sell' }] },
-      { name: 'baseAmount', kind: 'money', label: 'baseAmount', type: 'decimal', desc: 'The amount of the base currency, to at most two decimal places.', value: decimal(250000), currency: 'EUR', half: true },
-      { name: 'rate', kind: 'number', label: 'rate', type: 'decimal', desc: 'The rate from the quote. Booking fails with 409 when the market has moved more than 0.1% since.', value: '1.08742', mono: true, half: true, status: `<bdi>${num(0.0001)} – ${num(100000)}</bdi>` },
+      { name: 'code', kind: 'text', label: 'code', type: 'string', desc: 'The coupon code.', value: 'SPRING25', mono: true, half: true },
+      { name: 'orderId', kind: 'lookup', label: 'orderId', type: 'uuid', desc: 'The order to apply the coupon to. It must still be pending.', picked: ['O', 'ORD-2026-000187', '€142.20 · Priya Raman'], status: 'Sends <code>7d2e41a0…9f13</code>' },
     ],
   };
   fields.logs = fields.changes;
   const form = `<form class="form" novalidate onsubmit="return false"><fieldset><legend class="section-label">${scene === 'changes' || scene === 'logs' ? 'Path' : 'Body'} <span class="rule" aria-hidden="true"></span></legend>
     <div class="fields f5s">${fields[scene]().map(f => V.field({ state: 'rest', ...f })).join('')}</div></fieldset>
-    ${scene === 'changes' || scene === 'logs' ? `<fieldset><legend class="section-label">Body <span class="rule" aria-hidden="true"></span></legend><div class="fields f5s">${V.field({ name: 'comment', kind: 'text', label: 'comment', type: 'string', optional: true, desc: 'A comment for the audit trail, up to 500 characters.', value: 'Matches the invoice and PO.', count: `${num(27)} / ${num(500)}` })}</div></fieldset>` : ''}</form>`;
+    ${scene === 'changes' || scene === 'logs' ? `<fieldset><legend class="section-label">Body <span class="rule" aria-hidden="true"></span></legend><div class="fields f5s">${V.field({ name: 'carrier', kind: 'select', label: 'carrier', type: 'string', desc: 'The carrier that collects the parcel.', value: 'DHL Express', options: [{ v: 'DHL Express' }, { v: 'DPD' }, { v: 'UPS' }, { v: 'An Post' }, { v: 'Royal Mail' }] })}</div></fieldset>` : ''}</form>`;
   const req = document.querySelector('main.request');
   req?.querySelector('.form')?.replaceWith(Object.assign(document.createElement('template'), { innerHTML: form }).content.firstElementChild);
   req?.querySelectorAll('.tabs [role="tab"]').forEach(t => {
     const label = t.textContent.trim();
     if (scene === 'changes' || scene === 'logs') t.setAttribute('aria-selected', String(/^Params/.test(label)));
   });
-  // The body heading names this operation's schema, not CreatePaymentRequest.
+  // The body heading names this operation's schema, not CreateOrderRequest.
   req?.querySelectorAll('.form-head, .body-head').forEach(el => el.remove());
 
   /* ---------- Action bar ---------- */
@@ -430,7 +429,7 @@
     // Preview stays in its place, disabled; the reason is docked right above it, not in a tooltip.
     const dock = `<div class="pv6-dock" role="note" aria-labelledby="pv6-h">
       <span class="pv6-tile">${logo('redis', 'lg-20')}</span>
-      <div class="pv6-text"><p class="pv6-title"><strong id="pv6-h">${s('pv.title')}</strong><span class="pv6-reason" lang="en">Quotes are cached in Redis for 30 seconds.</span></p>
+      <div class="pv6-text"><p class="pv6-title"><strong id="pv6-h">${s('pv.title')}</strong><span class="pv6-reason" lang="en">Price quotes are cached in Redis for 15 minutes.</span></p>
         <p class="pv6-sub"><span class="pv6-why">${s('pv.why')} </span><span class="pv6-by">${s('pv.by')} · <code dir="ltr">preview: false</code></span> <button class="pv6-more" type="button" aria-expanded="false">${s('pv.learn')}</button></p></div>
       <span class="pv6-caret" aria-hidden="true"></span>
     </div>`;
@@ -487,7 +486,7 @@
   const problem = { type: 'about:blank', title: 'Preview unavailable', status: 409, code: 'preview_unavailable', detail: 'Preview unavailable: this operation writes to Redis', store: 'redis', operation: 'INCRBY', rolledBack: false };
   const problemHtml = '<span class="j6-p">{</span>\n' + Object.entries(problem).map(([k, v]) => `  <span class="j6-k">"${k}"</span><span class="j6-p">: </span>${typeof v === 'string' ? `<span class="j6-s">"${esc(v)}"</span>` : `<span class="j6-n">${v}</span>`}`).join('<span class="j6-p">,</span>\n') + '\n<span class="j6-p">}</span>';
   const code = `<code dir="ltr">INCRBY</code>`;
-  const snippet = '[SendproofPreview(Enabled = false, Reason = "Counts the daily FX limit in Redis")]';
+  const snippet = '[SendproofPreview(Enabled = false, Reason = "Counts coupon redemptions in Redis")]';
   const head = `<div class="resp-head" role="status"><span class="pill pill-accent">${ico('flask', 'i i-sm')}${TB.t('res.preview')}</span><span class="status-code warn">${ico('ban', 'i i-sm')}<bdi>409</bdi> ${s('blk.code')}</span><span class="metric"><bdi>${unit(23, 'millisecond')}</bdi></span><span class="spacer"></span>${copyBtn(s('blk.copyCurl'), { keys: aks('shift', 'mod', 'C') })}<button class="btn btn-sm">${ico('send', 'i i-sm')}${s('blk.sendReal')}</button></div>`;
   const body = `<section class="blk6" aria-labelledby="blk6-h">
       <div class="blk6-top">
@@ -498,7 +497,7 @@
         <p class="blk6-safe-h">${ico('shield-check', 'i i-sm')}<strong>${s('blk.safe')}</strong></p>
         <ul>
           <li>${logo('redis', 'lg-16')}<span class="nm">Redis <code dir="ltr">cache</code></span><span class="st is-block">${ico('ban', 'i i-sm')}${s('blk.refused', { op: code })}</span></li>
-          <li>${logo('sqlite', 'lg-16')}<span class="nm">SQLite <code dir="ltr">treasury-demo.db</code></span><span class="st">${ico('undo', 'i i-sm')}${s('blk.rolled')}</span></li>
+          <li>${logo('sqlite', 'lg-16')}<span class="nm">SQLite <code dir="ltr">store-demo.db</code></span><span class="st">${ico('undo', 'i i-sm')}${s('blk.rolled')}</span></li>
           <li><span class="lg-ico">${ico('mail', 'i i-sm')}</span><span class="nm">${s('blk.effects')}</span><span class="st">${ico('undo', 'i i-sm')}${s('blk.held')}</span></li>
         </ul>
         <p class="blk6-note">${s('blk.safeNote')}</p>

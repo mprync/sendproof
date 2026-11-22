@@ -5,8 +5,8 @@
 //   Docs     the deprecation notice (the attribute list itself comes from v5.js via S.tree).
 //   Model    an enum's page lists "Possible enum values" with their descriptions.
 // Parameters (v5 only):
-//   opid=<operationId>   AccountsController.List (default) | AccountsController.Get |
-//                        BalancesController.LegacyBalance | PaymentsController.Create
+//   opid=<operationId>   CustomersController.List (default) | CustomersController.Get |
+//                        InventoryController.LegacyStock | OrdersController.Create
 //   state=blank|filled|validation|generated   focus=<field> (hover|focus ring)   hover=<field>
 //   fstate=disabled (every field disabled, for the boards)
 //   run=none|send       rview=pretty|raw|table|schema   match=fail (the body breaks its schema)
@@ -34,7 +34,7 @@
   // Child attributes start open, so the list heads offer Collapse all.
   document.querySelectorAll('.doc-pane .card-head .btn, .doc-pane .media .btn').forEach(b => { if (b.textContent.includes(t('expandAll'))) b.innerHTML = b.innerHTML.replace(t('expandAll'), t('collapseAll')); });
   // Fix: the Docs response example picked the first captured object with the page's keys, so
-  // List accounts showed a page of payments. Match list pages by their items' required keys too.
+  // List customers showed a page of orders. Match list pages by their items' required keys too.
   if (q.view === 'docs') {
     const o = window.TB.currentOp(q);
     const ok = Object.entries(o.op.responses || {}).find(([c]) => /^2/.test(c));
@@ -66,13 +66,13 @@
   if (['docs', 'model', 'overview', 'signin'].includes(q.view) || q.boot) return;
 
   /* ---------- Try it: the operation ---------- */
-  const o = S.operations.find(x => x.id === (q.opid || 'AccountsController.List')) || S.operations[0];
+  const o = S.operations.find(x => x.id === (q.opid || 'CustomersController.List')) || S.operations[0];
   const op = o.op;
   const st = q.state || 'filled';
   const signedOut = q.auth === 'out';
   const readOnly = o.method === 'get';
   const params = (op.parameters || []).map(p => component('parameters', p));
-  const accounts = window.TB_SAMPLES?.accountsPage?.items || [];
+  const accounts = window.TB_SAMPLES?.customersPage?.items || [];
   const acct = accounts[0] || {};
   const symbol = c => ({ EUR: '€', USD: '$', GBP: '£', CHF: 'F', SEK: 'kr', JPY: '¥', NOK: 'kr', DKK: 'kr', CAD: '$', AUD: '$', PLN: 'zł' }[c] || c[0]);
   const fieldState = name => q.fstate === 'disabled' ? 'disabled' : q.pop === name ? 'open' : q.focus === name ? 'focus' : q.hover === name ? 'hover' : 'rest';
@@ -80,9 +80,9 @@
   // Values per state. "filled" is what the owner's screenshot showed, set the v5 way.
   const values = {
     blank: {},
-    filled: { status: 'Open', currency: 'EUR', id: true, accountId: true },
-    validation: { status: 'Open', currency: 'EUR', page: '0', pageSize: '500', q: 'Amsterdam operating account opened by the Dutch entity for collections and payroll in euro and pounds', id: false },
-    generated: { status: 'Frozen', type: 'Savings', currency: 'CHF', id: true, gen: true },
+    filled: { status: 'Active', currency: 'EUR', id: true, customerId: true },
+    validation: { status: 'Active', currency: 'EUR', page: '0', pageSize: '500', q: 'Harbour Café Ltd, the café group that orders in bulk for its three Galway sites and a roastery', id: false },
+    generated: { status: 'Suspended', segment: 'Student', currency: 'CHF', id: true, gen: true },
   }[st] || {};
   const errors = st === 'validation' ? {
     page: t('v5.err.min', { min: num(1) }), pageSize: t('v5.err.range', { min: num(1), max: num(100) }), q: t('v5.err.long', { n: num(100), now: num(values.q.length) }), id: t('v5.err.lookup'),
@@ -95,7 +95,7 @@
     f.error = errors[p.name];
     if (f.kind === 'lookup') {
       if (val) {
-        f.picked = [symbol(acct.currency || 'EUR'), acct.name, acct.iban];
+        f.picked = [(acct.name || '?')[0], acct.name, acct.email];
         f.status = t('v5.sends', { id: `<code>${esc(acct.id.slice(0, 8))}…${esc(acct.id.slice(-4))}</code>` });
       } else f.status = signedOut ? t('v5.lookup.signedOut') : t('v5.lookup.count', { n: num(accounts.length), who: 'Ada Admin' });
       if (values.gen) f.generated = t('v5.gen.lookup');
@@ -107,7 +107,7 @@
     }
     if (q.hover === p.name && f.kind === 'radio') f.hoverOn = f.options[1]?.v;
     // Two short fields share a row; selects with descriptions keep the full width.
-    f.half = ['page', 'pageSize', 'type', 'currency'].includes(p.name);
+    f.half = ['page', 'pageSize', 'segment', 'currency'].includes(p.name);
     return V.field(f);
   }
 
@@ -125,33 +125,33 @@
     </form>`;
   }
 
-  /** Create payment: the body as a form, with the same anatomy as parameters. */
+  /** Create order: the body as a form, with the same anatomy as parameters. */
   function createBody() {
-    const body = S.schemas.CreatePaymentRequest;
+    const body = S.schemas.CreateOrderRequest;
     const P = body.properties;
     const md = s => S.md(s, { block: false });
-    const valueDate = '2026-11-23';
+    const deliverBy = '2026-11-23';
     const filled = st !== 'blank';
     const fields = [
-      { name: 'debitAccountId', kind: 'lookup', label: P.debitAccountId.title, type: 'uuid', desc: md(P.debitAccountId.description), placeholder: t('v5.chooseAn', { name: 'an account' }),
-        picked: filled ? ['€', 'Operating EUR', 'IE29 AIBK 9311 5212 3456 78'] : undefined, status: filled ? t('v5.sends', { id: '<code>3f9c0000…a21e</code>' }) : t('v5.lookup.count', { n: num(12), who: 'Ada Admin' }), error: st === 'validation' ? t('v5.err.lookup') : undefined },
-      { name: 'counterpartyId', kind: 'lookup', label: P.counterpartyId.title, type: 'uuid', desc: md(P.counterpartyId.description), placeholder: t('v5.chooseAn', { name: 'a counterparty' }),
-        picked: filled ? ['N', 'Northwind Logistics GmbH', 'DE89 3704 0044 0532 0130 00'] : undefined, status: filled ? t('v5.sends', { id: '<code>5b7c0000…b123</code>' }) : t('v5.lookup.count', { n: num(24), who: 'Ada Admin' }) },
-      { name: 'amount', kind: 'money', label: 'Amount', type: 'decimal', desc: md(P.amount.description), value: filled ? decimal(50000) : '', currency: 'EUR', half: true,
+      { name: 'customerId', kind: 'lookup', label: P.customerId.title, type: 'uuid', desc: md(P.customerId.description), placeholder: t('v5.chooseAn', { name: 'a customer' }),
+        picked: filled ? ['P', 'Priya Raman', 'priya.raman@example.com'] : undefined, status: filled ? t('v5.sends', { id: '<code>3f9c0000…a21e</code>' }) : t('v5.lookup.count', { n: num(25), who: 'Ada Admin' }), error: st === 'validation' ? t('v5.err.lookup') : undefined },
+      { name: 'variantId', kind: 'lookup', label: P.variantId.title, type: 'uuid', desc: md(P.variantId.description), placeholder: t('v5.chooseAn', { name: 'a variant' }),
+        picked: filled ? ['M', 'Merino Crew Sweater, Heather Grey / M', 'APP-MCS-HGR-M'] : undefined, status: filled ? t('v5.sends', { id: '<code>9a1f0000…c301</code>' }) : t('v5.lookup.count', { n: num(40), who: 'Ada Admin' }) },
+      { name: 'unitPrice', kind: 'money', label: 'Unit price', type: 'decimal', desc: md(P.unitPrice.description), value: filled ? decimal(79) : '', currency: 'EUR', half: true,
         status: t('v5.atLeast', { min: decimal(0.01) }) + ' · ' + t('v5.f.step') + ' ' + decimal(0.01), error: st === 'validation' ? t('v5.err.number') : undefined },
-      { name: 'valueDate', kind: 'date', label: P.valueDate.title, type: 'date', desc: md(P.valueDate.description), value: filled ? date(valueDate) : '', trail: filled ? weekday(valueDate) : '', half: true,
-        status: filled ? t('v5.inDays', { n: 2 }) : t('v5.businessDays'), state: fieldState('valueDate') },
-      { name: 'priority', kind: 'radio', label: 'priority', type: 'enum', optional: true, desc: md(P.priority.description), value: filled ? 'Normal' : undefined,
-        options: V.enumOf(P.priority).values.map(v => ({ v, d: V.enumOf(P.priority).desc[v] })), status: filled ? t('v5.sendsValue', { v: '<code>"Normal"</code>' }) : t('v5.notSent'), state: fieldState('priority') },
-      { name: 'reference', kind: 'text', label: 'reference', type: 'string', optional: true, desc: md(P.reference.description), value: filled ? 'INV-2026-1184 / Q4 freight' : '',
-        count: `${num(filled ? 26 : 0)} / ${num(35)}`, state: fieldState('reference') },
+      { name: 'deliverBy', kind: 'date', label: P.deliverBy.title, type: 'date', desc: md(P.deliverBy.description), value: filled ? date(deliverBy) : '', trail: filled ? weekday(deliverBy) : '', half: true,
+        status: filled ? t('v5.inDays', { n: 2 }) : t('v5.businessDays'), state: fieldState('deliverBy') },
+      { name: 'shippingMethod', kind: 'radio', label: 'shippingMethod', type: 'enum', optional: true, desc: md(P.shippingMethod.description), value: filled ? 'Standard' : undefined,
+        options: V.enumOf(P.shippingMethod).values.map(v => ({ v, d: V.enumOf(P.shippingMethod).desc[v] })), status: filled ? t('v5.sendsValue', { v: '<code>"Standard"</code>' }) : t('v5.notSent'), state: fieldState('shippingMethod') },
+      { name: 'reference', kind: 'text', label: 'reference', type: 'string', optional: true, desc: md(P.reference.description), value: filled ? 'PO-2026-1184 / Q4 desk setup' : '',
+        count: `${num(filled ? 28 : 0)} / ${num(35)}`, state: fieldState('reference') },
     ];
     return `<form class="form" novalidate onsubmit="return false"><fieldset aria-labelledby="body-legend">
-      <div class="section-label"><span id="body-legend">${t('section.body')} <a class="schema-link" href="#">CreatePaymentRequest</a></span><span class="rule" aria-hidden="true"></span>
+      <div class="section-label"><span id="body-legend">${t('section.body')} <a class="schema-link" href="#">CreateOrderRequest</a></span><span class="rule" aria-hidden="true"></span>
         <div class="segmented" role="group" aria-label="Body editor"><button type="button" aria-pressed="true">${t('form')}</button><button type="button" aria-pressed="false">${t('json')}</button></div></div>
       <div class="fields f5s">${fields.map(V.field).join('')}
         <div class="optional-props" role="group" aria-label="Add optional fields"><span class="lead-label">${t('add')}</span>
-          ${[['remittanceLines', 'string[]'], ['chargeBearer', 'enum'], ['purposeCode', 'string'], ['externalId', 'string']].map(([n, ty]) => `<button type="button" class="prop-chip">${ico('plus', 'i i-sm')}<span class="ltr">${n}</span><span class="t">${ty}</span></button>`).join('')}</div>
+          ${[['deliveryNotes', 'string[]'], ['channel', 'enum'], ['couponCode', 'string'], ['externalId', 'string']].map(([n, ty]) => `<button type="button" class="prop-chip">${ico('plus', 'i i-sm')}<span class="ltr">${n}</span><span class="t">${ty}</span></button>`).join('')}</div>
       </div></fieldset></form>`;
   }
 
@@ -212,17 +212,17 @@
     return;
   }
   if (run !== 'send') return;
-  const list = o.id === 'AccountsController.List';
+  const list = o.id === 'CustomersController.List';
   const fail = q.match === 'fail';
-  const value = list ? window.TB_SAMPLES.accountsPage : fail ? window.TB_SAMPLES.accountMismatch : window.TB_SAMPLES.account;
-  const model = list ? 'PagedListOfAccount' : 'Account';
+  const value = list ? window.TB_SAMPLES.customersPage : fail ? window.TB_SAMPLES.customerMismatch : window.TB_SAMPLES.customer;
+  const model = list ? 'PagedListOfCustomer' : 'Customer';
   const rview = q.rview || 'pretty';
   const bytes = JSON.stringify(value).length;
   const issues = fail ? {
-    entityCountry: t('v5.issue.length', { n: 2, got: '<code>"NLD"</code>', len: 3 }),
-    bic: t('v5.issue.missing'),
+    country: t('v5.issue.length', { n: 2, got: '<code>"IRL"</code>', len: 3 }),
+    email: t('v5.issue.missing'),
   } : {};
-  const extra = fail ? [{ name: 'legacyCode', value: value.legacyCode, issue: t('v5.issue.extra', { model: 'Account' }) }] : [];
+  const extra = fail ? [{ name: 'legacyCode', value: value.legacyCode, issue: t('v5.issue.extra', { model: 'Customer' }) }] : [];
   const issueCount = Object.keys(issues).length + extra.length;
 
   // Paths the body actually returned, for the Schema view's markers.
@@ -247,11 +247,11 @@
     const j = S.jsonView(value, { label: 'Response body, application/json' });
     if (!fail) return j.html;
     // Lines the schema check flagged carry a marker and a quiet reason at the end.
-    const notes = { '"entityCountry"': t('v5.issue.lenShort', { n: 2 }), '"legacyCode"': t('v5.issue.extraShort') };
+    const notes = { '"country"': t('v5.issue.lenShort', { n: 2 }), '"legacyCode"': t('v5.issue.extraShort') };
     return j.html.replace(/<div class="ln"([^>]*)>([\s\S]*?)<\/div>/g, (m, a, inner) => {
       const key = Object.keys(notes).find(k => inner.includes(esc(k)));
       if (key) return `<div class="ln is-issue"${a}>${inner.replace(/<\/span>\s*$/, '')}<span class="ln-note">${ico('warn', 'i i-sm')}${notes[key]}</span></span></div>`;
-      if (/>1<\/span>/.test(inner) && /tok-p">\{</.test(inner)) return `<div class="ln is-issue"${a}>${inner.replace(/<\/span>\s*$/, '')}<span class="ln-note">${ico('warn', 'i i-sm')}${t('v5.issue.missingShort', { name: 'bic' })}</span></span></div>`;
+      if (/>1<\/span>/.test(inner) && /tok-p">\{</.test(inner)) return `<div class="ln is-issue"${a}>${inner.replace(/<\/span>\s*$/, '')}<span class="ln-note">${ico('warn', 'i i-sm')}${t('v5.issue.missingShort', { name: 'email' })}</span></span></div>`;
       return m;
     });
   }
@@ -293,8 +293,8 @@
     </div>`;
   const body = { pretty, raw, table, schema }[rview]();
   const nextSteps = list ? '' : `<div class="next-steps" role="group" aria-label="Use this result"><span class="faint">${t('v5.useIn', { name: '<code>id</code>' })}</span>
-      <button class="chain"><span class="method m-get">GET</span><span lang="en">Get balance</span>${kbd('mod', 'G')}</button>
-      <button class="chain"><span class="method m-put">PUT</span><span lang="en">Update account</span></button></div>`;
+      <button class="chain"><span class="method m-get">GET</span><span lang="en">Get stock level</span>${kbd('mod', 'G')}</button>
+      <button class="chain"><span class="method m-put">PUT</span><span lang="en">Update customer</span></button></div>`;
   const resultTabs = ['res.response', 'res.database', 'res.effects', 'res.logs', 'res.headers'];
   const counts = [undefined, 0, 0, 2, 8];
   const resultPane = `

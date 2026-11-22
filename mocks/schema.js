@@ -1,4 +1,4 @@
-// Reading the OpenAPI document (mocks/spec.js, a snapshot of the Treasury example) and the
+// Reading the OpenAPI document (mocks/spec.js, shaped like a snapshot of the store example) and the
 // two viewers built from it: the property tree (Docs, model pages, the response Schema view)
 // and the JSON viewer (response bodies, examples, JSON Schema). Nothing here is written per
 // screen: every row comes from components.schemas, so every row has the same anatomy.
@@ -100,7 +100,7 @@
     if (!map.length) for (const v of variantsOf(r)) map.push([refName(v), refName(v)]);
     return { prop: r.discriminator.propertyName, map };
   }
-  /** "AccountSummary", "string[]", "one of 3", "decimal": the label after a property name. */
+  /** "CustomerReference", "string[]", "one of 3", "decimal": the label after a property name. */
   function typeLabel(s) {
     const { schema } = unwrapNull(s);
     const name = refName(schema);
@@ -293,7 +293,7 @@
   const kindOf = name => { const r = schemas[name] || {}; return r.enum ? 'enum' : r.oneOf || r.anyOf ? 'oneOf' : r.allOf ? 'allOf' : typeOf(r) === 'array' ? 'array' : 'object'; };
 
   /* ---------- Examples ---------- */
-  const FORMAT_EXAMPLES = { uuid: '3f9c0000-0000-4000-8000-00000000a21e', date: '2026-11-23', 'date-time': '2026-11-20T14:02:11Z', email: 'ada.admin@acme.dev', uri: 'https://api.acme.dev', iban: 'IE29AIBK93115212345678' };
+  const FORMAT_EXAMPLES = { uuid: '3f9c0000-0000-4000-8000-00000000a21e', date: '2026-11-23', 'date-time': '2026-11-20T14:02:11Z', email: 'ada.admin@acme.dev', uri: 'https://api.acme.dev' };
   /** The spec's example, or one built from property examples, enums and formats. */
   function exampleOf(s, depth = 0, seen = new Set()) {
     const { schema } = unwrapNull(s);
@@ -321,7 +321,7 @@
   const tok = v => v === null ? '<span class="tok-b">null</span>'
     : typeof v === 'string' ? `<span class="tok-s">${esc(JSON.stringify(v))}</span>`
     : typeof v === 'number' ? `<span class="tok-n">${v}</span>` : `<span class="tok-b">${v}</span>`;
-  const labelOf = v => v && typeof v === 'object' && !Array.isArray(v) ? (v.number || v.name || v.reference || v.displayName || v.iban || v.id) : undefined;
+  const labelOf = v => v && typeof v === 'object' && !Array.isArray(v) ? (v.number || v.name || v.title || v.reference || v.displayName || v.sku || v.code || v.id) : undefined;
   const countLines = v => v && typeof v === 'object' ? 2 + Object.values(v).reduce((n, x) => n + countLines(x), 0) : 1;
   function jsonLines(value, { collapseBelow } = {}) {
     const lines = [];

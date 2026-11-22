@@ -36,7 +36,7 @@
         <div class="lgt"><div class="lgt-row head"><span>14 · 16 · 20 · 28 px</span><span>Store and id</span><span>Kind</span><span>Mode</span><span>Container · record · key</span></div>${list.map(row).join('')}</div></section>`).join('')}
       <section class="bd6-sec"><h2>In place<span>The same marks inside the components that use them</span></h2>
         <div class="bd6-use">
-          <div><p class="bd6-cap"><strong>Store group</strong> · 20 px</p><div class="sg6-head" style="border:0;padding:0">${logo('mongodb', 'lg-20')}<h3>MongoDB</h3><code>treasury</code><span class="sg6-state">${ico('undo', 'i i-sm')}Transaction aborted</span></div></div>
+          <div><p class="bd6-cap"><strong>Store group</strong> · 20 px</p><div class="sg6-head" style="border:0;padding:0">${logo('mongodb', 'lg-20')}<h3>MongoDB</h3><code>store</code><span class="sg6-state">${ico('undo', 'i i-sm')}Transaction aborted</span></div></div>
           <div><p class="bd6-cap"><strong>Jump strip</strong> · 14 px</p><div class="ss6"><a class="ss6-item" href="#">${logo('sqlite', 'lg-14')}<span>SQLite</span><span class="n">2 rows</span></a><a class="ss6-item" href="#">${logo('mongodb', 'lg-14')}<span>MongoDB</span><span class="n">5 documents</span></a></div></div>
           <div><p class="bd6-cap"><strong>Query filter</strong> · 14 px</p><div class="qf6" style="margin:0">${['redis', 'dynamodb', 'cassandra', 'elasticsearch'].map((id, i) => `<button class="qc6" aria-pressed="${i < 2}">${logo(id, 'lg-14')}<span>${stores[id].name}</span><span class="n">${[2, 1, 4, 3][i]}</span></button>`).join('')}</div></div>
           <div><p class="bd6-cap"><strong>Log source</strong> · 14 px</p><span class="src6" style="font-size:var(--fs-md);color:var(--text-3)">${logo('cosmosdb', 'lg-14')}<span>Cosmos DB</span></span></div>
@@ -49,13 +49,13 @@
 
   // Documents: the five change kinds at the result pane's width (37rem ≈ 592 px at 1440).
   const caps = {
-    payments: '<strong>Update</strong> · nested fields and arrays: every object open, changed paths tinted, arrays by index',
-    audit_events: '<strong>Insert</strong> · a new document, every field marked +',
-    beneficiary_profiles: '<strong>Upsert</strong> · the change record says insert; the command’s <code>upsert</code> adds “via upsert”',
-    approval_snapshots: '<strong>Replace</strong> · the change record says update; a replacement document adds “whole document replaced”',
-    payment_holds: '<strong>Delete</strong> · the document as it was, every field marked −',
+    orders: '<strong>Update</strong> · nested fields and arrays: every object open, changed paths tinted, arrays by index',
+    order_events: '<strong>Insert</strong> · a new document, every field marked +',
+    customer_profiles: '<strong>Upsert</strong> · the change record says insert; the command’s <code>upsert</code> adds “via upsert”',
+    review_invites: '<strong>Replace</strong> · the change record says update; a replacement document adds “whole document replaced”',
+    stock_holds: '<strong>Delete</strong> · the document as it was, every field marked −',
   };
-  const order = ['audit_events', 'payments', 'beneficiary_profiles', 'approval_snapshots', 'payment_holds'];
+  const order = ['order_events', 'orders', 'customer_profiles', 'review_invites', 'stock_holds'];
   const cards = order.map(n => window.SP.docs.find(d => d.collection === n));
   root.innerHTML = `<div class="bd6">
     <header class="bd6-h"><h1>Document changes in a Preview</h1>

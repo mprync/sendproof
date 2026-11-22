@@ -1,9 +1,9 @@
 // v5 (?v5=1): the new popovers, chosen with ?pop=. Each is anchored to its control and sized
 // to it, closes with Esc, and keeps focus in the control (the listbox uses
 // aria-activedescendant, as the APG select-only combobox does).
-//   pop=<field>     a select's listbox: status | type | currency | sort (List accounts)
+//   pop=<field>     a select's listbox: status | segment | currency | sort (List customers)
 //                   with search=<query>, typed=<buffer> (type-ahead), active=<value>
-//   pop=id | accountId | debitAccountId   the ID lookup, with lstate=loading|empty|error
+//   pop=id | customerId   the ID lookup, with lstate=loading|empty|error
 //                   (signed out comes from auth=out)
 //   pop=lang        the language picker in Display settings (with overlay=display);
 //                   lsearch=<query>, lactive=<language id> shows its RTL preview
@@ -68,14 +68,13 @@
   // The source of the options lives in the popover's footer, not under the field.
   //   lstate: ok | loading | empty | error | signedout    picked: the chosen record's name
   function lookupPop(name, lstate = 'ok', picked) {
-    const accounts = window.TB_SAMPLES.accountsPage.items;
-    const symbol = c => ({ EUR: '€', USD: '$', GBP: '£', CHF: 'F', SEK: 'kr', NOK: 'kr', DKK: 'kr', PLN: 'zł', JPY: '¥' }[c] || c[0]);
-    const src = `<code>GET /api/v2/accounts?pageSize=100</code>`;
+    const accounts = window.TB_SAMPLES.customersPage.items;
+    const src = `<code>GET /api/v2/customers?pageSize=100</code>`;
     const row = (a, active) => `<li class="lb5-opt${active ? ' is-active' : ''}" role="option" aria-selected="${a.name === picked}">
         <span class="lb5-check" aria-hidden="true">${a.name === picked ? ico('check', 'i i-sm') : ''}</span>
-        <span class="chip-ico" aria-hidden="true">${esc(symbol(a.currency))}</span>
-        <span class="lb5-text"><span class="v" lang="en">${esc(a.name)}</span><span class="d mono">${esc(a.iban)}</span></span>
-        <span class="end">${a.status !== 'Open' ? `<span class="tag">${esc(a.status)}</span>` : ''}${esc(a.currency)}</span></li>`;
+        <span class="chip-ico" aria-hidden="true">${esc(a.name[0])}</span>
+        <span class="lb5-text"><span class="v" lang="en">${esc(a.name)}</span><span class="d mono">${esc(a.email)}</span></span>
+        <span class="end">${a.status !== 'Active' ? `<span class="tag">${esc(a.status)}</span>` : ''}${esc(a.currency)}</span></li>`;
     const extras = `<li class="lb5-sep" role="separator"></li>
       <li class="lb5-opt" role="option" aria-selected="false"><span class="lb5-check"></span><span class="lead-ico">${ico('copy', 'i i-sm')}</span><span class="lb5-text"><span class="v">${t('v5.lk.paste')}</span></span><span class="end">${kbd('mod', 'V')}</span></li>
       <li class="lb5-opt" role="option" aria-selected="false"><span class="lb5-check"></span><span class="lead-ico">${ico('refresh', 'i i-sm')}</span><span class="lb5-text"><span class="v">${t('v5.lk.random')}</span><span class="d">${t('v5.lk.randomHint')}</span></span></li>`;
@@ -84,14 +83,14 @@
       ok: `<li class="lb5-group" role="presentation">${t('v5.lk.last')}</li>${row(accounts[3])}
            <li class="lb5-group" role="presentation">${t('v5.lk.all', { n: num(accounts.length) })}</li>${accounts.slice(0, 7).map((a, i) => row(a, i === 1)).join('')}${extras}`,
       loading: `<li class="lb5-group" role="presentation"><span class="spinner" aria-hidden="true" style="inline-size:0.75rem;block-size:0.75rem"></span>${t('v5.lk.loading')}</li>${sk}${extras}`,
-      empty: `<li class="lb5-state" role="presentation"><strong>${ico('db', 'i i-sm')}${t('v5.lk.emptyTitle', { who: 'Ada Admin' })}</strong><p>${t('v5.lk.emptyBody')}</p><button class="btn btn-sm">${ico('plus', 'i i-sm')}<span lang="en">Register account</span></button></li>${extras}`,
+      empty: `<li class="lb5-state" role="presentation"><strong>${ico('db', 'i i-sm')}${t('v5.lk.emptyTitle', { who: 'Ada Admin' })}</strong><p>${t('v5.lk.emptyBody')}</p><button class="btn btn-sm">${ico('plus', 'i i-sm')}<span lang="en">Register customer</span></button></li>${extras}`,
       error: `<li class="lb5-state is-error" role="presentation"><strong>${ico('alert', 'i i-sm')}${t('v5.lk.errorTitle')}</strong><p>${t('v5.lk.errorBody', { src, code: '500 Internal Server Error' })}</p><button class="btn btn-sm">${ico('refresh', 'i i-sm')}${t('v5.lk.retry')}</button></li>${extras}`,
       signedout: `<li class="lb5-state" role="presentation"><strong>${ico('lock', 'i i-sm')}${t('v5.lk.outTitle')}</strong><p>${t('v5.lk.outBody')}</p><button class="btn btn-sm btn-primary">${ico('log-in', 'i i-sm')}${t('signIn')}</button></li>${extras}`,
     }[lstate];
     // The footer is one line: icon, the request (its query string truncates, with a title),
     // who it ran as and how many came back, then Refresh.
     const meta = { ok: `<span class="who">${t('v5.lk.as', { who: 'Ada Admin' })}</span> · ${num(accounts.length)}`, loading: t('v5.lk.metaLoading'), empty: `<span class="who">${t('v5.lk.as', { who: 'Ada Admin' })}</span> · ${num(0)}`, error: t('v5.lk.metaError', { code: 500 }), signedout: t('v5.lk.metaOut') }[lstate];
-    const srcLine = `<code class="src-q ltr" title="GET /api/v2/accounts?pageSize=100"><span>GET /api/v2/accounts</span><span class="qs">?pageSize=100</span></code><span class="meta">${meta}</span>`;
+    const srcLine = `<code class="src-q ltr" title="GET /api/v2/customers?pageSize=100"><span>GET /api/v2/customers</span><span class="qs">?pageSize=100</span></code><span class="meta">${meta}</span>`;
     return `<div class="pop lb5" data-for="${esc(name)}">
         <div class="lb5-search">${ico('search', 'i i-sm')}<input role="searchbox" placeholder="${t('v5.lk.search')}"></div>
         <ul class="lb5-list" role="listbox" aria-label="${t('v5.lk.label')}">${body}</ul>
@@ -106,7 +105,7 @@
   if (!pop) return;
 
   /* ---------- A select's listbox ---------- */
-  const o = S.operations.find(x => x.id === (q.opid || 'AccountsController.List'));
+  const o = S.operations.find(x => x.id === (q.opid || 'CustomersController.List'));
   const param = o?.op.parameters?.find(p => p.name === pop);
   if (param && V.enumOf(param.schema)) {
     if (!q.scrollto) scrollTo(pop);
@@ -117,11 +116,11 @@
     place(control, V.listbox(f, { search: many ? (q.search ?? true) : false, active: q.active ?? (q.typed ? f.options.find(x => x.v.toLowerCase().startsWith(q.typed.toLowerCase()))?.v : f.value ?? ''), typed: q.typed }), { width: 'anchor', sheet: { title: S.esc(f.label), sub: S.md(param.description, { block: false }) } });
   }
 
-  if (['id', 'accountId', 'debitAccountId'].includes(pop)) {
+  if (['id', 'customerId'].includes(pop)) {
     if (!q.scrollto) scrollTo(pop);
     const control = document.querySelector(`[data-field="${pop}"] .sel5`);
     const picked = control?.querySelector('.picked .main')?.textContent;
-    place(control, lookupPop(pop, q.auth === 'out' ? 'signedout' : q.lstate || 'ok', picked), { width: 'anchor', sheet: { title: S.esc(pop), sub: t('v5.chooseAn', { name: 'an account' }) } });
+    place(control, lookupPop(pop, q.auth === 'out' ? 'signedout' : q.lstate || 'ok', picked), { width: 'anchor', sheet: { title: S.esc(pop), sub: t('v5.chooseAn', { name: 'a customer' }) } });
   }
 
   /* ---------- Language picker ---------- */
@@ -162,7 +161,7 @@
     const he = firstActive === 'he-IL';
     const preview = activeRtl ? `<div class="lang-preview" aria-label="${t('v5.lang.preview')}">
         <div class="lp-h">${ico('eye', 'i i-sm')}${t('v5.lang.previewRtl')}</div>
-        <div class="lp-box" dir="rtl" lang="${he ? 'he' : 'ar'}">${V.field({ name: 'lp', label: 'status', kind: 'radio', optional: true, type: 'AccountStatus', value: 'Open', options: [{ v: 'Open' }, { v: 'Frozen' }, { v: 'Closed' }], desc: '<span lang="en">Only accounts with this status.</span>', status: he ? 'נשלח כ־<code>status=Open</code>' : 'يُرسل كـ <code>status=Open</code>' })
+        <div class="lp-box" dir="rtl" lang="${he ? 'he' : 'ar'}">${V.field({ name: 'lp', label: 'status', kind: 'radio', optional: true, type: 'CustomerStatus', value: 'Active', options: [{ v: 'Active' }, { v: 'Suspended' }, { v: 'Closed' }], desc: '<span lang="en">Only customers with this status.</span>', status: he ? 'נשלח כ־<code>status=Active</code>' : 'يُرسل كـ <code>status=Active</code>' })
           .replace(`>${t('optional')}<`, `>${he ? 'אופציונלי' : 'اختياري'}<`).replace(`>${t('v5.clear')}<`, `>${he ? 'ניקוי' : 'مسح'}<`)}</div>
       </div>` : '';
     const btn = document.querySelector('.settings .row .btn.btn-sm');
@@ -208,10 +207,10 @@
   /* ---------- Schema match ---------- */
   if (pop === 'match') {
     const fail = q.match === 'fail';
-    const list = q.opid === 'AccountsController.List';
-    const model = list ? 'PagedListOfAccount' : 'Account';
+    const list = q.opid === 'CustomersController.List';
+    const model = list ? 'PagedListOfCustomer' : 'Customer';
     const props = S.stats(model).count;
-    const issues = [['entityCountry', t('v5.issue.length', { n: 2, got: '<code>"NLD"</code>', len: 3 })], ['bic', t('v5.issue.missing')], ['legacyCode', t('v5.issue.extra', { model: 'Account' })]];
+    const issues = [['country', t('v5.issue.length', { n: 2, got: '<code>"IRL"</code>', len: 3 })], ['email', t('v5.issue.missing')], ['legacyCode', t('v5.issue.extra', { model: 'Customer' })]];
     place(document.querySelector('#match-btn'), `<div class="pop toggletip match-tip${fail ? ' is-fail' : ''}" role="dialog" aria-labelledby="match-h">
         <div class="tt-body">
           <h3 id="match-h">${ico(fail ? 'warn' : 'circle-check', 'i i-sm')}${fail ? t('v5.match.failTitle', { n: issues.length }) : t('v5.match.okTitle')}</h3>

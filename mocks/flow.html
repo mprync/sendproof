@@ -31,7 +31,7 @@
   .guide-label { position: absolute; padding: 0.1rem 0.35rem; border-radius: var(--r-sm); background: oklch(0.62 0.2 25); color: white; font: 500 0.6875rem/1.3 var(--mono); }
 </style>
 </head>
-<!-- ?set=before | after | align. "align" also takes guides=x1,x2,x3;y1,y2 measured by the capture script. -->
+<!-- ?set=after | align. "align" also takes guides=x1,x2,x3;y1,y2 measured by the capture script. -->
 <body>
 <div class="flow" id="flow"></div>
 <script>
@@ -39,26 +39,16 @@
   const q = Object.fromEntries(new URLSearchParams(location.search));
   const set = q.set || 'after';
   const sets = {
-    before: {
-      title: 'Before: the live v3 workbench (owner’s screenshots)',
-      lede: 'Moving from Try it to Docs to a model changes every column’s width, and the model page leaves the operation behind.',
-      steps: [
-        ['before/b1-try-it.png', 'Try it', ['Columns: sidebar, request, result.', 'Footer: “Locked operations need sign-in” is small grey text at the bottom of the sidebar.', 'The three panes end at different heights: the sidebar footer, the action bar and no bar on the result.'], 'bad'],
-        ['before/b2-docs.png', 'Press D for Docs', ['The right column shrinks and the main column grows: the layout jumps.', 'Every response has an expand arrow, even “no body” ones that open to nothing.'], 'bad'],
-        ['before/b3-model.png', 'Click a type in Docs', ['The sidebar switches to Models on its own and gets wider: a second jump.', 'Breadcrumbs say “Counterparty › Account”: the operation you came from is gone, so there is no way back to Docs except the browser.', 'Some properties show format tags, others show nothing; there are no descriptions.'], 'bad'],
-        ['before/b4-json-collapsed.png', 'Send List counterparties', ['The JSON response opens collapsed: “{ 3 keys · Northwind Logistics GmbH }”. Reading it takes a click per object.'], 'bad'],
-      ],
-    },
     after: {
       title: 'After: one reference space, one stable shell',
       lede: 'The same three columns in every view. Docs and Models are one reference space: a model opened from an operation keeps that operation as its breadcrumb, and Back returns to the exact place.',
       steps: [
-        ['57-shell-try-it.png', 'Start in Try it', ['Signed out: a notice at the top of the sidebar says how many operations need sign-in, with Sign in.', 'All groups are open; locked rows carry a lock.', 'The three bottom bars share one height and one top line.'], 'good', '#op/PaymentsController.Create'],
-        ['58-shell-docs.png', 'Press D for Docs', ['Nothing moves. The main column becomes the reference page; the right column holds the outline and samples.', 'The sidebar keeps its tab and its selection.'], 'good', '#docs/PaymentsController.Create'],
-        ['60-docs-inline-expand.png', 'Expand a $ref in place', ['In the 201 response, the counterparty’s chevron opens the Counterparty schema inline, with indent guides.', 'Only rows that have something inside get a chevron. Responses without a body have none.'], 'good', '#docs/PaymentsController.Create (unchanged: expanding isn’t navigation)'],
-        ['59-shell-model.png', 'Open the Payment model', ['Clicking the type name opens the model page in the same columns.', 'Breadcrumbs: Payments › Create payment › Payment. One Back control in the head row, “Back to Create payment ⌥←”, returns to Docs at the same scroll position.', 'The sidebar stays on Operations; Create payment is marked as the current context.'], 'good', '#model/Payment?from=docs/PaymentsController.Create'],
-        ['61-model-nested-ref.png', 'Follow approvals to Approval', ['The trail grows: Payments › Create payment › Payment › Approval.', 'Back goes to Payment, then to Docs. Browser back and forward follow the same history; every step is a deep link.'], 'good', '#model/Approval?from=docs/PaymentsController.Create&via=Payment'],
-        ['62-models-tab.png', 'Or pick the Models tab', ['The tab switches only when the user picks it. The breadcrumbs then start at Models.', 'Models are grouped: resources, request bodies, enums and errors. List pages start collapsed.'], 'good', '#model/Payment'],
+        ['57-shell-try-it.png', 'Start in Try it', ['Signed out: a notice at the top of the sidebar says how many operations need sign-in, with Sign in.', 'All groups are open; locked rows carry a lock.', 'The three bottom bars share one height and one top line.'], 'good', '#op/OrdersController.Create'],
+        ['58-shell-docs.png', 'Press D for Docs', ['Nothing moves. The main column becomes the reference page; the right column holds the outline and samples.', 'The sidebar keeps its tab and its selection.'], 'good', '#docs/OrdersController.Create'],
+        ['60-docs-inline-expand.png', 'Expand a $ref in place', ['In the 201 response, the customer’s chevron opens the CustomerReference schema inline, with indent guides.', 'Only rows that have something inside get a chevron. Responses without a body have none.'], 'good', '#docs/OrdersController.Create (unchanged: expanding isn’t navigation)'],
+        ['59-shell-model.png', 'Open the Order model', ['Clicking the type name opens the model page in the same columns.', 'Breadcrumbs: Orders › Create order › Order. One Back control in the head row, “Back to Create order ⌥←”, returns to Docs at the same scroll position.', 'The sidebar stays on Operations; Create order is marked as the current context.'], 'good', '#model/Order?from=docs/OrdersController.Create'],
+        ['61-model-nested-ref.png', 'Follow lines to OrderLine', ['The trail grows: Orders › Create order › Order › OrderLine.', 'Back goes to Order, then to Docs. Browser back and forward follow the same history; every step is a deep link.'], 'good', '#model/OrderLine?from=docs/OrdersController.Create&via=Order'],
+        ['62-models-tab.png', 'Or pick the Models tab', ['The tab switches only when the user picks it. The breadcrumbs then start at Models.', 'Models are grouped: resources, request bodies, enums and errors. List pages start collapsed.'], 'good', '#model/Order'],
       ],
     },
   };

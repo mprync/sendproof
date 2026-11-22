@@ -72,51 +72,53 @@
     return `<div class="field${f.half ? ' half' : ''}" data-field="${f.name}">${label}${control}${assist}</div>`;
   }
 
-  /* ---------- Create payment ---------- */
+  /* ---------- Create order ---------- */
+  // The internal names (debit, cp, amount, date, prio, ref, rem) are the form's slots: they key
+  // the values below and the ?focus= and ?scrollto= parameters of the screenshot list.
   const createFields = [
-    { name: 'debit', kind: 'lookup', label: 'Debit account', noun: 'an account', type: 'uuid' },
-    { name: 'cp', kind: 'lookup', label: 'Counterparty', noun: 'a counterparty', type: 'uuid' },
-    { name: 'amount', kind: 'money', label: 'Amount', type: 'decimal', half: true },
-    { name: 'date', kind: 'date', label: 'Value date', type: 'date', half: true },
-    { name: 'prio', kind: 'enum', label: 'Priority', type: 'enum', optional: true, options: ['Normal', 'Urgent', 'Same day'], hint: 'Defaults to Normal when omitted.' },
-    { name: 'ref', kind: 'text', label: 'Reference', type: 'string', optional: true, max: 35, hint: 'Shown on the counterparty’s statement.' },
-    { name: 'rem', kind: 'list', label: 'Remittance lines', type: 'string[]', optional: true },
+    { name: 'debit', kind: 'lookup', label: 'Customer', noun: 'a customer', type: 'uuid' },
+    { name: 'cp', kind: 'lookup', label: 'Variant', noun: 'a variant', type: 'uuid' },
+    { name: 'amount', kind: 'money', label: 'Unit price', type: 'decimal', half: true },
+    { name: 'date', kind: 'date', label: 'Deliver by', type: 'date', half: true },
+    { name: 'prio', kind: 'enum', label: 'Shipping method', type: 'enum', optional: true, options: ['Standard', 'Express', 'Same day'], hint: 'Defaults to Standard when omitted.' },
+    { name: 'ref', kind: 'text', label: 'Reference', type: 'string', optional: true, max: 35, hint: 'Shown on the invoice.' },
+    { name: 'rem', kind: 'list', label: 'Delivery notes', type: 'string[]', optional: true },
   ];
   const lookupHint = (src, id) => `<span class="src">${ico('db', 'i i-sm')}<span>${t('from.get', { src: `<code>GET ${src}</code>`, id: `<code>${id}</code>` })}</span></span>`;
   const valueDate = '2026-11-23';
   const filled = {
-    debit: { value: ['€', 'Operating EUR', 'IE29 AIBK 9311 5212 3456 78'], hint: lookupHint('/accounts', '3f9c…a21e') },
-    cp: { value: ['N', 'Northwind Logistics GmbH', 'DE89 3704 0044 0532 0130 00'], hint: lookupHint('/counterparties', 'c07b…44d1') },
-    amount: { value: decimal(50000), currency: 'EUR', hint: t('available', { amount: money(1250000) }) },
+    debit: { value: ['P', 'Priya Raman', 'priya.raman@example.com'], hint: lookupHint('/customers', '3f9c…a21e') },
+    cp: { value: ['M', 'Merino Crew Sweater, Heather Grey / M', 'APP-MCS-HGR-M'], hint: lookupHint('/variants', '9a1f…c301') },
+    amount: { value: decimal(79), currency: 'EUR', hint: t('available', { amount: money(79) }) },
     date: { value: date(valueDate), rel: weekday(valueDate), hint: t('in.days', { n: 3 }) },
-    prio: { value: 'Normal' },
-    ref: { value: 'INV-2026-1184 / Q4 freight' },
-    rem: { items: ['Freight Oct–Nov, PO 88213'] },
+    prio: { value: 'Standard' },
+    ref: { value: 'PO-2026-1184 / Q4 desk setup' },
+    rem: { items: ['Leave with the concierge, flat 4B'] },
   };
   const values = {
     filled,
     running: filled,
-    blank: { debit: { hint: `<span class="src">${ico(signedOut ? 'lock' : 'db', 'i i-sm')}<span>${signedOut ? 'Sign in to choose from <code>GET /accounts</code>' : 'Options from <code>GET /accounts</code>, as Ada Admin sees them'}</span></span>` }, cp: { hint: `<span class="src">${ico('db', 'i i-sm')}<span>Options from <code>GET /counterparties</code></span></span>` }, amount: { currency: 'EUR', hint: 'At least 0.01. Sent as a JSON number.' }, date: { hint: 'Business days only for EUR.' }, prio: { value: 'Normal' }, ref: { hint: 'Shown on the counterparty’s statement.' }, rem: { items: [] } },
+    blank: { debit: { hint: `<span class="src">${ico(signedOut ? 'lock' : 'db', 'i i-sm')}<span>${signedOut ? 'Sign in to choose from <code>GET /customers</code>' : 'Options from <code>GET /customers</code>, as Ada Admin sees them'}</span></span>` }, cp: { hint: `<span class="src">${ico('db', 'i i-sm')}<span>Options from <code>GET /variants</code></span></span>` }, amount: { currency: 'EUR', hint: 'At least 0.01. Sent as a JSON number.' }, date: { hint: 'No Sunday delivery for Standard.' }, prio: { value: 'Standard' }, ref: { hint: 'Shown on the invoice.' }, rem: { items: [] } },
     validation: {
-      debit: { error: 'Choose a debit account', focus: true },
-      cp: { error: 'Choose a counterparty' },
-      amount: { value: 'g', currency: 'EUR', error: 'Enter a number, like 1250.00' },
+      debit: { error: 'Choose a customer', focus: true },
+      cp: { error: 'Choose a variant' },
+      amount: { value: 'g', currency: 'EUR', error: 'Enter a number, like 79.90' },
       date: { value: '31/02/2026', error: '31 February 2026 doesn’t exist' },
-      prio: { value: 'Normal' },
-      ref: { value: 'INV-2026-1184 / Q4 freight / Northwind', error: 'Use 35 characters or fewer (38 now)' },
+      prio: { value: 'Standard' },
+      ref: { value: 'PO-2026-1184 / Q4 desk setup / Harbour', error: 'Use 35 characters or fewer (38 now)' },
       rem: { items: [] },
     },
     // After "Fill required fields" (or one wand click per field): every value says where it came from.
     generated: {
-      debit: { value: ['€', 'Operating EUR', 'IE29 AIBK 9311 5212 3456 78'], generated: 'a real account Ada Admin can see' },
-      cp: { value: ['N', 'Northwind Logistics GmbH', 'DE89 3704 0044 0532 0130 00'], generated: 'a real counterparty, picked at random' },
-      amount: { value: decimal(4817.36), currency: 'EUR', generated: 'random, in range' },
-      date: { value: date('2026-11-24'), rel: weekday('2026-11-24'), generated: 'a business day' },
-      prio: { value: 'Normal' }, ref: {}, rem: { items: [] },
+      debit: { value: ['P', 'Priya Raman', 'priya.raman@example.com'], generated: 'a real customer Ada Admin can see' },
+      cp: { value: ['W', 'Waxed Canvas Backpack 22L, Olive', 'OUT-WCB-OLI'], generated: 'a real variant, picked at random' },
+      amount: { value: decimal(48.17), currency: 'EUR', generated: 'random, in range' },
+      date: { value: date('2026-11-24'), rel: weekday('2026-11-24'), generated: 'a working day' },
+      prio: { value: 'Standard' }, ref: {}, rem: { items: [] },
     },
   };
   // Field-level wand: one field just regenerated, another with its menu open.
-  values.wand = { ...filled, date: { ...filled.date, value: date('2026-11-27'), rel: weekday('2026-11-27'), generated: 'a business day' }, amount: { ...filled.amount, focus: true } };
+  values.wand = { ...filled, date: { ...filled.date, value: date('2026-11-27'), rel: weekday('2026-11-27'), generated: 'a working day' }, amount: { ...filled.amount, focus: true } };
   values.toggletip = { ...filled };
 
   function createBody() {
@@ -125,14 +127,14 @@
     return `
       <form class="form" novalidate onsubmit="return false">
         <fieldset aria-labelledby="body-legend">
-          <div class="section-label"><span id="body-legend">${t('section.body')} <a class="schema-link" href="#" title="Open the CreatePaymentRequest model">CreatePaymentRequest</a></span><span class="rule" aria-hidden="true"></span>
+          <div class="section-label"><span id="body-legend">${t('section.body')} <a class="schema-link" href="#" title="Open the CreateOrderRequest model">CreateOrderRequest</a></span><span class="rule" aria-hidden="true"></span>
             <div class="segmented" role="group" aria-label="Body editor" aria-keyshortcuts="${aks('mod', 'E')}"><button type="button" aria-pressed="true">${t('form')}</button><button type="button" aria-pressed="false">${t('json')}</button></div></div>
           <p class="form-note">${t('required.note')}</p>
           <div class="fields">
             ${createFields.map(f => field(f, v[f.name] || {})).join('')}
             <div class="optional-props" role="group" aria-label="Add optional fields">
               <span class="lead-label">${t('add')}</span>
-              ${[['chargeBearer', 'enum'], ['purposeCode', 'string'], ['externalId', 'uuid']].map(([n, ty]) => `<button type="button" class="prop-chip">${ico('plus', 'i i-sm')}<span class="ltr">${n}</span><span class="t">${ty}</span></button>`).join('')}
+              ${[['channel', 'enum'], ['couponCode', 'string'], ['externalId', 'string']].map(([n, ty]) => `<button type="button" class="prop-chip">${ico('plus', 'i i-sm')}<span class="ltr">${n}</span><span class="t">${ty}</span></button>`).join('')}
             </div>
           </div>
         </fieldset>
@@ -144,30 +146,30 @@
     return `<form class="form" novalidate onsubmit="return false"><fieldset>
       <legend class="section-label">${t('section.body')} <a class="schema-link" href="#">LoginRequest</a><span class="rule" aria-hidden="true"></span></legend>
       <div class="fields">
-        ${field({ name: 'email', label: 'Email', type: 'email', icon: 'at', placeholder: 'name@example.com', hint: 'An account in treasury-demo.db, e.g. ada.admin@acme.dev' }, {})}
-        ${field({ name: 'password', label: 'Password', type: 'password', hint: 'Seeded accounts use the password in DemoData.cs' }, {})}
+        ${field({ name: 'email', label: 'Email', type: 'email', icon: 'at', placeholder: 'name@example.com', hint: 'A user in store-demo.db, e.g. ada.admin@acme.dev' }, {})}
+        ${field({ name: 'password', label: 'Password', type: 'password', hint: 'Seeded users share the password in DemoData.cs' }, {})}
       </div></fieldset></form>`;
   }
 
-  /* ---------- Params (Get payment, List payments) ---------- */
+  /* ---------- Params (Get order, List orders) ---------- */
   function paramsBody() {
-    // The real parameters of List payments and Get payment (see mocks/spec.js).
+    // The real parameters of List orders and Get order (see mocks/spec.js).
     const list = op === 'list';
     if (!list) return `<form class="form" novalidate onsubmit="return false">
       <fieldset><legend class="section-label">Path<span class="rule" aria-hidden="true"></span></legend><div class="fields">
-        ${field({ name: 'pid', kind: 'lookup', label: 'id', noun: 'a payment', type: 'uuid' }, { value: ['P', 'PAY-2026-000174 · Helvetia Precision AG', 'd67d058b-465d-470b-b5a0-8280020afe6e'], hint: lookupHint('/api/v2/payments', 'd67d…fe6e') })}
+        ${field({ name: 'pid', kind: 'lookup', label: 'id', noun: 'an order', type: 'uuid' }, { value: ['O', 'ORD-2026-000174 · Harbour Café Ltd', 'd67d058b-465d-470b-b5a0-8280020afe6e'], hint: lookupHint('/api/v2/orders', 'd67d…fe6e') })}
       </div></fieldset>
     </form>`;
     return `<form class="form" novalidate onsubmit="return false">
       <fieldset><legend class="section-label">Filter<span class="rule" aria-hidden="true"></span></legend><div class="fields">
-        ${field({ name: 'status', label: 'status', type: 'PaymentStatus', optional: true, mono: true, hint: 'Only payments in this status. Draft, PendingApproval, Approved and 6 more' }, { value: 'Approved' })}
+        ${field({ name: 'status', label: 'status', type: 'OrderStatus', optional: true, mono: true, hint: 'Only orders in this status. Pending, Paid, Processing and 6 more' }, { value: 'Processing' })}
         ${field({ name: 'currency', label: 'currency', type: 'Currency', optional: true, mono: true, half: true, hint: 'ISO 4217, such as EUR' }, { value: '' })}
-        ${field({ name: 'q', label: 'q', type: 'string · ≤ 100', optional: true, half: true, hint: 'Number, reference, external ID or counterparty' }, { value: '' })}
+        ${field({ name: 'q', label: 'q', type: 'string · ≤ 100', optional: true, half: true, hint: 'Number, reference, external ID or customer' }, { value: '' })}
       </div></fieldset>
       <fieldset><legend class="section-label">Page and order<span class="rule" aria-hidden="true"></span></legend><div class="fields">
         ${field({ name: 'page', label: 'page', type: 'int32 · ≥ 1', optional: true, mono: true, half: true, hint: 'Defaults to 1' }, { value: '1' })}
         ${field({ name: 'pageSize', label: 'pageSize', type: 'int32 · 1–100', optional: true, mono: true, half: true, hint: 'Defaults to 25' }, { value: '100' })}
-        ${field({ name: 'sort', label: 'sort', type: 'enum', optional: true, mono: true, hint: 'A field, with a leading minus for descending. Defaults to -createdAt' }, { value: '-valueDate' })}
+        ${field({ name: 'sort', label: 'sort', type: 'enum', optional: true, mono: true, hint: 'A field, with a leading minus for descending. Defaults to -createdAt' }, { value: '-deliverBy' })}
       </div></fieldset>
     </form>`;
   }
@@ -222,9 +224,9 @@
       <section class="auth-req">
         <h3 class="section-label">Security requirements<span class="rule" aria-hidden="true"></span></h3>
         <div class="req-list">
-          <div class="req"><span class="req-ico">${ico('lock', 'i i-sm')}</span><div class="grow"><div class="t">Cookie sign-in <span class="tag tag-mono">cookieAuth</span></div><div class="s">Sign in as any user in treasury-demo.db. Sendproof sends the cookie for you.</div></div>
+          <div class="req"><span class="req-ico">${ico('lock', 'i i-sm')}</span><div class="grow"><div class="t">Cookie sign-in <span class="tag tag-mono">cookieAuth</span></div><div class="s">Sign in as any user in store-demo.db. Sendproof sends the cookie for you.</div></div>
             ${signedOut ? `<span class="tag tag-warn">Not signed in</span>` : `<span class="tag tag-ok">${ico('check', 'i')}Ada Admin</span>`}</div>
-          <div class="req"><span class="req-ico">${ico('shield', 'i i-sm')}</span><div class="grow"><div class="t">Permission <span class="tag tag-mono">payments.write</span></div><div class="s">Checked by the API after sign-in. Without it the call returns 403.</div></div>
+          <div class="req"><span class="req-ico">${ico('shield', 'i i-sm')}</span><div class="grow"><div class="t">Permission <span class="tag tag-mono">support</span></div><div class="s">Checked by the API after sign-in. Without it the call returns 403.</div></div>
             ${signedOut ? `<span class="tag">Unknown until signed in</span>` : `<span class="tag tag-ok">${ico('check', 'i')}Granted</span>`}</div>
         </div>
         ${signedOut ? `<div class="actions" style="display:flex;gap:0.5rem;margin-block-start:1rem"><button class="btn btn-primary">${ico('log-in', 'i i-sm')}Sign in ${kbd('shift', 'mod', 'U')}</button><button class="btn">Use a seeded account…</button></div>` : ''}
@@ -238,25 +240,25 @@
     const ph = (name, type) => `<span class="ph" title="Fill ${name} to replace this">&lt;${name}: ${type}&gt;</span>`;
     const s = x => `<span class="tok-s">${x}</span>`;
     const lines = incomplete ? [
-      `curl -X POST 'http://127.0.0.1:5189/api/v2/payments' \\`,
+      `curl -X POST 'http://127.0.0.1:5189/api/v2/orders' \\`,
       `  -H 'Content-Type: application/json' \\`,
       `  -H 'Idempotency-Key: 0c5d9a2e-1f4b-4c39-8e0a-b7d2c61f5a08' \\`,
       `  -b '.AspNetCore.Cookies=${ph('cookie', 'sign in')}' \\`,
       `  -d '{`,
-      `    "debitAccountId": ${ph('debitAccountId', 'uuid')},`,
-      `    "counterpartyId": ${ph('counterpartyId', 'uuid')},`,
-      `    "amount": ${ph('amount', 'decimal ≥ 0.01')},`,
+      `    "customerId": ${ph('customerId', 'uuid')},`,
+      `    "variantId": ${ph('variantId', 'uuid')},`,
+      `    "unitPrice": ${ph('unitPrice', 'decimal ≥ 0.01')},`,
       `    "currency": ${s('"EUR"')},`,
-      `    "valueDate": ${ph('valueDate', 'date')},`,
-      `    "priority": ${s('"Normal"')}`,
+      `    "deliverBy": ${ph('deliverBy', 'date')},`,
+      `    "shippingMethod": ${s('"Standard"')}`,
       `  }'`,
     ] : [
-      `curl -X POST 'http://127.0.0.1:5189/api/v2/payments' \\`,
+      `curl -X POST 'http://127.0.0.1:5189/api/v2/orders' \\`,
       `  -H 'Content-Type: application/json' \\`,
       `  -H 'Idempotency-Key: 0c5d9a2e-1f4b-4c39-8e0a-b7d2c61f5a08' \\`,
       `  -b '.AspNetCore.Cookies=CfDJ8NrA…' \\`,
-      `  -d '{`, `    "debitAccountId": ${s('"3f9c0000-0000-4000-8000-00000000a21e"')},`, `    "counterpartyId": ${s('"c07b0000-0000-4000-8000-0000000044d1"')},`,
-      `    "amount": <span class="tok-n">50000.00</span>,`, `    "currency": ${s('"EUR"')},`, `    "valueDate": ${s('"2026-11-23"')},`, `    "priority": ${s('"Normal"')}`, `  }'`,
+      `  -d '{`, `    "customerId": ${s('"3f9c0000-0000-4000-8000-00000000a21e"')},`, `    "variantId": ${s('"9a1f0000-0000-4000-8000-00000000c301"')},`,
+      `    "unitPrice": <span class="tok-n">79.00</span>,`, `    "currency": ${s('"EUR"')},`, `    "deliverBy": ${s('"2026-11-23"')},`, `    "shippingMethod": ${s('"Standard"')}`, `  }'`,
     ];
     const failed = q.copied === 'failed';
     return `<div class="form">
@@ -277,17 +279,17 @@
 
   /* ---------- Operation header, tabs and action bar ---------- */
   const ops = {
-    create: { group: 'Payments', title: 'Create payment', method: 'post', id: 'PaymentsController.Create', path: '/api/v2/payments',
-      desc: 'Creates a draft payment and reserves funds on the debit account.', scope: 'payments.write',
+    create: { group: 'Orders', title: 'Create order', method: 'post', id: 'OrdersController.Create', path: '/api/v2/orders',
+      desc: 'Creates a pending order and reserves stock for its lines.', scope: 'support',
       tabs: [['body', 'tab.body'], ['headers', 'tab.headers', q.hstate === 'empty' ? 3 : 5], ['auth', 'tab.auth'], ['code', 'tab.code']] },
-    get: { group: 'Payments', title: 'Get payment', method: 'get', id: 'PaymentsController.Get', path: '/api/v2/payments/<span class="token">' + ico('link', 'i i-sm') + 'id</span>',
-      desc: 'Returns one payment with its lines and approval state.', scope: 'payments.read',
+    get: { group: 'Orders', title: 'Get order', method: 'get', id: 'OrdersController.Get', path: '/api/v2/orders/<span class="token">' + ico('link', 'i i-sm') + 'id</span>',
+      desc: 'Returns one order with its lines and delivery details.', scope: 'cookieAuth',
       tabs: [['params', 'tab.params', 1], ['headers', 'tab.headers', 3], ['auth', 'tab.auth'], ['code', 'tab.code']] },
-    list: { group: 'Payments', title: 'List payments', method: 'get', id: 'PaymentsController.List', path: '/api/v2/payments',
-      desc: 'Lists payments the signed-in user can see, newest first.', scope: 'payments.read',
+    list: { group: 'Orders', title: 'List orders', method: 'get', id: 'OrdersController.List', path: '/api/v2/orders',
+      desc: 'Lists orders the signed-in user can see, newest first.', scope: 'cookieAuth',
       tabs: [['params', 'tab.params', 13], ['headers', 'tab.headers', 3], ['auth', 'tab.auth'], ['code', 'tab.code']] },
-    update: { group: 'Payments', title: 'Update payment', method: 'put', id: 'PaymentsController.Update', path: '/api/v2/payments/<span class="token">' + ico('link', 'i i-sm') + 'id</span>',
-      desc: 'Replaces a draft payment.', scope: 'payments.write', deprecated: true,
+    update: { group: 'Orders', title: 'Update order', method: 'put', id: 'OrdersController.Update', path: '/api/v2/orders/<span class="token">' + ico('link', 'i i-sm') + 'id</span>',
+      desc: 'Replaces a pending order.', scope: 'support', deprecated: true,
       tabs: [['body', 'tab.body'], ['params', 'tab.params', 1], ['headers', 'tab.headers', 5], ['auth', 'tab.auth'], ['code', 'tab.code']] },
     login: { group: 'Authentication', title: 'Sign in with a password', method: 'post', id: 'AuthenticationEndpoints.Login', path: '/auth/login',
       desc: 'Signs in and sets the auth cookie for this browser.', public: true,
@@ -313,7 +315,7 @@
   const readOnly = o.method === 'get';
 
   const notice = o.deprecated
-    ? `<div class="op-notice warn" role="note">${ico('warn', 'i i-sm')}<span class="grow"><strong>Deprecated.</strong> <span lang="en">Use Approve payment or create a new draft. Removed in v2.0.</span></span><button class="btn btn-ghost btn-xs">Open Approve payment</button></div>`
+    ? `<div class="op-notice warn" role="note">${ico('warn', 'i i-sm')}<span class="grow"><strong>Deprecated.</strong> <span lang="en">Use Get stock level or create a new order. Removed in v2.0.</span></span><button class="btn btn-ghost btn-xs">Open Get stock level</button></div>`
     : signedOut && !o.public
       ? `<div class="op-notice auth" role="note">${ico('lock', 'i i-sm')}<span class="grow"><strong>Needs sign-in.</strong> You’re signed out, so this call will return 401.</span><button class="btn btn-sm">${ico('log-in', 'i i-sm')}${t('signIn')}</button></div>`
       : '';

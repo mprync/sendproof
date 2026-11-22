@@ -46,39 +46,39 @@
         <li>${ico('send', 'i i-sm')}${readOnly ? 'Send (read-only)' : 'Send and commit'}${kbd(...(readOnly ? ['mod', 'enter'] : ['shift', 'mod', 'enter']))}</li>
       </ol>
       <div class="expect"><div class="expect-h">Documented responses</div>
-        ${(readOnly ? [['200', 'ok', 'OK', 'Payment[]'], ['401', 'err', 'Not signed in', ''], ['403', 'err', 'Missing payments.read', 'ProblemDetails']]
-          : [['201', 'ok', 'Created', 'Payment'], ['400', 'err', 'Validation failed', 'ValidationProblemDetails'], ['401', 'err', 'Not signed in', ''], ['403', 'err', 'Missing payments.write', 'ProblemDetails'], ['409', 'err', 'Idempotency key reused', 'ProblemDetails']])
+        ${(readOnly ? [['200', 'ok', 'OK', 'Order[]'], ['401', 'err', 'Not signed in', ''], ['403', 'err', 'Missing support role', 'ProblemDetails']]
+          : [['201', 'ok', 'Created', 'Order'], ['400', 'err', 'Validation failed', 'ValidationProblemDetails'], ['401', 'err', 'Not signed in', ''], ['403', 'err', 'Missing support role', 'ProblemDetails'], ['409', 'err', 'Idempotency key reused', 'ProblemDetails']])
           .map(([c, cls, d, s]) => `<div class="expect-row"><span class="code ${cls}">${c}</span><span lang="en">${d}</span><span class="spacer"></span>${s ? `<a class="type-link" href="#">${s}</a>` : '<span class="faint">no body</span>'}</div>`).join('')}
       </div>`,
     });
     if (run === '401') return `
       <div class="problem" role="alert">
-        <div class="problem-head">${ico('lock')}<div><h3>You’re not signed in</h3><p>The API needs a signed-in user for <span lang="en">List payments</span> (<code>cookieAuth</code>), so it answered 401 before running any code. Nothing was read or changed.</p></div></div>
+        <div class="problem-head">${ico('lock')}<div><h3>You’re not signed in</h3><p>The API needs a signed-in user for <span lang="en">List orders</span> (<code>cookieAuth</code>), so it answered 401 before running any code. Nothing was read or changed.</p></div></div>
         <div class="actions"><button class="btn btn-primary">${ico('log-in', 'i i-sm')}Sign in and retry ${kbd('shift', 'mod', 'U')}</button><button class="btn">Use a seeded account${ico('chevron-down', 'i i-sm')}</button></div>
-        <dl class="facts problem-facts"><dt>Body</dt><dd class="plain">Empty · 0 B</dd><dt>WWW-Authenticate</dt><dd>Cookie realm="TreasuryApi"</dd><dt>Retry</dt><dd class="plain">Runs <span lang="en">List payments</span> again with the same inputs once you’re signed in</dd></dl>
+        <dl class="facts problem-facts"><dt>Body</dt><dd class="plain">Empty · 0 B</dd><dt>WWW-Authenticate</dt><dd>Cookie realm="StoreApi"</dd><dt>Retry</dt><dd class="plain">Runs <span lang="en">List orders</span> again with the same inputs once you’re signed in</dd></dl>
       </div>`;
     if (run === 'neterror') return state({
       icon: 'wifi-off', tone: 'danger', title: 'Couldn’t reach the API',
       body: 'Nothing came back from <code>http://127.0.0.1:5189</code>. The request may not have reached the server, so nothing was saved.',
-      why: 'Is the API running? Start it with <code>dotnet run</code> in <code>examples/TreasuryApi</code>, then try again.',
+      why: 'Is the API running? Start it with <code>dotnet run</code> in <code>examples/StoreApi</code>, then try again.',
       actions: [`<button class="btn btn-primary btn-sm">${ico('refresh', 'i i-sm')}Try again ${kbd('mod', 'enter')}</button>`, `<button class="btn btn-ghost btn-sm">Copy error details</button>`],
     });
     const schemaView = q.rview === 'schema';
     // The real seeded response for this operation (mocks/spec.js); ?body=large shows a big list.
     const samples = window.TB_SAMPLES || {};
-    const value = q.body === 'large' ? samples.paymentsLarge : op === 'list' ? samples.paymentsPage : samples.payment;
+    const value = q.body === 'large' ? samples.ordersLarge : op === 'list' ? samples.ordersPage : samples.order;
     const json = { ...window.TB.schema.jsonView(value ?? {}, { label: 'Response body, application/json', collapseAll: q.json === 'collapsed' }), bytes: JSON.stringify(value ?? {}).length };
     const bodyFailed = q.copied === 'bodyfailed';
     return `
       ${op === 'list' ? '' : `      <div class="next-steps" role="group" aria-label="Use this result">
         <span class="faint">Use <code>id</code> in</span>
-        <button class="chain"><span class="method m-get">GET</span><span lang="en">Get payment</span>${kbd('mod', 'G')}</button>
-        <button class="chain"><span class="method m-post">POST</span><span lang="en">Submit for approval</span>${ico('shield', 'i i-sm faint')}</button>
+        <button class="chain"><span class="method m-get">GET</span><span lang="en">Get order</span>${kbd('mod', 'G')}</button>
+        <button class="chain"><span class="method m-post">POST</span><span lang="en">Ship order</span>${ico('shield', 'i i-sm faint')}</button>
       </div>`}
       <div class="viewer">
         <div class="viewer-bar">
           <div class="segmented" role="group" aria-label="Body view"><button aria-pressed="${!schemaView}">Pretty</button><button aria-pressed="false">Raw</button><button aria-pressed="${schemaView}">Schema</button></div>
-          <span class="pill pill-ok">${ico('check', 'i i-sm')}Matches <a class="type-link" href="#">${op === 'list' ? 'PagedListOfPayment' : 'Payment'}</a></span>
+          <span class="pill pill-ok">${ico('check', 'i i-sm')}Matches <a class="type-link" href="#">${op === 'list' ? 'PagedListOfOrder' : 'Order'}</a></span>
           <span class="spacer"></span>
           ${schemaView ? '' : `<button class="btn btn-ghost btn-xs" aria-keyshortcuts="Alt+Shift+ArrowDown">${ico('chevrons-ud', 'i i-sm')}${json.large || q.json === 'collapsed' ? t('expandAll') : t('collapseAll')}</button>`}
           <button class="btn btn-ghost btn-icon btn-sm" aria-label="Search body" aria-keyshortcuts="${aks('mod', 'F')}">${ico('search', 'i i-sm')}</button>
@@ -87,8 +87,8 @@
         ${json.large && !schemaView ? `<div class="inline-note flush large-note" role="note">${ico('info', 'i i-sm')}<span>${t('json.large', { size: window.i18n.unit(json.bytes / 1024, 'kilobyte', 0), n: json.total })}</span></div>` : ''}
         ${bodyFailed ? `<div class="inline-note danger flush" role="alert">${ico('alert', 'i i-sm')}<span><strong>Couldn’t copy.</strong> Clipboard access was blocked. The body is selected: press ${kbd('mod', 'C')}.</span><button class="btn btn-ghost btn-icon btn-xs" aria-label="Dismiss">${ico('x', 'i i-sm')}</button></div>` : ''}
         ${schemaView ? `<div class="schema-pane">
-            <div class="schema-legend"><span><span class="sw ok"></span>In this response</span><span><span class="sw"></span>Documented, not returned</span><span class="spacer"></span><a class="type-link" href="#">Open Payment model ${ico('arrow-right', 'i i-sm')}</a></div>
-            ${window.TB.schema.tree('Payment', { compact: true })}
+            <div class="schema-legend"><span><span class="sw ok"></span>In this response</span><span><span class="sw"></span>Documented, not returned</span><span class="spacer"></span><a class="type-link" href="#">Open Order model ${ico('arrow-right', 'i i-sm')}</a></div>
+            ${window.TB.schema.tree('Order', { compact: true })}
           </div>`
           : json.html}
       </div>
@@ -119,27 +119,27 @@
     });
     return `
       ${traced
-        ? `<div class="banner banner-ok">${ico('check')}<div><strong>${t('committed.title')}</strong> ${t('committed.body', { db: '<code class="ltr">treasury-demo.db</code>' })}</div><button class="btn btn-ghost btn-xs">Turn off traced Send</button></div>`
-        : `<div class="banner">${ico('undo')}<div><strong>${t('rolled.title')}</strong> ${t('rolled.body', { db: '<code class="ltr">treasury-demo.db</code>' })}</div></div>`}
-      <article class="table-change" aria-label="Payments: 1 row inserted">
-        <div class="tc-head"><span class="op-badge op-ins">+ INSERT</span><span class="name">Payments</span><span class="spacer"></span><span class="faint">${t('rows', { n: 1 })}</span></div>
+        ? `<div class="banner banner-ok">${ico('check')}<div><strong>${t('committed.title')}</strong> ${t('committed.body', { db: '<code class="ltr">store-demo.db</code>' })}</div><button class="btn btn-ghost btn-xs">Turn off traced Send</button></div>`
+        : `<div class="banner">${ico('undo')}<div><strong>${t('rolled.title')}</strong> ${t('rolled.body', { db: '<code class="ltr">store-demo.db</code>' })}</div></div>`}
+      <article class="table-change" aria-label="Orders: 1 row inserted">
+        <div class="tc-head"><span class="op-badge op-ins">+ INSERT</span><span class="name">Orders</span><span class="spacer"></span><span class="faint">${t('rows', { n: 1 })}</span></div>
         <div class="kv">
           <div class="k">Id</div><div class="v new ltr">7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13</div>
-          <div class="k">Status</div><div class="v new">Draft</div>
-          <div class="k">Amount</div><div class="v new">50000.00</div>
+          <div class="k">Status</div><div class="v new">Pending</div>
+          <div class="k">Amount</div><div class="v new">79.00</div>
           <div class="k">Currency</div><div class="v new">EUR</div>
-          <div class="k">ValueDate</div><div class="v new">2026-11-23</div>
+          <div class="k">DeliverBy</div><div class="v new">2026-11-23</div>
         </div>
         <button class="more-cols">${ico('chevron-down', 'i i-sm')}${t('more.cols', { n: 9 })}</button>
       </article>
-      <article class="table-change" aria-label="AccountBalances: 1 row updated">
-        <div class="tc-head"><span class="op-badge op-upd">~ UPDATE</span><span class="name">AccountBalances</span><span class="spacer"></span><span class="faint" lang="en">Operating EUR</span></div>
+      <article class="table-change" aria-label="StockLevels: 1 row updated">
+        <div class="tc-head"><span class="op-badge op-upd">~ UPDATE</span><span class="name">StockLevels</span><span class="spacer"></span><span class="faint" lang="en">Merino Crew Sweater, Heather Grey / M</span></div>
         <div class="kv">
-          <div class="k">Reserved</div><div class="v"><span class="old">120000.00</span><span class="arrow" aria-hidden="true">→</span><span class="sr-only">changed to</span>170000.00</div>
-          <div class="k">Available</div><div class="v"><span class="old">1250000.00</span><span class="arrow" aria-hidden="true">→</span><span class="sr-only">changed to</span>1200000.00</div>
+          <div class="k">Reserved</div><div class="v"><span class="old">6</span><span class="arrow" aria-hidden="true">→</span><span class="sr-only">changed to</span>7</div>
+          <div class="k">Available</div><div class="v"><span class="old">78</span><span class="arrow" aria-hidden="true">→</span><span class="sr-only">changed to</span>77</div>
         </div>
       </article>
-      <div class="effect">${ico('mail')}<div class="grow"><div class="t">${traced ? t('email.sent', { n: 1 }) : t('email.held', { n: 1 })}</div><div class="s ltr">PaymentCreatedNotification → treasury-ops@acme.dev</div></div><button class="btn btn-ghost btn-sm">${t('view')}</button></div>`;
+      <div class="effect">${ico('mail')}<div class="grow"><div class="t">${traced ? t('email.sent', { n: 1 }) : t('email.held', { n: 1 })}</div><div class="s ltr">OrderPlacedNotification → store-ops@acme.dev</div></div><button class="btn btn-ghost btn-sm">${t('view')}</button></div>`;
   }
 
   /* ---------- Side effects ---------- */
@@ -160,10 +160,10 @@
       body: run === '401' ? 'The request was rejected before any code ran, so nothing was sent or queued.' : 'This request sent no emails, made no outbound HTTP calls and queued no jobs or messages.',
     });
     const rows = [
-      ['mail', 'Email', 'PaymentCreatedNotification', 'to treasury-ops@acme.dev', traced ? 'Delivered' : 'Held'],
-      ['globe', 'HTTP call', 'POST bank-gateway.acme.dev/v1/reservations', 'Reserve €50,000.00 · 312 B', traced ? 'Delivered' : 'Intercepted'],
-      ['clock', 'Background job', 'ReserveFundsJob', 'Hangfire · queue payments', traced ? 'Queued' : 'Discarded on rollback'],
-      ['send', 'Message', 'payment.created', 'Service Bus · topic payments', traced ? 'Delivered' : 'Held'],
+      ['mail', 'Email', 'OrderPlacedNotification', 'to store-ops@acme.dev', traced ? 'Delivered' : 'Held'],
+      ['globe', 'HTTP call', 'POST carrier-gateway.acme.dev/v1/rates', 'Quote Standard delivery · 312 B', traced ? 'Delivered' : 'Intercepted'],
+      ['clock', 'Background job', 'ReserveStockJob', 'Hangfire · queue orders', traced ? 'Queued' : 'Discarded on rollback'],
+      ['send', 'Message', 'order.created', 'Service Bus · topic orders', traced ? 'Delivered' : 'Held'],
     ];
     return `${traced
       ? `<div class="banner banner-ok">${ico('send')}<div><strong>These ran for real.</strong> Traced Send recorded the 4 effects this request triggered as they happened.</div></div>`
@@ -184,17 +184,17 @@
     });
     const p = (k, v) => `<span class="prop" title="${k}">${v}</span>`;
     const all = run === '401' ? [
-      ['0.0', 'INF', 'Hosting', `Request starting <code>GET /api/v2/payments</code>`],
+      ['0.0', 'INF', 'Hosting', `Request starting <code>GET /api/v2/orders</code>`],
       ['0.9', 'INF', 'Authentication', `${p('Scheme', 'Cookies')} was not authenticated. No cookie.`],
-      ['1.4', 'INF', 'Hosting', `Request finished <code>GET /api/v2/payments</code> responded ${p('StatusCode', '401')} in ${p('Elapsed', '2 ms')}`],
+      ['1.4', 'INF', 'Hosting', `Request finished <code>GET /api/v2/orders</code> responded ${p('StatusCode', '401')} in ${p('Elapsed', '2 ms')}`],
     ] : [
-      ['0.0', 'INF', 'Hosting', `Request starting <code>POST /api/v2/payments</code> 412 bytes`],
+      ['0.0', 'INF', 'Hosting', `Request starting <code>POST /api/v2/orders</code> 412 bytes`],
       ['1.2', 'INF', 'Auth', `Signed in as ${p('User', 'ada.admin@acme.dev')} with roles ${p('Roles', 'admin')}`],
-      ['9.6', 'SQL', 'EF Core', `<code>SELECT a.Id, a.Name, a.Iban FROM Accounts AS a WHERE a.Id = @p0</code>`, '3.1'],
-      ['21.0', 'WRN', 'ApprovalPolicy', `${p('Amount', '50000.00')} is over the approval limit ${p('Limit', '25000.00')}`],
-      ['33.4', 'SQL', 'EF Core', `<code>INSERT INTO Payments (Id, Status, Amount, Currency, ValueDate) VALUES (@p0, @p1, @p2, @p3, @p4)</code>`, '6.2', true],
-      ['41.0', 'SQL', 'EF Core', `<code>UPDATE AccountBalances SET Reserved = Reserved + @p0 WHERE AccountId = @p1</code>`, '4.4'],
-      ['52.8', 'INF', 'PaymentService', `Created payment ${p('PaymentId', '7d2e41a0…9f13')}`],
+      ['9.6', 'SQL', 'EF Core', `<code>SELECT c.Id, c.Name, c.Email FROM Customers AS c WHERE c.Id = @p0</code>`, '3.1'],
+      ['21.0', 'WRN', 'StockPolicy', `${p('Available', '77')} units of APP-MCS-HGR-M left, below the reorder point ${p('ReorderPoint', '90')}`],
+      ['33.4', 'SQL', 'EF Core', `<code>INSERT INTO Orders (Id, Status, Amount, Currency, DeliverBy) VALUES (@p0, @p1, @p2, @p3, @p4)</code>`, '6.2', true],
+      ['41.0', 'SQL', 'EF Core', `<code>UPDATE StockLevels SET Reserved = Reserved + @p0 WHERE VariantId = @p1</code>`, '4.4'],
+      ['52.8', 'INF', 'OrderService', `Created order ${p('OrderId', '7d2e41a0…9f13')}`],
     ];
     const filteredOut = q.logs === 'empty';
     const bar = `<div class="log-bar">
@@ -215,8 +215,8 @@
             <span role="cell" class="chev">${ico(open ? 'chevron-down' : 'chevron-right', 'i i-sm')}</span><span role="cell" class="tm">${tm}</span>
             <span role="cell"><span class="lvl">${lvl}</span></span><span role="cell" class="tm">${took || ''}</span><span role="cell" class="src">${src}</span><span role="cell" class="msg">${msg}</span>
           </div>${open ? `<div class="log-detail" role="row"><div role="cell">
-<div class="sql-wrap"><div class="sql-bar">SQL with parameter values · 6.2 ms · 1 row<span class="spacer"></span>${copyBtn('Copy SQL with values', { state: sqlCopied ? 'copied' : 'idle', size: 'btn-xs' })}</div><pre class="sql"><span class="tok-k">INSERT INTO</span> Payments (Id, Status, Amount, Currency, ValueDate)
-<span class="tok-k">VALUES</span> ('7d2e41a0-…', 'Draft', 50000.00, 'EUR', '2026-11-23');</pre></div>
+<div class="sql-wrap"><div class="sql-bar">SQL with parameter values · 6.2 ms · 1 row<span class="spacer"></span>${copyBtn('Copy SQL with values', { state: sqlCopied ? 'copied' : 'idle', size: 'btn-xs' })}</div><pre class="sql"><span class="tok-k">INSERT INTO</span> Orders (Id, Status, Amount, Currency, DeliverBy)
+<span class="tok-k">VALUES</span> ('7d2e41a0-…', 'Pending', 79.00, 'EUR', '2026-11-23');</pre></div>
           </div></div>` : ''}`).join('')}
       </div>`;
   }
@@ -230,8 +230,8 @@
       actions: [readOnly ? btnSend : btnPreview],
     });
     const rows = run === '401'
-      ? [['WWW-Authenticate', 'Cookie realm="TreasuryApi"'], ['Content-Length', '0'], ['Date', 'Fri, 20 Nov 2026 14:02:11 GMT']]
-      : [['Location', '/api/v2/payments/7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13'], ['Content-Type', 'application/json; charset=utf-8'], ['Content-Length', '1214'], ['ETag', 'W/"1"'],
+      ? [['WWW-Authenticate', 'Cookie realm="StoreApi"'], ['Content-Length', '0'], ['Date', 'Fri, 20 Nov 2026 14:02:11 GMT']]
+      : [['Location', '/api/v2/orders/7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13'], ['Content-Type', 'application/json; charset=utf-8'], ['Content-Length', '1214'], ['ETag', 'W/"1"'],
          ['X-Request-ID', '0c5d9a2e-1f4b-4c39-8e0a-b7d2c61f5a08'], ['Idempotency-Replayed', 'false'], ['traceparent', '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'], ['Date', 'Fri, 20 Nov 2026 14:02:11 GMT'], ['Server', 'Kestrel']];
     return `<div class="section-label">Response headers <span class="schema">${rows.length}</span><span class="rule" aria-hidden="true"></span>
         ${copyTextBtn('Copy all', { state: q.copied === 'headers' ? 'copied' : 'idle', cls: 'btn-xs btn-ghost' })}</div>
@@ -247,7 +247,7 @@
     preview: `<span class="pill pill-accent">${ico('flask', 'i i-sm')}${t('res.preview')}</span><span class="status-code ok">${ico('check', 'i i-sm')}201 Created</span>${metrics(84, 1.2)}<span class="spacer"></span>${copyBtn(t('copy.curl'), { keys: aks('shift', 'mod', 'C') })}<button class="btn btn-sm">${ico('send', 'i i-sm')}${t('send.real')}</button>`,
     send: readOnly
       ? `<span class="pill pill-ok">${ico('send', 'i i-sm')}${t(traced ? 'res.traced' : 'res.sent')}</span><span class="status-code ok">${ico('check', 'i i-sm')}200 OK</span>${metrics(q.body === 'large' ? 38 : 12, q.body === 'large' ? 96 : 1.4)}<span class="spacer"></span>${copyBtn('Copy as cURL')}`
-      : `<span class="pill pill-ok">${ico('send', 'i i-sm')}${t(traced ? 'res.traced' : 'res.sent')}</span><span class="status-code ok">${ico('check', 'i i-sm')}201 Created</span>${metrics(91, 1.2)}<span class="spacer"></span>${copyBtn('Copy as cURL')}<button class="btn btn-sm">${t('open.payment')} ${kbd('mod', 'G')}</button>`,
+      : `<span class="pill pill-ok">${ico('send', 'i i-sm')}${t(traced ? 'res.traced' : 'res.sent')}</span><span class="status-code ok">${ico('check', 'i i-sm')}201 Created</span>${metrics(91, 1.2)}<span class="spacer"></span>${copyBtn('Copy as cURL')}<button class="btn btn-sm">${t('open.order')} ${kbd('mod', 'G')}</button>`,
     401: `<span class="pill pill-ok">${ico('send', 'i i-sm')}${t('res.sent')}</span><span class="status-code err">${ico('lock', 'i i-sm')}401 Unauthorized</span>${metrics(2, 0)}<span class="spacer"></span>${copyBtn('Copy as cURL')}`,
     neterror: `<span class="pill pill-danger">${ico('wifi-off', 'i i-sm')}No response</span><span class="metric">after 30 s</span><span class="spacer"></span>`,
   }[run];

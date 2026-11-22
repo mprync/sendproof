@@ -60,30 +60,30 @@
     </div>`, { align: 'end' });
 
   if (kind === 'toggletip') place(`[data-field="${q.focus}"] .info-btn`, `
-    <div class="pop toggletip" id="tip" role="dialog" aria-label="About Amount">
+    <div class="pop toggletip" id="tip" role="dialog" aria-label="About Unit price">
       <div class="tt-body">
-        <h3 lang="en">Amount<span class="tag tag-warn">required</span></h3>
-        <p lang="en">Amount in the payment currency, with up to 2 decimals. Funds are reserved on the debit account when the payment is created.</p>
+        <h3 lang="en">Unit price<span class="tag tag-warn">required</span></h3>
+        <p lang="en">Price per unit in the order currency, with up to 2 decimals. Support agents can override the catalog price; stock is reserved when the order is created.</p>
         <dl class="facts">
           <dt>Type</dt><dd>number · decimal</dd>
           <dt>Minimum</dt><dd>0.01</dd>
           <dt>Currency</dt><dd class="plain">From <code>currency</code>: EUR or USD</dd>
-          <dt>Example</dt><dd>50000.00</dd>
-          <dt>Sent as</dt><dd class="plain">A JSON number, e.g. <code>"amount": 50000.00</code></dd>
+          <dt>Example</dt><dd>79.00</dd>
+          <dt>Sent as</dt><dd class="plain">A JSON number, e.g. <code>"unitPrice": 79.00</code></dd>
         </dl>
       </div>
-      <div class="tt-foot"><a class="link" href="#">Open in Docs</a><span class="ltr faint">CreatePaymentRequest.amount</span><span class="spacer"></span>${kbd('Esc')}</div>
+      <div class="tt-foot"><a class="link" href="#">Open in Docs</a><span class="ltr faint">CreateOrderRequest.unitPrice</span><span class="spacer"></span>${kbd('Esc')}</div>
     </div>`, { gap: 10, arrow: true });
 
   if (kind === 'wand') {
     const row = (main, sub, k, active) => `<div class="opt-row${active ? ' is-active' : ''}" role="menuitem"><span class="stack"><span class="main num">${main}</span><span class="sub">${sub}</span></span>${k ? `<span class="end">${k}</span>` : ''}</div>`;
     place(`[data-field="${q.focus}"] .control`, `
-      <div class="pop gen-menu" id="gen-menu" role="menu" aria-label="Generate a value for Amount">
+      <div class="pop gen-menu" id="gen-menu" role="menu" aria-label="Generate a value for Unit price">
         <div class="pop-group">
           <div class="pop-label">Valid · within 0.01 and up to 2 decimals</div>
-          ${row(decimal(4817.36), 'Random', kbd('alt', 'G'), true)}
+          ${row(decimal(48.17), 'Random', kbd('alt', 'G'), true)}
           ${row(decimal(0.01), 'Minimum allowed')}
-          ${row(decimal(1000), 'Round number')}
+          ${row(decimal(100), 'Round number')}
         </div>
         <div class="pop-group">
           <div class="pop-label">${ico('alert', 'i i-sm')}Invalid · to test the API’s errors</div>
@@ -97,8 +97,8 @@
 
   if (kind === 'issues') {
     const issues = [
-      ['Debit account', 'Choose a debit account'], ['Counterparty', 'Choose a counterparty'], ['Amount', 'Enter a number, like 1250.00'],
-      ['Value date', '31 February 2026 doesn’t exist'], ['Reference', 'Use 35 characters or fewer (38 now)'],
+      ['Customer', 'Choose a customer'], ['Variant', 'Choose a variant'], ['Unit price', 'Enter a number, like 79.90'],
+      ['Deliver by', '31 February 2026 doesn’t exist'], ['Reference', 'Use 35 characters or fewer (38 now)'],
     ];
     place('.issues-btn', `
       <div class="pop" id="issues" role="dialog" aria-labelledby="issues-title" style="inline-size:28rem">
@@ -130,7 +130,7 @@
     const items = [
       ['wand', 'Fill required fields', 'Real records for IDs, random values within each schema', kbd('shift', 'mod', 'F'), true],
       ['list', 'Fill every field', 'Includes the 3 optional fields', kbd('alt', 'shift', 'mod', 'F')],
-      ['history', 'Reuse last request', 'Create payment · 2 min ago', kbd('mod', 'R')],
+      ['history', 'Reuse last request', 'Create order · 2 min ago', kbd('mod', 'R')],
       ['refresh', 'New IDs and keys', 'Regenerates Idempotency-Key and externalId', kbd('mod', 'I')],
     ];
     place('#autofill', `
@@ -142,13 +142,13 @@
   }
 
   if (kind === 'lookup') {
-    const opt = (main, sub, active) => `<div class="opt-row${active ? ' is-active' : ''}" role="option" aria-selected="${!!active}"><span class="chip-ico" aria-hidden="true">N</span><span class="stack"><span class="main">${main}</span><span class="sub ltr">${sub}</span></span></div>`;
+    const opt = (main, sub, active) => `<div class="opt-row${active ? ' is-active' : ''}" role="option" aria-selected="${!!active}"><span class="chip-ico" aria-hidden="true">${main[0]}</span><span class="stack"><span class="main">${main}</span><span class="sub ltr">${sub}</span></span></div>`;
     place('[data-field="pid"] .control', `
-      <div class="pop" id="pid-list" role="listbox" aria-label="Payments" style="inline-size:var(--anchor-w)">
-        <div class="pop-group"><div class="pop-label">${ico('history', 'i i-sm')}From your last request<span class="spacer"></span>Create payment · 2 min ago</div>
-          ${opt('Northwind Logistics GmbH · €50,000.00', '7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13', true)}</div>
-        <div class="pop-group"><div class="pop-label">${ico('db', 'i i-sm')}<code>GET /api/v2/payments</code><span class="spacer"></span>3 of 24</div>
-          ${opt('Contoso Freight · €12,400.00', '1b9a77c2-0d4e-4c11-9a6f-2e8d5c3b7a90')}${opt('Fabrikam Steel · €8,950.50', 'a4c0e5d1-7b2f-4f38-8e1c-9d6b0a2c4e57')}</div>
+      <div class="pop" id="pid-list" role="listbox" aria-label="Orders" style="inline-size:var(--anchor-w)">
+        <div class="pop-group"><div class="pop-label">${ico('history', 'i i-sm')}From your last request<span class="spacer"></span>Create order · 2 min ago</div>
+          ${opt('Priya Raman · €142.20', '7d2e41a0-5c1b-4e8f-a3d2-6b0e19c49f13', true)}</div>
+        <div class="pop-group"><div class="pop-label">${ico('db', 'i i-sm')}<code>GET /api/v2/orders</code><span class="spacer"></span>3 of 24</div>
+          ${opt('Harbour Café Ltd · €318.00', '1b9a77c2-0d4e-4c11-9a6f-2e8d5c3b7a90')}${opt('Northfield Outfitters · £1,240.50', 'a4c0e5d1-7b2f-4f38-8e1c-9d6b0a2c4e57')}</div>
         <div class="pop-group"><div class="opt-row" role="option" aria-selected="false">${ico('copy', 'i i-sm')}<span class="stack"><span class="main" style="font-weight:400">Paste an ID</span></span><span class="end">${kbd('mod', 'V')}</span></div>
           <div class="opt-row" role="option" aria-selected="false">${ico('refresh', 'i i-sm')}<span class="stack"><span class="main" style="font-weight:400">Random UUID</span><span class="sub">Tests a 404</span></span><span class="end">${kbd('mod', 'I')}</span></div></div>
         <div class="pop-foot"><span>${kbd('↑↓')} move</span><span>${kbd('↵')} pick</span><span>${kbd('mod', 'enter')} pick and preview</span><span class="spacer"></span><span>${kbd('Esc')}</span></div>
@@ -182,7 +182,7 @@
     document.body.insertAdjacentHTML('beforeend', `
       <div class="scrim palette-scrim"></div>
       <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
-        <div class="pop-search">${ico('search')}<input value="head" aria-label="Search operations and commands" role="combobox" aria-expanded="true" aria-controls="cmd-list"><span class="scope">Create payment</span></div>
+        <div class="pop-search">${ico('search')}<input value="head" aria-label="Search operations and commands" role="combobox" aria-expanded="true" aria-controls="cmd-list"><span class="scope">Create order</span></div>
         <div class="pal-list" id="cmd-list" role="listbox" aria-label="Results">
           <div class="pop-label">Actions on this request</div>
           ${row(ico('plus', 'i i-sm'), 'Add <mark>head</mark>er', '', kbd('shift', 'mod', 'H'), true)}

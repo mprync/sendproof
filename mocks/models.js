@@ -5,11 +5,11 @@
 // lists the operations and models that use it, then an Example or the raw JSON Schema.
 //
 // Where you came from decides the breadcrumbs, not the sidebar tab:
-//   ?from=<operationId>   opened from an operation: Payments › Create payment › Payment, with
-//                         one Back control in the head row, "← Back to Create payment ⌥←".
+//   ?from=<operationId>   opened from an operation: Orders › Create order › Order, with
+//                         one Back control in the head row, "← Back to Create order ⌥←".
 //                         The sidebar stays on Operations and marks that operation.
-//   ?side=models          picked in the Models tab: Models › Resources › Payment.
-//   ?via=Payment          an intermediate model on the trail (Payment › Counterparty).
+//   ?side=models          picked in the Models tab: Models › Resources › Order.
+//   ?via=Order            an intermediate model on the trail (Order › OrderLine).
 // Other parameters: expand=<paths> collapse=<paths> expandAll=1 variant=<Name>
 //                   aside=example|schema  hl=<path>
 (function () {
@@ -17,7 +17,7 @@
   const S = window.TB.schema;
   const esc = S.esc;
   if (q.view !== 'model') return;
-  const name = q.model || 'Payment';
+  const name = q.model || 'Order';
   const raw = S.schemas[name] || {};
   const kind = S.kindOf(name);
   const from = q.from && S.operations.find(o => o.id === q.from);

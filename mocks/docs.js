@@ -212,7 +212,7 @@ response.EnsureSuccessStatusCode();`;
     <main class="pane doc-pane" id="request" aria-labelledby="ov-title">
       <div class="ctx-bar"><nav class="crumbs" aria-label="${t('crumbs')}"><ol><li><span aria-current="page">${t('ov.title')}</span></li></ol></nav><div class="end"></div></div>
       <div class="pane-scroll"><div class="doc-inner">
-        <h1 id="ov-title" lang="en">Acme Treasury API <span class="faint" style="font-weight:400">v${esc(S.spec.info?.version || '1.0.0')}</span></h1>
+        <h1 id="ov-title" lang="en">Acme Store API <span class="faint" style="font-weight:400">v${esc(S.spec.info?.version || '1.0.0')}</span></h1>
         <div class="doc-meta"><span class="tag tag-mono">${BASE}</span><span class="tag tag-mono">OpenAPI ${esc(S.spec.openapi)}</span><span class="tag">${t('ops', { n: S.operations.length })}</span><span class="tag">${t('models.count', { n: Object.keys(S.schemas).length })}</span></div>
         <div class="prose" lang="en">${S.md(S.spec.info?.description)}</div>
         <h2>${t('ov.how')}</h2>

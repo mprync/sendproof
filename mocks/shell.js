@@ -4,7 +4,7 @@
 // URL parameters (read once here, exposed as TB.q):
 //   theme=dark  text=130 (root font size, %)  density=compact|comfortable  lang=en|de|ar
 //   auth=out    view=try|docs|model|signin     op=create|get|list|update|login
-//   side=operations|models  filter=nomatch|empty  model=Payment|Counterparty
+//   side=operations|models  filter=nomatch|empty  model=Order|Product
 (function () {
   const q = Object.fromEntries(new URLSearchParams(location.search));
   const { t, chord } = window.i18n;
@@ -125,8 +125,8 @@
     <button class="btn btn-ghost btn-icon mobile-only" aria-label="Open operations">${ico('menu')}</button>
     <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span><span class="desktop-only">Sendproof</span></div>
     <span class="crumb-sep desktop-only" aria-hidden="true">/</span>
-    <button class="api-switch" aria-haspopup="listbox"><span lang="en">Acme Treasury API</span> <span class="ver">v1.0.0</span>${ico('chevrons-ud', 'i i-sm')}</button>
-    <button class="env desktop-only" aria-haspopup="listbox"><span class="dot" aria-hidden="true"></span><strong>${t('env')}</strong><span class="ltr">treasury-demo.db</span>${ico('chevron-down', 'i i-sm')}</button>
+    <button class="api-switch" aria-haspopup="listbox"><span lang="en">Acme Store API</span> <span class="ver">v1.0.0</span>${ico('chevrons-ud', 'i i-sm')}</button>
+    <button class="env desktop-only" aria-haspopup="listbox"><span class="dot" aria-hidden="true"></span><strong>${t('env')}</strong><span class="ltr">store-demo.db</span>${ico('chevron-down', 'i i-sm')}</button>
     <div class="spacer"></div>
     <button class="search-trigger" aria-label="${t('search')}" aria-keyshortcuts="${aks('mod', 'K')}">${ico('search', 'i i-sm')}<span class="grow">${t('search')}</span>${kbd('mod', 'K')}</button>
     <button class="btn btn-ghost btn-icon btn-sm desktop-only" id="display-btn" aria-label="${t('display')}" aria-haspopup="dialog" aria-keyshortcuts="${aks('mod', ',')}" ${q.overlay === 'display' ? 'aria-expanded="true" style="background:var(--hover);color:var(--text)"' : ''}>${ico('sliders', 'i i-sm')}</button>

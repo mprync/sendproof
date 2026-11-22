@@ -12,15 +12,15 @@
     <div class="sign-page">
       <header class="bar">
         <div class="brand"><span class="brand-mark" aria-hidden="true">${ico('bench')}</span>Sendproof</div>
-        <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="desktop-only" lang="en">Acme Treasury API</span>
+        <span class="crumb-sep desktop-only" aria-hidden="true">/</span><span class="desktop-only" lang="en">Acme Store API</span>
         <span class="spacer"></span>
-        <span class="pill pill-ok desktop-only"><span class="dot" aria-hidden="true"></span>Development · <span class="ltr">treasury-demo.db</span></span>
+        <span class="pill pill-ok desktop-only"><span class="dot" aria-hidden="true"></span>Development · <span class="ltr">store-demo.db</span></span>
         <button class="btn btn-ghost btn-sm">${ico('arrow-left', 'i i-sm')}<span class="desktop-only">Back to workbench</span><span class="mobile-only">Back</span> ${kbd('Esc')}</button>
       </header>
       <main class="sign-main">
         <div class="sign-layout">
           <section aria-labelledby="sign-title">
-            <h1 id="sign-title">Sign in to Acme Treasury API</h1>
+            <h1 id="sign-title">Sign in to Acme Store API</h1>
             <p class="lede">You’ll call the API as this user, with their roles and data.</p>
             ${err500 ? `
             <div class="err-panel" role="alert" aria-labelledby="err-title">
@@ -55,8 +55,8 @@
             </form>
           </section>
           <section class="persona-card" aria-labelledby="seeded">
-            <div class="h"><strong id="seeded">${ico('user', 'i i-sm')}Seeded accounts</strong><p>Sign in as an existing user in <code>treasury-demo.db</code>. One click, no password.</p></div>
-            ${[['AA', 'Ada Admin', 'admin', 'ada.admin@acme.dev'], ['BA', 'Ben Approver', 'payments.approve', 'ben.approver@acme.dev'], ['CV', 'Cara Viewer', 'read-only', 'cara.viewer@acme.dev']].map(([i, n, r, e]) => `
+            <div class="h"><strong id="seeded">${ico('user', 'i i-sm')}Seeded accounts</strong><p>Sign in as an existing user in <code>store-demo.db</code>. One click, no password.</p></div>
+            ${[['AA', 'Ada Admin', 'admin', 'ada.admin@acme.dev'], ['SS', 'Sam Support', 'support', 'sam.support@acme.dev'], ['CC', 'Cara Customer', 'customer', 'cara.customer@acme.dev']].map(([i, n, r, e]) => `
             <button class="persona-row fx-head" style="min-block-size:3.5rem"><span class="avatar" aria-hidden="true">${i}</span><span class="stack"><span><strong style="font-weight:500">${n}</strong> <span class="tag tag-mono">${r}</span></span><span class="sub">${e}</span></span>${ico('arrow-right', 'i i-sm faint')}</button>`).join('')}
           </section>
         </div>
@@ -67,7 +67,7 @@
 
   if (q.boot === 'loading' || q.boot === 'error') {
     const sk = (w, h = '0.7rem', extra = '') => `<span class="sk" style="display:block;inline-size:${w};block-size:${h};${extra}"></span>`;
-    document.querySelector('.topbar .api-switch').innerHTML = q.boot === 'error' ? '<span lang="en">Acme Treasury API</span>' : '<span class="faint">Loading API…</span>';
+    document.querySelector('.topbar .api-switch').innerHTML = q.boot === 'error' ? '<span lang="en">Acme Store API</span>' : '<span class="faint">Loading API…</span>';
     const side = document.querySelector('.sidebar .nav');
     side.innerHTML = [72, 58, 80, 64, 76, 50, 68].map((w, i) => `<div class="nav-item" aria-hidden="true">${i % 3 === 0 ? sk('40%', '0.6rem') : `${sk('3.25rem', '1.375rem')}${sk(w + '%')}`}</div>`).join('');
     document.querySelector('.sidebar .tabs').querySelectorAll('.n').forEach(n => { n.textContent = '–'; n.classList.add('unknown'); });

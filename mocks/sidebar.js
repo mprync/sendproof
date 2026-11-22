@@ -2,7 +2,7 @@
 //
 // What changed from v3 (see README "Navigation and reference"):
 //   - Every tag group is expanded by default. Groups collapse with their heading; the
-//     product remembers the state per API (?collapsed=Accounts,Balances shows it).
+//     product remembers the state per API (?collapsed=Customers,Inventory shows it).
 //   - Signed out, a notice at the top says how many operations need sign-in and offers
 //     Sign in, instead of a footer line. Locked rows carry a lock marker.
 //   - The tab only changes when the user picks it. Opening a model from an operation keeps
@@ -20,11 +20,11 @@
     const byId = id => ops.find(o => o.id === id);
     if (q.opid && byId(q.opid)) return byId(q.opid);
     const short = {
-      create: () => byId('PaymentsController.Create') || ops.find(o => o.method === 'post' && /payments$/.test(o.path)),
-      get: () => byId('PaymentsController.Get') || ops.find(o => o.method === 'get' && /payments\/\{/.test(o.path)),
-      list: () => byId('PaymentsController.List') || ops.find(o => o.method === 'get' && /payments$/.test(o.path)),
+      create: () => byId('OrdersController.Create') || ops.find(o => o.method === 'post' && /orders$/.test(o.path)),
+      get: () => byId('OrdersController.Get') || ops.find(o => o.method === 'get' && /orders\/\{/.test(o.path)),
+      list: () => byId('OrdersController.List') || ops.find(o => o.method === 'get' && /orders$/.test(o.path)),
       login: () => ops.find(o => o.method === 'post' && /auth\/login$/.test(o.path)),
-      update: () => ops.find(o => o.deprecated) || byId('PaymentsController.Create'),
+      update: () => ops.find(o => o.deprecated) || byId('OrdersController.Create'),
     }[q.op || 'create'];
     return (short && short()) || ops[0];
   }
@@ -74,9 +74,9 @@
 
     function opsList() {
       if (q.filter === 'nomatch') return `<div class="nav">${state({
-        icon: 'search', compact: true, title: 'No operations match “paymnet”',
+        icon: 'search', compact: true, title: 'No operations match “ordre”',
         body: 'Search covers names, paths, tags and operation IDs.',
-        actions: [`<button class="btn btn-sm">Clear filter ${kbd('Esc')}</button>`, `<button class="btn btn-ghost btn-sm">Try “payment”</button>`],
+        actions: [`<button class="btn btn-sm">Clear filter ${kbd('Esc')}</button>`, `<button class="btn btn-ghost btn-sm">Try “order”</button>`],
       })}</div>`;
       if (q.filter === 'empty') return `<div class="nav">${state({
         icon: 'list', compact: true, title: 'This API has no operations yet',
@@ -104,7 +104,7 @@
         icon: 'box', compact: true, title: 'No models in this spec',
         body: 'Models come from <code>components.schemas</code>. Request and response bodies that use inline schemas still show in each operation’s Docs.',
       })}</div>`;
-      const currentModel = q.view === 'model' ? (q.model || 'Payment') : '';
+      const currentModel = q.view === 'model' ? (q.model || 'Order') : '';
       return `<div class="nav">${modelGroups().map(([key, names], gi) => `<div class="nav-group">
         ${(() => { const open = key !== 'models.lists' || q.lists === 'open'; return `<button class="nav-heading" aria-expanded="${open}" aria-controls="mgrp-${gi}">${ico(open ? 'chevron-down' : 'chevron-right', 'i i-sm')}<span>${t(key)}</span><span class="count">${names.length}</span></button>
         <ul id="mgrp-${gi}"${open ? '' : ' hidden'}>`; })()}${names.map(name => {
@@ -154,10 +154,10 @@
    * The head row of the main column, the same in Try it, Docs and Models: where you are
    * (breadcrumbs) on the start, how to switch or go back on the end. One tab tall, so it
    * lines up with the sidebar tabs and the right column's head.
-   *   kind 'op':    Payments › Create payment            [Try it | Docs]
-   *   kind 'model': Payments › Create payment › Payment  [← Back to Create payment ⌥←]   (opened from an operation)
-   *                 Models › Resources › Payment                        (picked in the Models tab)
-   * ?via=Payment adds an intermediate model (Payment › Counterparty).
+   *   kind 'op':    Orders › Create order            [Try it | Docs]
+   *   kind 'model': Orders › Create order › Order  [← Back to Create order ⌥←]   (opened from an operation)
+   *                 Models › Resources › Order                        (picked in the Models tab)
+   * ?via=Order adds an intermediate model (Order › OrderLine).
    */
   function ctxBar(q, kind, view) {
     const S2 = window.TB.schema;
@@ -170,7 +170,7 @@
         <button aria-pressed="${view === 'try'}" ${view === 'try' ? '' : 'aria-keyshortcuts="D"'}>${ico('flask', 'i i-sm')}${t('view.try')}</button>
         <button aria-pressed="${view === 'docs'}" ${view === 'docs' ? '' : 'aria-keyshortcuts="D"'}>${ico('book', 'i i-sm')}${t('view.docs')}</button></div>`;
     } else {
-      const name = q.model || 'Payment';
+      const name = q.model || 'Order';
       const via = (q.via || '').split(',').filter(Boolean).map(v => [v]);
       if (from) {
         items = [[from.tag], [from.summary], ...via, [name, true]];

@@ -71,7 +71,7 @@
   }
 
   /* ---------- Attribute list ---------- */
-  /** The type after a name: "string", "nullable string", "array of AccountReference" (a link). */
+  /** The type after a name: "string", "nullable string", "array of OrderLine" (a link). */
   function typeText(schema, nullable) {
     const label = S.typeLabel(schema);
     const r = S.resolve(schema);
@@ -192,8 +192,8 @@
     return attrs(schema, { ...opts, label: t('schema.treeLabel', { name: esc(name || 'Body') }) }, 0, '', new Set([name]));
   }
 
-  // Descriptions often name another operation by its operationId (`BalancesController.Get`).
-  // v5 links it to that operation and says its name, so "Use Get balance" reads as a link.
+  // Descriptions often name another operation by its operationId (`InventoryController.Get`).
+  // v5 links it to that operation and says its name, so "Use Get stock level" reads as a link.
   const md = S.md;
   S.md = (text, o) => md(text, o).replace(/<code>([A-Za-z]+Controller\.[A-Za-z]+)<\/code>/g, (m, id) => {
     const op = S.operations.find(x => x.id === id);
@@ -278,7 +278,7 @@
     return `<div class="f5${f.half ? ' half' : ''}${disabled ? ' is-disabled' : ''}" data-field="${esc(f.name)}" ${f.kind === 'radio' ? 'role="group"' : ''}>${label}${control}${f.desc ? `<p class="f5-desc" id="${id}-desc" lang="en">${f.desc}</p>` : ''}${status}</div>`;
   }
 
-  // "an account" from x-lookup's url (/api/v2/accounts?…), for "Choose an account…".
+  // "a customer" from x-lookup's url (/api/v2/customers?…), for "Choose a customer…".
   const lookupNoun = l => { const m = l?.url?.match(/\/([a-z-]+?)(?:ies|s)?(?:\?|$)/); if (!m) return ''; const w = m[0].includes('ies') ? m[1] + 'y' : m[1]; return (/^[aeiou]/.test(w) ? 'an ' : 'a ') + w.replace(/-/g, ' '); };
 
   /** A field from an OpenAPI parameter: the control, type, description and status follow the schema. */
