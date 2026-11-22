@@ -36,7 +36,10 @@ use Sendproof\Core\Stores\PreviewTransactionControlException;
  *   document ids for change capture come from the same events.
  * - **Finish**: after the handler, changes are read (inside the transaction for `after`, and at the
  *   transaction's own snapshot time for `before`), then the transaction is aborted and the session
- *   ended. A Preview that outlives its time limit is aborted and answers 500.
+ *   ended. A Preview that outlives its time limit is aborted and answers 500. An abort the server
+ *   never acknowledged (the connection dropped) answers 500 at once, and once the response is out
+ *   the session is ended with `killSessions` ({@see endLostTransactions()}), so the transaction
+ *   doesn't hold its locks until the server's lifetime limit.
  *
  * PHP serves one request at a time per process, so one engine holds one Preview at a time; the
  * Preview's state is keyed by the request's recorder.
@@ -45,6 +48,11 @@ final class MongoEngine
 {
     /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
     public const STANDALONE_REASON = "Preview unavailable: this MongoDB server doesn't support transactions";
+    /**
+     * The reason when the detection `hello` couldn't be sent or answered: whether the server supports
+     * transactions is unknown, so the store runs in `guard` mode for now and asks again next time.
+     */
+    public const UNREACHABLE_REASON = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode";
     /** The reason shown when the client's own commands never reached Sendproof's monitor. */
     public const UNMONITORED_REASON = "Preview unavailable: Sendproof's command monitor doesn't see this MongoDB client's commands";
     /** Below the server's 60-second `transactionLifetimeLimitSeconds`, so the binding, not the server, ends a long Preview. */
@@ -58,6 +66,15 @@ final class MongoEngine
     private const CANDIDATE_LIMIT = 1000;
     /** Server error codes meaning the collection or snapshot didn't exist at the start time: NamespaceNotFound, SnapshotUnavailable. */
     private const ABSENT_AT_START = [26, 246];
+    /** `NoSuchTransaction`: the server has no such transaction, so nothing holds its locks. */
+    private const NO_SUCH_TRANSACTION = 251;
+    /**
+     * How long, from the lost abort, the engine keeps trying to end the transaction, and the backoff
+     * between tries: well inside the server's 60-second lifetime.
+     */
+    private const KILL_RETRY_LIMIT_MS = 10_000;
+    private const KILL_FIRST_DELAY_MS = 100;
+    private const KILL_MAX_DELAY_MS = 2_000;
 
     /** @var \WeakMap<Recorder,string> The mode each Preview began in; a Preview keeps it even if detection later changes */
     private \WeakMap $modes;
@@ -75,6 +92,15 @@ final class MongoEngine
     private static array $open = [];
     /** @var \WeakMap<object,\WeakMap<Recorder,true>>|null Monitoring events already handled for each recorder, so a pooled client's command is handled once */
     private static ?\WeakMap $handled = null;
+    /**
+     * @var list<array{0:MongoEngine,1:Session,2:int}> Sessions whose abort no reply acknowledged, with
+     * the `hrtime` it was lost at. Each is held, so the driver can't hand its id to another operation,
+     * until {@see endLostTransactions()} kills it.
+     */
+    private static array $lost = [];
+    private static bool $shutdownRegistered = false;
+    /** Set while this engine aborts a Preview transaction: whether the driver sent the abort, and whether the server acknowledged it. */
+    private ?\stdClass $aborting = null;
     /** The `comment` of this engine's own `hello`: seeing it proves the monitor is installed on this client. */
     private readonly string $probe;
     /** The subscriber registered on {@see $manager}: the tripwire, the `Db` log and change candidates. */
@@ -128,8 +154,10 @@ final class MongoEngine
     }
 
     /**
-     * Detects the topology: `preview` on a replica set or mongos with logical sessions. An
-     * unreachable or unrecognised server runs in `guard` mode for now, and is asked again next time.
+     * Detects the topology: `preview` on a replica set or mongos with logical sessions, `guard` with
+     * {@see STANDALONE_REASON} for a standalone server or any reply this doesn't recognise. When the
+     * `hello` can't be sent or answered, `guard` with {@see UNREACHABLE_REASON} for now, and it is
+     * asked again next time.
      *
      * @return array{mode:string,reason?:string}
      */
@@ -142,12 +170,15 @@ final class MongoEngine
             $hello = $this->internal(fn (): object => $this->hello !== null
                 ? ($this->hello)()
                 : $this->manager->executeCommand('admin', new Command(['hello' => 1, 'comment' => $this->probe]))->toArray()[0]);
-            $transactions = (!empty($hello->setName) || ($hello->msg ?? null) === 'isdbgrid') && ($hello->logicalSessionTimeoutMinutes ?? null) !== null;
+        } catch (ServerException) {
+            // The server answered, with an error: not a reply that supports transactions.
+            $hello = new \stdClass();
         } catch (\Throwable) {
             $this->mode ??= 'guard';
 
-            return ['mode' => 'guard', 'reason' => self::STANDALONE_REASON];
+            return ['mode' => 'guard', 'reason' => self::UNREACHABLE_REASON];
         }
+        $transactions = (!empty($hello->setName) || ($hello->msg ?? null) === 'isdbgrid') && ($hello->logicalSessionTimeoutMinutes ?? null) !== null;
         if (!$this->monitored()) {
             // The tripwire can't see this client: never claim a rollback (see begin()).
             $this->mode = 'guard';
@@ -198,6 +229,11 @@ final class MongoEngine
         // never finished (a fatal error, `exit`, a worker that kept running): abort it now.
         foreach ($this->states as $stale) {
             $this->end($stale);
+        }
+        // A long-lived worker runs no shutdown work between requests: one more try for any session
+        // still waiting to be killed.
+        if (self::$lost !== []) {
+            self::endLostTransactions(false);
         }
         unset($this->states[$recorder], $this->modes[$recorder]);
         if (!$recorder->inPreviewScope()) {
@@ -288,6 +324,10 @@ final class MongoEngine
         if (($command->comment ?? null) === $this->probe) {
             $this->probeSeen = true;
         }
+        // The driver sends abortTransaction only when a command was sent in the transaction.
+        if ($this->aborting !== null && $event->getCommandName() === 'abortTransaction') {
+            $this->aborting->sent = true;
+        }
         if (self::$internal > 0) {
             return;
         }
@@ -304,6 +344,10 @@ final class MongoEngine
         $lower = strtolower($name);
         $kind = Classifier::mongo($command, $this->reads)['kind'];
         $preview = $recorder->inPreviewScope();
+        // Sent on the Preview session: the server now holds the transaction until an abort reaches it.
+        if ($preview && ($open = self::openState($recorder, $command)) !== null) {
+            $open->opened = true;
+        }
         if ($preview && self::endsTransaction($lower)) {
             // Sent around the hook, for example through a raw driver call: it may have committed
             // the Preview transaction, so the Preview can never be confirmed.
@@ -396,6 +440,9 @@ final class MongoEngine
     /** @internal Called by {@see MongoMonitor} */
     public function succeeded(CommandSucceededEvent $event): void
     {
+        if ($this->aborting !== null && $event->getCommandName() === 'abortTransaction') {
+            $this->aborting->acknowledged = true;
+        }
         $pending = $this->take($event->getRequestId());
         if ($pending === null) {
             return;
@@ -433,6 +480,10 @@ final class MongoEngine
     /** @internal Called by {@see MongoMonitor} */
     public function failed(CommandFailedEvent $event): void
     {
+        // A network error carries no server reply: it proves nothing reached the server.
+        if ($this->aborting !== null && $event->getCommandName() === 'abortTransaction' && ($event->getReply()->code ?? null) === self::NO_SUCH_TRANSACTION) {
+            $this->aborting->acknowledged = true;
+        }
         $pending = $this->take($event->getRequestId());
         if ($pending === null) {
             return;
@@ -476,8 +527,9 @@ final class MongoEngine
     /**
      * After the handler: captures document changes, then aborts the transaction and ends the
      * session. A capture read that fails for any reason but an already-aborted transaction throws,
-     * after the abort, so the Preview answers 500. Nothing the Preview wrote is ever committed: no
-     * `commitTransaction` is ever sent for the Preview session.
+     * after the abort, so the Preview answers 500, as does an abort the server never acknowledged.
+     * Nothing the Preview wrote is ever committed: no `commitTransaction` is ever sent for the
+     * Preview session.
      */
     public function finish(Recorder $recorder): void
     {
@@ -510,14 +562,25 @@ final class MongoEngine
         } finally {
             $this->end($state);
         }
+        if ($failure === null && $state->lost) {
+            // The server may still hold the transaction's locks; the session is killed once the response is out.
+            $failure = new PreviewTransactionControlException("MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.");
+        }
         if ($failure !== null) {
             throw $failure;
         }
     }
 
     /**
-     * Aborts the Preview transaction and ends its session, once. An unacknowledged abort still
-     * commits nothing, because no `commitTransaction` is ever sent for the Preview session.
+     * Aborts the Preview transaction and ends its session, once.
+     *
+     * The driver ignores abort errors, as the transactions specification requires: an unacknowledged
+     * abort still commits nothing, because no `commitTransaction` is ever sent for the Preview
+     * session. But the server then keeps the transaction, and its locks, until its 60-second lifetime
+     * limit. So when a command was sent on the session (or the driver sent its abort) and no reply
+     * acknowledged the abort, the session is held, not ended, and killed with `killSessions` once the
+     * response is out ({@see endLostTransactions()}). The driver may not even send the abort: a
+     * dropped connection can leave it no server to select.
      */
     private function end(MongoPreview $state): void
     {
@@ -526,20 +589,110 @@ final class MongoEngine
         }
         $state->finished = true;
         unset(self::$open[$state->lsid]);
-        $this->internal(static function () use ($state): void {
+        $session = $state->session;
+        if ($session->isInTransaction()) {
+            $this->aborting = (object) ['sent' => false, 'acknowledged' => false];
             try {
-                if ($state->session->isInTransaction()) {
-                    $state->session->abortTransaction();
-                }
+                $this->internal(static fn () => $session->abortTransaction());
             } catch (\Throwable) {
-                // The driver ignores abort errors, as the transactions specification requires.
+                // The driver ignores abort errors itself; the reply, seen by monitoring, decides.
+            } finally {
+                $aborting = $this->aborting;
+                $this->aborting = null;
             }
-            try {
-                $state->session->endSession();
-            } catch (\Throwable) {
-                // Nothing more to release.
+            if (!$aborting->acknowledged && ($state->opened || $aborting->sent)) {
+                $state->lost = true;
+                $this->lose($session);
+
+                return;
             }
+        }
+        $this->release($session);
+    }
+
+    /** Holds a session whose abort was lost until {@see endLostTransactions()} kills it, after the response. */
+    private function lose(Session $session): void
+    {
+        self::$lost[] = [$this, $session, hrtime(true)];
+        if (self::$shutdownRegistered) {
+            return;
+        }
+        self::$shutdownRegistered = true;
+        register_shutdown_function(static function (): void {
+            if (self::$lost === []) {
+                return;
+            }
+            // Under PHP-FPM, send the response first, so the client never waits for the retries.
+            if (function_exists('fastcgi_finish_request')) {
+                fastcgi_finish_request();
+            }
+            self::endLostTransactions();
         });
+    }
+
+    /**
+     * Ends every Preview transaction whose abort no reply acknowledged, with `killSessions` on its
+     * session. With `$wait`, it retries with backoff (100 ms doubling to 2 s) while the server can't
+     * be reached, until about 10 s after the abort was lost; a final failure is logged with the
+     * session id through `error_log()`, and the server then ends the transaction, and releases its
+     * locks, at its lifetime limit. Without `$wait`, it tries each once and keeps the ones that fail
+     * for later.
+     *
+     * The engine runs it from a shutdown function, after the response is sent, and once more as the
+     * next Preview begins. A long-lived worker (Octane, RoadRunner, FrankenPHP) can call it between
+     * requests.
+     */
+    public static function endLostTransactions(bool $wait = true): void
+    {
+        foreach (self::$lost as $key => [$engine, $session, $lostAt]) {
+            $deadline = $lostAt + self::KILL_RETRY_LIMIT_MS * 1_000_000;
+            $failure = $engine->kill($session, $wait ? $deadline : 0);
+            if ($failure !== null && !$wait && hrtime(true) < $deadline) {
+                continue;
+            }
+            unset(self::$lost[$key]);
+            if ($failure !== null) {
+                $id = self::lsidHex($session->getLogicalSessionId()) ?? 'unknown';
+                error_log("Sendproof warning: couldn't end a MongoDB Preview transaction (session {$id}): {$failure}. The server ends it, and releases its locks, at transactionLifetimeLimitSeconds.");
+            }
+            $engine->release($session);
+        }
+        self::$lost = array_values(self::$lost);
+    }
+
+    /**
+     * Sends `killSessions` for `$session`, retrying network failures with backoff until `$untilNs`
+     * (`hrtime`). Returns null once the server ended the session, or why it couldn't.
+     */
+    private function kill(Session $session, int $untilNs): ?string
+    {
+        $delayMs = self::KILL_FIRST_DELAY_MS;
+        while (true) {
+            try {
+                $this->internal(fn () => $this->manager->executeCommand('admin', new Command(['killSessions' => [$session->getLogicalSessionId()]])));
+
+                return null;
+            } catch (ServerException $error) {
+                return $error->getMessage();
+            } catch (\Throwable $error) {
+                // A network error or no server to select: try again shortly.
+                if (hrtime(true) + $delayMs * 1_000_000 > $untilNs) {
+                    return sprintf("MongoDB couldn't be reached for %d s (%s)", intdiv(self::KILL_RETRY_LIMIT_MS, 1000), $error->getMessage());
+                }
+                usleep($delayMs * 1000);
+                $delayMs = min($delayMs * 2, self::KILL_MAX_DELAY_MS);
+            }
+        }
+    }
+
+    /** Ends the driver session. */
+    private function release(Session $session): void
+    {
+        try {
+            $this->internal(static fn () => $session->endSession());
+        } catch (\Throwable) {
+            // Nothing more to release.
+        }
     }
 
     /**

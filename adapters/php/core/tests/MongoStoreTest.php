@@ -578,4 +578,139 @@ final class MongoStoreTest extends TestCase
         $this->assertSame(201, $result->envelope['status']);
         $this->assertTrue($result->envelope['rolledBack']);
     }
+
+    // ---- Detection reasons ----
+
+    public function testAnUnreachableServerHasItsOwnGuardReasonAndIsAskedAgain(): void
+    {
+        $this->assertNotSame(MongoEngine::STANDALONE_REASON, MongoEngine::UNREACHABLE_REASON);
+        $this->assertSame("Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode", MongoEngine::UNREACHABLE_REASON);
+        $this->assertSame("Preview unavailable: this MongoDB server doesn't support transactions", MongoEngine::STANDALONE_REASON);
+
+        // Nothing listens on port 1: the hello can't be sent.
+        $recorder = new Recorder();
+        $nowhere = MongoStore::hook(new Client('mongodb://127.0.0.1:1/?directConnection=true&serverSelectionTimeoutMS=300&connectTimeoutMS=300'), new Guard(static fn () => $recorder), 'nowhere');
+        $this->assertSame(['system' => 'mongodb', 'name' => 'nowhere', 'mode' => 'guard', 'reason' => MongoEngine::UNREACHABLE_REASON], $nowhere->describe());
+
+        // A hello that fails, then answers: guard mode with the unreachable reason, then preview mode.
+        $calls = 0;
+        $flaky = static function () use (&$calls): object {
+            if ($calls++ === 0) {
+                throw new \MongoDB\Driver\Exception\ConnectionTimeoutException('No suitable servers found');
+            }
+
+            return (object) ['setName' => 'rs0', 'logicalSessionTimeoutMinutes' => 30];
+        };
+        [, , $store] = $this->hooked($flaky);
+        $this->assertSame(MongoEngine::UNREACHABLE_REASON, $store->describe()['reason'] ?? null);
+        $this->assertSame(['system' => 'mongodb', 'name' => 'catalog', 'mode' => 'preview'], $store->describe());
+    }
+
+    // ---- An abort the server never acknowledged ----
+
+    /**
+     * A second transaction that writes the seeded document, retried while a Preview transaction still
+     * holds its lock (a transaction waits only 5 ms for one, then gets a WriteConflict).
+     */
+    private function writtenInASecondTransactionWithin(float $seconds): bool
+    {
+        $deadline = microtime(true) + $seconds;
+        $collection = $this->documents();
+        while (true) {
+            $session = $this->independent->startSession();
+            try {
+                $session->startTransaction(['writeConcern' => new \MongoDB\Driver\WriteConcern(\MongoDB\Driver\WriteConcern::MAJORITY)]);
+                $collection->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'Second']], ['session' => $session]);
+                $session->commitTransaction();
+
+                return true;
+            } catch (\MongoDB\Driver\Exception\Exception) {
+                try {
+                    if ($session->isInTransaction()) {
+                        $session->abortTransaction();
+                    }
+                } catch (\MongoDB\Driver\Exception\Exception) {
+                }
+                if (microtime(true) > $deadline) {
+                    return false;
+                }
+                usleep(200_000);
+            } finally {
+                $session->endSession();
+            }
+        }
+    }
+
+    /**
+     * The network fails as the engine starts its abort and stays down for 3 seconds. The Preview runs
+     * in its own process (tests/Support/lost-abort-preview.php), as a request would, so the binding's
+     * shutdown work runs once it has answered.
+     */
+    public function testAPreviewWhoseAbortIsLostAnswers500AtOnceAndItsLocksAreReleased(): void
+    {
+        $pipes = [];
+        [, $host, $port] = preg_match('#mongodb://(?:[^@/]*@)?([^:/,]+):(\d+)#', Services::mongodbUrl(), $match) === 1 ? $match : [null, '127.0.0.1', '57017'];
+        $proxy = proc_open([PHP_BINARY, __DIR__ . '/Support/mongo-proxy.php', $host, $port], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($proxy);
+        try {
+            [$proxyPort, $controlPort] = explode(' ', trim((string) fgets($pipes[1])));
+            $child = [];
+            $preview = proc_open([PHP_BINARY, __DIR__ . '/Support/lost-abort-preview.php', $proxyPort, $controlPort, $this->database, '3'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $child);
+            $this->assertIsResource($preview);
+            $line = (string) fgets($child[1]);
+            $outcome = json_decode($line, true);
+            $this->assertIsArray($outcome, $line . stream_get_contents($child[2]));
+            $this->assertTrue($outcome['cut'], 'The network was cut as the abort started.');
+            $this->assertSame(500, $outcome['status'], 'A rollback the server never acknowledged is never claimed.');
+            $this->assertFalse($outcome['confirmed']);
+            $this->assertLessThan(2.5, $outcome['secondsAfterCut'], 'The reply waited for the network to come back.');
+
+            // Once the network is back, the killSessions the process runs after answering frees the lock.
+            $this->assertTrue($this->writtenInASecondTransactionWithin(20), 'The Preview transaction still holds its lock.');
+            $this->assertSame('Second', $this->documents()->findOne(['_id' => 'seeded'])['name'], 'Nothing of the Preview was committed.');
+            fclose($child[0]);
+            $errors = stream_get_contents($child[2]);
+            $this->assertSame(0, proc_close($preview), $errors);
+            $this->assertStringNotContainsString("couldn't end a MongoDB Preview transaction", $errors);
+        } finally {
+            fclose($pipes[0]);
+            proc_close($proxy);
+        }
+    }
+
+    public function testANormalPreviewSendsNoKillSessions(): void
+    {
+        $names = new class implements \MongoDB\Driver\Monitoring\CommandSubscriber {
+            /** @var list<string> */
+            public array $names = [];
+
+            public function commandStarted(\MongoDB\Driver\Monitoring\CommandStartedEvent $event): void
+            {
+                $this->names[] = $event->getCommandName();
+            }
+
+            public function commandSucceeded(\MongoDB\Driver\Monitoring\CommandSucceededEvent $event): void
+            {
+            }
+
+            public function commandFailed(\MongoDB\Driver\Monitoring\CommandFailedEvent $event): void
+            {
+            }
+        };
+        [$recorder, $client, $store] = $this->hooked();
+        $this->raw->getManager()->addSubscriber($names);
+        try {
+            $collection = $client->selectCollection($this->database, 'documents');
+            $this->assertTrue($this->preview($recorder, [$store], fn () => $collection->updateOne(['_id' => 'seeded'], ['$set' => ['name' => 'Previewed']]))->isConfirmed());
+            $this->assertTrue($this->preview($recorder, [$store], fn () => $collection->findOne(['_id' => 'seeded']))->isConfirmed());
+            $this->assertTrue($this->preview($recorder, [$store], static fn () => null)->isConfirmed());
+            // What a process runs after answering: nothing is left to end.
+            MongoEngine::endLostTransactions();
+        } finally {
+            $this->raw->getManager()->removeSubscriber($names);
+        }
+        $this->assertSame(2, count(array_keys($names->names, 'abortTransaction', true)), 'Each Preview that sent a command aborts once.');
+        $this->assertNotContains('killSessions', $names->names);
+        $this->assertSame('Seeded', $this->documents()->findOne(['_id' => 'seeded'])['name']);
+    }
 }

@@ -15,8 +15,15 @@ use MongoDB\Driver\Session;
  */
 final class MongoPreview
 {
-    /** Set once a command carried the session to the server. */
+    /** Set once a write carried the session to the server. */
     public bool $used = false;
+    /**
+     * Set once any command carrying the session was sent: from then on the server may hold the
+     * transaction, and its locks, until an abort reaches it.
+     */
+    public bool $opened = false;
+    /** Set when no reply acknowledged the abort: the session is killed once the response is out. */
+    public bool $lost = false;
     /** Set once the transaction was aborted and the session ended. */
     public bool $finished = false;
     /**
