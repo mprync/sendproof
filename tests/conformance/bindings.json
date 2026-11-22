@@ -411,7 +411,7 @@
     {
       "id": "go-net-http",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5366,
@@ -428,7 +428,7 @@
     {
       "id": "go-chi",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5368,
@@ -444,7 +444,7 @@
     {
       "id": "go-gin",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5369,
@@ -460,7 +460,7 @@
     {
       "id": "go-echo",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5370,
@@ -476,7 +476,7 @@
     {
       "id": "go-gorm",
       "database": "sqlite",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "go",
       "port": 5373,
