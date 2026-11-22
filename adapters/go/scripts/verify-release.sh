@@ -74,7 +74,15 @@ tags="$("$repo/adapters/go/scripts/tags.sh" "$version")"
   git -c user.name=verify -c user.email=verify@example.invalid commit -q -m "Go modules $version"
   while read -r tag; do git -c user.name=verify -c user.email=verify@example.invalid tag "$tag"; done <<< "$tags"
 )
-printf '[url "file://%s"]\n\tinsteadOf = https://%s\n' "$repo" "$placeholder" > "$work/gitconfig"
+# A file URL that Go and Git (native programs) accept: on Windows the path needs its drive letter, file:///D:/a/...,
+# which cygpath -m supplies; Git Bash's own /d/a/... spelling is not understood.
+fileurl() {
+  local path="$1"
+  if command -v cygpath >/dev/null 2>&1; then path="$(cygpath -m "$path")"; fi
+  [[ "$path" == /* ]] || path="/$path"
+  printf 'file://%s' "$path"
+}
+printf '[url "%s"]\n\tinsteadOf = https://%s\n' "$(fileurl "$repo")" "$placeholder" > "$work/gitconfig"
 
 # consume <name> <GOPROXY> <GOPRIVATE> — builds the consumer module and checks the result.
 # GOPRIVATE makes Go skip the proxy and fetch the placeholder repository by git.
@@ -101,7 +109,7 @@ consume() {
   )
 }
 
-consume zip "file://$proxy,https://proxy.golang.org,direct" ""
+consume zip "$(fileurl "$proxy"),https://proxy.golang.org,direct" ""
 consume tags "https://proxy.golang.org,direct" "${placeholder%/*}/*"
 
 echo "Release verification passed for $version (zip and tags)."

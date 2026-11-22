@@ -5,5 +5,7 @@ source "https://rubygems.org"
 gem "rails", "~> 8.0"
 gem "puma", ">= 6.4"
 gem "sqlite3", ">= 2.1"
+# Windows has no system zoneinfo, so ActiveSupport needs the tz database as a gem.
+gem "tzinfo-data", platforms: %i[windows]
 gem "sendproof-rails", "= __VERSION__"
 gem "sendproof-activerecord", "= __VERSION__"
