@@ -141,13 +141,16 @@ export function cassandraTarget(statement: unknown): { keyspace?: string; table?
 }
 
 /**
- * Replace the literals in CQL, SQL or PartiQL text with `?`: `$$` strings, quoted strings and
- * numbers. Double-quoted names are kept. Bound values never appear in the text at all.
+ * Replace the literals in CQL, SQL or PartiQL text with `?`: `$$` strings, quoted strings, CQL
+ * uuid and blob (`0x…`) literals and numbers. Double-quoted names are kept. Bound values never
+ * appear in the text at all.
  */
 export function sanitizeStatement(text: unknown): string {
   return String(text ?? '')
     .replace(/\$\$[\s\S]*?\$\$/g, '?')
     .replace(/'(?:[^']|'')*'/g, '?')
+    .replace(/(?<![\w"])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '?')
+    .replace(/(?<![\w"])0x[0-9a-f]*\b/gi, '?')
     .replace(/(?<![\w"])-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/gi, '?');
 }
 

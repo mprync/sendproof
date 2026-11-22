@@ -108,5 +108,8 @@ test('Firestore Commit is a write unless its message is readable and has no writ
 test('literals in statements are replaced and the store names are display names', () => {
   assert.equal(sanitizeStatement(`INSERT INTO "My Table" (id, n) VALUES ('a''b', 42) -- x $$secret$$ ${'$$'}y${'$$'} 3.5e2`), `INSERT INTO "My Table" (id, n) VALUES (?, ?) -- x ? ? ?`);
   assert.equal(sanitizeStatement('SELECT * FROM t1 WHERE a = -7 AND b = @p'), 'SELECT * FROM t1 WHERE a = ? AND b = @p');
+  // CQL blob and uuid/timeuuid literals are values too, and may hold tokens or hashes.
+  assert.equal(sanitizeStatement('INSERT INTO s (id, token, hash) VALUES (123e4567-e89b-12d3-a456-426614174000, 0xCAFEBABE, 0x)'), 'INSERT INTO s (id, token, hash) VALUES (?, ?, ?)');
+  assert.equal(sanitizeStatement('SELECT * FROM t2 WHERE id = ABCDEF01-2345-6789-abcd-ef0123456789'), 'SELECT * FROM t2 WHERE id = ?');
   assert.deepEqual(['cassandra', 'elasticsearch', 'opensearch', 'cosmosdb', 'firestore'].map(storeName), ['Cassandra', 'Elasticsearch', 'OpenSearch', 'Cosmos DB', 'Firestore']);
 });
