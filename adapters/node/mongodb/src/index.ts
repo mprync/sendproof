@@ -23,7 +23,7 @@ import { MongoEngine } from './engine.js';
 import { hookMongoose } from './mongoose.js';
 import type { MongooseLike } from './mongoose.js';
 
-export { plain, refusedReason, standaloneReason } from './engine.js';
+export { plain, refusedReason, standaloneReason, unreachableReason } from './engine.js';
 export type { MongooseLike } from './mongoose.js';
 
 /** Options for {@link mongoStore} and {@link mongooseStore}. */

@@ -3,11 +3,12 @@
 // proves the Preview's writes were rolled back, and the tripwire tests prove that a write the hook
 // couldn't see is never confirmed.
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import test from 'node:test';
 import { ClientSession, MongoClient } from 'mongodb';
 import mongoose from 'mongoose';
 import { detached } from '@sendproof/core';
-import { mongooseStore, mongoStore } from '@sendproof/mongodb';
+import { mongooseStore, mongoStore, standaloneReason, unreachableReason } from '@sendproof/mongodb';
 import { assertBlocked, assertUnconfirmed, dbEntries, fresh, handle, needs, services, startApp } from './support/stores.mts';
 
 const url = (database: string) => {
@@ -614,3 +615,132 @@ function standalone(raw: MongoClient): MongoClient {
   }) as typeof raw.db;
   return raw;
 }
+
+/**
+ * A TCP proxy to the compose MongoDB that can cut every connection and refuse new ones: the network
+ * failing in the middle of a Preview.
+ */
+async function proxy(t: test.TestContext) {
+  const target = new URL(services.mongodb);
+  const sockets = new Set<net.Socket>();
+  let down = false;
+  const server = net.createServer(client => {
+    if (down) { client.destroy(); return; }
+    const upstream = net.connect(Number(target.port || 27017), target.hostname);
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on('error', () => {});
+      socket.on('close', () => { sockets.delete(socket); client.destroy(); upstream.destroy(); });
+    }
+    client.pipe(upstream);
+    upstream.pipe(client);
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
+  return {
+    url: (database: string) => `mongodb://127.0.0.1:${(server.address() as net.AddressInfo).port}/${database}?directConnection=true`,
+    cut() { down = true; for (const socket of sockets) socket.destroy(); },
+    restore() { down = false; },
+  };
+}
+
+/** Whether a transaction on an independent client can write the seeded document within `limitMs`: no Preview holds its lock. */
+async function lockReleasedWithin(reader: MongoClient, name: string, limitMs: number): Promise<boolean> {
+  const deadline = Date.now() + limitMs;
+  while (Date.now() < deadline) {
+    const session = reader.startSession();
+    try {
+      session.startTransaction();
+      await reader.db(name).collection('documents').updateOne({ _id: 'seeded' as never }, { $set: { name: 'Second' } }, { session });
+      await session.commitTransaction();
+      return true;
+    } catch (error) {
+      // WriteConflict: the Preview transaction still holds the document.
+      if ((error as { code?: number }).code !== 112) throw error;
+      await session.abortTransaction().catch(() => {});
+    } finally {
+      await session.endSession();
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
+/** The names of the commands a client sends, including the store's own. */
+function sentCommands(client: MongoClient): string[] {
+  const names: string[] = [];
+  client.on('commandStarted', event => names.push(event.commandName));
+  return names;
+}
+
+test('driver: a Preview whose abort is lost answers 500 at once, and its locks are released once the network is back', await needs('mongodb'), async t => {
+  const { name, reader, documents } = await database(t);
+  const network = await proxy(t);
+  // The store reaches MongoDB only through the proxy, and gives up quickly when it can't: when the
+  // connection is cut the driver's own abort fails, and the driver hides that failure.
+  const raw = new MongoClient(network.url(name), { serverSelectionTimeoutMS: 1000 });
+  t.after(() => raw.close());
+  const sent = sentCommands(raw);
+  const warnings: string[] = [];
+  const onWarning = (warning: Error) => { warnings.push(warning.message); };
+  process.on('warning', onWarning);
+  t.after(() => { process.off('warning', onWarning); });
+  const store = mongoStore(raw, { name: 'catalog' });
+  let restored: Promise<void> | undefined;
+  const app = await startApp(t, [store], bench => {
+    bench.operation('PATCH', '/documents/{id}', handle(async (req, res) => {
+      await store.client.db().collection('documents').updateOne({ _id: req.params.id as never }, { $set: { name: 'Preview' } });
+      // The network fails after the handler, before the Preview finishes, and stays down for 8 seconds.
+      network.cut();
+      restored = new Promise(resolve => setTimeout(() => { network.restore(); resolve(); }, 8000));
+      res.json({ ok: true });
+    }));
+  }, { sqlProvider: false });
+  const started = Date.now();
+  await assertUnconfirmed(await app.preview('PATCH', '/documents/seeded'));
+  assert(Date.now() - started < 6000, `The reply waited for the network: ${Date.now() - started} ms`);
+  await restored;
+  // Without killSessions the transaction keeps its lock until the server's 60-second lifetime limit.
+  assert(await lockReleasedWithin(reader, name, 15_000), 'The Preview still holds its transaction');
+  assert(sent.includes('killSessions'), 'The store ended the Preview session with killSessions');
+  assert.deepEqual(warnings, [], 'A kill that succeeds logs nothing');
+  assert.equal((await documents({ _id: 'seeded' }))[0]?.name, 'Second', 'Nothing of the Preview was committed');
+});
+
+test('driver: a normal Preview sends no killSessions', await needs('mongodb'), async t => {
+  const raw = new MongoClient(services.mongodb);
+  const sent = sentCommands(raw);
+  const app = await hookedApp(t, collection => bench => {
+    bench.operation('PATCH', '/documents/{id}', handle(async (req, res) => {
+      await collection().updateOne({ _id: req.params.id as never }, { $set: { name: 'Preview' } });
+      res.json({ ok: true });
+    }));
+    bench.operation('GET', '/nothing', handle(async (_req, res) => { res.json({ ok: true }); }));
+  }, {}, raw, { sqlProvider: false });
+  assert.equal((await app.confirmed('PATCH', '/documents/seeded')).status, 200);
+  assert.equal((await app.confirmed('GET', '/nothing')).status, 200);
+  assert(sent.includes('abortTransaction'), 'The written Preview was aborted');
+  assert(!sent.includes('killSessions'), `An acknowledged abort needs no killSessions: ${sent.join(', ')}`);
+  assert.equal((await app.documents({ _id: 'seeded' }))[0]?.name, 'Seeded');
+});
+
+test('driver: a server detection couldn\'t reach runs in guard mode and says so, distinct from a standalone server', await needs('mongodb'), async t => {
+  // Nothing listens on the stopped proxy's port: detection's hello can't be sent.
+  const closed = net.createServer();
+  await new Promise<void>(resolve => closed.listen(0, '127.0.0.1', resolve));
+  const port = (closed.address() as net.AddressInfo).port;
+  await new Promise(resolve => closed.close(resolve));
+  const raw = new MongoClient(`mongodb://127.0.0.1:${port}/unreachable?directConnection=true`, { serverSelectionTimeoutMS: 300 });
+  t.after(() => raw.close());
+  const store = mongoStore(raw, { name: 'catalog' });
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/documents/{id}', handle(async (req, res) => {
+      await store.client.db().collection('documents').insertOne({ _id: req.params.id as never });
+      res.status(201).json({ ok: true });
+    }));
+  });
+  assert.equal(unreachableReason, "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode");
+  assert.notEqual(unreachableReason, standaloneReason);
+  assert.deepEqual((await app.capabilities()).dataStores, [{ system: 'mongodb', name: 'catalog', mode: 'guard', reason: unreachableReason }]);
+  await assertBlocked(await app.preview('POST', '/documents/blocked'), 'mongodb', 'insert');
+});

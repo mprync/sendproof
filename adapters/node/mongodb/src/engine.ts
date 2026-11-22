@@ -16,7 +16,9 @@
  *   `Db` log entry. Candidate document ids for change capture come from the same events.
  * - **Finish**: after the handler, changes are read (inside the transaction for `after`, and at the
  *   transaction's own snapshot time for `before`), then the transaction is aborted and the session
- *   ended. A Preview that outlives `previewTimeoutMs` is aborted early and answers 500.
+ *   ended. A Preview that outlives `previewTimeoutMs` is aborted early and answers 500. An abort the
+ *   server never answered is followed by `killSessions` in the background, so a dropped connection
+ *   doesn't leave the transaction holding its locks until the server's lifetime limit.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, refuseInPreview, sanitizeDocument, unattributedWrite } from '@sendproof/core';
@@ -25,6 +27,12 @@ import type { ClientSession, MongoClient } from 'mongodb';
 
 /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
 export const standaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions";
+
+/**
+ * The reason when detection's `hello` couldn't be sent or answered: whether the server supports
+ * transactions is unknown, so the store runs in `guard` mode for now and detects again later.
+ */
+export const unreachableReason = "Preview unavailable: couldn't reach MongoDB to check whether it supports transactions, so this Preview runs in guard mode";
 
 /** The reason a client whose command monitoring doesn't reach the engine never runs a Preview. */
 export const unmonitoredReason = "Preview unavailable: MongoDB command monitoring isn't reaching the binding, so a write that bypasses the hook couldn't be detected";
@@ -53,6 +61,23 @@ const endsTransaction = (name: string) => name === 'committransaction' || name =
 /** Server error codes meaning the collection or snapshot didn't exist at the start time. */
 const absentAtStart = new Set([26 /* NamespaceNotFound */, 246 /* SnapshotUnavailable */]);
 
+/** `NoSuchTransaction`: the server has no such transaction, so nothing holds its locks. */
+const noSuchTransaction = 251;
+
+/**
+ * How long the engine keeps trying to end a Preview transaction whose abort the server never
+ * acknowledged, and the backoff between tries: well inside the server's 60-second lifetime limit.
+ */
+const killRetryLimitMs = 10_000;
+const killFirstDelayMs = 100;
+const killMaxDelayMs = 2_000;
+
+/**
+ * Whether the server itself answered with this error, rather than the driver failing to reach it.
+ * Matched by name, so errors from Mongoose's own driver copy count too.
+ */
+const serverAnswered = (error: unknown) => (error as { name?: unknown } | null)?.name === 'MongoServerError';
+
 type Doc = Record<string, unknown>;
 type Via = 'upsert' | 'replace';
 
@@ -68,8 +93,15 @@ export interface PreviewState {
   readonly lsid: string;
   /** The driver's own transaction methods, which only the engine calls for this session. */
   readonly controls: Record<SessionControl, ControlMethod>;
-  /** Set once a command carried the session to the server. */
+  /** Set once a write carried the session to the server. */
   used: boolean;
+  /**
+   * Set once any command carried the session towards the server: from then on the server may hold
+   * the transaction, and its locks, until an abort reaches it.
+   */
+  sent: boolean;
+  /** Set when the server answered the engine's `abortTransaction`: it acknowledged it, or had no such transaction. */
+  abortAcknowledged: boolean;
   finished: boolean;
   candidates: Map<string, Candidate>;
   filters: Filter[];
@@ -213,6 +245,10 @@ export class MongoEngine {
   readonly #modes = new WeakMap<CaptureRecorder, 'preview' | 'guard'>();
   readonly #states = new WeakMap<CaptureRecorder, PreviewState>();
   readonly #pending = new Map<number | string, Pending>();
+  /** Each running Preview, by session id, until its transaction is aborted. */
+  readonly #open = new Map<string, PreviewState>();
+  /** The engine's own `abortTransaction` commands in flight, by request id, and the Preview each ends. */
+  readonly #aborts = new Map<number | string, PreviewState>();
   /** Set while the engine itself talks to the server, so monitoring ignores those commands. */
   readonly #internal = new AsyncLocalStorage<{ probe?: { seen: boolean } }>();
   /** The engine's `commandStarted` listener; a Preview checks it is still attached to the client. */
@@ -263,11 +299,12 @@ export class MongoEngine {
       this.mode = transactions && probe.seen ? 'preview' : 'guard';
       if (!probe.seen) return { mode: 'guard' as const, reason: unmonitoredReason };
       return transactions ? { mode: 'preview' as const } : { mode: 'guard' as const, reason: standaloneReason };
-    })().catch(() => {
-      // Unreachable or unrecognised: guard mode for now, and ask again next time.
+    })().catch((error: unknown) => {
+      // Guard mode for now, and ask again next time. A server that answered with an error is one
+      // the binding doesn't recognise; one that never answered may support transactions or not.
       this.#detected = undefined;
       this.mode ??= 'guard';
-      return { mode: 'guard' as const, reason: standaloneReason };
+      return { mode: 'guard' as const, reason: serverAnswered(error) ? standaloneReason : unreachableReason };
     });
     return this.#detected;
   }
@@ -308,8 +345,9 @@ export class MongoEngine {
     }
     // From here on, handler code holding the session joins the Preview transaction and can't end it.
     previewSessions.set(session, capture);
-    const state: PreviewState = { session, lsid, controls, used: false, finished: false, candidates: new Map(), filters: [] };
+    const state: PreviewState = { session, lsid, controls, used: false, sent: false, abortAcknowledged: false, finished: false, candidates: new Map(), filters: [] };
     this.#states.set(capture, state);
+    this.#open.set(lsid, state);
     // A handler still running at the limit loses its transaction: later commands fail, nothing
     // commits, and the Preview answers 500 when it ends.
     state.timer = setTimeout(() => {
@@ -347,6 +385,11 @@ export class MongoEngine {
   // ---- Monitoring ----
 
   #started(event: MonitorEvent) {
+    // Every command on a running Preview's session, the engine's own included, is tracked: the
+    // driver hides the outcome of the abort, so its reply is checked here.
+    const open = this.#open.get(sessionHex(event.command?.lsid) ?? '');
+    if (open && event.commandName === 'abortTransaction') this.#aborts.set(event.requestId, open);
+    else if (open) open.sent = true;
     const internal = this.#internal.getStore();
     if (internal) {
       // Detection's hello, seen by this very listener on this very client: the tripwire works.
@@ -416,7 +459,16 @@ export class MongoEngine {
     if (!known || (!known.via && candidate.via)) state.candidates.set(key, candidate);
   }
 
+  /** Note whether the server answered one of the engine's aborts: success, or no such transaction. */
+  #abortAnswered(event: MonitorEvent, code?: number) {
+    const state = this.#aborts.get(event.requestId);
+    if (!state) return;
+    this.#aborts.delete(event.requestId);
+    if (code === undefined || code === noSuchTransaction) state.abortAcknowledged = true;
+  }
+
   #succeeded(event: MonitorEvent) {
+    this.#abortAnswered(event);
     const pending = this.#take(event);
     if (!pending) return;
     const reply = (event.reply ?? {}) as Doc;
@@ -439,6 +491,9 @@ export class MongoEngine {
   }
 
   #failed(event: MonitorEvent) {
+    // A network error proves nothing reached the server; only a server reply counts.
+    if (serverAnswered(event.failure)) this.#abortAnswered(event, (event.failure as { code?: number }).code ?? -1);
+    else this.#aborts.delete(event.requestId);
     const pending = this.#take(event);
     if (!pending) return;
     const failure = event.failure as { code?: number; codeName?: string; name?: string } | undefined;
@@ -470,8 +525,8 @@ export class MongoEngine {
   /**
    * After the handler: capture document changes, then abort the transaction and end the session.
    * A capture read that fails for any reason but an already-aborted transaction rejects, after the
-   * abort, so the Preview answers 500. Nothing the Preview wrote is ever committed: no
-   * `commitTransaction` is ever sent for the Preview session.
+   * abort, so the Preview answers 500, as does an abort the server never acknowledged. Nothing the
+   * Preview wrote is ever committed: no `commitTransaction` is ever sent for the Preview session.
    */
   async finish(capture: CaptureRecorder): Promise<void> {
     const state = this.#states.get(capture);
@@ -482,37 +537,95 @@ export class MongoEngine {
     } catch (error) {
       // A failed command inside a transaction makes the server abort it: nothing to capture.
       if ((error as { codeName?: string }).codeName !== 'NoSuchTransaction') failure = error;
-    } finally {
-      await this.#end(state);
+    }
+    if (!await this.#end(state)) {
+      // The server may still hold the transaction's locks; the session is killed in the background.
+      failure ??= new Error("MongoDB didn't acknowledge the abort of the Preview transaction, so the rollback can't be confirmed.");
     }
     if (failure) throw failure;
   }
 
   /**
-   * Abort the Preview transaction and end its session, once. The driver ignores abort errors, as
-   * the transactions specification requires; an unacknowledged abort still commits nothing,
-   * because no `commitTransaction` is ever sent for the Preview session.
+   * Abort the Preview transaction and end its session, once.
+   *
+   * The driver ignores abort errors, as the transactions specification requires: an unacknowledged
+   * abort still commits nothing, because no `commitTransaction` is ever sent for the Preview
+   * session. But the server then keeps the transaction, and its locks, until its 60-second
+   * lifetime limit. So when a command was sent on the session and the server never answered the
+   * abort (the connection dropped), this resolves `false` at once, and the Preview answers 500,
+   * while the session is killed in the background.
    */
-  async #end(state: PreviewState): Promise<void> {
-    if (state.finished) return;
+  async #end(state: PreviewState): Promise<boolean> {
+    if (state.finished) return true;
     state.finished = true;
     clearTimeout(state.timer);
     // The session stays sealed: a handler still holding it after this point is refused, not
     // handed the driver's methods.
-    await this.internal(() => engineControl.run(true, async () => {
+    return this.internal(() => engineControl.run(true, async () => {
       try {
         if (state.session.inTransaction()) await state.controls.abortTransaction.call(state.session);
       } catch { /* Ignored, as the transactions specification requires; nothing was committed. */ }
+      this.#open.delete(state.lsid);
+      const ended = !state.sent || state.abortAcknowledged;
       // Guarded handles refuse calls from now on (see refuseEnded), but a call that passed that check just before
       // could still be on its way to the server. A fresh transaction, never committed, carries it instead of letting it
       // run with no transaction and commit on its own; ending the session discards it.
       try {
         state.controls.startTransaction.call(state.session);
       } catch { /* Ending the session below still refuses later commands. */ }
-      try {
-        await state.controls.endSession.call(state.session);
-      } catch { /* The server ends the session itself once its timeout passes. */ }
+      if (!ended) {
+        void this.#kill(state);
+        return false;
+      }
+      await this.#endSession(state);
+      return true;
     }));
+  }
+
+  async #endSession(state: PreviewState): Promise<void> {
+    try {
+      await state.controls.endSession.call(state.session);
+    } catch { /* The server ends the session itself once its timeout passes. */ }
+  }
+
+  /**
+   * End a Preview transaction whose abort the server never acknowledged with `killSessions`,
+   * retrying with backoff while the server can't be reached. A final failure is logged as a
+   * process warning with the session id: the server then ends the transaction at its lifetime
+   * limit. The session is ended only afterwards, so the driver can't hand its id to another
+   * operation meanwhile.
+   */
+  async #kill(state: PreviewState): Promise<void> {
+    const deadline = performance.now() + killRetryLimitMs;
+    let delay = killFirstDelayMs;
+    let failure = `MongoDB couldn't be reached for ${killRetryLimitMs / 1000} s`;
+    try {
+      for (;;) {
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) break;
+        const attempt = this.client.db('admin').command({ killSessions: [state.session.id] });
+        attempt.catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const limit = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), remaining); });
+        try {
+          await Promise.race([attempt, limit]);
+          return;
+        } catch (error) {
+          if (serverAnswered(error)) { failure = (error as Error).message; break; }
+          // A network error or no server to select: try again shortly.
+        } finally {
+          clearTimeout(timer);
+        }
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, Math.min(delay, deadline - performance.now()))));
+        delay = Math.min(delay * 2, killMaxDelayMs);
+      }
+      process.emitWarning(
+        `Couldn't end the MongoDB Preview transaction of session ${state.lsid} (${failure}); the server ends it, and releases its locks, at transactionLifetimeLimitSeconds.`,
+        { code: 'SENDPROOF_MONGODB_PREVIEW_NOT_ENDED' },
+      );
+    } finally {
+      await this.#endSession(state);
+    }
   }
 
   /**
