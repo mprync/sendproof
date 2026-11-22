@@ -50,30 +50,35 @@ export class PreviewTransactionControlError extends Error {
 }
 
 /**
- * Call before sending a store command. Does nothing outside a Preview or for anything but a write.
- * In a Preview it marks the capture blocked (the first block wins), logs a blocked `Db` entry and
- * throws. `detail` replaces the default "writes to <Store>" reason, for example for a MongoDB
- * command that can't run inside a transaction.
+ * Call before sending a store command. Does nothing for anything but a write, and nothing outside
+ * a Preview for a write attributed to a request or to `detached()` work. In a Preview it marks the
+ * capture blocked (the first block wins), logs a blocked `Db` entry and throws. A write with no
+ * request attribution while any Preview is open may be a Preview's own write that lost its async
+ * context (a client's background timer, a batching writer, a task spawned without the context):
+ * it is refused the same way, before it is sent, and every open Preview is blocked
+ * (spec/data-stores.md, "Writes the binding can't attribute to a request"). `detail` replaces the
+ * default "writes to <Store>" reason, for example for a MongoDB command that can't run inside a
+ * transaction.
  */
 export function guard(store: string, operation: string, kind: CommandKind, detail?: string): void {
   if (kind !== 'write') return;
   const capture = currentPreview();
-  if (!capture) {
-    unattributedWrite(store, operation);
-    return;
-  }
+  const previews = capture ? [capture] : attributed() ? [] : openPreviews();
+  if (!previews.length) return;
   const reason = detail ?? writeReason(store);
-  capture.block({ store, operation, detail: reason });
-  capture.db({ system: store, operation, blocked: true });
+  for (const preview of previews) {
+    preview.block({ store, operation, detail: reason });
+    preview.db({ system: store, operation, blocked: true });
+  }
   throw new PreviewWriteBlockedError(store, operation, reason);
 }
 
 /**
- * Report a store write that is about to be sent, or was seen by monitoring, outside any Preview.
- * When it has no request attribution (no request, capture or `detached()` context) and a
- * Preview is open, the write may be the Preview's own, having lost its async context, so every
- * open Preview fails with 500. The write itself is not blocked: it most likely belongs to
- * background work. Does nothing when the write is attributed or no Preview is open.
+ * Report a store write that monitoring saw after it was sent, outside any Preview. When it has no
+ * request attribution (no request, capture or `detached()` context) and a Preview is open, the
+ * write may be the Preview's own, having lost its async context, so every open Preview fails with
+ * 500. It is too late to refuse it here; hooks refuse such writes before sending through
+ * {@link guard}. Does nothing when the write is attributed or no Preview is open.
  */
 export function unattributedWrite(store: string, operation: string): void {
   if (attributed()) return;

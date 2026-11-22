@@ -221,7 +221,32 @@ function holder() {
   };
 }
 
-test('a write outside any request fails every open Preview unless it is marked detached', async t => {
+test('a task a Preview\'s handler started keeps the Preview\'s context: its writes after the response are refused for good', async t => {
+  const store = fakeStore();
+  const late: unknown[] = [];
+  let wrote: () => void = () => {};
+  let count = 0;
+  const app = await startApp(t, [store], bench => {
+    bench.operation('POST', '/late', handle(async (_req, res) => {
+      // Fire and forget: these writes run after the response, once the Preview has ended.
+      const write = (key: string) => store.incr(key).then(() => late.push('sent'), error => late.push(error)).finally(() => { if (++count === 2) wrote(); });
+      setTimeout(() => void write('after-response'), 20);
+      setTimeout(() => void detached(() => write('detached-after-response')), 40);
+      res.json({ ok: true });
+    }));
+  }, { sqlProvider: false });
+  const done = new Promise<void>(resolve => { wrote = resolve; });
+  // No write ran while the Preview was open, so it confirms; the late writes still never reach the store.
+  assert.equal((await app.confirmed('POST', '/late')).status, 200);
+  await done;
+  assert.equal(late.length, 2);
+  assert(late.every(item => item instanceof PreviewWriteBlockedError), 'A write with an ended Preview\'s context is refused, detached() included');
+  assert.deepEqual(store.writes, []);
+  // A later Send in the same process is unaffected.
+  assert.equal((await fetch(app.url + '/late', { method: 'POST' })).status, 200);
+});
+
+test('a write outside any request is refused while any Preview is open unless it is marked detached', async t => {
   const store = fakeStore();
   const hold = holder();
   const app = await startApp(t, [store], bench => {
@@ -245,15 +270,19 @@ test('a write outside any request fails every open Preview unless it is marked d
   hold.release();
   await pending;
 
-  // An unattributed write may belong to any open Preview: every one of them fails with 500.
+  // An unattributed write may belong to any open Preview (spec/data-stores.md, "Writes the binding
+  // can't attribute to a request"): it is refused before it is sent, and every open Preview is blocked.
   const first = app.preview('POST', '/hold');
   const second = app.preview('POST', '/hold');
   await hold.held(2);
-  await store.incr('stray');
+  await assert.rejects(store.incr('stray'), PreviewWriteBlockedError);
   hold.release();
-  await assertUnconfirmed(await first);
-  await assertUnconfirmed(await second);
-  assert.deepEqual(store.writes, ['idle', 'sent', 'background', 'stray'], 'Unattributed writes are reported, not blocked');
+  await assertBlocked(await first, 'redis', 'INCR');
+  await assertBlocked(await second, 'redis', 'INCR');
+  assert.deepEqual(store.writes, ['idle', 'sent', 'background'], 'An unattributed write during a Preview is never sent');
+  // Once no Preview is open, unattributed writes are none of the binding's business again.
+  await store.incr('later');
+  assert.deepEqual(store.writes, ['idle', 'sent', 'background', 'later']);
 
   // Detached work inside a Preview is still that Preview's: the guard keeps blocking it.
   await assertBlocked(await app.preview('POST', '/counters/inside'), 'redis', 'INCR');
