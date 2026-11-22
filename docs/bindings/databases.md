@@ -48,6 +48,7 @@ On MySQL and MariaDB, each provider (including the EF Core, Spring JPA and Ktor 
 | Prisma | 11 | 11 | 12 | — | 15 |
 | Flask-SQLAlchemy | 14 | 14 | 14 | — | — |
 | Go database/sql and GORM | 27 | 27 | 27 | 26, 1 skipped | 2 |
+| Go batch-two stores (guard only) | — | — | — | — | Cassandra 8 against the `heavy-stores` Compose service (skipped when down); Elasticsearch and OpenSearch 16 (one against the `heavy-stores` service, the rest over fake clusters, including two-node pool, retry and bulk-indexer checks); Cosmos DB 12 and Firestore 13 over fake servers and recordings; classifiers 3. The five main Go conformance entries run the Cassandra and OpenSearch checks |
 | Rails ActiveRecord | 42, 4 skipped | 42, 4 skipped | 45, 1 skipped | — | — |
 | SQLx | 8 | 10 | 11 | — | 22 unit |
 
