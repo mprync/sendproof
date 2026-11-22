@@ -146,6 +146,12 @@ The guard runs before the client sends the command. When it classifies a command
 
 A guarded write outside a Preview, in Send or observed Send, is never blocked.
 
+### Writes the binding can't attribute to a request
+
+The guard knows which request a command belongs to through the runtime's request context (async context, thread or fiber locals, `context.Context`, request extensions). Some writes arrive with no request: a client's own background threads or timers (Firestore `BulkWriter`, bulk helpers, batching writers), tasks the handler spawned without the context, a raw call made with an empty context.
+
+While any Preview is open, a write to a guarded store that carries no request is treated as that Preview's write: it is **refused before it is sent**, exactly as in step 1, and every open Preview is marked blocked (or, for a `preview`-mode store, answers 500 without confirmation). Failing the Preview after letting the write through is not enough, because a guarded store can't roll it back. Work that legitimately writes outside any request, such as background jobs, runs inside the binding's `detached` scope and is never refused. Ordinary requests that are not Previews are attributed to their own request, so their writes are never mistaken for unattributed ones.
+
 ### Mixed SQL and guarded stores
 
 An operation that writes SQL rows and then a guarded store follows the same steps: the SQL transaction rolls back and the Preview fails. An independent read afterwards finds neither the rows nor the store write. When the guarded write comes first, the SQL writes after it still run inside the doomed transaction and roll back with it.
