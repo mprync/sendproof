@@ -84,25 +84,6 @@ func ReportWrite(ctx context.Context, store, operation string) {
 	failOpenPreviews(unattributedReason(store, operation))
 }
 
-// RefuseUnattributedWrite is the rule for a write that carries no request
-// (spec/data-stores.md, "Writes the binding can't attribute to a request") for a
-// store that runs Previews in a transaction (store mode "preview"), such as
-// MongoDB on a replica set. The hook calls it before it sends a write it sees,
-// whatever the context. While any Preview is open, a write whose context belongs
-// to no request Sendproof saw is refused before it is sent: it returns a
-// *PreviewWriteBlockedError, and every open Preview answers 500 without
-// confirmation. It returns nil when the write may go on: no Preview is open, or
-// the context carries a request (the hook's own Preview handling applies) or the
-// Detached mark. A guard-mode store calls Guard instead, which answers 409.
-func RefuseUnattributedWrite(ctx context.Context, store, operation string) error {
-	if openPreviews.count.Load() == 0 || attributed(ctx) {
-		return nil
-	}
-	reason := unattributedReason(store, operation)
-	failOpenPreviews(reason)
-	return &PreviewWriteBlockedError{Store: store, Operation: operation, Reason: reason}
-}
-
 func unattributedReason(store, operation string) string {
 	return "A " + StoreName(store) + " " + operation + " was sent without a request context while this Preview ran. " +
 		"Sendproof can't tell it apart from the Preview's own writes, so the Preview can't be confirmed. " +

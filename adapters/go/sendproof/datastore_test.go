@@ -493,36 +493,3 @@ func TestAWriteFromAnEndedPreviewsContextIsRefusedBeforeItIsSent(t *testing.T) {
 		t.Errorf("background work with no Preview open must run: %v sent=%d", err, sent)
 	}
 }
-
-// A store that runs Previews in a transaction (preview mode) refuses an
-// unattributed write before it is sent too, and the open Preview answers 500
-// without confirmation rather than 409.
-func TestRefuseUnattributedWriteFailsOpenPreviewsWith500(t *testing.T) {
-	bench, err := sendproof.New(sendproof.WithEnvironment("Development"), sendproof.WithDataStore(&fakeStore{}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var refused error
-	mux := http.NewServeMux()
-	bench.HandlePreview(mux, "POST /background", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := sendproof.RefuseUnattributedWrite(r.Context(), "mongodb", "insert"); err != nil {
-			t.Errorf("an attributed write was refused: %v", err)
-		}
-		refused = sendproof.RefuseUnattributedWrite(context.Background(), "mongodb", "insert")
-		w.WriteHeader(http.StatusCreated)
-	}))
-	request := httptest.NewRequest("POST", "/sendproof/_preview/background", strings.NewReader(`{}`))
-	request.Header.Set("Prefer", "tx=rollback")
-	response := httptest.NewRecorder()
-	bench.Middleware(mux).ServeHTTP(response, request)
-	var blocked *sendproof.PreviewWriteBlockedError
-	if response.Code != 500 || response.Header().Get("Preference-Applied") != "" || !errors.As(refused, &blocked) {
-		t.Fatalf("an unattributed write to a preview-mode store must be refused and answer 500: %d %v %s", response.Code, refused, response.Body)
-	}
-	if err := sendproof.RefuseUnattributedWrite(context.Background(), "mongodb", "insert"); err != nil {
-		t.Errorf("with no Preview open nothing is refused: %v", err)
-	}
-	if err := sendproof.RefuseUnattributedWrite(sendproof.Detached(context.Background()), "mongodb", "insert"); err != nil {
-		t.Errorf("detached work is never refused: %v", err)
-	}
-}

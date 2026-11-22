@@ -50,8 +50,10 @@ func (s *Store) guardCall(ctx context.Context, database string, document stores.
 		// that Preview's and refused before it is sent (spec/data-stores.md,
 		// "Writes the binding can't attribute to a request"). Attributed and
 		// Detached writes, and every write with no Preview open, go on.
+		// Nothing reaches the server, so every open Preview is blocked with 409 in
+		// either mode; only the monitor's after-the-fact sighting answers 500.
 		if stores.ClassifyMongo(document, s.reads).Kind == stores.Write {
-			if err := s.refuseUnattributed(ctx, name); err != nil {
+			if err := sendproof.Guard(ctx, system, name, true, ""); err != nil {
 				return nil, noRelease, err
 			}
 		}
@@ -92,19 +94,6 @@ func (s *Store) guardCall(ctx context.Context, database string, document stores.
 		return nil, noRelease, err
 	}
 	return ctx, noRelease, nil
-}
-
-// refuseUnattributed refuses an unattributed write while a Preview is open: in
-// preview mode every open Preview answers 500 without confirmation, in guard mode
-// (or before the topology is known) it is blocked and answers 409.
-func (s *Store) refuseUnattributed(ctx context.Context, name string) error {
-	s.mu.Lock()
-	detected := s.detected
-	s.mu.Unlock()
-	if detected != nil && detected.mode == sendproof.ModePreview {
-		return sendproof.RefuseUnattributedWrite(ctx, system, name)
-	}
-	return sendproof.Guard(ctx, system, name, true, "")
 }
 
 // endedReason refuses a call from a Preview whose transaction is over.

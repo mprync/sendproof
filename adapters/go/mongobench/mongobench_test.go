@@ -452,15 +452,15 @@ func TestAWriteWithoutThePreviewSessionFailsThePreviewWith500(t *testing.T) {
 
 // TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent: the guarded handle
 // sees a write that carries no request while a Preview is open and refuses it
-// before sending; in preview mode the Preview answers 500, in guard mode 409.
+// before sending. Nothing reached the server, so the Preview is blocked with 409
+// in either mode; 500 is only for a write the monitor sees after it was sent.
 func TestAWriteWithoutTheRequestContextIsRefusedBeforeItIsSent(t *testing.T) {
 	for _, guard := range []bool{false, true} {
 		a := newApp(t, appOptions{monitor: true, guard: guard})
 		response := a.preview("POST", "/escape/background", `{}`)
-		if guard {
-			assertUnconfirmed(t, response, 409)
-		} else {
-			assertUnconfirmed(t, response, 500)
+		assertUnconfirmed(t, response, 409)
+		if body := decodeBody(t, response); body["store"] != "mongodb" || body["operation"] != "insert" {
+			t.Errorf("guard=%v: the 409 must name the store and operation: %v", guard, body)
 		}
 		if a.count(t, "background") != 0 {
 			_, _ = a.plain.DeleteOne(context.Background(), bson.D{{Key: "_id", Value: "background"}})
