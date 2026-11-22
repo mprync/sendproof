@@ -11,6 +11,8 @@ gem "sendproof-rails", path: "sendproof-rails"
 gem "rails", "~> 8.0.0"
 gem "sqlite3", ">= 2.1"
 gem "puma", ">= 6.4"
+# Windows has no system zoneinfo, so ActiveSupport needs the tz database as a gem.
+gem "tzinfo-data", platforms: %i[windows]
 
 # Data-store clients the Sendproof store hooks guard (see adapters/ruby/data-stores.md). Hosts add the ones they use.
 gem "mongoid", "~> 9.0"

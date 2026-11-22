@@ -28,6 +28,8 @@ class ReactiveMongoStoreTest {
     private final String databaseName = "sp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     private MongoStore store;
     private MongoClient raw;
+    /** False when the service didn't answer and the test was skipped, so there is nothing to clean up. */
+    private boolean ready;
     private MongoClient client;
 
     @BeforeEach
@@ -39,6 +41,7 @@ class ReactiveMongoStoreTest {
                         store.reactiveContextProvider()).build());
         try {
             ReactiveBackend.first(raw.getDatabase("admin").runCommand(new Document("hello", 1)));
+            ready = true;
         } catch (RuntimeException unreachable) {
             raw.close();
             assumeTrue(false, "MongoDB isn't running: docker compose -f tests/conformance/compose.yml up -d --wait mongodb");
@@ -50,7 +53,9 @@ class ReactiveMongoStoreTest {
     @AfterEach
     void drop() {
         if (raw != null) {
-            ReactiveBackend.first(raw.getDatabase(databaseName).drop());
+            if (ready) {
+                ReactiveBackend.first(raw.getDatabase(databaseName).drop());
+            }
             raw.close();
         }
     }

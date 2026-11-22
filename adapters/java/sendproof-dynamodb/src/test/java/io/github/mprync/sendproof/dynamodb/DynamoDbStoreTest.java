@@ -43,6 +43,8 @@ class DynamoDbStoreTest {
     private DynamoDbStore store;
     private DynamoDbClient raw;
     private DynamoDbClient client;
+    /** False when the service didn't answer and the test was skipped, so there is nothing to clean up. */
+    private boolean ready;
 
     private static software.amazon.awssdk.services.dynamodb.DynamoDbClientBuilder builder() {
         return DynamoDbClient.builder().endpointOverride(URI.create(ENDPOINT)).region(Region.US_EAST_1)
@@ -61,6 +63,7 @@ class DynamoDbStoreTest {
         raw.createTable(request -> request.tableName(table).billingMode(BillingMode.PAY_PER_REQUEST)
                 .attributeDefinitions(AttributeDefinition.builder().attributeName("id").attributeType(ScalarAttributeType.S).build())
                 .keySchema(KeySchemaElement.builder().attributeName("id").keyType(KeyType.HASH).build()));
+        ready = true;
         raw.putItem(PutItemRequest.builder().tableName(table).item(Map.of("id", s("seeded"), "status", s("open"),
                 "hits", AttributeValue.fromN("3"))).build());
         store = DynamoDbStore.interceptor().name("orders").build();
@@ -70,7 +73,9 @@ class DynamoDbStoreTest {
     @AfterEach
     void drop() {
         if (raw != null) {
-            raw.deleteTable(request -> request.tableName(table));
+            if (ready) {
+                raw.deleteTable(request -> request.tableName(table));
+            }
             raw.close();
         }
     }

@@ -23,7 +23,7 @@
   },
   "autoload": { "psr-4": { "Fixture\\": "src/" } },
   "repositories": [
-    { "type": "path", "url": "../../core", "options": { "symlink": true } },
+    { "type": "path", "url": "../../core", "options": { "symlink": true, "versions": { "sendproof/core": "dev-main" } } },
     { "type": "path", "url": "../../symfony", "options": { "symlink": true } }
   ],
   "config": { "sort-packages": true, "allow-plugins": { "symfony/runtime": true, "symfony/flex": false, "php-http/discovery": true } },

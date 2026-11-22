@@ -79,7 +79,8 @@ export function parseRepository(value) {
 /** Resolves a command on PATH (honouring PATHEXT on Windows). Returns the full path or null. */
 export function which(command) {
   if (command.includes('/') || command.includes('\\')) return isFile(command) ? command : null;
-  const extensions = isWindows ? ['', ...(process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')] : [''];
+  // The bare name goes last on Windows: npm, for one, has an extensionless shell script beside npm.cmd that cannot be spawned.
+  const extensions = isWindows ? [...(process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';'), ''] : [''];
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
     if (!directory) continue;
     for (const extension of extensions) {

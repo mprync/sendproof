@@ -619,6 +619,8 @@ public sealed class StoreFlowTests
             Client.Dispose();
             await App.StopAsync();
             await App.DisposeAsync();
+            // Pooled connections keep the database file open, and Windows will not delete an open file.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             File.Delete(_path);
             File.Delete(_path + "-shm");
             File.Delete(_path + "-wal");

@@ -16,6 +16,11 @@
 # fetch the zips and the tags.
 set -euo pipefail
 
+# Git for Windows ships sha256sum but not shasum; both print "<hash>  <file>".
+if ! command -v shasum >/dev/null 2>&1; then
+  shasum() { shift 2; sha256sum "$@"; }
+fi
+
 version="${1:?usage: package.sh <version, e.g. v0.1.0> [output directory]}"
 [[ "$version" == v* ]] || version="v$version"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

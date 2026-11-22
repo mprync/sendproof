@@ -36,7 +36,7 @@
   "autoload": { "psr-4": { "Sendproof\\Symfony\\": "src/" } },
   "autoload-dev": { "psr-4": { "Sendproof\\Symfony\\Tests\\": "tests/" } },
   "repositories": [
-    { "type": "path", "url": "../core", "options": { "symlink": true } }
+    { "type": "path", "url": "../core", "options": { "symlink": true, "versions": { "sendproof/core": "dev-main" } } }
   ],
   "scripts": { "test": "phpunit" },
   "archive": {

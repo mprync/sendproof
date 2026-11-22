@@ -437,6 +437,7 @@ DEPENDENCIES
   sendproof-rails!
   sqlite3 (>= 2.1)
   trilogy (~> 2.9)
+  tzinfo-data
 
 BUNDLED WITH
    2.6.7

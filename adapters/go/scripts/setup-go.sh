@@ -3,6 +3,11 @@
 # Nothing is installed system-wide. go.sh runs this on demand when no Go is on PATH.
 set -euo pipefail
 
+# Git for Windows ships sha256sum but not shasum; both print "<hash>  <file>".
+if ! command -v shasum >/dev/null 2>&1; then
+  shasum() { shift 2; sha256sum "$@"; }
+fi
+
 GO_VERSION="1.26.11"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 target="$root/artifacts/go-toolchain"

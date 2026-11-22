@@ -269,7 +269,8 @@ export async function verify(ctx) {
     // The publish job re-packages each extracted crate with `cargo publish --no-verify`. Make sure Cargo accepts
     // the normalized manifest inside a .crate (no workspace, no path dependencies, no git).
     const listing = await output('cargo', ['package', '--list', '--no-verify', '--allow-dirty'], { cwd: join(project, paths['sendproof-core']) });
-    require(listing.split(/\r?\n/).includes('ui-assets/manifest.json'), 'Re-packaging the extracted sendproof-core would drop ui-assets/manifest.json');
+    // Cargo prints native separators, so on Windows the entry is ui-assets\manifest.json.
+    require(listing.split(/\r?\n/).map(line => line.replaceAll('\\', '/')).includes('ui-assets/manifest.json'), 'Re-packaging the extracted sendproof-core would drop ui-assets/manifest.json');
   } finally {
     if (!ctx.keep) await removeDir(project);
     else ctx.log(`kept ${project}`);

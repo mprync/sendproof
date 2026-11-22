@@ -40,6 +40,8 @@ class RedisStoreTest {
     private final String prefix = "tb_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10) + ":";
     private RedisStore store;
     private JedisPooled checker;
+    /** False when the service didn't answer and the test was skipped, so there is nothing to clean up. */
+    private boolean ready;
 
     @BeforeEach
     void connect() {
@@ -47,6 +49,7 @@ class RedisStoreTest {
             checker = new JedisPooled(new HostAndPort(HOST, PORT), DefaultJedisClientConfig.builder().password(PASSWORD)
                     .connectionTimeoutMillis(1000).socketTimeoutMillis(1000).build());
             checker.ping();
+            ready = true;
         } catch (RuntimeException unreachable) {
             assumeTrue(false, "Redis isn't running: docker compose -f tests/conformance/compose.yml up -d --wait redis");
         }
@@ -57,7 +60,9 @@ class RedisStoreTest {
     @AfterEach
     void clean() {
         if (checker != null) {
-            checker.keys(prefix + "*").forEach(checker::del);
+            if (ready) {
+                checker.keys(prefix + "*").forEach(checker::del);
+            }
             checker.close();
         }
     }

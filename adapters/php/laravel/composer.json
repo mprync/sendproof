@@ -46,7 +46,7 @@
     }
   },
   "repositories": [
-    { "type": "path", "url": "../core", "options": { "symlink": true } }
+    { "type": "path", "url": "../core", "options": { "symlink": true, "versions": { "sendproof/core": "dev-main" } } }
   ],
   "scripts": {
     "test": "phpunit"

@@ -17,7 +17,7 @@
   },
   "autoload": { "psr-4": { "Fixture\\": "app/" } },
   "repositories": [
-    { "type": "path", "url": "../../core", "options": { "symlink": true } },
+    { "type": "path", "url": "../../core", "options": { "symlink": true, "versions": { "sendproof/core": "dev-main" } } },
     { "type": "path", "url": "../../laravel", "options": { "symlink": true } }
   ],
   "config": { "sort-packages": true, "optimize-autoloader": false, "allow-plugins": { "php-http/discovery": true } },

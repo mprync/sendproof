@@ -26,7 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-24.04, not ubuntu-latest: Playwright does not yet support chromium on the Ubuntu 26.04 image.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -152,13 +153,9 @@ jobs:
         ports:
           - 1433:1433
         options: >-
-          --health-cmd '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "BenchLocal_2026!" -C -Q "SELECT 1" -b'
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'BenchLocal_2026!' -C -Q 'SELECT 1' -b"
           --health-interval 3s --health-timeout 5s --health-retries 35
     env:
-      BENCH_POSTGRES_URL: ${{ matrix.database == 'postgresql' && 'postgresql://bench:bench_local@127.0.0.1:5432/postgres' || '' }}
-      BENCH_MYSQL_URL: ${{ matrix.database == 'mysql' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
-      BENCH_MARIADB_URL: ${{ matrix.database == 'mariadb' && 'mysql://root:bench_local@127.0.0.1:3306/mysql' || '' }}
-      BENCH_SQLSERVER_URL: ${{ matrix.database == 'sqlserver' && 'mssql://sa:BenchLocal_2026%21@127.0.0.1:1433/master?encrypt=false&trustServerCertificate=true' || '' }}
       # The light stores only; the heavy-stores job checks the rest.
       BENCH_STORES: ${{ matrix.stores }}
     steps:
@@ -176,6 +173,11 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
+      # prepare.py installs with uv when it is on PATH. Plain pip backtracks the unpinned boto3 and aioboto3
+      # requirements to releases from 2018 (botocore 1.10, which imports collections.Mapping); uv resolves them.
+      - name: Install uv
+        if: matrix.toolchain == 'python'
+        run: python -m pip install uv
       - if: matrix.toolchain == 'java'
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -212,6 +214,18 @@ jobs:
         if: matrix.toolchain == 'rust'
         run: rustup toolchain install stable --profile minimal
       - run: npm ci --prefix tests/conformance
+      # Only the variable for this entry's database is exported. Tests read an unset variable as "use the
+      # local compose default and skip when it is unreachable", but a variable set to "" as a (broken) URL.
+      - name: Point the tests at the database service
+        env:
+          DATABASE: ${{ matrix.database }}
+        run: |
+          case "$DATABASE" in
+            postgresql) echo 'BENCH_POSTGRES_URL=postgresql://bench:bench_local@127.0.0.1:5432/postgres' ;;
+            mysql) echo 'BENCH_MYSQL_URL=mysql://root:bench_local@127.0.0.1:3306/mysql' ;;
+            mariadb) echo 'BENCH_MARIADB_URL=mysql://root:bench_local@127.0.0.1:3306/mysql' ;;
+            sqlserver) echo 'BENCH_SQLSERVER_URL=mssql://sa:BenchLocal_2026%21@127.0.0.1:1433/master?encrypt=false&trustServerCertificate=true' ;;
+          esac >> "$GITHUB_ENV"
       - name: Check the database service URL
         env:
           DATABASE: ${{ matrix.database }}
@@ -224,6 +238,17 @@ jobs:
             sqlite|h2) ;;
             *) echo "No database service for '$DATABASE'; add one to the conformance job" >&2; exit 1 ;;
           esac
+      # compose.yml starts MySQL and MariaDB with --max-connections=1000; a service container cannot take
+      # command-line arguments, and the default of 151 runs out under the ORM suites' connection pools.
+      - name: Raise the connection limit to match compose.yml
+        if: matrix.database == 'mysql' || matrix.database == 'mariadb'
+        env:
+          DATABASE: ${{ matrix.database }}
+        run: |
+          client=mysql
+          if [ "$DATABASE" = mariadb ]; then client=mariadb; fi
+          container=$(docker ps --filter publish=3306 --format '{{.ID}}')
+          docker exec "$container" "$client" -uroot -pbench_local -e 'SET GLOBAL max_connections = 1000'
       # MongoDB needs a replica-set command line, which service containers can't set, so the
       # data stores come from compose.yml. Only the stores this entry lists are started.
       - name: Start data stores
@@ -304,6 +329,11 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
+      # prepare.py installs with uv when it is on PATH. Plain pip backtracks the unpinned boto3 and aioboto3
+      # requirements to releases from 2018 (botocore 1.10, which imports collections.Mapping); uv resolves them.
+      - name: Install uv
+        if: matrix.toolchain == 'python'
+        run: python -m pip install uv
       - if: matrix.toolchain == 'java'
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -319,7 +349,7 @@ jobs:
         with:
           php-version: '8.4'
           tools: composer:v2
-          extensions: pdo_sqlite, sqlite3, mbstring, dom, pcntl
+          extensions: pdo_sqlite, sqlite3, mbstring, dom, pcntl, mongodb
       - if: matrix.toolchain == 'ruby'
         uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
         with:
@@ -399,6 +429,11 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
+      # prepare.py installs with uv when it is on PATH. Plain pip backtracks the unpinned boto3 and aioboto3
+      # requirements to releases from 2018 (botocore 1.10, which imports collections.Mapping); uv resolves them.
+      - name: Install uv
+        if: matrix.toolchain == 'python'
+        run: python -m pip install uv
       - if: matrix.toolchain == 'java'
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -415,8 +450,9 @@ jobs:
           php-version: '8.4'
           tools: composer:v2
           # pcntl does not exist on Windows; zip is needed by composer archive.
-          # mongodb: the Symfony fixture and the core package require ext-mongodb.
-          extensions: ${{ matrix.os == 'windows-latest' && 'pdo_sqlite, sqlite3, mbstring, dom, zip, mongodb' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, zip, mongodb' }}
+          # mongodb: the Symfony fixture and the core package require ext-mongodb. fileinfo, openssl and curl are
+          # not enabled by default on Windows, and Laravel's dependencies (league/flysystem-local) need fileinfo.
+          extensions: ${{ matrix.os == 'windows-latest' && 'pdo_sqlite, sqlite3, mbstring, dom, fileinfo, openssl, curl, zip, mongodb' || 'pdo_sqlite, sqlite3, mbstring, dom, fileinfo, openssl, curl, pcntl, zip, mongodb' }}
       - if: matrix.toolchain == 'ruby'
         uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
         with:
