@@ -59,7 +59,7 @@ from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
 from ..provider import PreviewChange
-from ..scope import RequestScope, current_scope
+from ..scope import RequestScope, attributed, current_scope, open_previews
 from .base import DataStore
 from .classify import READ, SESSION, WRITE, classify_mongo
 from .guard import (
@@ -68,6 +68,7 @@ from .guard import (
     guard,
     read_set,
     refuse_in_preview,
+    refuse_unattributed,
     sanitize_document,
     store_label,
     unattributed_write,
@@ -641,6 +642,26 @@ class MongoEngine:
             return
         guard("mongodb", operation, kind)
 
+    def check_unattributed(self, rule: Optional[Rule], name: str, collection: str, args: tuple, kwargs: dict) -> None:
+        """Refuse, before it is sent, a write through a guarded handle that no request accounts for.
+
+        While any Preview is open such a write may come from a Preview handler's own thread, so every
+        open Preview is blocked, or fails with 500 when it began in ``preview`` mode (the write could
+        never join its transaction), and :class:`PreviewWriteBlocked` is raised.
+        """
+        if attributed() or not open_previews():
+            return
+        if rule is None:
+            operation, kind = name, WRITE  # a method the guard does not know
+        else:
+            command = rule(collection, args, kwargs)
+            operation = str(next(iter(command), name))
+            kind, _ = classify_mongo(command, self.reads)
+            if _ends_transaction(operation.lower()):
+                kind = WRITE
+        if kind == WRITE:
+            refuse_unattributed("mongodb", operation, must_fail=lambda scope: self.mode_of(scope) == "preview")
+
     # -- finish
     def _finish_steps(self, scope: RequestScope) -> Steps:
         state = self.state(scope)
@@ -1094,6 +1115,8 @@ class _Handle:
         def call(*args: Any, **kwargs: Any) -> Any:
             scope = current_preview()
             if scope is None:
+                if current_scope() is None:
+                    engine.check_unattributed(rule, name, self._sp_name, args, kwargs)
                 return self._wrap(value(*args, **kwargs))
             if rule is None:
                 # A method this guard does not know: refuse it in a Preview rather than let it escape.

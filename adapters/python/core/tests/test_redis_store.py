@@ -178,8 +178,9 @@ async def test_async_db_entries_carry_the_time_to_reply_and_the_error_code(prefi
     await client.aclose()
 
 
-def test_a_write_no_request_accounts_for_fails_every_open_preview(hooked, reader, prefix):
-    """A thread a handler started without its context writes unguarded: no open Preview may be confirmed."""
+def test_a_write_no_request_accounts_for_is_refused_before_it_is_sent(hooked, reader, prefix):
+    """A thread a handler started without its context carries no request: while a Preview is open its
+    write is refused before it is sent and every open Preview is blocked."""
     import threading
 
     from sendproof_core import detached
@@ -200,15 +201,36 @@ def test_a_write_no_request_accounts_for_fails_every_open_preview(hooked, reader
         with request_context():
             client.set(prefix + "request", 1)
 
+    refused: list = []
+
+    def stray():
+        try:
+            client.set(prefix + "stray", 1)
+        except PreviewWriteBlocked as error:
+            refused.append(error.operation)
+
+    def stray_transaction():
+        try:
+            with client.pipeline(transaction=True) as pipe:
+                pipe.incr(prefix + "stray-multi")
+                pipe.execute()
+        except PreviewWriteBlocked as error:
+            refused.append(error.operation)
+
     with active(preview_scope()) as accounted, active(preview_scope()) as other:
         in_thread(worker)
         in_thread(request)
         in_thread(lambda: client.get(prefix + "worker"))  # reads are never a problem
-        assert accounted.capture.fault is None and other.capture.fault is None
-        in_thread(lambda: client.set(prefix + "stray", 1))
-    assert accounted.capture.fault is not None and other.capture.fault is not None  # every open Preview
-    assert "outside any request" in str(accounted.capture.fault)
-    client.set(prefix + "idle", 1)  # no Preview open: nothing to fail
+        assert accounted.capture.blocked is None and other.capture.blocked is None
+        in_thread(stray)  # refused before it is sent, and every open Preview is blocked
+        in_thread(stray_transaction)
+        assert refused == ["SET", "INCRBY"]  # redis-py sends incr() as INCRBY
+    assert accounted.capture.blocked["operation"] == other.capture.blocked["operation"] == "SET"
+    assert accounted.capture.fault is None
+    assert reader.get(prefix + "stray") is None and reader.get(prefix + "stray-multi") is None
+    assert client.incr(prefix + "stray-multi") == 1  # the connection is still in step after the refused MULTI
+    client.set(prefix + "idle", 1)  # no Preview open: nothing to refuse
+    assert reader.get(prefix + "idle") is not None
 
 
 def test_treat_as_read_lets_an_exact_command_through():

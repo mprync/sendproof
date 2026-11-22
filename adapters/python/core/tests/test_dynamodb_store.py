@@ -68,16 +68,23 @@ def test_reads_run_and_writes_are_refused_before_any_request_is_built(table):
     assert store.describe() == {"system": "dynamodb", "name": "orders", "mode": "guard"}
 
 
-def test_a_write_no_request_accounts_for_fails_every_open_preview(table):
-    """A thread a handler started without its context: its write ran unguarded, so no open Preview is confirmed."""
+def test_a_write_no_request_accounts_for_is_refused_before_it_is_sent(table):
+    """A thread a handler started without its context carries no request: while a Preview is open its
+    write is refused before it is sent and every open Preview is blocked. Marked background work runs."""
     import threading
 
     from sendproof_core import detached
 
     client, _ = hooked_client()
+    refused: list = []
 
     def in_thread(body):
-        thread = threading.Thread(target=body)
+        def run() -> None:
+            try:
+                body()
+            except PreviewWriteBlocked as error:
+                refused.append(error.operation)
+        thread = threading.Thread(target=run)
         thread.start()
         thread.join()
 
@@ -85,11 +92,13 @@ def test_a_write_no_request_accounts_for_fails_every_open_preview(table):
         with detached():
             client.put_item(TableName=table, Item={"id": {"S": "worker"}})
 
-    with active(preview_scope()) as scope:
+    with active(preview_scope()) as scope, active(preview_scope()) as other:
         in_thread(worker)
-        assert scope.capture.fault is None
+        assert scope.capture.fault is None and scope.capture.blocked is None
         in_thread(lambda: client.put_item(TableName=table, Item={"id": {"S": "stray"}}))
-    assert scope.capture.fault is not None and "DynamoDB PutItem" in str(scope.capture.fault)
+        assert refused == ["PutItem"]
+        assert scope.capture.blocked["operation"] == other.capture.blocked["operation"] == "PutItem"
+    assert item_of(table, "stray") is None and item_of(table, "worker") is not None
 
 
 def test_partiql_select_runs_but_update_insert_and_unparseable_text_are_writes(table):

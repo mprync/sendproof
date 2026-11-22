@@ -37,7 +37,7 @@ from typing import Any, Iterable, Optional
 from ..scope import current_scope
 from .base import DataStore
 from .classify import SESSION, TRANSACTION, WRITE, classify_redis
-from .guard import PreviewWriteBlocked, guard, read_set, store_label, unattributed_write
+from .guard import PreviewWriteBlocked, guard, read_set, refuse_unattributed, store_label
 
 # Commands whose every argument is a key.
 _ALL_KEYS = frozenset({
@@ -198,16 +198,16 @@ class _GuardBase:
                 self._sendproof_untimed, self._sendproof_waiting = True, None
             return
         classified = [self._sendproof_kind(command) for command in commands]
+        scope = current_scope()
         try:
             for kind, name, _args, _full in classified:
                 guard("redis", name, kind)
+            if scope is None and any(kind == WRITE for kind, *_ in classified):
+                refuse_unattributed("redis", next(name for kind, name, *_ in classified if kind == WRITE))
         except PreviewWriteBlocked:
             if self._sendproof_in_multi:
                 self._sendproof_abandon()
             raise
-        scope = current_scope()
-        if scope is None and any(kind == WRITE for kind, *_ in classified):
-            unattributed_write("redis", next(name for kind, name, *_ in classified if kind == WRITE))
         if single:
             kind, name, _args, _full = classified[0]
             if kind == TRANSACTION:

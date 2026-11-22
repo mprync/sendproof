@@ -449,6 +449,44 @@ def test_a_write_no_request_accounts_for_fails_every_open_preview(hooked, reader
     raw.close()
 
 
+def test_a_write_through_a_guarded_handle_that_no_request_accounts_for_is_refused_before_it_is_sent(hooked, reader):
+    """The guarded handle sees the write before sending, so it refuses it rather than let it land and
+    fail the Preview afterwards; the write could never join the Preview's transaction, so it answers 500."""
+    from sendproof_core import detached
+
+    store, documents, _ = hooked
+    refused: list = []
+
+    def in_thread(body):
+        def run():
+            try:
+                body()
+            except PreviewWriteBlocked as error:
+                refused.append(error.operation)
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join()
+
+    def handler(scope):
+        in_thread(lambda: documents.insert_one({"_id": "stray"}))
+        in_thread(lambda: documents.find_one({"_id": "stray"}))  # reads are never refused
+        in_thread(lambda: documents.bulk_write([__import__("pymongo").DeleteMany({})]))
+        return 200, {}
+
+    def marked(scope):
+        def work():
+            with detached():
+                documents.insert_one({"_id": "worker"})
+        in_thread(work)
+        return 200, {}
+
+    assert run_preview(sync_bench(store), handler).status == 500
+    assert refused == ["insert", "bulkWrite"]
+    assert reader["documents"].find_one({"_id": "stray"}) is None
+    assert run_preview(sync_bench(store), marked).status == 200
+    assert reader["documents"].find_one({"_id": "worker"}) is not None
+
+
 def test_with_transaction_and_start_transaction_join_the_preview_transaction(hooked, reader):
     store, documents, _ = hooked
 

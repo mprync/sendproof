@@ -342,8 +342,8 @@ async def _discard(message):
 
 
 @redis_only
-async def test_a_concurrent_ordinary_request_is_attributed_but_a_stray_thread_fails_the_open_preview(tmp_path, cache):
-    """The adapter marks every request, so only a write nothing accounts for fails the open Previews."""
+async def test_a_concurrent_ordinary_request_is_attributed_but_a_stray_threads_write_is_refused(tmp_path, cache):
+    """The adapter marks every request, so only a write nothing accounts for is refused and blocks the open Previews."""
     import asyncio
     import threading
 
@@ -379,7 +379,9 @@ async def test_a_concurrent_ordinary_request_is_attributed_but_a_stray_thread_fa
         release.set()
         assert (await pending).json()["rolledBack"] is True
         stray = await http.get("/sendproof/_preview/stray", headers=ROLLBACK)
-        assert stray.status_code == 500 and "preference-applied" not in stray.headers
+        assert stray.status_code == 409 and "preference-applied" not in stray.headers
+        assert stray.json()["store"] == "redis"
+    assert await async_client.get(prefix + "stray") is None and await async_client.get(prefix + "plain") is not None
     await async_client.aclose()
 
 

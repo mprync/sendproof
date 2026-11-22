@@ -10,7 +10,7 @@ the outcome**: a handler that catches the error and returns 200 still produces a
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ..scope import RequestScope, attributed, current_scope, open_previews
 from .classify import WRITE
@@ -81,13 +81,42 @@ def guard(store: str, operation: str, kind: str, detail: Optional[str] = None) -
     raise PreviewWriteBlocked(store, operation, reason)
 
 
-def unattributed_write(store: str, operation: str) -> None:
-    """A write that no request and no :func:`~sendproof_core.detached` block accounts for.
+def refuse_unattributed(store: str, operation: str,
+                        must_fail: Optional[Callable[[RequestScope], bool]] = None) -> None:
+    """Refuse, before it is sent, a write that no request and no :func:`~sendproof_core.detached` block accounts for.
 
-    Call it for a write seen with no current scope. While any Preview is open, such a write may
-    come from a Preview handler's own thread, started without its context: it was neither blocked
-    nor rolled back, so every open Preview fails with 500 rather than claim a rollback. With no
-    Preview open, or inside an ordinary request or a ``detached()`` block, it does nothing.
+    Call it before sending a write seen with no current scope (``spec/data-stores.md``, "Writes the
+    binding can't attribute to a request"). While any Preview is open, such a write may come from a
+    Preview handler's own thread, a client's background writer or a task started without the
+    request's context, and a guarded store can't roll it back. So every open Preview is blocked
+    (or, when ``must_fail(scope)`` says the store joins that Preview's transaction, fails with 500)
+    and :class:`PreviewWriteBlocked` is raised: no byte of the write is sent. With no Preview open,
+    or inside an ordinary request or a ``detached()`` block, it does nothing.
+    """
+    if attributed():
+        return
+    previews = open_previews()
+    if not previews:
+        return
+    reason = (f"{write_reason(store)}, from code that no request accounts for while this Preview was open. "
+              "Wrap background work in sendproof_core.detached().")
+    for scope in previews:
+        if must_fail is not None and must_fail(scope):
+            scope.capture.refuse(PreviewTransactionControl(reason))
+        else:
+            scope.capture.block(store, operation, reason)
+        scope.capture.record_db(store, operation, blocked=True)
+    raise PreviewWriteBlocked(store, operation, reason)
+
+
+def unattributed_write(store: str, operation: str) -> None:
+    """A write that no request accounts for, seen only **after** it was sent (a monitoring tripwire).
+
+    Hooks that see a write before sending it call :func:`refuse_unattributed` instead. This one is
+    for the cases that can't refuse, such as MongoDB command monitoring seeing a raw client's
+    write: it was neither blocked nor rolled back, so every open Preview fails with 500 rather than
+    claim a rollback. With no Preview open, or inside an ordinary request or a ``detached()`` block,
+    it does nothing.
     """
     if attributed():
         return
@@ -104,14 +133,14 @@ def unattributed_write(store: str, operation: str) -> None:
 def check_command(store: str, operation: str, kind: str) -> Optional[RequestScope]:
     """The one call a guard-only hook makes before it sends a command.
 
-    Refuses a write in a Preview (:func:`guard`), fails every open Preview when a write has no
-    request attribution (:func:`unattributed_write`), and returns the scope the command's ``Db``
+    Refuses a write in a Preview (:func:`guard`), refuses a write with no request attribution while
+    any Preview is open (:func:`refuse_unattributed`), and returns the scope the command's ``Db``
     entry belongs to (``None`` outside any request).
     """
     guard(store, operation, kind)
     scope = current_scope()
     if kind == WRITE and scope is None:
-        unattributed_write(store, operation)
+        refuse_unattributed(store, operation)
     return scope
 
 

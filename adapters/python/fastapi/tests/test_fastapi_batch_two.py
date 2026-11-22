@@ -112,8 +112,11 @@ async def test_a_read_runs_and_a_write_answers_409_before_it_is_sent(setup):
         assert account.sent == []
 
 
-async def test_a_write_from_a_thread_with_no_request_fails_the_preview(setup):
+async def test_a_write_from_a_thread_with_no_request_is_refused_and_blocks_the_preview(setup):
     http, account = setup
     async with http:
-        failed = await http.post("/sendproof/_preview/stray", headers=ROLLBACK)
-        assert failed.status_code == 500 and "preference-applied" not in failed.headers
+        blocked = await http.post("/sendproof/_preview/stray", headers=ROLLBACK)
+        assert blocked.status_code == 409 and "preference-applied" not in blocked.headers
+        body = blocked.json()
+        assert (body["store"], body["rolledBack"]) == ("cosmosdb", False)
+        assert account.sent == []  # refused before it was sent

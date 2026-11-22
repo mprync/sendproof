@@ -180,26 +180,51 @@ def test_reads_become_db_entries_without_literals_and_outside_a_preview_writes_r
         cluster.shutdown()
 
 
-def test_a_write_no_request_accounts_for_fails_every_open_preview(tickets):
+def test_a_write_no_request_accounts_for_is_refused_before_it_is_sent(tickets):
+    """A thread started without the request's context, or the driver's own callback thread, carries no
+    request: while a Preview is open its write is refused before sending and every open Preview is blocked."""
     plain, keyspace = tickets
     cluster, _ = hooked_cluster()
     try:
         session = cluster.connect(keyspace)
+        refused: list = []
 
         def in_thread(body):
-            thread = threading.Thread(target=body)
+            def run() -> None:
+                try:
+                    body()
+                except PreviewWriteBlocked as error:
+                    refused.append(error.operation)
+            thread = threading.Thread(target=run)
             thread.start()
             thread.join()
 
-        with active(preview_scope()) as scope:
+        with active(preview_scope()) as scope, active(preview_scope()) as other:
             in_thread(lambda: session.execute("INSERT INTO tickets (id, status, hits) VALUES ('thread', 'x', 1)"))
-            assert isinstance(scope.capture.fault, Exception) and "outside any request" in str(scope.capture.fault)
+            assert refused == ["INSERT"]
+            assert scope.capture.blocked["operation"] == other.capture.blocked["operation"] == "INSERT"
+        with active(preview_scope()) as scope:
+            # A callback runs on the driver's event-loop thread, which belongs to no request.
+            done = threading.Event()
+
+            def chained(_rows) -> None:
+                try:
+                    session.execute_async("INSERT INTO tickets (id, status, hits) VALUES ('callback', 'x', 1)")
+                except PreviewWriteBlocked as error:
+                    refused.append(error.operation)
+                finally:
+                    done.set()
+
+            session.execute_async("SELECT id FROM tickets WHERE id = 'seeded'").add_callback(chained)
+            assert done.wait(10) and refused == ["INSERT", "INSERT"] and scope.capture.blocked["operation"] == "INSERT"
+        assert ticket(plain, keyspace, "thread") is None and ticket(plain, keyspace, "callback") is None
         with active(preview_scope()) as scope:
             def marked() -> None:
                 with detached():
                     session.execute("INSERT INTO tickets (id, status, hits) VALUES ('thread2', 'x', 1)")
             in_thread(marked)
-            assert scope.capture.fault is None
+            assert scope.capture.fault is None and scope.capture.blocked is None
+        assert ticket(plain, keyspace, "thread2") is not None
     finally:
         cluster.shutdown()
 
