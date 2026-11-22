@@ -1,5 +1,10 @@
 # README images: pending requests
 
+**Status (2026-11-22): 1 to 5 done, rendered and waiting for the owner's review (6).** The images are
+captured from a second store-example instance at `http://localhost:5080` (the README's `dotnet run`
+port), so the address pill and request URLs match the README. The interface has 29 catalogues, not 30,
+so the strips and the README say "29 languages". The owner picked the Dry Run mark, monochrome.
+
 The README images and the social preview are rendered by `node tools/readme-shots.mjs` from the running store example (`examples/StoreApi`, http://127.0.0.1:5189/sendproof/) into the frames in `docs/images/src/`. Before the first render and push, these owner requests must be in:
 
 1. **Nothing that names a real employer's domain, anywhere.** The demo is the generic "Acme Store API"; check every rendered image by eye.

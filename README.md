@@ -10,7 +10,7 @@ document, email and log line the request would produce. **Send for real** when i
 
 [![Check](https://github.com/mprync/sendproof/actions/workflows/check.yml/badge.svg)](https://github.com/mprync/sendproof/actions/workflows/check.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3451d1)](LICENSE)
-[![Conformance](https://img.shields.io/badge/conformance-67_combinations_·_~1%2C300_checks-2ea44f)](docs/bindings/databases.md)
+[![Conformance](https://img.shields.io/badge/conformance-1%2C318_checks_·_67_combinations-2ea44f)](docs/bindings/databases.md)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-3451d1)](CONTRIBUTING.md)
 
 [![.NET](https://img.shields.io/badge/.NET-ASP.NET_Core-512BD4?logo=dotnet&logoColor=white)](adapters/dotnet/Sendproof.AspNetCore)
@@ -30,8 +30,14 @@ document, email and log line the request would produce. **Send for real** when i
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img alt="Sendproof in a browser at localhost:5189/sendproof: a Preview of placing an order in the store example, signed in as a seeded user. The Database tab lists the SQL rows and MongoDB documents the order would write, grouped by store, with the stores it only read listed as read, not written. A second panel shows the MongoDB document diff from the same Preview." src="docs/images/hero-light.png" width="100%">
+    <img alt="Sendproof in a browser at localhost:5080/sendproof: a Preview of Place order in the store example, signed in as Ada Admin. The Database tab says nothing was saved and lists the SQLite rows and MongoDB documents the order would write, grouped by store, with DynamoDB and Redis listed as read, not written. A second panel shows the MongoDB document from the same Preview, field by field. Below, the languages Sendproof works with (C# and .NET, TypeScript and Node.js, Python, Java, Kotlin, Go, Ruby, PHP and Rust, with their main frameworks) and some of the 29 languages its interface is translated into." src="docs/images/hero-light.png" width="100%">
   </picture>
+</p>
+
+<p align="center">
+  <b>Available in 29 languages</b>, including Arabic, Hebrew and Persian right to left:<br>
+  English · Deutsch · Français · Español · Português · Italiano · Nederlands · Polski · Русский · Türkçe ·
+  日本語 · 简体中文 · 繁體中文 · 한국어 · हिन्दी · العربية · עברית · فارسی · <a href="ui/locales/README.md">all 29</a>
 </p>
 
 > [!NOTE]
@@ -71,7 +77,7 @@ handler runs for real, then everything it wrote is rolled back, and you get the 
 | **Docs and models** | A Docs view for every operation (press <kbd>D</kbd>) with request samples and response examples, and a Models tab with property trees, compositions and discriminators. |
 | **Observed Send** | In development, a Send can be traced too: the same Database, Side effects and Logs tabs show what was committed. Traces are private to the user who sent them and expire after five minutes. |
 | **Code export** | Copy the edited request as cURL, JavaScript, Python, C#, Go, Java, Kotlin, PHP, Ruby, Rust or PowerShell, with credentials masked. |
-| **Built for real use** | Keyboard first (<kbd>⌘K</kbd> command search, <kbd>?</kbd> for shortcuts), light and dark themes, three densities, 25 interface languages including Arabic, Hebrew and Persian right to left, and a phone layout. WCAG 2.2 AA is the release target. |
+| **Built for real use** | Keyboard first (<kbd>⌘K</kbd> command search, <kbd>?</kbd> for shortcuts), light and dark themes, three densities, [29 interface languages](ui/locales/README.md) including Arabic, Hebrew and Persian right to left, and a phone layout. WCAG 2.2 AA is the release target. |
 | **Zero front-end setup** | Each package embeds the same prebuilt UI, verified by SHA-256. Your app needs no Node, no build step and no second list of endpoints. |
 
 ## A closer look
@@ -83,7 +89,7 @@ command the request ran, in order, with timings. Secret-named values are redacte
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/logs-dark.png">
-  <img alt="The Logs tab of an order Preview: the app's log lines and a chain of SQL and data-store commands with their timings, one opened to show the full command." src="docs/images/logs-light.png" width="100%">
+  <img alt="The Logs tab of a Place order Preview: 38 entries in order with their offsets and timings, filterable by level and by store (SQL 29, DynamoDB 1, Redis 2, MongoDB 2). EF Core SELECTs, a DynamoDB GetItem on the idempotency table, Redis GETs of the rate limit and the coupon counter, the INSERTs and UPDATEs of the order, then the MongoDB insert and update and the app's own log line for the order." src="docs/images/logs-light.png" width="100%">
 </picture>
 
 ### Docs that stay next to the request
@@ -93,31 +99,33 @@ request schema, a request sample in the language you pick, and response examples
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/docs-dark.png">
-  <img alt="The Docs view of an operation: description, headers, body schema, a cURL request sample and response examples by status code." src="docs/images/docs-light.png" width="100%">
+  <img alt="The Docs view of Place order: the method, path, roles and operationId, the description with the steps the handler takes, a Safe to retry note for the Idempotency-Key header, the page outline and a cURL request sample with the documented example body." src="docs/images/docs-light.png" width="100%">
 </picture>
 
 ### Responses checked against the schema
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/response-dark.png">
-  <img alt="A Send of the product list: status, timing, size and a Matches schema check above the formatted JSON response." src="docs/images/response-light.png" width="100%">
+  <img alt="A Send of List products: 200 OK, the timing and size, and the Matches schema check opened to show the body is a valid PagedListOfProductSummary, with 20 properties checked for types, formats, patterns, lengths, enums and required properties, above the formatted JSON response." src="docs/images/response-light.png" width="100%">
 </picture>
 
 ### Honest about what can't roll back
 
 When an operation writes to a store that can't be rolled back, the workbench says so before you
-press anything, and a Preview that reaches such a write is stopped before the command is sent.
+press anything, and a Preview that reaches such a write is stopped before the command is sent. In the
+store example, **Quote price** caches in Redis, so it is Send only, and **Redeem coupon** counts with
+Redis `INCRBY`, which the guard refuses.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/guard-dark.png">
-  <img alt="An operation marked Preview unavailable because it caches quotes in Redis, with Send only. A second panel shows a Preview stopped by the write guard: nothing was written, the Redis command was refused and the SQL was rolled back." src="docs/images/guard-light.png" width="100%">
+  <img alt="Quote price, marked Preview unavailable because it caches quotes in Redis: Send only, and it asks before it commits. A second panel shows the Preview of Redeem coupon stopped by the write guard: INCRBY was refused and never sent, SQLite was rolled back, the MongoDB transaction aborted and the side effects were discarded, so nothing was written." src="docs/images/guard-light.png" width="100%">
 </picture>
 
 ### On a phone, in any language
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-dark.png">
-  <img alt="Two phones: the order Preview's Database tab in English, and the same Preview in Arabic, laid out right to left." src="docs/images/phone-light.png" width="100%">
+  <img alt="Two phones: the Place order Preview's Database tab in English, and the same Preview in Arabic, laid out right to left." src="docs/images/phone-light.png" width="100%">
 </picture>
 
 ## Quick start
@@ -313,15 +321,16 @@ lines up every setting across the eight languages.
 ### Try the store example
 
 [`examples/StoreApi`](examples/StoreApi) is an online store API (products, inventory, customers,
-carts, orders, refunds, shipments, reviews and coupons) with seeded data, SQLite, and optional Redis
-and MongoDB stores. It is the app in the screenshots. With the .NET 10 SDK:
+carts, orders, refunds, shipments, reviews and coupons) with seeded data, SQLite, and optional Redis,
+MongoDB and DynamoDB stores. It is the app in the screenshots. With the .NET 10 SDK:
 
 ```sh
 dotnet run --project examples/StoreApi
 ```
 
-Open the `/sendproof/` URL it prints, pick a seeded account, and Preview **Place order**. Its
-[README](examples/StoreApi/README.md) covers the accounts and how to start it with Redis and MongoDB.
+Open <http://localhost:5080/sendproof/>, pick a seeded account, and Preview **Place order**. Its
+[README](examples/StoreApi/README.md) covers the accounts and how to start it with Redis, MongoDB and
+DynamoDB.
 
 ## How it works
 
@@ -355,8 +364,8 @@ sequenceDiagram
 
 The UI and every binding speak one versioned HTTP protocol, described in the [adapter contract](spec/README.md)
 and [data-store rules](spec/data-stores.md). A shared [conformance suite](tests/conformance) runs the
-same HTTP checks against every framework, provider and database combination: 67 combinations and about
-1,300 checks, plus each binding's own test suite.
+same HTTP checks against every framework, provider and database combination: 1,318 checks passing across
+67 combinations in the last full run, plus each binding's own test suite.
 
 ## Safety model
 
@@ -527,6 +536,8 @@ The [binding checklist](docs/bindings/adding.md) walks through it.
 - **Store gaps.** Cassandra and Cosmos DB for PHP and Ruby; Cosmos DB and Firestore for Rust, which
   have no official SDK today.
 - **Framework versions.** Spring Boot 4 and WebFlux are not tested yet.
+- **Journeys.** Run an ordered set of operations (an order through to shipment) step by step or all at
+  once, and compare what each step wrote with what it should have ([design](docs/plans/journeys.md)).
 
 Have a stack you'd like covered? [Open an issue](https://github.com/mprync/sendproof/issues).
 
