@@ -364,7 +364,7 @@ public sealed class CosmosDbSdkTests
         await Task.WhenAny(later.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         Assert.Empty(gateway.ItemRequests);
         Expect.Unconfirmed(response, HttpStatusCode.Conflict);
-        Assert.False(later.Task.IsCompleted, $"The handler ran and its upsert was {(later.Task.IsCompleted ? later.Task.Result : "")}.");
+        Assert.False(later.Task.IsCompleted, "The handler ran, so its unawaited upsert was started.");
 
         var capabilities = await app.CapabilitiesAsync();
         Assert.Empty(capabilities.GetProperty("previewOperations").EnumerateArray());

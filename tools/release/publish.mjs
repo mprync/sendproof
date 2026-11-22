@@ -20,6 +20,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   listFiles, output, parseRepository, readJson, releaseVersions, require, root, run, sha256, tempDir, verifyChecksums,
 } from './lib.mjs';
+import { GROUP as MAVEN_GROUP } from './maven.mjs';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -147,8 +148,10 @@ async function publishMaven(source, release) {
   const work = await tempDir('maven-bundle');
   const layout = join(work, 'repository');
   await mkdir(layout, { recursive: true });
-  const artifacts = (await listFiles(source)).filter(file => file.startsWith('dev/'));
-  require(artifacts.length, 'No Maven artifacts under dev/');
+  // The repository layout is the group ID as a path (io.github.mprync is io/github/mprync/...).
+  const groupPath = MAVEN_GROUP.replaceAll('.', '/');
+  const artifacts = (await listFiles(source)).filter(file => file.startsWith(`${groupPath}/`));
+  require(artifacts.length, `No Maven artifacts under ${groupPath}/`);
   for (const file of artifacts) {
     await mkdir(join(layout, file, '..'), { recursive: true });
     await copyFile(join(source, file), join(layout, file));
@@ -172,7 +175,7 @@ async function publishMaven(source, release) {
     await writeFile(`${path}.sha1`, createHash('sha1').update(bytes).digest('hex'));
   }
   const bundle = join(work, `sendproof-${release.version}.zip`);
-  await run('zip', ['-qr', bundle, 'dev'], { cwd: layout });
+  await run('zip', ['-qr', bundle, groupPath.split('/')[0]], { cwd: layout });
   console.log(`Bundle ${basename(bundle)}: ${artifacts.length} artifacts, sha256 ${sha256(await readFile(bundle))}`);
   if (dryRun) { console.log('would upload the bundle to https://central.sonatype.com/api/v1/publisher/upload'); return; }
 

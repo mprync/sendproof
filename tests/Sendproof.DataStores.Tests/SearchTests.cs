@@ -125,7 +125,7 @@ public sealed class SearchTests
                 }).AllowAnonymous().WithSendproofPreview();
             });
             var fixture = new ElasticFixture { App = app, Wire = wire, Client = client };
-            late.Task.ContinueWith(task => fixture.Late.SetResult(task.Result), TaskScheduler.Default);
+            _ = late.Task.ContinueWith(task => fixture.Late.SetResult(task.Result), TaskScheduler.Default);
             return fixture;
         }
 

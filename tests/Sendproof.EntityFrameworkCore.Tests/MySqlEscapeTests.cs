@@ -116,7 +116,7 @@ public sealed class MySqlEscapeTests
         {
             await Services.DisposeAsync();
             await using var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(ServiceFactAttribute.MySqlRoot).Options);
-            await admin.Database.ExecuteSqlRawAsync($"DROP DATABASE IF EXISTS {Database}");
+            await admin.RunAsync($"DROP DATABASE IF EXISTS {Database}");
         }
     }
 
@@ -126,7 +126,7 @@ public sealed class MySqlEscapeTests
         var name = "tb_ef_" + Guid.NewGuid().ToString("N")[..10];
         await using (var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(root).Options))
         {
-            await admin.Database.ExecuteSqlRawAsync($"CREATE DATABASE {name}");
+            await admin.RunAsync($"CREATE DATABASE {name}");
         }
 
         var services = new ServiceCollection();

@@ -28,13 +28,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: 10.0.x
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Build
@@ -57,7 +57,7 @@ jobs:
         run: node tools/browser-test.mjs --no-build
       - name: Upload browser evidence
         if: always() && runner.os == 'Linux'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-evidence
           path: artifacts/browser/
@@ -87,14 +87,16 @@ jobs:
     outputs:
       bindings: ${{ steps.manifest.outputs.bindings }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       # Heavy stores (Cassandra, OpenSearch, Elasticsearch) are dropped from each entry's stores here
       # and run in the heavy-stores job; the conformance job passes the rest as BENCH_STORES.
+      # run.mjs imports ajv and the store clients before it prints the manifest.
+      - run: npm ci --prefix tests/conformance
       - name: Read binding manifest
         id: manifest
         run: |
@@ -160,10 +162,10 @@ jobs:
       # The light stores only; the heavy-stores job checks the rest.
       BENCH_STORES: ${{ matrix.stores }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - if: matrix.toolchain == 'dotnet'
@@ -201,7 +203,7 @@ jobs:
         with:
           php-version: '8.4'
           tools: composer:v2
-          extensions: ${{ matrix.id == 'php-laravel-sqlserver' && 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, sqlsrv, pdo_sqlsrv' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl' }}
+          extensions: ${{ matrix.id == 'php-laravel-sqlserver' && 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, mongodb, sqlsrv, pdo_sqlsrv' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, mongodb' }}
       - if: matrix.toolchain == 'ruby'
         uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
         with:
@@ -265,12 +267,14 @@ jobs:
     outputs:
       bindings: ${{ steps.matrix.outputs.bindings }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+      # run.mjs imports ajv and the store clients before it prints the manifest.
+      - run: npm ci --prefix tests/conformance
       - id: matrix
         run: |
           bindings=$(node tests/conformance/run.mjs --matrix | jq -c '{include: [.include[] | select(.stores | test("cassandra|opensearch|elasticsearch"))]}')
@@ -286,10 +290,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.heavy-stores-matrix.outputs.bindings) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - if: matrix.toolchain == 'dotnet'
@@ -381,10 +385,10 @@ jobs:
       REGISTRY: ${{ matrix.registry }}
       BINDING: ${{ matrix.binding }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - if: matrix.toolchain == 'dotnet'
@@ -411,7 +415,8 @@ jobs:
           php-version: '8.4'
           tools: composer:v2
           # pcntl does not exist on Windows; zip is needed by composer archive.
-          extensions: ${{ matrix.os == 'windows-latest' && 'pdo_sqlite, sqlite3, mbstring, dom, zip' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, zip' }}
+          # mongodb: the Symfony fixture and the core package require ext-mongodb.
+          extensions: ${{ matrix.os == 'windows-latest' && 'pdo_sqlite, sqlite3, mbstring, dom, zip, mongodb' || 'pdo_sqlite, sqlite3, mbstring, dom, pcntl, zip, mongodb' }}
       - if: matrix.toolchain == 'ruby'
         uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
         with:
@@ -421,6 +426,9 @@ jobs:
         run: rustup toolchain install stable --profile minimal
       - name: Run the ${{ matrix.binding }} conformance profile
         if: runner.os != 'Linux'
+        env:
+          # No data-store services here (they run in Docker on Linux); an empty list skips the store checks.
+          BENCH_STORES: ''
         run: |
           npm ci --prefix tests/conformance
           prepare=$(node -e 'const m=require("./tests/conformance/bindings.json");process.stdout.write(m.bindings.find(b=>b.id===process.argv[1]).prepare??"")' "$BINDING")
@@ -442,7 +450,7 @@ jobs:
           node tools/release/publish.mjs "$REGISTRY" "artifacts/packages/$REGISTRY" --tag "v$version" --dry-run
       - name: Upload release artifact
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-${{ matrix.registry }}
           path: artifacts/packages/${{ matrix.registry }}/
@@ -462,7 +470,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -492,10 +500,10 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
@@ -520,7 +528,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -543,7 +551,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -568,7 +576,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -595,7 +603,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
@@ -619,7 +627,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -651,7 +659,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The job pushes the module tags with this job's token.
           persist-credentials: true

@@ -25,10 +25,15 @@ gem "aws-sdk-dynamodb", "~> 1.100"
 gem "json", "~> 2.9"
 gem "elasticsearch", "~> 8.0"
 gem "opensearch-ruby", "~> 3.0"
-gem "google-cloud-firestore", "~> 2.0"
 
-# MySQL: Trilogy needs no client library, so the MySQL conformance entry runs on a plain machine.
-gem "trilogy", "~> 2.9"
+# Neither gem can be built on Windows: grpc (Firestore's transport) publishes no x64-mingw-ucrt build and does not
+# compile there, and Trilogy needs poll.h. Windows therefore installs neither; the Windows conformance profile uses
+# SQLite and none of the stores that need them.
+install_if -> { !Gem.win_platform? } do
+  gem "google-cloud-firestore", "~> 2.0"
+  # MySQL: Trilogy needs no client library, so the MySQL conformance entry runs on a plain machine.
+  gem "trilogy", "~> 2.9"
+end
 
 group :development, :test do
   # PostgreSQL for the ActiveRecord suite and the conformance fixture. Precompiled for common platforms;

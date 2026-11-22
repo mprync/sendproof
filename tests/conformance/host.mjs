@@ -59,6 +59,9 @@ async function runFixture(binding, scenario, base, run, database) {
     env: {
       ...process.env, ...binding.env, ...database.env, PORT: String(binding.port),
       BENCH_PATH_BASE: base, BENCH_SCENARIO: scenario, BENCH_TMP_DIR: workspace,
+      // Git for Windows' sh rewrites a value like "/tenant" into a Windows path (C:/Program Files/Git/tenant)
+      // when it starts a native program such as java.exe; the path base is a URL prefix, not a file path.
+      ...(windows ? { MSYS2_ENV_CONV_EXCL: [process.env.MSYS2_ENV_CONV_EXCL, 'BENCH_PATH_BASE'].filter(Boolean).join(';') } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -77,7 +77,7 @@ public sealed class SqlServerAbortTests
     private static async Task RetryIsRefusedAsync(ExampleContext db, string id)
     {
         await Assert.ThrowsAsync<PreviewTransactionControlException>(() =>
-            db.Database.ExecuteSqlRawAsync($"INSERT INTO Items (Id, Name) VALUES ('{id}', 'x')"));
+            db.Database.ExecuteSqlAsync($"INSERT INTO Items (Id, Name) VALUES ({id}, 'x')"));
         db.Items.Add(new Item { Id = id + "-ef", Name = "x" });
         await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
     }

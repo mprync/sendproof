@@ -45,6 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn shutdown() {
+    // SIGTERM exists only on Unix; on Windows the fixture stops on Ctrl+C or when its process tree is killed.
+    #[cfg(unix)]
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut signal) => {
@@ -53,6 +55,8 @@ async fn shutdown() {
             Err(_) => std::future::pending::<()>().await,
         }
     };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = terminate => {}

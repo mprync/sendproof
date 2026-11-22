@@ -30,7 +30,7 @@ public sealed class MySqlPipelineTests
         var name = "tb_ef_" + Guid.NewGuid().ToString("N")[..10];
         await using (var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(root).Options))
         {
-            await admin.Database.ExecuteSqlRawAsync($"CREATE DATABASE {name}");
+            await admin.RunAsync($"CREATE DATABASE {name}");
         }
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development", Args = ["--hostBuilder:reloadConfigOnChange=false"] });
@@ -70,7 +70,7 @@ public sealed class MySqlPipelineTests
     {
         await app.DisposeAsync();
         await using var admin = new DbContext(new DbContextOptionsBuilder().UseMySQL(ServiceFactAttribute.MySqlRoot).Options);
-        await admin.Database.ExecuteSqlRawAsync($"DROP DATABASE IF EXISTS {name}");
+        await admin.RunAsync($"DROP DATABASE IF EXISTS {name}");
     }
 
     private static HttpRequestMessage Preview(string id)

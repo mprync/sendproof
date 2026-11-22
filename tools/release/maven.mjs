@@ -20,7 +20,7 @@ import {
 
 export const title = 'Maven Central';
 
-const GROUP = 'io.github.mprync';
+export const GROUP = 'io.github.mprync';
 const MODULES = ['sendproof-core', 'sendproof-ui', 'sendproof-jdbc', 'sendproof-logback', 'sendproof-spring-boot', 'sendproof-jpa', 'sendproof-ktor',
   'sendproof-redis', 'sendproof-mongodb', 'sendproof-dynamodb', 'sendproof-cassandra', 'sendproof-elasticsearch', 'sendproof-cosmosdb',
   'sendproof-firestore'];
