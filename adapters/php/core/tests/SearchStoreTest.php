@@ -149,6 +149,154 @@ final class SearchStoreTest extends TestCase
         $this->assertSame(['POST /articles/_search'], $fake->requests(), 'No write may reach the network during a Preview.');
     }
 
+    /**
+     * The writes outside the typed document calls: reindex, stored scripts, aliases, templates,
+     * mappings, settings, pipelines, a raw request and an endpoint the table has never heard of.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('engines')]
+    public function testScriptsReindexAliasesTemplatesAndRawRequestsAreRefusedBeforeTheyAreSent(string $engine, string $kind): void
+    {
+        [$recorder, $client, $fake, $store] = $this->hooked($engine, $kind);
+        $raw = $engine === 'elasticsearch'
+            ? static fn (string $method, string $path) => $client->sendRequest(new \GuzzleHttp\Psr7\Request($method, $path, ['Content-Type' => 'application/json'], '{}'))
+            : static fn (string $method, string $path) => $client->request($method, $path, ['body' => '{}']);
+        $writes = [
+            'reindex' => fn () => $client->reindex(['body' => ['source' => ['index' => 'articles'], 'dest' => ['index' => 'copy']]]),
+            'put_script' => fn () => $client->putScript(['id' => 's', 'body' => ['script' => ['lang' => 'painless', 'source' => 'ctx._source.x = 1']]]),
+            'delete_script' => fn () => $client->deleteScript(['id' => 's']),
+            'update_aliases' => fn () => $client->indices()->updateAliases(['body' => ['actions' => [['add' => ['index' => 'articles', 'alias' => 'live']]]]]),
+            'put_alias' => fn () => $client->indices()->putAlias(['index' => 'articles', 'name' => 'live']),
+            'put_index_template' => fn () => $client->indices()->putIndexTemplate(['name' => 't', 'body' => ['index_patterns' => ['a*']]]),
+            'put_mapping' => fn () => $client->indices()->putMapping(['index' => 'articles', 'body' => ['properties' => ['x' => ['type' => 'keyword']]]]),
+            'put_settings' => fn () => $client->indices()->putSettings(['index' => 'articles', 'body' => ['index' => ['number_of_replicas' => 0]]]),
+            'put_pipeline' => fn () => $client->ingest()->putPipeline(['id' => 'p', 'body' => ['processors' => []]]),
+            'close' => fn () => $client->indices()->close(['index' => 'articles']),
+            'raw document' => fn () => $raw('PUT', '/articles/_doc/raw'),
+            'raw unknown endpoint' => fn () => $raw('POST', '/_brand_new/_thing'),
+            'raw patch' => fn () => $raw('PATCH', '/articles'),
+        ];
+        foreach ($writes as $name => $write) {
+            $refused = false;
+            $result = $this->preview($recorder, [$store], function () use ($write, &$refused): void {
+                try {
+                    $write();
+                } catch (PreviewWriteBlockedException) {
+                    $refused = true;
+                }
+            });
+            $this->assertTrue($refused, $name . ' was not refused');
+            $this->assertSame(409, $result->status, $name);
+            $this->assertSame($engine, $result->problem()['store'], $name);
+        }
+        $this->assertSame([], $fake->requests(), 'No write may reach the network during a Preview.');
+        // A raw read still runs.
+        $this->assertTrue($this->preview($recorder, [$store], fn () => $raw('GET', '/articles/_doc/raw'))->isConfirmed());
+        $this->assertSame(['GET /articles/_doc/raw'], $fake->requests());
+    }
+
+    /**
+     * A refusal is not a network failure: the client's node pool and retry loop must not see it, or
+     * one refused write would mark a node dead (or retry the write on the next node) and hurt every
+     * other request on the process, Preview or not. Two nodes, no retries counted, both still alive.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('engines')]
+    public function testARefusedWriteNeverMarksANodeDeadOrRetries(string $engine, string $kind): void
+    {
+        if ($engine === 'opensearch' && $kind === 'psr18') {
+            // The PSR-18 transport has no node pool or retries of its own: it sends to one base URI.
+            $this->expectNotToPerformAssertions();
+
+            return;
+        }
+        $recorder = new Recorder();
+        $guard = new Guard(static fn () => $recorder);
+        $fake = new RecordingHttpClient();
+        $hosts = ['http://node-a.test:9200', 'http://node-b.test:9200'];
+        if ($engine === 'elasticsearch') {
+            $client = ElasticsearchBuilder::create()->setHosts($hosts)->setHttpClient($fake)->setRetries(3)->build();
+            ElasticsearchGuard::install($client, $guard);
+            $pool = $client->getTransport()->getNodePool();
+            $alive = static fn (): array => array_map(static fn (\Elastic\Transport\NodePool\Node $node): bool => $node->isAlive(), \Closure::bind(fn (): array => $this->nodes, $pool, $pool::class)());
+        } else {
+            $handler = static function (array $request) use ($fake): CompletedFutureArray {
+                $fake->sent[] = ['method' => $request['http_method'], 'url' => 'http://search.test:9200' . $request['uri'], 'body' => (string) ($request['body'] ?? '')];
+
+                return new CompletedFutureArray(['status' => 200, 'reason' => 'OK', 'effective_url' => 'http://search.test:9200' . $request['uri'], 'headers' => ['Content-Type' => ['application/json']], 'body' => fopen('data://text/plain,{}', 'r'), 'transfer_stats' => ['total_time' => 0.001]]);
+            };
+            $client = OpenSearchBuilder::create()->setHosts($hosts)->setHandler($handler)->setRetries(3)->build();
+            OpenSearchGuard::install($client, $guard);
+            // @phpstan-ignore property.deprecated
+            $pool = $client->transport->connectionPool;
+            $alive = static fn (): array => array_map(static fn (\OpenSearch\Connections\Connection $connection): bool => $connection->getPingFailures() === 0, \Closure::bind(fn (): array => $this->connections, $pool, \OpenSearch\ConnectionPool\AbstractConnectionPool::class)());
+        }
+        $this->assertSame([true, true], $alive());
+        $store = new GuardOnlyStore($engine);
+        $result = $this->preview($recorder, [$store], function () use ($client): void {
+            try {
+                $client->index(['index' => 'articles', 'id' => 'a', 'body' => ['t' => 1]]);
+            } catch (PreviewWriteBlockedException) {
+            }
+        });
+        $this->assertSame(409, $result->status);
+        $this->assertSame([true, true], $alive(), 'The refusal marked a node dead');
+        $this->assertSame([], $fake->requests(), 'The refused write was retried or sent');
+        // The next read, and the next Send, run on a healthy pool.
+        $this->assertTrue($this->preview($recorder, [$store], fn () => $this->search($client))->isConfirmed());
+        $recorder->begin(false);
+        $client->index(['index' => 'articles', 'id' => 'a', 'body' => ['t' => 1]]);
+        $recorder->finish();
+        $this->assertSame(['POST /articles/_search', self::indexRequest($engine)], $fake->requests());
+        $this->assertSame([true, true], $alive());
+    }
+
+    /**
+     * spec/data-stores.md, "Writes the binding can't attribute to a request": work the handler starts
+     * that writes after the response (PHP's after-response callbacks: `defer()`, `terminating()`,
+     * `kernel.terminate`, shutdown functions, `fastcgi_finish_request()`) still carries the ended
+     * Preview's scope and is refused before it is sent.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('engines')]
+    public function testWorkTheHandlerStartedThatWritesAfterTheResponseIsRefused(string $engine, string $kind): void
+    {
+        [$recorder, $client, $fake, $store] = $this->hooked($engine, $kind);
+        $afterResponse = [];
+        $result = $this->preview($recorder, [$store], function () use ($client, &$afterResponse): void {
+            $afterResponse[] = static fn () => $client->index(['index' => 'articles', 'id' => 'late', 'body' => ['t' => 1]]);
+        });
+        $this->assertTrue($result->isConfirmed(), 'The handler wrote nothing before it returned');
+        foreach ($afterResponse as $task) {
+            try {
+                $task();
+                $this->fail('The after-response write was sent.');
+            } catch (PreviewWriteBlockedException $refusal) {
+                $this->assertSame('index', $refusal->operation);
+            }
+        }
+        $this->assertSame($engine, $recorder->blocked()['store'], 'The ended Preview is still a Preview');
+        $this->assertSame([], $fake->requests());
+    }
+
+    /** Elasticsearch's bulk helper sends each chunk from the caller's call, so the refusal reaches the caller at once. */
+    public function testTheElasticsearchBulkHelperIsRefusedOnTheCallersCall(): void
+    {
+        if (!class_exists(\Elastic\Elasticsearch\Helper\Bulk::class)) {
+            $this->markTestSkipped('This elasticsearch/elasticsearch release has no bulk helper.');
+        }
+        [$recorder, $client, $fake, $store] = $this->hooked('elasticsearch', 'psr18');
+        $refused = 0;
+        $result = $this->preview($recorder, [$store], function () use ($client, &$refused): void {
+            try {
+                \Elastic\Elasticsearch\Helper\Bulk::bulk($client, 'articles', new \ArrayIterator([[['index' => ['_id' => 'a']], ['t' => 1]]]));
+            } catch (PreviewWriteBlockedException) {
+                $refused++;
+            }
+        });
+        $this->assertSame(1, $refused);
+        $this->assertSame(409, $result->status);
+        $this->assertSame('bulk', $result->problem()['operation']);
+        $this->assertSame([], $fake->requests());
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('engines')]
     public function testWithTheHookRemovedTheWritesReachTheNetworkAndTheGuardChecksFail(string $engine, string $kind): void
     {
