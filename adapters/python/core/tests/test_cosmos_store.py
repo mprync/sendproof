@@ -144,7 +144,9 @@ class Account(BaseHTTPRequestHandler):
     def respond(self) -> None:
         length = int(self.headers.get("content-length") or 0)
         self.rfile.read(length)
-        type(self).requests.append((self.command, self.path.split("?")[0].rstrip("/") or "/"))
+        query = any((self.headers.get(name) or "").lower() == "true"
+                    for name in ("x-ms-documentdb-isquery", "x-ms-cosmos-is-query-plan-request"))
+        type(self).requests.append((self.command, self.path.split("?")[0].rstrip("/") or "/", query))
         here = f"http://127.0.0.1:{self.server.server_address[1]}/"
         if self.path == "/":
             body: dict = {"id": "acct", "writableLocations": [{"name": "x", "databaseAccountEndpoint": here}],
@@ -180,8 +182,8 @@ def account():
 
 
 def writes_seen() -> list:
-    return [seen for seen in Account.requests if seen[0] not in ("GET", "HEAD")
-            and not (seen[0] == "POST" and seen[1].endswith("/docs"))]
+    """Every request that reached the account and was not a read: queries are told apart by their headers."""
+    return [seen[:2] for seen in Account.requests if seen[0] not in ("GET", "HEAD") and not seen[2]]
 
 
 def test_the_client_ignores_per_call_policies_so_the_hook_is_a_transport(account):
@@ -232,8 +234,18 @@ def test_outside_a_preview_the_hooked_client_writes_normally(account):
     scope = observed_scope()
     with active(scope):
         container.upsert_item({"id": "j", "pk": "j"})
-    assert [seen for seen in Account.requests if seen[0] == "POST" and seen[1].endswith("/docs")]
+    assert writes_seen() == [("POST", "/dbs/db/colls/c/docs")] * 2
     assert len(db_entries(scope, "cosmosdb", "Upsert")) == 1
+
+
+def test_without_the_hook_the_same_writes_reach_the_account(account):
+    """The control for ``writes_seen``: an unhooked client's write is seen, so an empty list proves a refusal."""
+    container = CosmosClient(account, credential="a2V5", connection_verify=False).get_database_client("db").get_container_client("c")
+    with active(preview_scope()):
+        container.upsert_item({"id": "i", "pk": "i"})
+        container.create_item({"id": "j", "pk": "j"})
+        list(container.query_items("SELECT * FROM c", enable_cross_partition_query=True))
+    assert writes_seen() == [("POST", "/dbs/db/colls/c/docs")] * 2
 
 
 def test_a_client_built_with_the_guarded_transport_is_guarded_from_its_first_request(account):
@@ -256,26 +268,73 @@ def test_hooking_a_client_twice_is_refused(account):
         cosmosdb_store(object())  # no azure-core transport to guard: refused at registration, never left unguarded
 
 
-def test_a_write_no_request_accounts_for_fails_every_open_preview(account):
-    """A thread a handler started without its context writes unguarded, so the Preview can't be confirmed."""
+def test_a_write_no_request_accounts_for_is_refused_before_it_is_sent(account):
+    """A thread a handler started without its context (or the SDK's own hedging threads) carries no
+    request: while a Preview is open its write is refused before sending and every open Preview is blocked."""
     client = CosmosClient(account, credential="a2V5", connection_verify=False)
     cosmosdb_store(client)
     container = client.get_database_client("db").get_container_client("c")
+    refused: list = []
 
     def in_thread(body):
-        thread = threading.Thread(target=body)
+        def run() -> None:
+            try:
+                body()
+            except PreviewWriteBlocked as error:
+                refused.append(error.operation)
+        thread = threading.Thread(target=run)
         thread.start()
         thread.join()
 
-    with active(preview_scope()) as scope:
+    with active(preview_scope()) as scope, active(preview_scope()) as other:
+        in_thread(lambda: container.read_item("i", partition_key="i"))  # reads are never a problem
         in_thread(lambda: container.upsert_item({"id": "t", "pk": "t"}))
-        assert isinstance(scope.capture.fault, Exception) and "outside any request" in str(scope.capture.fault)
-    with active(preview_scope()) as scope:  # background work the host marked is not a fault
+        assert refused == ["Upsert"]
+        assert scope.capture.blocked["operation"] == other.capture.blocked["operation"] == "Upsert"
+    assert writes_seen() == []
+    with active(preview_scope()) as scope:  # background work the host marked is never refused
         def marked() -> None:
             with detached():
                 container.upsert_item({"id": "t", "pk": "t"})
         in_thread(marked)
-        assert scope.capture.fault is None
+        assert scope.capture.fault is None and scope.capture.blocked is None
+    assert len(writes_seen()) == 1
+
+
+def test_registration_refuses_an_unsupported_version_or_a_client_whose_pipeline_differs(account, monkeypatch):
+    from sendproof_core.stores import versions
+
+    client = CosmosClient(account, credential="a2V5", connection_verify=False)
+    with monkeypatch.context() as patch:
+        patch.setattr(versions, "installed", lambda distribution: "4.18.0")
+        with pytest.raises(TypeError, match="azure-cosmos>=4.17,<4.18"):
+            cosmosdb_store(client)
+    # A pipeline whose last step no longer sends through ``_transport``: guarding it would guard nothing.
+    client.client_connection.pipeline_client._pipeline._transport = RequestsTransport()
+    with pytest.raises(TypeError, match="azure-core transport"):
+        cosmosdb_store(client)
+
+
+def test_every_management_and_bulk_write_is_refused(account):
+    client = CosmosClient.from_connection_string(f"AccountEndpoint={account};AccountKey=a2V5;", connection_verify=False)
+    cosmosdb_store(client)
+    database = client.get_database_client("db")
+    container = database.get_container_client("c")
+    with active(preview_scope()):
+        for refuse in (
+            lambda: container.delete_all_items_by_partition_key("i"),
+            lambda: client.create_database("other"),
+            lambda: client.delete_database("db"),
+            lambda: database.create_container("new", partition_key=__import__("azure.cosmos").cosmos.PartitionKey("/pk")),
+            lambda: database.replace_container(container, partition_key=__import__("azure.cosmos").cosmos.PartitionKey("/pk")),
+            lambda: container.scripts.create_stored_procedure({"id": "p", "body": "function () {}"}),
+            lambda: container.scripts.create_trigger({"id": "t", "body": "function () {}", "triggerType": "Pre", "triggerOperation": "All"}),
+            lambda: database.create_user({"id": "u"}),
+            lambda: container.upsert_item({"id": "i", "pk": "i"}, pre_trigger_include="audit"),
+        ):
+            with pytest.raises(PreviewWriteBlocked):
+                refuse()
+    assert writes_seen() == []
 
 
 def test_the_aio_client_is_guarded_too(account):

@@ -205,3 +205,30 @@ def test_firestore_methods_of_other_services_and_versions_are_writes():
     assert classify_firestore("/google.firestore.v1.Firestore/ExecutePipeline", treat_as_read=frozenset({"ExecutePipeline"})).kind == "read"
     assert classify_firestore(b"/google.firestore.v1.Firestore/Listen").kind == "read"
     assert classify_firestore("").kind == "write"
+
+
+# ------------------------------------------------------------------ pinned client versions
+def test_the_pinned_client_versions_match_the_package_metadata_and_the_installed_clients():
+    """The hooks that rely on private internals refuse unverified versions; the extras say the same range,
+    and the installed clients the tests ran against are inside it."""
+    import re
+
+    from sendproof_core.stores import versions
+
+    metadata = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    for distribution, (lowest, beyond) in versions.SUPPORTED.items():
+        assert re.search(rf'"{re.escape(distribution)}>={re.escape(lowest)},<{re.escape(beyond)}"', metadata), distribution
+        installed = versions.installed(distribution)
+        if installed is not None:
+            versions.require_supported(distribution, "test")  # raises when the installed client is unsupported
+
+
+@pytest.mark.parametrize("found", ["4.16.9", "4.18.0", "5.0.0", None])
+def test_an_unsupported_or_missing_version_is_refused(monkeypatch, found):
+    from sendproof_core.stores import versions
+
+    monkeypatch.setattr(versions, "installed", lambda distribution: found)
+    with pytest.raises(TypeError, match=r"azure-cosmos>=4\.17,<4\.18"):
+        versions.require_supported("azure-cosmos", "cosmosdb_store")
+    monkeypatch.setattr(versions, "installed", lambda distribution: "4.17.0b1")
+    versions.require_supported("azure-cosmos", "cosmosdb_store")

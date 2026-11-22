@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 from .base import DataStore
 from .classify_batch_two import classify_cosmos, path_segments
 from .guard import check_command, read_set, store_label
+from .versions import require_supported
 
 _COSMOS_STRING = re.compile(r"""'(?:[^'\\]|\\.)*'?|"(?:[^"\\]|\\.)*"?""", re.DOTALL)
 _COSMOS_NUMBER = re.compile(r"(?<![\w@.])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?![\w])")
@@ -151,7 +152,10 @@ def _client_transport(client: Any) -> Any:
     """
     pipeline = getattr(getattr(getattr(client, "client_connection", None), "pipeline_client", None), "_pipeline", None)
     transport = getattr(pipeline, "_transport", None)
-    if transport is None or not hasattr(transport, "send"):
+    policies = getattr(pipeline, "_impl_policies", None)
+    # The object found must be the one the pipeline's last step sends through, or guarding it guards nothing.
+    runner = getattr(policies[-1], "next", None) if isinstance(policies, list) and policies else None
+    if transport is None or not hasattr(transport, "send") or getattr(runner, "_sender", None) is not transport:
         raise TypeError(
             "cosmosdb_store could not find the azure-core transport of this client (azure-cosmos 4 expected). "
             "Build the client with transport=store.guard_transport(...) instead.")
@@ -203,6 +207,7 @@ def cosmosdb_store(client: Any = None, *, name: Optional[str] = None,
             trigger is still a write. **The guard trusts this list**: a listed operation that does
             write is not blocked.
     """
+    require_supported("azure-cosmos", "cosmosdb_store")
     store = CosmosDBStore(store_label(name), read_set(treat_as_read))
     if client is not None:
         store.guard_transport(_client_transport(client))

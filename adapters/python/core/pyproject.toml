@@ -36,8 +36,10 @@ mongodb = ["pymongo>=4.9"]
 cassandra = ["cassandra-driver>=3.29"]
 elasticsearch = ["elasticsearch>=8,<9"]
 opensearch = ["opensearch-py>=2,<3"]
-cosmosdb = ["azure-cosmos>=4"]
-firestore = ["google-cloud-firestore>=2"]
+# The Cosmos DB and Firestore hooks reach into private internals, so each is pinned to the minor
+# versions it was verified against (sendproof_core/stores/versions.py); registration refuses others.
+cosmosdb = ["azure-cosmos>=4.17,<4.18"]
+firestore = ["google-cloud-firestore>=2.34,<2.35"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sendproof_core"]

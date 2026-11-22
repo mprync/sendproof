@@ -23,7 +23,8 @@ TEST_DEPENDENCIES = [
     # Data-store clients: the hooks in sendproof_core.stores are tested against these.
     "redis", "boto3", "aioboto3", "pymongo", "motor",
     # Batch two (guard-only): Cassandra, Elasticsearch 8, OpenSearch 2, Cosmos DB and Firestore (which brings grpcio).
-    "cassandra-driver", "elasticsearch>=8,<9", "opensearch-py>=2,<3", "azure-cosmos", "google-cloud-firestore",
+    # Cosmos DB and Firestore are pinned to the minor versions their hooks support (sendproof_core/stores/versions.py).
+    "cassandra-driver", "elasticsearch>=8,<9", "opensearch-py>=2,<3", "azure-cosmos>=4.17,<4.18", "google-cloud-firestore>=2.34,<2.35",
 ]
 
 
