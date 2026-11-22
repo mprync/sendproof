@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.elasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchAsyncClient;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._helpers.bulk.BulkIngester;
 import co.elastic.clients.json.JsonpMapper;
 import co.elastic.clients.json.JsonpSerializable;
 import co.elastic.clients.json.NdJsonpSerializable;
@@ -101,6 +102,20 @@ public final class ElasticsearchStore extends GuardOnlyStore implements SearchSu
     /** An asynchronous client over a guarded transport. */
     public ElasticsearchAsyncClient asyncClient(ElasticsearchTransport raw) {
         return new ElasticsearchAsyncClient(transport(raw));
+    }
+
+    /**
+     * A bulk ingester that refuses an operation when it is queued. Build the ingester on a client made by this store
+     * ({@link #client}); the returned handle guards {@code add} and delegates the rest.
+     */
+    public <C> GuardedBulkIngester<C> bulkIngester(
+            java.util.function.Function<BulkIngester.Builder<C>, BulkIngester.Builder<C>> builder) {
+        return new GuardedBulkIngester<>(this, BulkIngester.of(builder));
+    }
+
+    /** Guards an operation being queued on the calling thread: a bulk write. */
+    void queued() {
+        observe(new Classified(io.github.mprync.sendproof.core.stores.CommandKind.WRITE, "bulk"), null, null, null).complete(null, null);
     }
 
     /** Whether {@code transport} is one this library guards, by any store. */

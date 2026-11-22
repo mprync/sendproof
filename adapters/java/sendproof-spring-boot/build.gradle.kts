@@ -17,6 +17,8 @@ dependencies {
     api(project(":sendproof-mongodb"))
     api(project(":sendproof-redis"))
     api(project(":sendproof-dynamodb"))
+    api(project(":sendproof-cassandra"))
+    api(project(":sendproof-elasticsearch"))
     api("org.springframework.boot:spring-boot-autoconfigure")
     api("org.springframework:spring-webmvc")
 
@@ -27,6 +29,9 @@ dependencies {
     compileOnly("org.springframework.data:spring-data-mongodb")
     compileOnly("org.springframework.data:spring-data-redis")
     compileOnly(rootProject.libs.mongodb.sync)
+    compileOnly(rootProject.libs.cassandra.driver)
+    compileOnly(rootProject.libs.elasticsearch.java)
+    compileOnly(rootProject.libs.opensearch.java)
     compileOnly(rootProject.libs.springdoc.webmvc.api)
 
     testImplementation("org.springframework.boot:spring-boot-starter-web")

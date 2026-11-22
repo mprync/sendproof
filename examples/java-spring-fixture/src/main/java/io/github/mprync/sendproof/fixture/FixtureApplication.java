@@ -26,6 +26,9 @@ public class FixtureApplication {
                     "org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration",
                     "org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration"));
         }
+        if (System.getenv("BENCH_CASSANDRA_CONTACT_POINT") == null) {
+            excluded.add("org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration");
+        }
         if (System.getenv("BENCH_REDIS_URL") == null) {
             excluded.addAll(List.of("org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration",
                     "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration"));

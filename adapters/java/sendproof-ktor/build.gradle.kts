@@ -21,6 +21,8 @@ dependencies {
     api(project(":sendproof-mongodb"))
     api(project(":sendproof-redis"))
     api(project(":sendproof-dynamodb"))
+    api(project(":sendproof-cassandra"))
+    api(project(":sendproof-elasticsearch"))
     compileOnly(libs.mongodb.kotlin)
     api("io.ktor:ktor-server-core")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")

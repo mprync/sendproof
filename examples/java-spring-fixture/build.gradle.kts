@@ -17,6 +17,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation(platform(libs.awssdk.bom))
     implementation("software.amazon.awssdk:dynamodb")
+    // Batch two (Cassandra, OpenSearch), each hooked only when the runner passes its variables.
+    implementation(libs.cassandra.driver)
+    implementation(libs.opensearch.java)
+    implementation(libs.httpclient5)
     runtimeOnly("com.h2database:h2")
     // The MySQL conformance entry (BENCH_DATABASE=mysql).
     runtimeOnly("com.mysql:mysql-connector-j")

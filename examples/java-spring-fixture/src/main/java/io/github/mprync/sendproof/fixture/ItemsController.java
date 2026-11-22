@@ -42,13 +42,18 @@ public class ItemsController {
     private final ItemService items;
     private final ObjectProvider<StringRedisTemplate> redis;
     private final ObjectProvider<OrdersController> orders;
+    private final ObjectProvider<TicketsController> tickets;
+    private final ObjectProvider<ArticlesController> articles;
     private final String redisPrefix;
 
     public ItemsController(ItemService items, ObjectProvider<StringRedisTemplate> redis,
-                           ObjectProvider<OrdersController> orders, @Value("${bench.redis.prefix:}") String redisPrefix) {
+                           ObjectProvider<OrdersController> orders, ObjectProvider<TicketsController> tickets,
+                           ObjectProvider<ArticlesController> articles, @Value("${bench.redis.prefix:}") String redisPrefix) {
         this.items = items;
         this.redis = redis;
         this.orders = orders;
+        this.tickets = tickets;
+        this.articles = articles;
         this.redisPrefix = redisPrefix;
     }
 
@@ -139,10 +144,14 @@ public class ItemsController {
     @SendproofPreview
     @PostMapping("/{id}/remember")
     public ResponseEntity<ItemResponse> remember(@PathVariable String id, @Valid @RequestBody RenameItem request,
-                                                 @RequestParam String store) {
+                                                 @RequestParam String store) throws java.io.IOException {
         Item item = items.insert(id, request.name());
         if (store.equals("redis")) {
             redis.getObject().opsForValue().increment(redisPrefix + "counter:item-" + id);
+        } else if (store.equals("cassandra")) {
+            tickets.getObject().touchTicket("item-" + id);
+        } else if (store.equals("opensearch")) {
+            articles.getObject().touchArticle("item-" + id);
         } else {
             orders.getObject().touchItem("item-" + id);
         }

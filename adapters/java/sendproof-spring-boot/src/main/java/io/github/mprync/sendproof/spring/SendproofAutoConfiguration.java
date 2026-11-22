@@ -187,6 +187,25 @@ public class SendproofAutoConfiguration {
         }
     }
 
+    /** Hooks every Cassandra session bean. Static: post-processors are created before the beans they wrap. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "com.datastax.oss.driver.api.core.CqlSession")
+    static class CassandraHookConfiguration {
+        @Bean
+        static CassandraStoreHook sendproofCassandraStoreHook(Environment environment) {
+            return new CassandraStoreHook(environment);
+        }
+    }
+
+    /** Hooks every Elasticsearch and OpenSearch transport bean (the hook checks which library is present). Static: post-processors are created before the beans they wrap. */
+    @Configuration(proxyBeanMethods = false)
+    static class SearchHookConfiguration {
+        @Bean
+        static SearchStoreHook sendproofSearchStoreHook(Environment environment) {
+            return new SearchStoreHook(environment);
+        }
+    }
+
     /** The MongoDB tripwire: the command listener of the Spring Data store joins the auto-configured client. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = {"org.springframework.data.mongodb.MongoDatabaseFactory", "com.mongodb.client.MongoClient"})

@@ -205,6 +205,49 @@ class FirestoreStoreTest {
     }
 
     @Test
+    void aTaskTheHandlerStartedWritesAfterTheResponseAndIsRefused() throws Exception {
+        var fake = new FakeRpc();
+        FirestoreRpc guarded = store.rpc(fake.rpc);
+        var commit = CommitRequest.newBuilder().addWrites(com.google.firestore.v1.Write.getDefaultInstance()).build();
+        var later = new java.util.concurrent.CompletableFuture<Throwable>();
+        // The task runs on the client's executor, which carries the Preview's context, long after the Preview ended.
+        var pool = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        var executor = new PropagatingExecutor(pool);
+        try {
+            PreviewOutcome outcome = Harness.preview(store, () -> executor.schedule(() -> {
+                try {
+                    guarded.commitCallable().futureCall(commit);
+                    later.complete(null);
+                } catch (Throwable refused) {
+                    later.complete(refused);
+                }
+            }, 500, java.util.concurrent.TimeUnit.MILLISECONDS));
+            assertThat(outcome.confirmed()).isTrue();
+            assertThat(later.get(10, java.util.concurrent.TimeUnit.SECONDS)).isInstanceOf(PreviewWriteBlockedException.class);
+            assertThat(fake.reached).isEmpty();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void aBulkWriterRefusesAtQueueTimeOnTheCallersThreadSoNothingRetriesOrHangs() throws Exception {
+        PreviewOutcome outcome = Harness.preview(store, () -> {
+            var bulk = store.bulkWriter(db);
+            assertThatThrownBy(() -> bulk.set(db.document("orders/o-1"), Map.of("status", "new"))).isInstanceOf(PreviewWriteBlockedException.class);
+            // Nothing was queued, so flush and close return at once.
+            bulk.flush().get(10, java.util.concurrent.TimeUnit.SECONDS);
+            bulk.close();
+        });
+        assertThat(outcome.blocked()).isTrue();
+        assertThat(new String(outcome.problem())).contains("\"operation\":\"BatchWrite\"");
+        assertThat(served).isEmpty();
+        // Outside a Preview the writer queues and sends as usual (this server doesn't implement BatchWrite, so only the queueing is shown).
+        var bulk = store.bulkWriter(db);
+        bulk.set(db.document("orders/sent"), Map.of("status", "new"));
+    }
+
+    @Test
     void anEmptyCommitEndsATransactionThatOnlyReadAndIsAllowed() throws Exception {
         var fake = new FakeRpc();
         FirestoreRpc guarded = store.rpc(fake.rpc);

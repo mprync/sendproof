@@ -30,6 +30,10 @@ dependencies {
     implementation("redis.clients:jedis:5.2.0")
     implementation(platform(libs.awssdk.bom))
     implementation("software.amazon.awssdk:dynamodb")
+    // Batch two (Cassandra, OpenSearch), each used only when the runner passes its variables.
+    implementation(libs.cassandra.driver)
+    implementation(libs.opensearch.java)
+    implementation(libs.httpclient5)
     runtimeOnly("com.h2database:h2:2.3.232")
     runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
 }

@@ -7,7 +7,10 @@ import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.reactivestreams.client.MongoClients
 import com.mongodb.reactivestreams.client.ReactiveContextProvider
 import io.github.mprync.sendproof.core.DataStore
+import com.datastax.oss.driver.api.core.CqlSession
+import io.github.mprync.sendproof.cassandra.CassandraStore
 import io.github.mprync.sendproof.dynamodb.DynamoDbStore
+import io.github.mprync.sendproof.elasticsearch.OpenSearchStore
 import io.github.mprync.sendproof.ktor.coroutine
 import io.github.mprync.sendproof.mongodb.MongoStore
 import io.github.mprync.sendproof.redis.RedisStore
@@ -66,6 +69,30 @@ class DynamoFixture(url: String, val table: String) {
         .build()
 }
 
+/** Cassandra through the DataStax driver, behind the guarded session. */
+class CassandraFixture(contactPoint: String, keyspace: String) {
+    val store: CassandraStore = CassandraStore.builder().name("tickets").build()
+    val session: CqlSession
+
+    init {
+        val colon = contactPoint.lastIndexOf(':')
+        val raw = CqlSession.builder()
+            .addContactPoint(java.net.InetSocketAddress(contactPoint.substring(0, colon), contactPoint.substring(colon + 1).toInt()))
+            .withLocalDatacenter("datacenter1").withKeyspace(keyspace).build()
+        session = store.session(raw)
+    }
+}
+
+/** OpenSearch through the typed client over a guarded transport. */
+class OpenSearchFixture(url: String, val index: String) {
+    val store: OpenSearchStore = OpenSearchStore.builder().name("articles").build()
+    val client: org.opensearch.client.opensearch.OpenSearchClient = store.client(
+        org.opensearch.client.transport.httpclient5.ApacheHttpClient5TransportBuilder
+            .builder(org.apache.hc.core5.http.HttpHost.create(url))
+            .setMapper(org.opensearch.client.json.jackson.JacksonJsonpMapper()).build(),
+    )
+}
+
 /** The data stores the runner asked for, each present only when its variables are set. */
 class Stores(
     val mongo: MongoFixture? = System.getenv("BENCH_MONGODB_URL")?.let { MongoFixture(it) },
@@ -73,12 +100,18 @@ class Stores(
     val dynamo: DynamoFixture? = System.getenv("BENCH_DYNAMODB_URL")?.let {
         DynamoFixture(it, checkNotNull(System.getenv("BENCH_DYNAMODB_TABLE")))
     },
+    val cassandra: CassandraFixture? = System.getenv("BENCH_CASSANDRA_CONTACT_POINT")?.let {
+        CassandraFixture(it, checkNotNull(System.getenv("BENCH_CASSANDRA_KEYSPACE")))
+    },
+    val opensearch: OpenSearchFixture? = System.getenv("BENCH_OPENSEARCH_URL")?.let {
+        OpenSearchFixture(it, checkNotNull(System.getenv("BENCH_OPENSEARCH_INDEX")))
+    },
 ) {
     companion object {
         /** No stores, for the scenario that disables Sendproof. */
-        fun none() = Stores(null, null, null)
+        fun none() = Stores(null, null, null, null, null)
     }
 
     /** The hooks to register with the plugin. */
-    val all: List<DataStore> get() = listOfNotNull(mongo?.store, redis?.store, dynamo?.store)
+    val all: List<DataStore> get() = listOfNotNull(mongo?.store, redis?.store, dynamo?.store, cassandra?.store, opensearch?.store)
 }

@@ -90,6 +90,8 @@ fun Application.fixtureModule(scenario: Scenario) {
             stores.mongo?.let { documentRoutes(accounts, it) }
             stores.redis?.let { counterRoutes(accounts, it) }
             stores.dynamo?.let { orderRoutes(accounts, it) }
+            stores.cassandra?.let { ticketRoutes(accounts, it) }
+            stores.opensearch?.let { articleRoutes(accounts, it) }
         }
     }
 }
@@ -186,6 +188,8 @@ private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: I
                 val item = items.insertPlain(id, name)
                 when (call.request.queryParameters["store"]) {
                     "redis" -> withContext(Dispatchers.IO) { stores.redis!!.jedis.incr(stores.redis.key("item-$id")) }
+                    "cassandra" -> touchTicket(stores.cassandra!!, "item-$id")
+                    "opensearch" -> touchArticle(stores.opensearch!!, "item-$id")
                     else -> touchOrder(stores.dynamo!!, "item-$id")
                 }
                 call.respond(HttpStatusCode.Created, item)

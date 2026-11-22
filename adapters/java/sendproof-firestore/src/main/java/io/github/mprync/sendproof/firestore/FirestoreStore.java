@@ -118,6 +118,21 @@ public final class FirestoreStore extends GuardOnlyStore {
         FirestoreStore sendproofStore();
     }
 
+    /**
+     * A bulk writer that refuses a write when it is queued. The real {@code BulkWriter} sends later, in batches, and retries
+     * on its own, so a refusal at send time can loop until {@code flush} never returns: refuse before it is queued.
+     *
+     * @param db a client made by this store
+     */
+    public GuardedBulkWriter bulkWriter(Firestore db) {
+        return new GuardedBulkWriter(this, db.bulkWriter());
+    }
+
+    /** Guards a write that is being queued on the calling thread. */
+    Observation queued(String operation) {
+        return observe(new Classified(io.github.mprync.sendproof.core.stores.CommandKind.WRITE, operation), null, null, null);
+    }
+
     Observation start(Classified classified) {
         return observe(classified, null, null, null);
     }

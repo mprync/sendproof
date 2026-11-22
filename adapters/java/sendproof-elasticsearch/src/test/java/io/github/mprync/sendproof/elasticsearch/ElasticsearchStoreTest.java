@@ -160,6 +160,22 @@ class ElasticsearchStoreTest {
     }
 
     @Test
+    void aBulkIngesterRefusesAtQueueTimeAndNothingIsSentOrRetried() throws Exception {
+        PreviewOutcome outcome = Harness.preview(store, () -> {
+            var ingester = store.<Void>bulkIngester(b -> b.client(client).maxOperations(10)
+                    .backoffPolicy(co.elastic.clients.transport.BackoffPolicy.constantBackoff(10L, 5)));
+            assertThatThrownBy(() -> ingester.add(op -> op.index(i -> i.index("articles").document(Map.of("a", 1)))))
+                    .isInstanceOf(PreviewWriteBlockedException.class);
+            // Nothing was queued: flush and close return at once.
+            ingester.flush();
+            ingester.close();
+        });
+        assertThat(outcome.blocked()).isTrue();
+        assertThat(new String(outcome.problem())).contains("\"operation\":\"bulk\"");
+        assertThat(sent).isEmpty();
+    }
+
+    @Test
     void hostDeclaredReadsPassAndDescribeReportsGuardMode() throws Exception {
         ElasticsearchStore lenient = ElasticsearchStore.builder().treatAsRead("index").build();
         ElasticsearchClient mine = lenient.client(raw);

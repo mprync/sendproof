@@ -1,6 +1,6 @@
 # Data stores in the Java and Kotlin binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis and DynamoDB, the Java binding (Spring Boot) and the Kotlin binding (Ktor) hook each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the rollback provider guarantees it. For MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore, the Java binding (Spring Boot) and the Kotlin binding (Ktor) hook each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
 
 | Store | Module | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,8 +8,12 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | `sendproof-mongodb` | `guard` | Runs reads. The first write stops the Preview. |
 | Redis | `sendproof-redis` | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB | `sendproof-dynamodb` | `guard` | Runs reads. The first write stops the Preview. |
+| Cassandra, ScyllaDB | `sendproof-cassandra` | `guard` | Runs reads. The first write, and every `BATCH`, stops the Preview. |
+| Elasticsearch, OpenSearch | `sendproof-elasticsearch` | `guard` | Runs reads (including `POST _search`). The first write stops the Preview. |
+| Azure Cosmos DB | `sendproof-cosmosdb` | `guard` | Runs reads. The first write, stored procedure or trigger stops the Preview. |
+| Google Cloud Firestore | `sendproof-firestore` | `guard` | Runs reads. The first write stops the Preview. |
 
-Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry. `sendproof-spring-boot` and `sendproof-ktor` depend on the three modules. Each store's client library is compile-only there, so your application brings the one it uses.
+Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry. `sendproof-spring-boot` and `sendproof-ktor` depend on every store module. Each store's client library is compile-only there, so your application brings the one it uses.
 
 ## Coverage: only hooked clients are covered
 
@@ -84,6 +88,50 @@ MongoClient client = store.sync(raw);   // handlers use this guarded client
 
 The store proves the listener is installed by sending its own `hello` with a token and waiting to see that token on that client. A client without the listener, or a listener that only saw another client's commands, reports `guard` mode with the reason "the Sendproof command listener isn't registered on this MongoDB client".
 
+## Batch two: Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore
+
+These five stores run in `guard` mode only: none can roll back. Reads run; during a Preview the first write is refused **before it is sent** with `PreviewWriteBlockedException` (409 with the problem body, a blocked `Db` log entry, discovery fields), exactly as for Redis and DynamoDB. Classification is the shared table of [spec/data-stores/](../../spec/data-stores/). Setup per store:
+
+| Store | Library | How to hook | Spring Boot | Ktor |
+| --- | --- | --- | --- | --- |
+| Cassandra | DataStax Java driver 4 (`CqlSession`), Spring Data Cassandra | `CassandraStore.builder().name("tickets").build().session(rawSession)` returns a `java.lang.reflect.Proxy` over `CqlSession`. It sees simple, bound and batch statements, sync, async and reactive, above the driver's own prepare. | Every `CqlSession` bean (Boot's own, used by `CqlTemplate` and repositories) is replaced by a guarded session. | `dataStores += store`, and use `store.session(raw)` in handlers. |
+| Elasticsearch | `elasticsearch-java` 8, Spring Data Elasticsearch | `ElasticsearchStore.builder().build().client(transport)` (or `.transport(raw)`, `.asyncClient(raw)`) decorates `ElasticsearchTransport`, which sees every typed call's method, path and body. | Every `ElasticsearchTransport` bean is replaced by a guarded one. | As above. |
+| OpenSearch | `opensearch-java` 2 | `OpenSearchStore.builder().build().client(transport)` decorates `OpenSearchTransport`; the generic client's SQL and PPL calls pass through it too. | Every `OpenSearchTransport` bean. | As above. |
+| Cosmos DB | `azure-cosmos` 4 | `CosmosStore.builder().build().client(rawClient)` (or `.asyncClient`) returns guarded `getDatabase(id).getContainer(id)` handles. | Not hooked. | Use the wrappers in handlers. |
+| Firestore | `google-cloud-firestore` 3 | `FirestoreStore.builder().build().firestore(FirestoreOptions.newBuilder()...)` wraps the client's `FirestoreRpc` layer. | Register the store as a bean and build the client with it. | As above. |
+
+```java
+CassandraStore tickets = CassandraStore.builder().name("tickets").build();
+CqlSession session = tickets.session(CqlSession.builder().build());          // handlers use this one
+
+OpenSearchStore articles = OpenSearchStore.builder().name("articles").build();
+OpenSearchClient search = articles.client(ApacheHttpClient5TransportBuilder.builder(host).setMapper(mapper).build());
+
+FirestoreStore orders = FirestoreStore.builder().name("orders").build();
+Firestore db = orders.firestore(FirestoreOptions.newBuilder().setProjectId("my-project"));
+```
+
+Properties: `sendproof.stores.cassandra.enabled`, `.name` and the same for `elasticsearch` and `opensearch`. Spring Boot checks after startup that every `CqlSession` and search transport bean is guarded and **stops the application if one is not** (a bean created before Sendproof's post-processor), so an unguarded client can't slip through silently.
+
+### Why each hook is where it is
+
+- **Cassandra.** A post-hoc `RequestTracker` can't block. The proxy classifies the statement text; a bound statement by the text it was prepared from; any `BATCH`, lightweight transaction, second statement, unreadable text or unknown request type is a write.
+- **Elasticsearch and OpenSearch.** The guard sits on the transport interface, **above the client's connection pool and retry logic**, so a refusal is never an HTTP failure: a refused write sends nothing, never marks a node dead and is never retried (`TwoNodeTest` shows it with two nodes). A derived client (`withTransportOptions`) shares the transport and stays guarded.
+- **Cosmos DB.** *Spike result:* the SDK has no public hook that runs before a request is sent. `CosmosOperationPolicy` only overrides request options and shows neither the request's pre/post-trigger options nor its headers, and the client classes are final or have package-private constructors, so they can't be subclassed or proxied. The wrapper fallback is used: handlers must use the guarded handles (`GuardedCosmos`, `GuardedCosmosAsync`). Only guarded operations are offered; database and container management, users, conflicts and throughput control are absent, so use the raw client for setup code outside a request. A trigger in the item options makes even a read a write.
+- **Firestore.** *Spike result:* the plan's gRPC `ClientInterceptor` is not used. The client runs every attempt on its own scheduler thread, so an interceptor sees each call on a thread with no request behind it and can't tell which Preview made it. The hook wraps `FirestoreRpc`, whose callables run on the caller's thread, with typed requests (`Commit` is a write only when it has writes). It also carries the request's context to the client's executor, so `runTransaction` and its `Commit` are attributed. An emulator endpoint is covered.
+
+### Writers that queue
+
+A client that queues writes and sends them later, with its own retries, must refuse when the write is **queued**: a refusal at send time is retried until `flush` or `close` never returns. Use `FirestoreStore.bulkWriter(db)` (a `GuardedBulkWriter`) instead of `db.bulkWriter()`, and `ElasticsearchStore.bulkIngester(...)` (a `GuardedBulkIngester`) instead of `BulkIngester.of(...)`. opensearch-java has no ingester; its bulk request is an ordinary call. A raw `BulkWriter` is still refused when it sends and never writes, but its `close()` then waits on the library's own retries and was seen not to return, so don't use one in a handler.
+
+### Limits
+
+- Only guarded handles are covered: a `CqlSession`, transport, Cosmos client or `Firestore` built elsewhere (including `FirestoreOptions.getDefaultInstance()` and a raw `RestClient`) is not.
+- Writes with no request behind them (the clients' own background threads, a thread the handler started without the context) are refused before they are sent while a Preview is open, and block every open Preview (409). Code that belongs to no request runs inside `CaptureContext.detached { … }`. A write that carries the context of a Preview that has ended is refused for as long as the process runs.
+- The binding never uses `InheritableThreadLocal`, so a pool worker can't inherit a Preview for good. Propagation is explicit and per task: Ktor's coroutine context elements, and the Firestore client's executor, which runs each task under the submitting thread's context and restores it afterwards. Other executors and Spring task executors are **not** wrapped: a task handed to one runs with no request, and its writes are refused while a Preview is open unless it declares itself detached.
+- Spring Data Cosmos is not hooked. `recursiveDelete` on Firestore sends its deletes through the guarded RPC layer when they are sent.
+- Cassandra and OpenSearch run from the compose `heavy-stores` profile in CI's heavy job; Cosmos DB and Firestore have no service and are tested by replaying [the recorded requests](../../spec/data-stores/recordings/README.md).
+
 ## Ktor
 
 Register the stores in the plugin and hand your handlers the guarded clients:
@@ -140,7 +188,7 @@ The SQL transaction rolls back as usual. A failed rollback or abort, a handler `
 
 While a Preview is open, a MongoDB write that carries no request attribution fails every open Preview with 500, because nothing can say it isn't a Preview's own write that escaped. Both adapters mark every ordinary request, so a Send is never mistaken for one. Code that runs outside any request, such as a scheduler or a background worker, writes to MongoDB inside `CaptureContext.detached { … }` to be exempt. Without it, such a write fails whatever Previews happen to be open. A write that carries an open Preview's own session from another thread is that Preview's write and is captured as such.
 
-Redis and DynamoDB hooks guard by call, not by command monitoring, so they don't have this check: a Redis client that was never hooked is simply not covered, and every DynamoDB client is guarded by the fallback above.
+Redis and DynamoDB hooks guard by call, not by command monitoring, so they don't have this check: a Redis client that was never hooked is simply not covered, and every DynamoDB client is guarded by the fallback above. The batch-two stores (Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore) do check, and refuse the write **before it is sent**, so every open Preview answers 409 rather than 500. Only a MongoDB write seen after it was sent (the tripwire above) answers 500.
 
 ## Host-declared reads
 

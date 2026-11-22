@@ -157,3 +157,111 @@ suspend fun touchOrder(dynamo: DynamoFixture, id: String): Map<String, Attribute
             .returnValues("ALL_NEW").build(),
     ).attributes()
 }
+
+/** The Cassandra routes of the fixture contract, through the guarded session. */
+fun Route.ticketRoutes(accounts: Accounts, cassandra: CassandraFixture) {
+    val select by lazy { cassandra.session.prepare("SELECT id, status, hits FROM tickets WHERE id = ?") }
+    route("/tickets") {
+        install(Secured) { this.accounts = accounts }
+        sendproofPreview {
+            get("/{id}") {
+                val id = call.parameters["id"]!!
+                val row = withContext(Dispatchers.IO) { cassandra.session.execute(select.bind(id)).one() }
+                if (row == null) call.respond(HttpStatusCode.NotFound)
+                else call.respond(mapOf("id" to row.getString("id"), "status" to row.getString("status"), "hits" to row.getInt("hits")))
+            }
+            post("/{id}/touch") {
+                touchTicket(cassandra, call.parameters["id"]!!)
+                call.respond(mapOf("id" to call.parameters["id"]!!, "status" to "new", "hits" to 1))
+            }
+            // A logged batch holding a lightweight transaction: a write even though its condition could fail.
+            post("/{id}/close") {
+                val id = call.parameters["id"]!!
+                withContext(Dispatchers.IO) {
+                    cassandra.session.execute(
+                        com.datastax.oss.driver.api.core.cql.BatchStatement.newInstance(
+                            com.datastax.oss.driver.api.core.cql.BatchType.LOGGED,
+                            com.datastax.oss.driver.api.core.cql.SimpleStatement.newInstance("UPDATE tickets SET status = 'closed' WHERE id = ? IF EXISTS", id),
+                        ),
+                    )
+                }
+                call.respond(mapOf("id" to id, "status" to "closed"))
+            }
+        }
+        sendproofPreview(enabled = false, stores = listOf("cassandra")) {
+            delete("/{id}") {
+                withContext(Dispatchers.IO) {
+                    cassandra.session.execute(
+                        com.datastax.oss.driver.api.core.cql.SimpleStatement.newInstance("DELETE FROM tickets WHERE id = ?", call.parameters["id"]!!),
+                    )
+                }
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
+    }
+}
+
+/** `INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)`; shared with the mixed SQL and store route. */
+suspend fun touchTicket(cassandra: CassandraFixture, id: String) {
+    withContext(Dispatchers.IO) {
+        cassandra.session.execute(
+            com.datastax.oss.driver.api.core.cql.SimpleStatement.newInstance("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)", id),
+        )
+    }
+}
+
+/** The OpenSearch routes of the fixture contract, through the typed client over the guarded transport. */
+fun Route.articleRoutes(accounts: Accounts, search: OpenSearchFixture) {
+    fun view(id: String, source: Map<*, *>): Map<String, Any?> =
+        mapOf("id" to id, "title" to source["title"], "views" to (source["views"] as Number).toInt())
+
+    route("/articles") {
+        install(Secured) { this.accounts = accounts }
+        sendproofPreview {
+            // A read sent as a POST to _search.
+            get("/{id}") {
+                val id = call.parameters["id"]!!
+                val hits = withContext(Dispatchers.IO) {
+                    search.client.search({ s -> s.index(search.index).query { q -> q.ids { i -> i.values(id) } }.size(1) }, Map::class.java).hits().hits()
+                }
+                if (hits.isEmpty()) call.respond(HttpStatusCode.NotFound) else call.respond(view(id, hits[0].source()!!))
+            }
+            post("/{id}/touch") {
+                val id = call.parameters["id"]!!
+                call.respond(touchArticle(search, id))
+            }
+            // _update_by_query is a POST with a query, like a search. The store error is swallowed to 404 on purpose.
+            post("/{id}/hide") {
+                val id = call.parameters["id"]!!
+                val updated = runCatching {
+                    withContext(Dispatchers.IO) {
+                        search.client.updateByQuery { u ->
+                            u.index(search.index).refresh(true).query { q -> q.ids { i -> i.values(id) } }
+                                .script { s -> s.inline { i -> i.source("ctx._source.hidden = true") } }
+                        }.updated()
+                    }
+                }.getOrNull()
+                if (updated != null && updated > 0) call.respond(mapOf("id" to id, "hidden" to true)) else call.respond(HttpStatusCode.NotFound)
+            }
+        }
+        sendproofPreview(enabled = false, stores = listOf("opensearch")) {
+            delete("/{id}") {
+                withContext(Dispatchers.IO) {
+                    search.client.delete { d -> d.index(search.index).id(call.parameters["id"]!!).refresh(org.opensearch.client.opensearch._types.Refresh.True) }
+                }
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
+    }
+}
+
+/** `POST /<index>/_update/<id>` with the `views` script and an upsert; shared with the mixed SQL and store route. */
+suspend fun touchArticle(search: OpenSearchFixture, id: String): Map<String, Any?> = withContext(Dispatchers.IO) {
+    val request = org.opensearch.client.opensearch.core.UpdateRequest.Builder<Map<*, *>, Map<*, *>>()
+        .index(search.index).id(id).refresh(org.opensearch.client.opensearch._types.Refresh.True)
+        .script { s -> s.inline { i -> i.source("ctx._source.views += params.step").params("step", org.opensearch.client.json.JsonData.of(1)) } }
+        .upsert(mapOf("title" to "Untitled", "views" to 1)).source { c -> c.fetch(true) }.build()
+    val reply = search.client.update(request, Map::class.java)
+    val source = reply.get()!!.source()!!
+    mapOf("id" to id, "title" to source["title"], "views" to (source["views"] as Number).toInt())
+}

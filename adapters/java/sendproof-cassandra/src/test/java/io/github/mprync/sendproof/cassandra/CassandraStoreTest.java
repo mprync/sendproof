@@ -217,6 +217,33 @@ class CassandraStoreTest {
     }
 
     @Test
+    void aWriteCarryingTheContextOfAPreviewThatHasEndedIsRefusedForever() throws Exception {
+        var held = new java.util.concurrent.atomic.AtomicReference<io.github.mprync.sendproof.core.RequestCapture>();
+        PreviewOutcome outcome = Harness.preview(store, () -> held.set(CaptureContext.current()));
+        assertThat(outcome.confirmed()).isTrue();
+        // A thread the handler started keeps running after the response, with the Preview's context.
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            for (int i = 0; i < 2; i++) {
+                assertThatThrownBy(() -> pool.submit(() -> {
+                    try (var ignored = CaptureContext.enter(held.get())) {
+                        session.execute("INSERT INTO tickets (id) VALUES ('late')");
+                    }
+                }).get()).hasRootCauseInstanceOf(PreviewWriteBlockedException.class);
+            }
+            // Reads with that context still run.
+            pool.submit(() -> {
+                try (var ignored = CaptureContext.enter(held.get())) {
+                    session.execute("SELECT * FROM tickets");
+                }
+            }).get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(sent).hasSize(1);
+    }
+
+    @Test
     void theChecksFailWhenTheHookIsRemoved() throws Exception {
         // The raw session has no guard: the write is sent and the Preview confirms. The conformance checks catch this.
         PreviewOutcome outcome = Harness.preview(store, () -> raw.execute("INSERT INTO tickets (id) VALUES ('unhooked')"));
