@@ -8,14 +8,17 @@
 //! # The hook, and why it is a wrapper
 //!
 //! Both official Rust clients send every request through one concrete `Transport` struct with no
-//! middleware, and the typed builders (`client.search()...send()`) call it directly, so nothing between
-//! the application and the socket can be intercepted. (The first thing tried was a custom `reqwest`
-//! client through `TransportBuilder`; neither crate takes one, and a `reqwest` layer can't see requests.)
-//! The guard is therefore a wrapper over the client's own raw `send`: the store owns the client and
-//! hands out only [`GuardedElasticsearch`] / [`GuardedOpenSearch`], whose [`send`](GuardedOpenSearch::send)
-//! has the same signature as the client's. Every request goes through it and is classified before the
-//! client sees it. The typed builders aren't available through the guard; build the request by method
-//! and path.
+//! middleware, and the typed builders (`client.search()...send()`) call it directly. The only part a
+//! client lets you replace is its `ConnectionPool`, whose `next()` picks a node without seeing the
+//! method, path or body, and neither crate takes a custom `reqwest` client. So no layer under the typed
+//! builders can classify a request. The guard is a wrapper over the client's own raw `send`: the store
+//! owns the client and hands out only [`GuardedElasticsearch`] / [`GuardedOpenSearch`], whose
+//! [`send`](GuardedOpenSearch::send) has the same signature as the client's. Every request goes through
+//! it and is classified before the client sees it.
+//!
+//! **The typed builders are not available through the guard.** Build each request from its method and
+//! path. Don't keep a second client for the typed API: nothing sees its requests, so its writes during a
+//! Preview are neither refused nor logged, and the Preview is still confirmed.
 //!
 //! ```no_run
 //! # #[cfg(feature = "opensearch")]
@@ -61,9 +64,9 @@
 //! Preview is still confirmed. Keep every client inside the store.
 //!
 //! A handle taken in a handler keeps its Preview in tasks the handler spawns. A handle from the store's
-//! `detached()` has no request: its write while a Preview is open can't be told from a Preview's, and has
-//! already been sent, so every Preview open on the store answers 500. Use
-//! [`detached`](sendproof_core::detached) for background work that writes.
+//! `detached()` used outside any request has none: its write while a Preview is open can't be told
+//! from a Preview's, so it is refused before it is sent and every open Preview answers 409. Run
+//! background work that writes inside [`detached`](sendproof_core::detached), which is never refused.
 
 #[cfg(any(feature = "axum", feature = "actix"))]
 mod extractors;

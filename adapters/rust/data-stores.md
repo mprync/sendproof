@@ -119,7 +119,7 @@ async fn ticket(cassandra: Cassandra, Path(id): Path<String>) -> Result<Json<Str
 
 ### Elasticsearch and OpenSearch
 
-`sendproof-elasticsearch` covers the official `elasticsearch` and `opensearch` crates (both features are on by default; `default-features = false, features = ["opensearch"]` keeps one). Both clients send every request through one concrete `Transport` with no middleware, and the typed builders (`client.search()...`) call it directly. **The first hour's spike found nothing to intercept**: neither crate takes a custom `reqwest` client, and a `reqwest` layer can't see requests. So the guard is the wrapper the plan names as the fallback: `OpenSearchStore::new(client)` (or `ElasticsearchStore`) owns the client, the `OpenSearch` (or `Elasticsearch`) extractor gives each request's handle, and `search.client()` returns a `GuardedOpenSearch` whose `send` takes what the client's own `send` takes. Every request is classified by its method and path before the client sees it.
+`sendproof-elasticsearch` covers the official `elasticsearch` and `opensearch` crates (both features are on by default; `default-features = false, features = ["opensearch"]` keeps one). Both clients send every request through one concrete `Transport` with no middleware, and the typed builders (`client.search()...`) call it directly. **No layer under the typed builders can classify a request**: neither crate takes a custom `reqwest` client, and the one part you can replace, the `ConnectionPool`, picks a node without seeing the method, path or body. So the guard is the wrapper the plan names as the fallback: `OpenSearchStore::new(client)` (or `ElasticsearchStore`) owns the client, the `OpenSearch` (or `Elasticsearch`) extractor gives each request's handle, and `search.client()` returns a `GuardedOpenSearch` whose `send` takes what the client's own `send` takes. Every request is classified by its method and path before the client sees it.
 
 ```rust
 let search = OpenSearchStore::new(OpenSearch::new(Transport::single_node("http://127.0.0.1:9200")?)).name("articles")?;
@@ -133,7 +133,9 @@ async fn article(search: OpenSearch) -> Result<Json<Value>, StatusCode> {
 ```
 
 - The refusal happens above the client's `Transport`, connection pool and any retry logic, so a refused write never takes a node out of rotation or shifts it; a test with two nodes shows the next read goes to the node it would have.
-- **The typed builders aren't available through the guard.** Build the request from its method and path; a raw `Transport` or `client.search()` from a client the store doesn't own would bypass it, which is why the store never gives its client back.
+- **The typed builders aren't available through the guard.** Build each request from its method and path. Don't keep a second client for the typed API: nothing sees its requests, so its writes during a Preview are neither refused nor logged, and the Preview is still confirmed. That is why the store takes the client by value and never gives it back.
+- The path is classified as the client will send it: the client resolves it as a URL, so `.` and `..` segments, a `\` and a `#` fragment can't make a write look like a search.
+- The `elasticsearch` crate is pinned to `=9.1.0-alpha.1`, because the official client ships only alpha releases. An application must use that exact version, or Cargo builds two copies and the store won't take its client. `opensearch` follows `2`.
 - `GET` and `HEAD`, `_search`, `_count`, `_msearch`, `_mget`, `_field_caps`, the template searches and SQL that is one `SELECT`/`SHOW`/`DESCRIBE` are reads, even when sent as a `POST`. `_bulk`, `_update_by_query`, `_delete_by_query`, `_reindex`, every document `PUT`/`POST`/`DELETE`, stored scripts, and index, alias and template changes are writes, and so is anything the shared table doesn't list that isn't a `GET` or `HEAD`.
 - Point-in-time, scroll, async-search and SQL-cursor handles run and are not logged.
 - A refused call returns the client's `Error`; `sendproof_elasticsearch::blocked_by(&error)` finds the `PreviewWriteBlocked` in it. The Preview answers 409 whatever the handler does with it.
@@ -159,7 +161,7 @@ Register the route as usual. Declaring the same method and path with `preview_op
 
 ## What a blocked Preview returns
 
-When the guard refuses a write, the command never reaches the store and the handler gets an error: a `RedisError` of kind `Client`, an SDK dispatch error, or a `mongodb::error::Error` whose `get_custom::<PreviewWriteBlocked>()` has the `store` and `operation`. The Preview then answers 409 with `application/problem+json`, whatever the handler made of the error:
+When the guard refuses a write, the command never reaches the store and the handler gets an error: a `RedisError` of kind `Client`, an SDK dispatch error, a `mongodb::error::Error` whose `get_custom::<PreviewWriteBlocked>()` has the `store` and `operation`, a `CassandraError::Blocked(PreviewWriteBlocked)`, or an Elasticsearch or OpenSearch `Error` in which `sendproof_elasticsearch::blocked_by(&error)` finds the `PreviewWriteBlocked`. The Preview then answers 409 with `application/problem+json`, whatever the handler made of the error:
 
 ```json
 { "type": "about:blank", "title": "Preview unavailable", "status": 409, "code": "preview_unavailable",
@@ -194,7 +196,7 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ? ? ?`; commands the guard doesn't know show no keys), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ? ? ?`; commands the guard doesn't know show no keys), DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`, Cassandra statements are the CQL text with every quoted string, `$$` string, number and UUID replaced by `?` (bound values are never logged; a batch shows as `BEGIN BATCH …; APPLY BATCH`), and Elasticsearch and OpenSearch statements are the request body with every literal as `"?"`, one line per NDJSON line, without the path, which can hold document ids. Session commands such as `AUTH` and `hello` are never logged.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{ _id }` as `key`, and whole nested documents as `before` and `after`. A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 

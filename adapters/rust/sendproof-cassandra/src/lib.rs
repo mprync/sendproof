@@ -46,9 +46,9 @@
 //!
 //! The store finds the Preview through the handler's extractor, so a [`GuardedSession`] taken in a
 //! handler keeps its Preview in tasks the handler spawns. A handle from [`CassandraStore::detached`]
-//! has no request: its write while a Preview is open can't be told from a Preview's, and has already
-//! been sent, so every Preview open on the store answers 500. Use
-//! [`detached`](sendproof_core::detached) for background work that writes.
+//! used outside any request has none: its write while a Preview is open can't be told from a
+//! Preview's, so it is refused before it is sent and every open Preview answers 409. Run background
+//! work that writes inside [`detached`](sendproof_core::detached), which is never refused.
 
 #[cfg(feature = "actix")]
 mod actix_extractor;
