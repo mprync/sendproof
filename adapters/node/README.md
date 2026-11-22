@@ -17,6 +17,10 @@ Serve the shared workbench at `/sendproof/` in an API that already exposes OpenA
 | [`@sendproof/mongodb`](mongodb) | MongoDB Preview for the driver and Mongoose, with document changes |
 | [`@sendproof/redis`](redis) | Redis write guard for ioredis and node-redis |
 | [`@sendproof/dynamodb`](dynamodb) | DynamoDB write guard for the AWS SDK v3 clients |
+| [`@sendproof/cassandra`](cassandra) | Cassandra and ScyllaDB write guard for `cassandra-driver` 4 |
+| [`@sendproof/elasticsearch`](elasticsearch) | Elasticsearch 8 and OpenSearch 2 write guard |
+| [`@sendproof/cosmosdb`](cosmosdb) | Azure Cosmos DB for NoSQL write guard for `@azure/cosmos` 4.10 |
+| [`@sendproof/firestore`](firestore) | Google Cloud Firestore write guard for `@google-cloud/firestore` 7 |
 
 Run a local fixture with Node 22.18 or newer.
 
@@ -30,4 +34,4 @@ The packages build from strict TypeScript in `src/` to ESM and generated declara
 
 Configure `NODE_ENV=development` or the equivalent `environment` option to enable the workbench with the default environment allowlist. Preview uses application-managed identity and authorization, and the provider must cover all writes. Use [the Node core recorder](core) to hold external effects until Send.
 
-MongoDB, Redis and DynamoDB are covered only through the clients you hook. [Data stores in the Node binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
+MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore are covered only through the clients you hook. [Data stores in the Node binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.
