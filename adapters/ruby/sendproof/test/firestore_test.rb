@@ -57,6 +57,9 @@ class FirestoreHookTest < Minitest::Test
     @server = FakeFirestoreServer.new
     @store = Sendproof::Firestore::Store.new(name: "orders")
     @firestore = new_client
+    # The gem builds its gRPC client on first use; build it now, while the store is registered, so a test
+    # that unhooks the store first still has a client built under it.
+    @firestore.service.firestore
   end
 
   def teardown

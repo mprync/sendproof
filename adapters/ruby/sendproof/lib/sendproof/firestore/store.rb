@@ -94,7 +94,8 @@ module Sendproof
 
       # A Firestore client built before this store has no interceptor and writes straight through.
       def refuse_live_clients
-        if rest_client_class && ObjectSpace.each_object(rest_client_class).any?
+        # A REST client whose construction was refused never got a stub, so it is no live client.
+        if rest_client_class && ObjectSpace.each_object(rest_client_class).any? { |client| client.instance_variable_defined?(:@firestore_stub) }
           raise ConfigurationError, RestRefusal::REASON
         end
         unguarded = ObjectSpace.each_object(::Gapic::ServiceStub).select do |stub|

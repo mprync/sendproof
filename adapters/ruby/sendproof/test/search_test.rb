@@ -38,6 +38,7 @@ class FakeSearchServer
     body = env["rack.input"].read.to_s
     path = env["PATH_INFO"]
     @lock.synchronize { @requests << [env["REQUEST_METHOD"], path, body] }
+    sleep 1 if path.start_with?("/slow")
     reply = case path
             when *INFO_PATHS then INFO
             when /_search\z/ then '{"hits":{"total":{"value":1},"hits":[{"_id":"1","_source":{"title":"A"}}]}}'
@@ -210,6 +211,17 @@ module SearchHookTests
     assert_match(/outside any request/, recorder.fault.message)
     detached = preview { |_| Thread.new { Sendproof.detached { client.index(index: "articles", id: "w", body: {}) } }.join }
     assert_nil detached.fault
+  end
+
+  # A timeout that unwinds the handler mid-request propagates as it would without Sendproof, leaves no
+  # fault on the Preview, and leaves the client usable.
+  def test_a_timeout_during_a_read_propagates_and_leaves_the_guard_working
+    new_store
+    client = new_client
+    recorder = preview { |_| assert_raises(Timeout::Error) { Timeout.timeout(0.2) { client.search(index: "slow", body: {}) } } }
+    assert_nil recorder.blocked
+    assert_nil recorder.fault
+    assert_blocked_in_preview(system_id, "index") { client.index(index: "articles", id: "1", body: {}) }
   end
 
   def test_send_and_observed_send_are_never_blocked
