@@ -14,7 +14,7 @@ Nothing here has been done yet: no trusted publisher or secret exists. Placehold
 | --- | --- | --- | --- |
 | nuget.org | `Sendproof.AspNetCore`, `Sendproof.EntityFrameworkCore`, `Sendproof.Redis`, `Sendproof.MongoDB`, `Sendproof.DynamoDB`, `Sendproof.Cassandra`, `Sendproof.Elasticsearch`, `Sendproof.OpenSearch`, `Sendproof.CosmosDb`, `Sendproof.Firestore` (+ symbols) | `nuget` | OIDC trusted publishing, secret `NUGET_USER` |
 | npmjs.com | seventeen `@sendproof/*` packages, with provenance | `npm` | OIDC trusted publishing |
-| PyPI | `sendproof-core`, `-sqlalchemy`, `-fastapi`, `-flask`, `-django` | `pypi` | OIDC trusted publishing, attestations |
+| PyPI | `sendproof-core`, `-sqlalchemy`, `-fastapi`, `-flask`, `-django` | `pypi`, `pypi-sqlalchemy`, `pypi-fastapi`, `pypi-flask`, `pypi-django` (one per project) | OIDC trusted publishing, attestations |
 | Maven Central | `io.github.mprync:sendproof-{core,ui,jdbc,logback,spring-boot,jpa,ktor,redis,mongodb,dynamodb,cassandra,elasticsearch,cosmosdb,firestore}` | `maven-central` | Central Portal token + GPG key (secrets) |
 | crates.io | `sendproof-core`, `-axum`, `-actix`, `-sqlx`, `-redis`, `-dynamodb`, `-mongodb`, `-cassandra`, `-elasticsearch` | `crates-io` | OIDC trusted publishing |
 | RubyGems.org | `sendproof-core`, `sendproof-activerecord`, `sendproof-rails` | `rubygems` | OIDC trusted publishing |
@@ -58,7 +58,7 @@ Work top to bottom. Steps 1 to 3 are needed before any registry; the registry se
 
 ### 2. Create the GitHub environments
 
-In **Settings → Environments**, create these eight environments: `nuget`, `npm`, `pypi`, `maven-central`, `crates-io`, `rubygems`, `packagist`, `go`. For each:
+In **Settings → Environments**, create these twelve environments: `nuget`, `npm`, `pypi`, `pypi-sqlalchemy`, `pypi-fastapi`, `pypi-flask`, `pypi-django`, `maven-central`, `crates-io`, `rubygems`, `packagist`, `go`. For each:
 
 - **Deployment branches and tags:** "Selected branches and tags", add the tag rule `v*`.
 - **Required reviewers:** add the release maintainers (recommended; every publish then waits for approval).
@@ -88,7 +88,19 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 ### 6. PyPI
 
 1. Create a PyPI account with two-factor authentication.
-2. At *Your account → Publishing*, add a **pending publisher** for each of the five projects: PyPI project name (`sendproof-core`, `sendproof-sqlalchemy`, `sendproof-fastapi`, `sendproof-flask`, `sendproof-django`), owner `OWNER`, repository `REPO`, workflow `check.yml`, environment `pypi`. The first release creates the projects.
+2. At *Your account → Publishing*, add a **pending publisher** for each of the five projects, owner `OWNER`, repository `REPO`, workflow `check.yml`, with the project's own environment. PyPI refuses identical pending publishers for different project names, which is why each project has an environment of its own:
+
+   | PyPI project name | Environment |
+   | --- | --- |
+   | `sendproof-core` | `pypi` |
+   | `sendproof-sqlalchemy` | `pypi-sqlalchemy` |
+   | `sendproof-fastapi` | `pypi-fastapi` |
+   | `sendproof-flask` | `pypi-flask` |
+   | `sendproof-django` | `pypi-django` |
+
+   **First release.** PyPI allows only three pending publishers at a time, so add the first three now (`sendproof-core` → `pypi`, `sendproof-sqlalchemy` → `pypi-sqlalchemy`, `sendproof-fastapi` → `pypi-fastapi`). The `sendproof-flask` and `sendproof-django` legs of the first tag run fail until their projects have a publisher. Once the first three projects exist, add pending publishers for `sendproof-flask` (`pypi-flask`) and `sendproof-django` (`pypi-django`), then choose **Re-run failed jobs** on the same tag run; the three that succeeded are not published again. Later releases need no further setup.
+
+   The `publish-pypi` job is a matrix over the five projects; each leg runs in its project's environment and uploads only that project's wheel and sdist (`publish.mjs pypi … --project <name>`, which still verifies `SHA256SUMS` first).
 3. No secret is needed. `pypa/gh-action-pypi-publish` uploads with digital attestations.
 
 ### 7. Maven Central
@@ -119,7 +131,7 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 
 1. Create an account with MFA enabled (the gemspecs set `rubygems_mfa_required`).
 2. At *Settings → Trusted publishers → Pending trusted publishers*, add one per gem (`sendproof-core`, `sendproof-activerecord`, `sendproof-rails`): repository owner `OWNER`, repository `REPO`, workflow `check.yml`, environment `rubygems`.
-3. No secret is needed. `rubygems/configure-rubygems-credentials` exchanges the OIDC token before `gem push`.
+3. No secret is needed, but RubyGems.org rejects a gem's first push unless the workflow asserts the numeric ID of the repository owner's account. Add the repository variable `RUBYGEMS_OWNER` with that ID (find it with `gh api users/OWNER --jq .id`). The `publish-rubygems` job runs `tools/release/rubygems-login.mjs`, which requests a GitHub OIDC token for the audience `rubygems.org`, posts it with the owner to RubyGems.org's token exchange, masks the API key it gets back and exports it as `GEM_HOST_API_KEY` for `gem push`. (`rubygems/configure-rubygems-credentials` is not used: it posts only the token.)
 
 ### 10. Packagist (split repositories)
 
@@ -142,7 +154,7 @@ Packagist reads `composer.json` at the root of a repository, and the PHP package
 2. **Bump the Go requirements.** Each framework module must require the core at the release version, and `adapters/go/go.work` must map that version to the local modules; `adapters/go/scripts/package.sh` fails otherwise. Then run `adapters/go/scripts/tidy.sh`. Optionally bump `VersionPrefix`/`VersionSuffix` in `Directory.Build.props`, the default version for untagged builds. Every other registry's version is stamped from the tag at pack time.
 3. **Rehearse locally:** `node tools/pack-all.mjs --verify --version X.Y.Z[-rc.N]`.
 4. **Tag and push** the reviewed commit on `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-5. The workflow runs every check on all three operating systems, builds the packages once, rehearses each upload, then queues eight publish jobs. Approve each environment when prompted.
+5. The workflow runs every check on all three operating systems, builds the packages once, rehearses each upload, then queues twelve publish jobs (PyPI is five, one per project, each in its own environment). Approve each environment when prompted.
 6. Confirm each registry shows the version, then publish the GitHub release notes from `CHANGELOG.md`.
 
 ## Recover from a partial release

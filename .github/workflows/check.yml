@@ -554,12 +554,24 @@ jobs:
       - name: Publish with provenance
         run: node tools/release/publish.mjs npm artifacts/packages/npm --tag "$GITHUB_REF_NAME"
 
+  # PyPI refuses identical pending trusted publishers for different projects, so every project publishes from its own
+  # GitHub environment (each limited to v* tags) and uploads only its own wheel and sdist.
   publish-pypi:
+    name: publish-pypi / ${{ matrix.project }}
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [verify, conformance, platforms]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: pypi
+    environment: ${{ matrix.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { project: sendproof-core, environment: pypi }
+          - { project: sendproof-sqlalchemy, environment: pypi-sqlalchemy }
+          - { project: sendproof-fastapi, environment: pypi-fastapi }
+          - { project: sendproof-flask, environment: pypi-flask }
+          - { project: sendproof-django, environment: pypi-django }
     permissions:
       contents: read
       id-token: write
@@ -571,8 +583,10 @@ jobs:
         with:
           name: packages-pypi
           path: artifacts/packages/pypi
-      - name: Verify and collect the distributions
-        run: node tools/release/publish.mjs pypi artifacts/packages/pypi --tag "$GITHUB_REF_NAME"
+      - name: Verify and collect this project's distributions
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: node tools/release/publish.mjs pypi artifacts/packages/pypi --tag "$GITHUB_REF_NAME" --project "$PROJECT"
       - name: Publish with trusted publishing and attestations
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
@@ -649,8 +663,12 @@ jobs:
         with:
           name: packages-rubygems
           path: artifacts/packages/rubygems
+      # Not rubygems/configure-rubygems-credentials: it posts only the OIDC token, and RubyGems.org rejects a gem's
+      # first push unless the exchange also asserts the owner's account ID (repository variable RUBYGEMS_OWNER).
       - name: Log in to RubyGems.org (trusted publishing)
-        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+        env:
+          RUBYGEMS_OWNER: ${{ vars.RUBYGEMS_OWNER }}
+        run: node tools/release/rubygems-login.mjs
       - name: Push gems in dependency order
         run: node tools/release/publish.mjs rubygems artifacts/packages/rubygems --tag "$GITHUB_REF_NAME"
 

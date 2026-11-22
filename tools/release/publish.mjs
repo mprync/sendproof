@@ -24,10 +24,11 @@ import { GROUP as MAVEN_GROUP } from './maven.mjs';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { tag: { type: 'string' }, 'dry-run': { type: 'boolean', default: false } },
+  options: { tag: { type: 'string' }, 'dry-run': { type: 'boolean', default: false }, project: { type: 'string' } },
 });
 const [registry, directory] = positionals;
-require(registry && directory && values.tag, 'Usage: publish.mjs <registry> <artifact directory> --tag vX.Y.Z [--dry-run]');
+require(registry && directory && values.tag, 'Usage: publish.mjs <registry> <artifact directory> --tag vX.Y.Z [--dry-run] [--project <pypi project>]');
+require(!values.project || registry === 'pypi', '--project applies to the pypi registry only');
 const dryRun = values['dry-run'];
 const versions = releaseVersions(values.tag.replace(/^v/, ''));
 
@@ -73,8 +74,17 @@ const publishers = {
     const dist = join(root, 'artifacts', 'pypi-upload');
     await rm(dist, { recursive: true, force: true });
     await mkdir(dist, { recursive: true });
-    for (const file of files.filter(path => /\.(whl|tar\.gz)$/.test(path))) await copyFile(file, join(dist, basename(file)));
-    console.log(`Prepared ${(await readdir(dist)).length} distributions in ${dist}`);
+    // PyPI wants one trusted publisher (and so one GitHub environment) per project, so each publish job uploads only
+    // its own project's wheel and sdist. File names carry the normalized project name: sendproof-core is sendproof_core-*.
+    const project = values.project;
+    const known = ['sendproof-core', 'sendproof-sqlalchemy', 'sendproof-fastapi', 'sendproof-flask', 'sendproof-django'];
+    require(!project || known.includes(project), `Unknown PyPI project ${project}; expected one of ${known.join(', ')}`);
+    const prefix = project && `${project.replace(/[-_.]+/g, '_')}-`;
+    const selected = files.filter(path => /\.(whl|tar\.gz)$/.test(path)
+      && (!prefix || basename(path).toLowerCase().startsWith(prefix)));
+    require(!project || selected.length === 2, `Expected one wheel and one sdist for ${project}, found ${selected.length}`);
+    for (const file of selected) await copyFile(file, join(dist, basename(file)));
+    console.log(`Prepared ${(await readdir(dist)).length} distributions${project ? ` for ${project}` : ''} in ${dist}`);
   },
 
   async nuget() {
