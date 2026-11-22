@@ -217,7 +217,8 @@ pub fn classify_cql_message(message: &str, statement: Option<&str>, prepared: Op
 /// The table a CQL statement names (`db.collection.name`), without its keyspace.
 pub fn cql_target(statement: &str) -> Option<String> {
     let words: Vec<&str> = statement.split(|c: char| c.is_whitespace() || c == '(').filter(|word| !word.is_empty()).collect();
-    let at = words.iter().position(|word| ["FROM", "INTO", "UPDATE", "TRUNCATE", "TABLE"].iter().any(|key| word.eq_ignore_ascii_case(key)))?;
+    let at =
+        words.iter().position(|word| ["FROM", "INTO", "UPDATE", "TRUNCATE", "TABLE"].iter().any(|key| word.eq_ignore_ascii_case(key)))?;
     // `INSERT INTO ks.t`, `TRUNCATE TABLE ks.t` and `TRUNCATE ks.t` all name the table next.
     let mut name = *words.get(at + 1)?;
     if name.eq_ignore_ascii_case("TABLE") {
@@ -297,7 +298,8 @@ pub fn sanitize_cql(text: &str) -> String {
                 out.push(chars[i]);
                 i += 1;
             }
-        } else if c.is_ascii_digit() || (c == '-' && chars.get(i + 1).is_some_and(char::is_ascii_digit) && !out.ends_with(is_word) && !out.ends_with('"'))
+        } else if c.is_ascii_digit()
+            || (c == '-' && chars.get(i + 1).is_some_and(char::is_ascii_digit) && !out.ends_with(is_word) && !out.ends_with('"'))
         {
             i += 1;
             while i < chars.len() && is_word(chars[i]) {
@@ -387,7 +389,10 @@ mod tests {
             sanitize_cql("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)"),
             "INSERT INTO tickets (id, status, hits) VALUES (?, ?, ?)"
         );
-        assert_eq!(sanitize_cql("SELECT \"t1\" FROM t1 WHERE a = 'it''s' AND b = $$x;y$$ AND c = -4.5e-3"), "SELECT \"t1\" FROM t1 WHERE a = ? AND b = ? AND c = ?");
+        assert_eq!(
+            sanitize_cql("SELECT \"t1\" FROM t1 WHERE a = 'it''s' AND b = $$x;y$$ AND c = -4.5e-3"),
+            "SELECT \"t1\" FROM t1 WHERE a = ? AND b = ? AND c = ?"
+        );
         assert_eq!(sanitize_cql("WHERE id = 550e8400-e29b-41d4-a716-446655440000"), "WHERE id = ?");
         // A UUID whose first group starts with a letter is a literal too.
         assert_eq!(sanitize_cql("WHERE id = e29b41d4-a716-4466-5544-0000550e8400 AND t = abc"), "WHERE id = ? AND t = abc");

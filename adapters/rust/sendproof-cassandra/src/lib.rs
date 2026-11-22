@@ -60,13 +60,7 @@ pub use actix_extractor::CassandraRejection;
 #[cfg(feature = "axum")]
 pub use axum_extractor::NotEnrolledResponse;
 
-use std::{
-    collections::HashSet,
-    error::Error,
-    fmt,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashSet, error::Error, fmt, sync::Arc, time::Instant};
 
 use scylla::{
     client::{pager::QueryPager, session::Session},
@@ -175,7 +169,10 @@ impl DataStore for CassandraStore {
 
     /// Registers the Preview as open on this store until it finishes, so a write no request sent
     /// fails it. Nothing is started on Cassandra.
-    fn begin_preview<'a>(&'a self, extensions: &'a mut http::Extensions) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
+    fn begin_preview<'a>(
+        &'a self,
+        extensions: &'a mut http::Extensions,
+    ) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
         let begun = self.settings.open.begin(extensions).map(Some);
         Box::pin(async move { begun })
     }
@@ -272,7 +269,13 @@ impl Hook {
         self.admit("BATCH", CommandKind::Write, &joined, texts.first().copied())
     }
 
-    fn admit(&self, operation: &str, kind: CommandKind, text: &str, target_of: Option<&str>) -> Result<Option<Pending>, PreviewWriteBlocked> {
+    fn admit(
+        &self,
+        operation: &str,
+        kind: CommandKind,
+        text: &str,
+        target_of: Option<&str>,
+    ) -> Result<Option<Pending>, PreviewWriteBlocked> {
         // A write no request sent, while a Preview is open, is refused before it is sent.
         self.open.block_unattributed(&self.scope, SYSTEM, operation, kind)?;
         self.scope.guard(SYSTEM, operation, kind, None)?;
@@ -342,7 +345,7 @@ impl GuardedSession {
         let statement = statement.into();
         let pending = self.hook.check(&statement.contents)?;
         let result = self.session.query_unpaged(statement, values).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 
@@ -356,7 +359,7 @@ impl GuardedSession {
         let statement = statement.into();
         let pending = self.hook.check(&statement.contents)?;
         let result = self.session.query_single_page(statement, values, paging_state).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 
@@ -392,7 +395,7 @@ impl GuardedSession {
     ) -> Result<QueryResult, CassandraError<ExecutionError>> {
         let pending = self.hook.check(prepared.get_statement())?;
         let result = self.session.execute_unpaged(prepared, values).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 
@@ -405,7 +408,7 @@ impl GuardedSession {
     ) -> Result<(QueryResult, PagingStateResponse), CassandraError<ExecutionError>> {
         let pending = self.hook.check(prepared.get_statement())?;
         let result = self.session.execute_single_page(prepared, values, paging_state).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 
@@ -426,7 +429,7 @@ impl GuardedSession {
     pub async fn execute_bound_unpaged(&self, bound: &BoundStatement) -> Result<QueryResult, CassandraError<ExecutionError>> {
         let pending = self.hook.check(bound.prepared().get_statement())?;
         let result = self.session.execute_bound_unpaged(bound).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 
@@ -438,7 +441,7 @@ impl GuardedSession {
     ) -> Result<(QueryResult, PagingStateResponse), CassandraError<ExecutionError>> {
         let pending = self.hook.check(bound.prepared().get_statement())?;
         let result = self.session.execute_bound_single_page(bound, paging_state).await;
-        self.hook.finish(pending, self.get_keyspace(), None,result.as_ref().err().map(error_name));
+        self.hook.finish(pending, self.get_keyspace(), None, result.as_ref().err().map(error_name));
         result.map_err(CassandraError::Driver)
     }
 

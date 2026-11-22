@@ -71,10 +71,10 @@
 #[cfg(any(feature = "axum", feature = "actix"))]
 mod extractors;
 
-#[cfg(feature = "actix")]
-pub use extractors::SearchRejection;
 #[cfg(feature = "axum")]
 pub use extractors::NotEnrolledResponse;
+#[cfg(feature = "actix")]
+pub use extractors::SearchRejection;
 
 use std::{collections::HashSet, error::Error, io, sync::Arc, time::Instant};
 

@@ -63,8 +63,8 @@ use std::{
 
 use redis::{Arg, Cmd, ErrorKind, Pipeline, RedisError, RedisFuture, Value, aio::ConnectionLike};
 use sendproof_core::{
-    BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, Enrollment, NotEnrolled, StoreDescription, StoreMode, StoreScope,
-    PreviewSession,
+    BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, Enrollment, NotEnrolled, PreviewSession, StoreDescription, StoreMode,
+    StoreScope,
     stores::{OpenPreviews, classify_redis, exact_names, store_label},
 };
 

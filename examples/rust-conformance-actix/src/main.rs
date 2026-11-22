@@ -301,19 +301,35 @@ async fn order_delete(fixture: Data<Fixture>, id: Path<String>) -> HttpResponse 
     reply(fixture.stores.order_delete(&id).await)
 }
 
-async fn ticket_get(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+async fn ticket_get(
+    fixture: Data<Fixture>,
+    cassandra: Cassandra,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.ticket_get(&cassandra, &id).await)
 }
 
-async fn ticket_touch(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+async fn ticket_touch(
+    fixture: Data<Fixture>,
+    cassandra: Cassandra,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.ticket_touch(&cassandra, &id).await)
 }
 
-async fn ticket_close(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+async fn ticket_close(
+    fixture: Data<Fixture>,
+    cassandra: Cassandra,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.ticket_close(&cassandra, &id).await)
 }
 
-async fn ticket_delete(fixture: Data<Fixture>, cassandra: Cassandra, id: Path<String>) -> HttpResponse {
+async fn ticket_delete(
+    fixture: Data<Fixture>,
+    cassandra: Cassandra,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.ticket_delete(&cassandra, &id).await)
 }
 
@@ -321,15 +337,27 @@ async fn article_get(fixture: Data<Fixture>, search: OpenSearch, id: Path<String
     reply(fixture.stores.article_get(&search, &id).await)
 }
 
-async fn article_touch(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+async fn article_touch(
+    fixture: Data<Fixture>,
+    search: OpenSearch,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.article_touch(&search, &id).await)
 }
 
-async fn article_hide(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+async fn article_hide(
+    fixture: Data<Fixture>,
+    search: OpenSearch,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.article_hide(&search, &id).await)
 }
 
-async fn article_delete(fixture: Data<Fixture>, search: OpenSearch, id: Path<String>) -> HttpResponse {
+async fn article_delete(
+    fixture: Data<Fixture>,
+    search: OpenSearch,
+    id: Path<String>,
+) -> HttpResponse {
     reply(fixture.stores.article_delete(&search, &id).await)
 }
 
@@ -354,39 +382,38 @@ async fn remember<B: Backend>(
         return Ok(status(400));
     }
     items::insert(&db, &id, name).await?;
-    let (redis, cassandra, opensearch) = {
-        let extensions = request.extensions();
-        let enrollment = extensions.get::<Enrollment>();
-        let required = extensions.get::<PreviewRequired>().is_some();
-        (
-            fixture
-                .stores
-                .redis
-                .as_ref()
-                .and_then(|redis| redis.store.from_enrollment(enrollment, required).ok()),
-            fixture.stores.cassandra.as_ref().and_then(|cassandra| {
-                cassandra.store.from_enrollment(enrollment, required).ok()
-            }),
-            fixture.stores.opensearch.as_ref().and_then(|opensearch| {
-                opensearch.store.from_enrollment(enrollment, required).ok()
-            }),
-        )
-    };
+    let (redis, cassandra, opensearch) =
+        {
+            let extensions = request.extensions();
+            let enrollment = extensions.get::<Enrollment>();
+            let required = extensions.get::<PreviewRequired>().is_some();
+            (
+                fixture
+                    .stores
+                    .redis
+                    .as_ref()
+                    .and_then(|redis| redis.store.from_enrollment(enrollment, required).ok()),
+                fixture.stores.cassandra.as_ref().and_then(|cassandra| {
+                    cassandra.store.from_enrollment(enrollment, required).ok()
+                }),
+                fixture.stores.opensearch.as_ref().and_then(|opensearch| {
+                    opensearch.store.from_enrollment(enrollment, required).ok()
+                }),
+            )
+        };
     let handles = Handles {
         redis: redis.as_ref(),
         cassandra: cassandra.as_ref(),
         opensearch: opensearch.as_ref(),
     };
-    Ok(
-        match fixture.stores.remember(handles, store, &id).await {
-            Some(Ok(())) => reply(Outcome::new(
-                201,
-                serde_json::json!({ "id": id.as_str(), "name": name }),
-            )),
-            Some(Err(outcome)) => reply(outcome),
-            None => status(400),
-        },
-    )
+    Ok(match fixture.stores.remember(handles, store, &id).await {
+        Some(Ok(())) => reply(Outcome::new(
+            201,
+            serde_json::json!({ "id": id.as_str(), "name": name }),
+        )),
+        Some(Err(outcome)) => reply(outcome),
+        None => status(400),
+    })
 }
 
 async fn ready() -> impl Responder {

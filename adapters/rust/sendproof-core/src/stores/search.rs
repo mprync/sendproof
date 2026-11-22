@@ -51,7 +51,9 @@ fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
     TABLE.get_or_init(|| {
         let table: Value = serde_json::from_str(tables::ELASTICSEARCH).expect("an embedded table is valid JSON");
-        let strings = |value: &Value| -> Vec<String> { value.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect() };
+        let strings = |value: &Value| -> Vec<String> {
+            value.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+        };
         let endpoints = table["endpoints"]
             .as_array()
             .into_iter()
@@ -68,8 +70,12 @@ fn table() -> &'static Table {
                 paths: strings(&entry["paths"]).iter().map(|path| segments(path)).collect(),
             })
             .collect();
-        let method_default =
-            table["methodDefault"].as_object().into_iter().flatten().map(|(method, kind)| (method.clone(), kind_of(kind.as_str().unwrap_or("write")))).collect();
+        let method_default = table["methodDefault"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(method, kind)| (method.clone(), kind_of(kind.as_str().unwrap_or("write"))))
+            .collect();
         Table { endpoints, read_words: strings(&table["sql"]["readWords"]), method_default }
     })
 }
@@ -161,7 +167,8 @@ pub fn classify_search(method: &str, path: &str, body: Option<&[u8]>, treat_as_r
             (kind, format!("{method} /{}", shown.join("/")))
         }
     };
-    let kind = if kind == CommandKind::Write && treat_as_read.is_some_and(|reads| reads.contains(&operation)) { CommandKind::Read } else { kind };
+    let kind =
+        if kind == CommandKind::Write && treat_as_read.is_some_and(|reads| reads.contains(&operation)) { CommandKind::Read } else { kind };
     Classified { kind, operation }
 }
 
@@ -275,7 +282,10 @@ mod tests {
             sanitize_search_body(br#"{"query":{"ids":{"values":["seeded"]}},"size":1}"#).unwrap(),
             r#"{"query":{"ids":{"values":["?"]}},"size":"?"}"#
         );
-        assert_eq!(sanitize_search_body(b"{\"index\":{\"_id\":\"a\"}}\n{\"title\":\"x\"}\n").unwrap(), "{\"index\":{\"_id\":\"?\"}}\n{\"title\":\"?\"}");
+        assert_eq!(
+            sanitize_search_body(b"{\"index\":{\"_id\":\"a\"}}\n{\"title\":\"x\"}\n").unwrap(),
+            "{\"index\":{\"_id\":\"?\"}}\n{\"title\":\"?\"}"
+        );
         assert_eq!(sanitize_search_body(b"not json"), None);
         assert_eq!(sanitize_search_body(b"  "), None);
     }

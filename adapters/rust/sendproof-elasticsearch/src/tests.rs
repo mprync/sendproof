@@ -52,7 +52,11 @@ impl Wire {
                             let head = String::from_utf8_lossy(&received[..end]).into_owned();
                             let length = head
                                 .lines()
-                                .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").and_then(|value| value.trim().parse::<usize>().ok()))
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .and_then(|value| value.trim().parse::<usize>().ok())
+                                })
                                 .unwrap_or(0);
                             break (head, (end + 4, length));
                         }
@@ -506,9 +510,15 @@ mod server {
     impl Fixture {
         async fn new() -> Option<Self> {
             let raw = raw();
-            let ready = tokio::time::timeout(Duration::from_secs(5), raw.send(Method::Get, "/_cluster/health", HeaderMap::new(), None::<&()>, None::<&str>, None)).await;
+            let ready = tokio::time::timeout(
+                Duration::from_secs(5),
+                raw.send(Method::Get, "/_cluster/health", HeaderMap::new(), None::<&()>, None::<&str>, None),
+            )
+            .await;
             if !matches!(ready, Ok(Ok(_))) {
-                eprintln!("skipped: OpenSearch isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch)");
+                eprintln!(
+                    "skipped: OpenSearch isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait opensearch)"
+                );
                 return None;
             }
             // The clock alone isn't enough: tests start together and the clock's resolution is coarse.
@@ -519,9 +529,17 @@ mod server {
                 std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs()),
                 COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             );
-            let (status, body) = call(&raw, Method::Put, &index, Some(json!({ "mappings": { "properties": { "title": { "type": "keyword" }, "views": { "type": "integer" } } } }))).await;
+            let (status, body) = call(
+                &raw,
+                Method::Put,
+                &index,
+                Some(json!({ "mappings": { "properties": { "title": { "type": "keyword" }, "views": { "type": "integer" } } } })),
+            )
+            .await;
             assert_eq!(status, 200, "{body}");
-            let (status, body) = call(&raw, Method::Put, &format!("/{index}/_doc/seeded?refresh=true"), Some(json!({ "title": "Seeded", "views": 3 }))).await;
+            let (status, body) =
+                call(&raw, Method::Put, &format!("/{index}/_doc/seeded?refresh=true"), Some(json!({ "title": "Seeded", "views": 3 })))
+                    .await;
             assert_eq!(status, 201, "{body}");
             Some(Self { raw, index })
         }
@@ -583,7 +601,13 @@ mod server {
         let recorder = preview();
         let index = fixture.index.clone();
         capture::scope(recorder.clone(), async {
-            let (status, body) = call(&fixture.raw, Method::Put, &format!("/{index}/_doc/unguarded?refresh=true"), Some(json!({ "title": "x", "views": 1 }))).await;
+            let (status, body) = call(
+                &fixture.raw,
+                Method::Put,
+                &format!("/{index}/_doc/unguarded?refresh=true"),
+                Some(json!({ "title": "x", "views": 1 })),
+            )
+            .await;
             assert_eq!(status, 201, "{body}");
         })
         .await;

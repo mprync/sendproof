@@ -88,7 +88,10 @@ struct Published(SocketAddr);
 
 #[async_trait::async_trait]
 impl AddressTranslator for Published {
-    async fn translate_address(&self, _: &UntranslatedPeer) -> Result<SocketAddr, TranslationError> {
+    async fn translate_address(
+        &self,
+        _: &UntranslatedPeer,
+    ) -> Result<SocketAddr, TranslationError> {
         Ok(self.0)
     }
 }
@@ -97,7 +100,9 @@ impl AddressTranslator for Published {
 fn segment(id: &str) -> String {
     id.bytes()
         .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
             other => format!("%{other:02X}"),
         })
         .collect()
@@ -173,7 +178,10 @@ impl Stores {
                 table,
             });
         }
-        if let (Some(contact), Some(keyspace)) = (env("BENCH_CASSANDRA_CONTACT_POINT"), env("BENCH_CASSANDRA_KEYSPACE")) {
+        if let (Some(contact), Some(keyspace)) = (
+            env("BENCH_CASSANDRA_CONTACT_POINT"),
+            env("BENCH_CASSANDRA_KEYSPACE"),
+        ) {
             let published = contact
                 .to_socket_addrs()?
                 .next()
@@ -189,7 +197,9 @@ impl Stores {
                 select: OnceCell::new(),
             });
         }
-        if let (Some(url), Some(index)) = (env("BENCH_OPENSEARCH_URL"), env("BENCH_OPENSEARCH_INDEX")) {
+        if let (Some(url), Some(index)) =
+            (env("BENCH_OPENSEARCH_URL"), env("BENCH_OPENSEARCH_INDEX"))
+        {
             let client = opensearch::OpenSearch::new(Transport::single_node(&url)?);
             stores.opensearch = Some(OpenSearchFixture {
                 store: OpenSearchStore::new(client).name("articles")?,
@@ -579,7 +589,9 @@ impl Stores {
         let select = match self
             .cassandra()
             .select
-            .get_or_try_init(|| session.prepare("SELECT id, status, hits FROM tickets WHERE id = ?"))
+            .get_or_try_init(|| {
+                session.prepare("SELECT id, status, hits FROM tickets WHERE id = ?")
+            })
             .await
         {
             Ok(select) => select,
@@ -724,10 +736,7 @@ impl Stores {
     /// `POST /articles/{id}/hide`: an `_update_by_query`, a `POST` with a query like a search. Any store
     /// error becomes a 404, so a blocked write is swallowed and only the Preview's mark can fail it.
     pub async fn article_hide(&self, search: &OpenSearch, id: &str) -> Outcome {
-        let path = format!(
-            "/{}/_update_by_query?refresh=true",
-            self.opensearch().index
-        );
+        let path = format!("/{}/_update_by_query?refresh=true", self.opensearch().index);
         let update = json!({
             "query": { "ids": { "values": [id] } },
             "script": { "source": "ctx._source.hidden = true" },
@@ -775,12 +784,14 @@ impl Stores {
             })
         };
         match store {
-            "cassandra" if self.cassandra.is_some() => {
-                done(self.ticket_touch(handles.cassandra?, &format!("item-{id}")).await)
-            }
-            "opensearch" if self.opensearch.is_some() => {
-                done(self.article_touch(handles.opensearch?, &format!("item-{id}")).await)
-            }
+            "cassandra" if self.cassandra.is_some() => done(
+                self.ticket_touch(handles.cassandra?, &format!("item-{id}"))
+                    .await,
+            ),
+            "opensearch" if self.opensearch.is_some() => done(
+                self.article_touch(handles.opensearch?, &format!("item-{id}"))
+                    .await,
+            ),
             "redis" => {
                 let outcome = self.counter_incr(redis?, &format!("item-{id}")).await;
                 Some(if outcome.status == 200 {

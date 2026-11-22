@@ -290,7 +290,9 @@ async fn a_detached_background_write_is_never_refused() {
     // The background worker's connection is made outside any Preview, so it carries no Preview's context.
     let mut conn = store.detached().connection();
     let reply = run_preview(&store, async {
-        tokio::spawn(sendproof_core::detached(async move { redis::cmd("INCR").arg("counter:a").exec_async(&mut conn).await.unwrap() })).await.unwrap();
+        tokio::spawn(sendproof_core::detached(async move { redis::cmd("INCR").arg("counter:a").exec_async(&mut conn).await.unwrap() }))
+            .await
+            .unwrap();
     })
     .await;
     assert_eq!(wire.sent(), ["INCR"]);

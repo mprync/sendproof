@@ -134,9 +134,10 @@ mod tests {
         assert_eq!(open.count(), 2);
         // A task the handler spawned: no capture, not detached.
         let open_clone = open.clone();
-        let refusal = tokio::spawn(async move { open_clone.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write) })
-            .await
-            .unwrap();
+        let refusal =
+            tokio::spawn(async move { open_clone.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write) })
+                .await
+                .unwrap();
         let refusal = refusal.expect_err("the write is refused, so the caller never sends it");
         assert_eq!((refusal.store.as_str(), refusal.operation.as_str()), ("cassandra", "INSERT"));
         for preview in [&first, &second] {
@@ -158,9 +159,17 @@ mod tests {
         let _session = open.begin(&extensions).unwrap();
         let scope = StoreScope::current();
         assert!(open.block_unattributed(&scope, "cassandra", "SELECT", CommandKind::Read).is_ok());
-        assert!(detached(async { open.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write) }).await.is_ok());
+        assert!(
+            detached(async { open.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write) }).await.is_ok()
+        );
         // A request's own write is the guard's business, not this check's.
-        assert!(capture::scope(recorder.clone(), async { open.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write) }).await.is_ok());
+        assert!(
+            capture::scope(recorder.clone(), async {
+                open.block_unattributed(&StoreScope::current(), "cassandra", "INSERT", CommandKind::Write)
+            })
+            .await
+            .is_ok()
+        );
         assert!(recorder.blocked().is_none());
     }
 

@@ -557,12 +557,16 @@ async fn remember<B: Backend>(
         .redis
         .as_ref()
         .and_then(|redis| redis.store.from_enrollment(enrollment, required).ok());
-    let cassandra = state.stores.cassandra.as_ref().and_then(|cassandra| {
-        cassandra.store.from_enrollment(enrollment, required).ok()
-    });
-    let opensearch = state.stores.opensearch.as_ref().and_then(|opensearch| {
-        opensearch.store.from_enrollment(enrollment, required).ok()
-    });
+    let cassandra = state
+        .stores
+        .cassandra
+        .as_ref()
+        .and_then(|cassandra| cassandra.store.from_enrollment(enrollment, required).ok());
+    let opensearch = state
+        .stores
+        .opensearch
+        .as_ref()
+        .and_then(|opensearch| opensearch.store.from_enrollment(enrollment, required).ok());
     let handles = Handles {
         redis: redis.as_ref(),
         cassandra: cassandra.as_ref(),

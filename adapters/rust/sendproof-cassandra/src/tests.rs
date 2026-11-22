@@ -174,10 +174,13 @@ mod server {
     async fn connect() -> Option<Session> {
         let address = std::env::var("BENCH_CASSANDRA_SERVER").unwrap_or_else(|_| "127.0.0.1:59042".into());
         let published = address.to_socket_addrs().ok()?.next()?;
-        let attempt = async { SessionBuilder::new().known_node(address).address_translator(Arc::new(Published(published))).build().await.ok() };
+        let attempt =
+            async { SessionBuilder::new().known_node(address).address_translator(Arc::new(Published(published))).build().await.ok() };
         let session = tokio::time::timeout(Duration::from_secs(20), attempt).await.ok().flatten();
         if session.is_none() {
-            eprintln!("skipped: Cassandra isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra)");
+            eprintln!(
+                "skipped: Cassandra isn't running (docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra)"
+            );
         }
         session
     }
@@ -248,7 +251,8 @@ mod server {
             assert!(recorder.blocked().is_none());
 
             // Unprepared writes, paged and unpaged.
-            let error = session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)", ("blocked",)).await.unwrap_err();
+            let error =
+                session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES (?, 'new', 1)", ("blocked",)).await.unwrap_err();
             assert!(error.blocked().is_some_and(|blocked| blocked.operation == "INSERT"), "{error}");
             assert!(session.query_iter("INSERT INTO tickets (id) VALUES ('iter')", ()).await.is_err());
             assert!(session.query_single_page("DELETE FROM tickets WHERE id = 'seeded'", (), PagingState::start()).await.is_err());
@@ -281,7 +285,11 @@ mod server {
         for id in ["blocked", "iter", "prepared", "prepared-iter", "bound", "batched"] {
             assert_eq!(fixture.ticket(id).await, None, "{id} reached the server");
         }
-        let tables = fixture.raw.query_unpaged("SELECT table_name FROM system_schema.tables WHERE keyspace_name = ?", (&fixture.keyspace,)).await.unwrap();
+        let tables = fixture
+            .raw
+            .query_unpaged("SELECT table_name FROM system_schema.tables WHERE keyspace_name = ?", (&fixture.keyspace,))
+            .await
+            .unwrap();
         assert_eq!(tables.into_rows_result().unwrap().rows_num(), 1, "the DDL reached the server");
         fixture.drop().await;
     }
@@ -320,7 +328,10 @@ mod server {
         let logs = observed.finish().logs;
         let dbs: Vec<_> = logs.iter().filter_map(|log| log.db.as_ref()).collect();
         assert_eq!(dbs.len(), 2);
-        assert_eq!((dbs[0].operation.as_str(), dbs[0].target.as_deref(), dbs[0].namespace.as_deref()), ("INSERT", Some("tickets"), Some(fixture.keyspace.as_str())));
+        assert_eq!(
+            (dbs[0].operation.as_str(), dbs[0].target.as_deref(), dbs[0].namespace.as_deref()),
+            ("INSERT", Some("tickets"), Some(fixture.keyspace.as_str()))
+        );
         assert_eq!(dbs[0].statement.as_deref(), Some("INSERT INTO tickets (id, status, hits) VALUES (?, ?, ?)"));
         assert_eq!((dbs[1].operation.as_str(), dbs[1].target.as_deref()), ("BATCH", Some("tickets")));
         fixture.drop().await;
@@ -393,7 +404,8 @@ mod server {
             let session = store.detached().session();
             tokio::spawn(async move {
                 released.await.ok();
-                let outcome = session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('late', 'new', 1)", ()).await.map(|_| ());
+                let outcome =
+                    session.query_unpaged("INSERT INTO tickets (id, status, hits) VALUES ('late', 'new', 1)", ()).await.map(|_| ());
                 let _ = finished.send(outcome);
             });
         })

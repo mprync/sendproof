@@ -54,7 +54,8 @@ use aws_sdk_dynamodb::{
 use aws_smithy_runtime_api::box_error::BoxError;
 use aws_smithy_types::config_bag::{Storable, StoreReplace};
 use sendproof_core::{
-    BoxError as CoreError, BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, PreviewSession, StoreDescription, StoreMode, StoreScope,
+    BoxError as CoreError, BoxFuture, CommandKind, ConfigError, DataStore, DbEntry, PreviewSession, StoreDescription, StoreMode,
+    StoreScope,
     stores::{OpenPreviews, classify_dynamo, exact_names, store_label},
 };
 use serde_json::Value;
