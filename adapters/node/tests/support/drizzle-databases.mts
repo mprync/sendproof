@@ -6,6 +6,7 @@
  * `BENCH_MYSQL_URL` is set. Each server target creates a uniquely named database and drops it after.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzlePreview } from '@sendproof/drizzle';
 import type { DrizzlePreview, DrizzlePreviewOptions } from '@sendproof/drizzle';
@@ -145,6 +146,23 @@ const pglite: Target = {
   },
 };
 
+/**
+ * Drops a test database once its sessions have exited. FORCE would terminate a session whose socket the driver has just
+ * closed, and postgres.js throws from its socket callback when that happens, so FORCE is only the last resort.
+ */
+async function dropWhenIdle(admin: pg.Pool, name: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      await admin.query('DROP DATABASE ' + name);
+      return;
+    } catch (error) {
+      if ((error as { code?: string }).code !== '55006') throw error; // object_in_use: sessions are still closing
+      await delay(100);
+    }
+  }
+  await admin.query('DROP DATABASE ' + name + ' WITH (FORCE)');
+}
+
 function postgresServer(name: string, driver: 'pg' | 'postgres', raw: string): Target {
   return {
     name,
@@ -188,7 +206,7 @@ function postgresServer(name: string, driver: 'pg' | 'postgres', raw: string): T
         async cleanup() {
           for (const pool of pools) await pool.end().catch(() => {});
           await reader.end();
-          await admin.query('DROP DATABASE ' + created + ' WITH (FORCE)');
+          await dropWhenIdle(admin, created);
           await admin.end();
         },
       };

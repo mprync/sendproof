@@ -41,6 +41,13 @@ function watchPage(page) {
 // Keep the approved PNG untouched. The pixel delta is diagnostic: real API values,
 // timestamps, and platform fonts differ from the static design, so geometry/style
 // assertions below are the executable parity gate rather than a pixel percentage.
+// The expected shortcut glyphs in this file are the macOS ones (⌘K); pin the browser to that platform so the
+// result does not depend on the host the check runs on (Linux Chromium reports "Ctrl K").
+function pretendMac() {
+  Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+  if (navigator.userAgentData) Object.defineProperty(navigator, 'userAgentData', { get: () => ({ platform: 'macOS' }) });
+}
+
 async function evidence(actual, reference, name) {
   const registered = await actual.evaluate(() => ({
     orphaned: [...document.querySelectorAll('.kbd, [aria-keyshortcuts]')].filter(node =>
@@ -925,6 +932,7 @@ async function verifyPersonaRefusal(browser, url) {
   const open = async status => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
     await serveUiFromDirectory(context);
+    await context.addInitScript(pretendMac);
     await context.route(/\/auth\/personas$/, route => route.fulfill({ status, contentType: 'application/json', body: status === 500 ? 'boom' : '{}' }));
     const view = await context.newPage();
     view.setDefaultTimeout(5000);
@@ -978,6 +986,7 @@ async function verifyPersonaRefusal(browser, url) {
 async function verifyLocaleLayouts(browser, url) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-IE' });
   await serveUiFromDirectory(context);
+  await context.addInitScript(pretendMac);
   const sweep = await context.newPage();
   sweep.setDefaultTimeout(5000);
   try {
@@ -1105,8 +1114,10 @@ try {
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, locale: 'en-IE' });
   await serveUiFromDirectory(context);
+  await context.addInitScript(pretendMac);
   page = await context.newPage();
   mock = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  await mock.addInitScript(pretendMac);
   watchPage(page);
   page.setDefaultTimeout(5000);
   mock.setDefaultTimeout(5000);

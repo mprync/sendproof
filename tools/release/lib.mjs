@@ -7,8 +7,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { readFileSync, statSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path';
@@ -212,7 +212,8 @@ export async function verifyChecksums(directory) {
 /** Recreates `directory` empty. Refuses anything outside the repository's artifacts/ or the OS temp dir. */
 export async function cleanDir(directory) {
   const target = resolve(directory);
-  const allowed = [join(root, 'artifacts') + sep, resolve(tmpdir()) + sep];
+  // tempDir() hands out real paths (no 8.3 short names), so the real spelling of the temp dir is allowed too.
+  const allowed = [join(root, 'artifacts') + sep, resolve(tmpdir()) + sep, realpathSync(tmpdir()) + sep];
   if (!allowed.some(prefix => target.startsWith(prefix))) throw new Error(`Refusing to clean ${target}`);
   await rm(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   await mkdir(target, { recursive: true });
@@ -236,7 +237,9 @@ export async function stage(source, destination, { exclude = [] } = {}) {
 
 /** Creates a throwaway directory outside the repository, so no workspace, go.work or Cargo workspace applies. */
 export async function tempDir(name) {
-  return mkdtemp(join(tmpdir(), `sendproof-${name}-`));
+  // realpath expands Windows 8.3 names (C:\Users\RUNNER~1): a program that sees one file under both spellings loads it
+  // twice, which breaks ActiveSupport's `with` core extension, among others.
+  return realpath(await mkdtemp(join(tmpdir(), `sendproof-${name}-`)));
 }
 
 export async function removeDir(directory) {

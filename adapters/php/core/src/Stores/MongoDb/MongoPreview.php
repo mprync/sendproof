@@ -36,8 +36,12 @@ final class MongoPreview
     public array $candidates = [];
     /** @var list<array{namespace:string,collection:string,filter:mixed,via:?string}> Filters whose matches, before and inside the transaction, are candidates */
     public array $filters = [];
-    /** @var \WeakMap<Session,bool> Sessions the handler created through the guarded client, and whether a command was moved off each; those commands join this transaction */
-    public \WeakMap $shells;
+    /**
+     * @var \SplObjectStorage<Session,bool> Sessions the handler created through the guarded client, and whether a command was moved off each;
+     *      those commands join this transaction. Held strongly, because a handler that aborts its own session and lets it go
+     *      out of scope would otherwise take the evidence of the abort with it before the Preview finishes.
+     */
+    public \SplObjectStorage $shells;
 
     /**
      * @param string $lsid Lower-case hex of the session's logical session id
@@ -45,6 +49,6 @@ final class MongoPreview
      */
     public function __construct(public readonly Session $session, public readonly string $lsid, public readonly int $deadlineNs)
     {
-        $this->shells = new \WeakMap();
+        $this->shells = new \SplObjectStorage();
     }
 }

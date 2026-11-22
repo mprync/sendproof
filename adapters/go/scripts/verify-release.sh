@@ -35,7 +35,9 @@ rm -rf "$work"
 mkdir -p "$repo/adapters" "$repo/tools"
 
 echo "Copying the Go tree and retargeting it to $placeholder"
-rsync -a --exclude .git "$here/" "$repo/adapters/go/"
+# tar rather than rsync, which Git for Windows does not ship.
+mkdir -p "$repo/adapters/go"
+(cd "$here" && tar --exclude=.git -cf - .) | (cd "$repo/adapters/go" && tar -xf -)
 cp "$root/tools/set-go-module-path.mjs" "$repo/tools/"
 node "$root/tools/set-go-module-path.mjs" --root "$repo" "$placeholder" | tail -1
 base="$(tr -d '[:space:]' < "$repo/adapters/go/MODULE_PATH")"
