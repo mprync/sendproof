@@ -43,9 +43,9 @@
   --accent-text: oklch(0.45 0.19 268);
   --on-accent:   oklch(0.99 0.003 268);
   --focus:       oklch(0.55 0.2 268);
-  /* The brand mark (docs/images/logo): the solid dart, and the opacity of the faint preview dart. */
-  --mark:        var(--accent);
-  --mark-ghost:  0.4;
+  /* The brand mark (docs/images/logo): monochrome, black in light, white in dark; the faint dart's opacity. */
+  --mark:        oklch(0.15 0 0);
+  --mark-ghost:  0.35;
 
   --ok:          oklch(0.48 0.13 155);  --ok-soft:     oklch(0.96 0.03 155);
   --warn:        oklch(0.50 0.12 70);   --warn-soft:   oklch(0.965 0.04 85);
@@ -147,9 +147,9 @@
   --accent-soft: oklch(0.28 0.05 268);
   --accent-text: oklch(0.80 0.11 268);
   --focus:       oklch(0.72 0.15 268);
-  /* Lighter than --accent and a stronger preview dart, so both darts read on the dark top bar. */
-  --mark:        oklch(0.68 0.16 268);
-  --mark-ghost:  0.5;
+  /* White on the dark top bar, with the preview dart at the same contrast as in light. */
+  --mark:        oklch(0.98 0 0);
+  --mark-ghost:  0.4;
   --ok:          oklch(0.78 0.13 155);  --ok-soft:     oklch(0.26 0.04 155);
   --warn:        oklch(0.82 0.12 80);   --warn-soft:   oklch(0.27 0.04 80);
   --danger:      oklch(0.76 0.14 25);   --danger-soft: oklch(0.25 0.045 25);

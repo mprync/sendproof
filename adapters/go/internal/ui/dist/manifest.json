@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "83fbf840a5580c44f0f8729da8ed97b0262b952c39017a99c763417684ac5567",
+  "bundleHash": "b388b7724597ab2bec267e7c90336811a2f6d60a8732ca0b84b8c903f7595bf6",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -93,8 +93,8 @@
       "contentType": "image/png"
     },
     "favicon.svg": {
-      "sha256": "cad96fe1f53a1e02f39289a8ffc650287af6aaa84f2bd38d0009c544ec46d264",
-      "bytes": 369,
+      "sha256": "a1ec7773b611e6c4e800abf45e7f347e43ec4c632958c8f0b90e8937ccecc451",
+      "bytes": 370,
       "contentType": "image/svg+xml"
     },
     "field-help.js": {
@@ -838,7 +838,7 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "styles.css": {
-      "sha256": "e3b0d306379d9ea46f3cc43c5418f3e0fc1eab2334df1c4820d7301ef8e49703",
+      "sha256": "e0aaebb81947ecff61149236201408d996eb63766c8637ca61a1d0b725e2880f",
       "bytes": 75276,
       "contentType": "text/css; charset=utf-8"
     },
