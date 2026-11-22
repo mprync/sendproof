@@ -183,6 +183,36 @@ test('cosmosdb: observed Send sends the write once and traces it without the doc
   assert(!JSON.stringify(trace).includes(Buffer.from('fake-key').toString('base64')), 'The account key must never reach a trace');
 });
 
+test('cosmosdb: the SDK is pinned to the 4.10 line, and a client of any other version is refused at registration', async () => {
+  // The request-plugin option is undocumented: an unpinned range could install a line that no longer runs it.
+  const manifest = JSON.parse(readFileSync(new URL('../cosmosdb/package.json', import.meta.url), 'utf8'));
+  assert.match(manifest.peerDependencies['@azure/cosmos'], /^~4\.10\.\d+$/, 'The peer range must stay on the 4.10 line');
+  assert.match(manifest.devDependencies['@azure/cosmos'], /^4\.10\.\d+$/, 'Tests run against an exact 4.10 release');
+  const installed = JSON.parse(readFileSync(new URL('../node_modules/@azure/cosmos/package.json', import.meta.url), 'utf8')).version;
+  assert.match(installed, /^4\.10\./);
+  const client = new CosmosClient({ endpoint: 'https://fake.documents.azure.com:443/', key: Buffer.from('k').toString('base64') });
+  const headers = (client as any).clientContext.cosmosClientOptions.defaultHeaders;
+  for (const agent of ['Node.js/24 azure-cosmos-js/4.11.0', 'Node.js/24 azure-cosmos-js/5.0.0', 'Node.js/24', 'Node.js/24 azure-cosmos-js/4.1.0 suffix azure-cosmos-js/4.10.2']) {
+    headers['User-Agent'] = agent;
+    assert.throws(() => cosmosStore(client), /4\.10/, `A client reporting "${agent}" must be refused`);
+  }
+  client.dispose();
+});
+
+test('cosmosdb: query literals are logged as ?, double-quoted strings included', async () => {
+  const { client, store } = sdk(true) as any;
+  const preview = new Capture('preview');
+  await preview.run(() => store.plugin({
+    method: 'POST', path: '/dbs/shop/colls/orders/docs', operationType: 'Query', headers: { 'x-ms-documentdb-isquery': 'True' },
+    body: { query: 'SELECT * FROM c WHERE c.token = "tok-s3cret" AND c.owner = \'alice\' AND c.note = \'it\\\'s hush\' AND c.n = 42 AND c["key"] = @key', parameters: [{ name: '@key', value: 'hidden' }] },
+  }, undefined, async () => ({})));
+  const [entry] = dbEntries(preview.finish().capture.logs, 'cosmosdb', 'Query');
+  assert(entry, 'Expected a Db entry for the query');
+  assert.equal(entry.db.statement, 'SELECT * FROM c WHERE c.token = ? AND c.owner = ? AND c.note = ? AND c.n = ? AND c[?] = @key');
+  assert(!/s3cret|alice|hush|hidden|42/.test(JSON.stringify(entry)));
+  client.dispose();
+});
+
 test('cosmosdb: registration refuses a second hook, a non-client and a URL label, and advertises guard mode', async () => {
   const { client } = sdk(false);
   const store = cosmosStore(client, { name: 'orders' });

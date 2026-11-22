@@ -64,14 +64,19 @@ interface ClientOptions { plugins?: { on: string; plugin: CosmosPlugin }[] }
 
 const hooked = Symbol.for('sendproof.cosmosdb.hooked');
 
-/** The query text of a request body, with inline literals replaced by `?`. Documents and parameter values are never read. */
+/**
+ * The query text of a request body, with inline literals replaced by `?`. Documents and parameter
+ * values are never read. Cosmos DB SQL quotes strings with `'` or `"` (names are bare or
+ * `c["name"]`), so double-quoted text is a literal too, unlike CQL.
+ */
 function queryText(body: unknown): string | undefined {
   let parsed = body;
   if (typeof body === 'string') {
     try { parsed = JSON.parse(body); } catch { return undefined; }
   }
   const query = (parsed as { query?: unknown } | null | undefined)?.query;
-  return typeof query === 'string' ? sanitizeStatement(query) : undefined;
+  // Both quote styles take backslash escapes (`'it\'s'`), which the CQL-style sanitizer doesn't know.
+  return typeof query === 'string' ? sanitizeStatement(query.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '?')) : undefined;
 }
 
 /** The request plugin: classify, guard, then send and log. Exported for tests that call it directly. */
@@ -111,6 +116,13 @@ export function cosmosStore<Client extends object>(client: Client, options: Cosm
   const settings = (client as { clientContext?: { cosmosClientOptions?: ClientOptions } } | null | undefined)?.clientContext?.cosmosClientOptions;
   if (!settings || typeof settings !== 'object') {
     throw new TypeError('cosmosStore takes an @azure/cosmos 4.10 CosmosClient; this client has no request plugin options to hook.');
+  }
+  // The plugin option is private SDK API: hook only the line it was proven on. The SDK writes its own
+  // version into the client's User-Agent ahead of any application suffix, so the first match is the SDK's.
+  const agent = (settings as { defaultHeaders?: Record<string, unknown> }).defaultHeaders?.['User-Agent'];
+  const version = /\bazure-cosmos-js\/(\d+)\.(\d+)\./.exec(typeof agent === 'string' ? agent : '');
+  if (version?.[1] !== '4' || version[2] !== '10') {
+    throw new TypeError(`cosmosStore takes an @azure/cosmos 4.10 CosmosClient; this client reports ${version ? `${version[1]}.${version[2]}` : 'no version'}, and the request plugin it relies on is not proven there.`);
   }
   if ((settings as Record<PropertyKey, unknown>)[hooked]) throw new TypeError('This Cosmos DB client is already hooked by cosmosStore.');
   const plugin = cosmosGuardPlugin(reads);
