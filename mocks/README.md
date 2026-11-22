@@ -346,3 +346,57 @@ Also `theme=dark`, `lang=de|ar`, `text=130` and `mview=result`. Boards: `stores.
 - **Upsert and replace labels** need the binding to say so: the change record keeps `insert`/`update`, so "via upsert" and "whole document replaced" need an optional field (for example `via: "upsert" | "replace"`), or the UI reads them from the matching command log.
 - **Default view.** Updates open on Diff with every object open; Changes only is off. Confirm both defaults.
 - **The attribute name.** The snippet shows `[SendproofPreview(Enabled = false, …)]`, assuming the .NET attribute follows the rename.
+
+## v7: journeys
+
+v7 designs journeys ([`docs/plans/journeys.md`](../docs/plans/journeys.md)): an Arazzo workflow run step by step through the generated screens, with each step's writes compared with the expectations document. Every screen is the Acme Store API's "Order to shipment" journey (create order, list payments, capture payment, ship order, get order). v7 sits on v5 and v6 and lives in its own files: `handles.js` writes `v7-journeys.js` in only when the query has `v7=1`, and `v7-journeys.js` writes `v7.css`. Without it nothing changes.
+
+### Files (v7)
+
+| File | What it holds |
+| --- | --- |
+| `v7-journeys.js` | The data (journeys, steps, one run), the builders (Journeys tab with the progress rail, step strip, bound-field chips, expected-writes list, comparison card, approved-difference record) and the seven scenes |
+| `v7.css` | Every v7 style, scoped to `:root[data-v7]`, with container queries for narrow comparison cards and phone rules |
+| `journeys.html`, `v7-board.js` | The findings board: every finding, verdict and rail state, built from the same builders |
+
+### Parameters (v7)
+
+`v5=1&v6=1&v7=1` plus `jv=overview|step|result|summary|refused|empty|loading`. `mode=send` shows the step in a Send run. Also `theme=dark`, `text=130`, `lang=ar`, `mview=request|result` and `drawer=1`. Board: `journeys.html?v6=1&v7=1&set=findings`.
+
+### Screens (v7)
+
+| PNG | Query (`v5=1&v6=1&v7=1&` plus) | What it shows |
+| --- | --- | --- |
+| 132-v7-overview | `jv=overview` | A Journeys tab beside Operations and Models: groups from the Arazzo document, the step count, the last result, an "Inferred from links" group. The overview: steps as a timeline (what each should write, which values come from earlier steps), the inputs as real fields, the last run and earlier runs (one by an agent over MCP) |
+| 133-v7-overview-dark | same `&theme=dark` | The same in dark |
+| 134-v7-step | `jv=step` | A Preview run at step 4: the open journey unfolds into the progress rail; the step strip says the session is held; bound fields say where their value came from ("From step 1 · orderId") and the status line names the expression; the result pane lists what the step should write before it runs |
+| 135-v7-step-dark | same `&theme=dark` | The same in dark |
+| 136-v7-step-send-run | `jv=step&mode=send` | The same step in a Send run: Preview the step first, then Send it |
+| 137-v7-result | `jv=result` | Step 4 compared: a calm verdict, a filter, then each problem. A differing field is tinted with expected beside written; a field an approved difference covers is blue with its record's ID; a missing delete says what was expected and that nothing changed; the record itself; then the matches |
+| 138-v7-result-dark | same `&theme=dark` | The same in dark |
+| 139-v7-result-130 | `jv=result&text=130` | At 130% the comparison card stacks each field (Expected and Written on their own lines) and the tabs scroll with a fade |
+| 140-v7-rtl-ar-result | `jv=result&lang=ar` | Arabic: the rail, strip and cards mirror; table names, values and expressions stay LTR |
+| 141-v7-summary | `jv=summary` | The run: verdict in words, counts, each step with its result, findings and time, the session rolled back store by store, the outputs; the approved differences used, one not needed, export to JSON and JUnit, and the CLI and MCP equivalents |
+| 142-v7-summary-dark | same `&theme=dark` | The same in dark |
+| 143-v7-refused | `jv=refused` | A Send run stopped at step 3 by an unexpected 409: why it stopped, that the step wrote nothing, that steps 4 and 5 didn't run, what steps 1 and 2 left in the database, and Cancel order with the order filled in |
+| 144-v7-refused-dark | same `&theme=dark` | The same in dark |
+| 145-v7-empty | `jv=empty` | No journeys: what a journey is, the three steps to publish one, the capabilities snippet |
+| 146-v7-loading | `jv=loading` | Skeletons in the shape of the sidebar, the timeline, the inputs and the last run; the run buttons wait, disabled |
+| 147-v7-loading-dark | same `&theme=dark` | The same in dark |
+| 148-v7-board-findings | `journeys.html?v6=1&v7=1&set=findings` | Every finding (differs, missing, match, extra, approved, not checked, an expired record), every verdict (passed, passed with an approved difference, failed, refused, blocked by the Preview guard, refused as expected) and the rail in three runs |
+| 149-v7-board-findings-dark | same `&theme=dark` | The same in dark |
+| m32-v7-journeys-drawer-130 | `jv=overview&drawer=1&text=130` | The Journeys tab as a drawer at 130% |
+| m33-v7-overview-130 | `jv=overview&text=130` | The overview on a phone |
+| m34-v7-step-130 | `jv=step&text=130` | The step on a phone: the strip keeps "Step 4 of 5" and the segments; previous and next are 44 px |
+| m35-v7-result-130 | `jv=result&mview=result&text=130` | The comparison on a phone: the filter is a 2 × 2 grid, cards stack, nothing scrolls sideways |
+| m36-v7-result-ar-130-dark | `…&lang=ar&theme=dark` | Arabic, dark, 130% |
+| m37-v7-summary-130 | `jv=summary&text=130` (320 px) | The summary at 320 px |
+| m38-v7-refused-130 | `jv=refused&mview=result&text=130` | The stopped run on a phone |
+
+### Design rules (new in v7)
+
+- **A journey is a place, not a mode.** It's a third sidebar tab; opening a run unfolds the journey into its steps, so the rail is the navigation and nothing new appears around the shell. Each step is its operation's own screen.
+- **Say where every value came from.** A bound field carries a chip ("From step 1 · orderId", "Journey input", "Fixed") and its status line names the runtime expression. Editing one is allowed and recorded.
+- **Colour points at the problem.** The verdict's colour lives in its icon tile; only the field that differs is tinted. Red fails, blue is covered by an approved-difference record, green matched. Every finding also has a word.
+- **An approval is a record, never a button.** The workbench drafts a record to commit; it shows the record's ID, reason, approver and expiry wherever it's used, and says when one wasn't needed or has expired.
+- **A stop says what's left behind.** A Send run that stops lists what earlier steps committed and offers the operation that undoes it.
