@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "b388b7724597ab2bec267e7c90336811a2f6d60a8732ca0b84b8c903f7595bf6",
+  "bundleHash": "339a2aef4103589d37b3647b91c15ecc97289163beed31142147a4c1d095cafb",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -13,8 +13,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "app.css": {
-      "sha256": "4d8ef4097cc833b3e2b23ee83d409f221ef6a3ff0d92ded1a6c1d7dff176eab1",
-      "bytes": 69568,
+      "sha256": "559a559e0ac220592a1051dfccfcce3b0388d4ba4d161fb5b4a652c58b7dbab6",
+      "bytes": 70339,
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
@@ -88,8 +88,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "favicon.png": {
-      "sha256": "7daae16eb6003b54d0a7fef079d251c1a3c6ba210264cc0e7d51c25a41165b9d",
-      "bytes": 916,
+      "sha256": "fb1806b2e1b58fcdd2285e3acdc9e1a861198e573773f62dcb422fae60f1771d",
+      "bytes": 701,
       "contentType": "image/png"
     },
     "favicon.svg": {

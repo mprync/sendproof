@@ -193,11 +193,18 @@ button.expect-row { inline-size: 100%; border: 0; background: none; text-align: 
 .request .tabs { flex-shrink: 0; }
 .request { position: relative; }
 .assist-icon { display: inline-flex; }
-.list-input .val .field { padding: 0; display: block; }
-.list-input .val .label, .list-input .val .assist { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
-.list-input .val .control { block-size: auto; border: 0; box-shadow: none; padding: 0.15rem 0; background: transparent; }
-.list-input .val .control:focus-within { outline: 2px solid var(--focus); }
-.list-input .val .control.is-invalid { color: var(--danger); }
+/* A scalar line is one inline control; the item's own label and hint are for screen readers only.
+   The selectors stop at the item, so a line that holds an object keeps its fields as they are. */
+.list-input .val > .field { padding: 0; display: block; }
+.list-input .val > .field > :is(.label, .assist) { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+.list-input .val > .field > .control { block-size: auto; border: 0; box-shadow: none; padding: 0.15rem 0; background: transparent; }
+.list-input .val > .field > .control:focus-within { outline: 2px solid var(--focus); }
+.list-input .val > .field > .control.is-invalid { color: var(--danger); }
+/* A line that holds an object grows to its fields, with the number and remove button at the top. */
+.list-input .li:has(> .val > .field[data-kind="group"]) { block-size: auto; align-items: start; padding-block: 0.75rem 0; padding-inline-end: 0.5rem; }
+.list-input .li:has(> .val > .field[data-kind="group"]) > .idx { line-height: 1.5rem; }
+.list-input .li:has(> .val > .field[data-kind="group"]) > .btn { margin-block-start: -0.125rem; }
+.list-input .li > .val:has(> .field[data-kind="group"]) { overflow: visible; white-space: normal; }
 .list-input:has([aria-invalid="true"]) { border-color: var(--danger-line); }
 .actionbar { position: relative; }
 .actionbar .status .spinner { color: var(--accent-text); }
