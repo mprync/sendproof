@@ -263,7 +263,7 @@
     {
       "id": "java-spring",
       "database": "h2",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "java",
       "port": 5364,
@@ -275,7 +275,8 @@
         "adapters/java/scripts/run-fixture.sh"
       ],
       "traceTtlMs": 5000,
-      "startupMs": 60000
+      "startupMs": 60000,
+      "timeoutMs": 450000
     },
     {
       "id": "java-spring-mysql",
@@ -293,7 +294,7 @@
     {
       "id": "kotlin-ktor",
       "database": "h2",
-      "stores": ["mongodb", "redis", "dynamodb"],
+      "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],
       "sharedRules": ["secret-columns", "raw-commit"],
       "toolchain": "java",
       "port": 5376,
@@ -301,7 +302,8 @@
       "prepare": "sh adapters/java/scripts/gradle.sh :ktor-fixture:installDist",
       "start": ["sh", "adapters/java/scripts/run-ktor-fixture.sh"],
       "traceTtlMs": 5000,
-      "startupMs": 60000
+      "startupMs": 60000,
+      "timeoutMs": 450000
     },
     {
       "id": "php-laravel",
