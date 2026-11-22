@@ -94,6 +94,16 @@ public final class ElasticsearchStore extends GuardOnlyStore implements SearchSu
         return new GuardedTransport(this, raw);
     }
 
+    /**
+     * Hooks a low-level {@code RestClient} as it is built, so a raw {@code performRequest} is guarded like a typed call:
+     * {@code RestClient.builder(host).setHttpClientConfigCallback(b -> { store.hook(b); return b; })}. Spring Boot hooks
+     * the {@code RestClient} it builds on its own. A request from a transport this store guards was checked there and
+     * passes the hook without a second check, so a typed call over the hooked client is logged once.
+     */
+    public void hook(org.apache.http.impl.nio.client.HttpAsyncClientBuilder builder) {
+        builder.addInterceptorFirst(new RawRequestGuard(this));
+    }
+
     /** A synchronous client over a guarded transport. */
     public ElasticsearchClient client(ElasticsearchTransport raw) {
         return new ElasticsearchClient(transport(raw));
@@ -159,11 +169,17 @@ public final class ElasticsearchStore extends GuardOnlyStore implements SearchSu
                     () -> lines(request, delegate.jsonpMapper()));
         }
 
+        /** The options with the header that tells a hooked {@code RestClient} this request was checked here. */
+        private TransportOptions checked(TransportOptions options) {
+            TransportOptions base = options != null ? options : delegate.options();
+            return base == null ? null : base.toBuilder().addHeader(RawRequestGuard.CHECKED, "1").build();
+        }
+
         @Override
         public <Q, S, E> S performRequest(Q request, Endpoint<Q, S, E> endpoint, TransportOptions options) throws IOException {
             Observation call = check(request, endpoint);
             try {
-                S response = delegate.performRequest(request, endpoint, options);
+                S response = delegate.performRequest(request, endpoint, checked(options));
                 call.complete(null, null);
                 return response;
             } catch (IOException | RuntimeException failure) {
@@ -181,7 +197,7 @@ public final class ElasticsearchStore extends GuardOnlyStore implements SearchSu
                 // The refusal is already marked on the Preview; the caller sees a failed future, as for any failed request.
                 return CompletableFuture.failedFuture(refused);
             }
-            return delegate.performRequestAsync(request, endpoint, options).whenComplete((response, failure) -> call.complete(null, failure));
+            return delegate.performRequestAsync(request, endpoint, checked(options)).whenComplete((response, failure) -> call.complete(null, failure));
         }
 
         @Override
