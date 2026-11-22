@@ -30,7 +30,7 @@ public sealed class ServiceFactAttribute : FactAttribute
         Skip = Unavailable(service);
     }
 
-    private static string? Unavailable(string service)
+    internal static string? Unavailable(string service)
     {
         lock (Probes)
         {
@@ -105,6 +105,16 @@ public sealed class ServiceFactAttribute : FactAttribute
         {
             return $"{service} is not running ({error.GetType().Name}); start it with: docker compose -f tests/conformance/compose.yml up -d --wait {service}";
         }
+    }
+}
+
+/// <summary>A theory that runs only when a compose data-store service answers, like <see cref="ServiceFactAttribute"/>.</summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class ServiceTheoryAttribute : TheoryAttribute
+{
+    public ServiceTheoryAttribute(string service)
+    {
+        Skip = ServiceFactAttribute.Unavailable(service);
     }
 }
 
