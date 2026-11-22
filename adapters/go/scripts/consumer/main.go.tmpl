@@ -14,14 +14,18 @@ import (
 	"os"
 	"strings"
 
+	"{{BASE}}/cassandrabench"
 	"{{BASE}}/chi"
+	"{{BASE}}/cosmosbench"
 	"{{BASE}}/dbsql"
 	"{{BASE}}/dynamobench"
 	"{{BASE}}/echo"
+	"{{BASE}}/firestorebench"
 	"{{BASE}}/gin"
 	"{{BASE}}/gorm"
 	"{{BASE}}/mongobench"
 	"{{BASE}}/redisbench"
+	"{{BASE}}/searchbench"
 	"{{BASE}}/sendproof"
 )
 
@@ -41,6 +45,10 @@ func main() {
 	_ = redisbench.Hook()
 	_ = dynamobench.Middleware()
 	_ = mongobench.New()
+	_ = cassandrabench.Store("")
+	_ = searchbench.Transport(nil)
+	_ = cosmosbench.Policy()
+	_ = firestorebench.DialOptions()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "pong") })

@@ -1,6 +1,6 @@
 # Data stores in the Go binding
 
-Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the `dbsql` provider guarantees it. For MongoDB, Redis and DynamoDB, the Go binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
+Sendproof Preview promises that a confirmed Preview never leaves a write behind. For SQL, the `dbsql` provider guarantees it. For the other stores, the Go binding hooks each store's client, following the rules in [spec/data-stores.md](../../spec/data-stores.md):
 
 | Store | Module | Mode | What a Preview does |
 | --- | --- | --- | --- |
@@ -8,6 +8,11 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | MongoDB standalone server | `mongobench` | `guard` | Runs reads. The first write stops the Preview. |
 | Redis (go-redis v9) | `redisbench` | `guard` | Runs reads. The first write stops the Preview. |
 | DynamoDB (AWS SDK for Go v2) | `dynamobench` | `guard` | Runs reads. The first write stops the Preview. |
+| Cassandra and ScyllaDB (`cassandra-gocql-driver/v2`, imported as `gocql`) | `cassandrabench` | `guard` | Runs reads. The first write, every batch included, stops the Preview. |
+| Elasticsearch (`go-elasticsearch` 8 and later) | `searchbench` | `guard` | Runs reads. The first write stops the Preview. |
+| OpenSearch (`opensearch-go` 4 and later) | `searchbench` | `guard` | Runs reads. The first write stops the Preview. |
+| Azure Cosmos DB for NoSQL (`azcosmos`) | `cosmosbench` | `guard` | Runs reads. The first write stops the Preview. |
+| Google Cloud Firestore (`cloud.google.com/go/firestore`, gRPC) | `firestorebench` | `guard` | Runs reads. The first write stops the Preview. |
 
 Each hook is a module of its own (`github.com/mprync/sendproof/adapters/go/redisbench` and so on), so an application only downloads the client libraries it uses. The shared write classification, tables and vectors are in the `stores` package of the core module. They are embedded from [spec/data-stores/](../../spec/data-stores/) by `go generate ./stores`, and a test fails when a copy differs.
 
@@ -16,7 +21,7 @@ Send and observed Send are never blocked. Their writes commit as usual, and an o
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]
-> The binding covers a store only through the client you hook and only for calls that carry the request's context. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, go-redis Pub/Sub connections, MongoDB change streams and GridFS, and rueidis. **Pass `r.Context()` (or a context derived from it) to every store call**, and hook every client your handlers use, at startup.
+> The binding covers a store only through the client you hook and only for calls that carry the request's context. Other clients are not covered: their writes are neither blocked nor rolled back. That includes a client created inside a handler, a second client for the same store, go-redis Pub/Sub connections, MongoDB change streams and GridFS, rueidis, and a raw `*gocql.Session`, an Elasticsearch, OpenSearch, Cosmos DB or Firestore client built without its guard. **Pass `r.Context()` (or a context derived from it) to every store call**, and hook every client your handlers use, at startup.
 
 ### Calls without the request's context
 
@@ -51,18 +56,40 @@ cfg, _ := config.LoadDefaultConfig(ctx)
 cfg.APIOptions = append(cfg.APIOptions, dynamobench.Middleware())
 orders := dynamodb.NewFromConfig(cfg)
 
+// Cassandra: Connect creates the gocql session and returns only the guarded wrapper.
+cluster := gocql.NewCluster("cassandra:9042")
+cluster.Keyspace = "inventory"
+tickets, _ := cassandrabench.Connect(cluster) // handlers use this
+defer tickets.Close()
+
+// Elasticsearch or OpenSearch: an http.RoundTripper set as the client's Transport.
+es, _ := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{esURL}, Transport: searchbench.Transport(nil)})
+os, _ := opensearchapi.NewClient(opensearchapi.Config{Client: opensearch.Config{
+    Addresses: []string{osURL}, Transport: searchbench.Transport(nil, searchbench.OpenSearch()),
+}})
+
+// Cosmos DB: an azcore per-call policy in the client options.
+cosmos, _ := azcosmos.NewClientFromConnectionString(connection, cosmosbench.ClientOptions(nil))
+
+// Firestore: a gRPC unary and stream interceptor, as client options.
+fs, _ := firestore.NewClient(ctx, project, firestorebench.ClientOptions()...)
+
 bench, _ := sendproof.New(
     sendproof.WithEnvironment("Development"),
     sendproof.WithProvider(db.Provider()), // the SQL provider is optional when stores are registered
     sendproof.WithDataStore(catalog),
     sendproof.WithDataStore(redisbench.Store("cache")),
     sendproof.WithDataStore(dynamobench.Store("orders")),
+    sendproof.WithDataStore(cassandrabench.Store("tickets")),
+    sendproof.WithDataStore(searchbench.Store("articles")),                          // searchbench.OpenSearch() for OpenSearch
+    sendproof.WithDataStore(cosmosbench.Store("orders")),
+    sendproof.WithDataStore(firestorebench.Store("orders")),
 )
 ```
 
 The name is the label the workbench shows. It must be a display name such as `catalog`, never a URL, host name or credentials; a value that looks like one panics at startup (the constructors take startup configuration, like `regexp.MustCompile`).
 
-`sendproof.WithProvider` is optional when you register data stores. An application whose only database is MongoDB, or that has only Redis or DynamoDB, can Preview without a SQL provider: MongoDB rolls back its own transaction and the guarded stores block writes. A SQL database you give no provider for is then not covered, like any unhooked client. With several SQL providers, Preview stays unavailable.
+`sendproof.WithProvider` is optional when you register data stores. An application whose only database is MongoDB, or that has only guarded stores, can Preview without a SQL provider: MongoDB rolls back its own transaction and the guarded stores block writes. A SQL database you give no provider for is then not covered, like any unhooked client. With several SQL providers, Preview stays unavailable.
 
 Use `sendproof.WithFramework("chi")` (or `"Gin"`, `"Echo"`) so the workbench writes its `preview: false` snippet for your framework; the default is `net/http`.
 
@@ -85,6 +112,56 @@ Use `sendproof.WithFramework("chi")` (or `"Gin"`, `"Echo"`) so the workbench wri
 ### DynamoDB
 
 `dynamobench.Middleware()` adds one middleware at the SDK's Initialize step, which runs before a request is serialized and signed, so credentials, the `Authorization` header and signatures never reach a capture. Adding it twice to the same client is refused.
+
+### Cassandra and ScyllaDB
+
+`gocql.Session` is a struct with no hook before a statement is sent (a `QueryObserver` runs afterwards), so the guard is a wrapper and the spike's fallback applies: **handlers use `cassandrabench.Session`**, which has gocql's own method names (`Query`, `Bind`, `Batch`, `ExecuteBatch`, `Exec`, `Scan`, `MapScan`, `ScanCAS`, `Iter`, `WithContext`, `Consistency`, `PageSize` and the rest). A method gocql's `Query`, `Batch` or `Session` has and the wrapper does not is not offered, and every query or batch derived from the wrapper stays guarded.
+
+- The wrapper sits above the driver's own prepare, so it classifies the CQL text of every call, prepared or not. `SELECT`, `USE`, `DESCRIBE` and `LIST ROLES`-style statements are reads. Every `BATCH` is a write (an empty one too), and so is a lightweight transaction (`IF NOT EXISTS`, `IF EXISTS`, `IF <condition>`), `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, DDL, `GRANT` and `REVOKE`. A text with a second statement after a semicolon, an unterminated quote or comment, or no statement at all is a write.
+- Prefer `cassandrabench.Connect(cluster)`: the application then never holds a raw `*gocql.Session`. `cassandrabench.Wrap(session)` guards a session built elsewhere, but the caller's own reference to the raw session stays unguarded.
+- Give each call the request's context: `Query(...).WithContext(r.Context())`, or `ExecContext`, `ScanContext` and `IterContext`.
+- A `Query.Iter()` or `Batch.Iter()` returns `*cassandrabench.Iter`, which has `Scan`, `MapScan`, `Close`, `Columns`, `NumRows`, `PageState`, `WillSwitchPage` and `Scanner`. After a refused statement its `Close` returns the refusal.
+- The Db entry has `target` (the table), `namespace` (the keyspace) and a statement with every quoted string, `$$` string, number, hex and UUID literal replaced by `?`. Bound values are never logged. A batch sent outside a Preview is logged as `BEGIN BATCH <statement>; …; APPLY BATCH`.
+- ScyllaDB's own fork (`github.com/scylladb/gocql`) has another import path and types, so the wrapper does not take it.
+
+### Elasticsearch and OpenSearch
+
+go-elasticsearch (`elasticsearch.Config.Transport`) and opensearch-go (`opensearch.Config.Transport`) both take an `http.RoundTripper`, so one guard serves both: `searchbench.Transport(next, options...)` wraps `next` (`http.DefaultTransport` when it is nil), below the typed API, so the classic and typed clients, bulk indexers and `Perform` are all covered, and so is every client derived from the configured one. Wrap the transport you would have used anyway, so TLS and proxy settings still apply.
+
+- Pass `searchbench.OpenSearch()` to both `Transport` and `Store` so the store reports `opensearch` (the default is `elasticsearch`) in Db entries, the 409 body and discovery.
+- The shared table classifies by HTTP method and path: `GET` and `HEAD` read, a `POST` to `_search`, `_msearch`, `_count`, `_mget` or `_field_caps` is a read, and `_bulk`, `_update_by_query`, `_delete_by_query`, `_reindex`, every `PUT`, document writes, stored scripts and index, alias and template changes are writes. The SQL endpoints (`_sql`, `_plugins/_sql`) read only for one `SELECT`, `SHOW` or `DESCRIBE`, or the next page of a cursor; the guard reads that request's body (up to 1 MiB, gzip included) and a larger or unreadable one is a write.
+- `searchbench.PathPrefix("/proxy")` names a path prefix the client is configured with (a cluster behind a proxy). Without it a prefixed request matches no table entry: a `GET` still reads and everything else is a write, so a `POST _search` is refused.
+- The Db entry's statement is the request body with every literal replaced by `"?"` (one line per document for `_bulk` and `_msearch`), and `target` is the first path segment that names an index. The path is not logged, because it can hold document ids.
+- The refusal is an error from the transport. The clients' connection pools count it as a failed node, so with several nodes configured a refused write takes one out of rotation until the client's resurrection timer, and default retries ask the guard again (every attempt is refused and nothing is sent). A refusal ends its Preview, so only the few requests that run before it are affected.
+- Other Go clients (olivere/elastic, a plain `http.Client`) work too if you set their transport to the guard, but they are not tested here.
+
+### Cosmos DB
+
+`azcosmos` builds its HTTP pipeline on azcore, whose client options take policies that run before a request is sent. `cosmosbench.ClientOptions(base)` returns a copy of `base` (nil for none) with the guard added to `PerCallPolicies`; or append `cosmosbench.Policy()` to your own options. The policy is public azcore API, so it does not depend on azcosmos internals, and the databases, containers and items derived from the client share its pipeline.
+
+- The operation comes from the method, the resource path and the SDK's headers, with the rules in `spec/data-stores/cosmosdb.json`: `Read`, `ReadFeed`, `Query` and `QueryPlan` are reads; `Create`, `Upsert`, `Replace`, `Patch`, `Delete`, `Batch` (transactional or bulk) and stored procedure `ExecuteJavaScript` are writes, and a request that names a trigger is a write whatever it is.
+- The Db entry has `target` (the container), `namespace` (the database) and, for a query, its text with inline literals replaced by `?`. Parameter values, documents, the `Authorization` header and the account key are never captured.
+- It covers the NoSQL API only; the Cosmos DB APIs for MongoDB, Cassandra, Gremlin and Table are other stores (use `mongobench` or `cassandrabench` for the first two).
+- With no emulator in CI, the hook is proven by replaying the requests recorded from a real SDK (`spec/data-stores/recordings/cosmosdb.json`) through an azcore pipeline over a fake transport, and by driving the real `azcosmos` client the same way.
+
+### Firestore
+
+The Go client speaks gRPC only. `firestorebench.ClientOptions()` returns the two dial options as client options for `firestore.NewClient`, `apiv1.NewClient` and `firebase.App.Firestore` (`firestorebench.DialOptions()` returns them as plain gRPC dial options). **Both are needed**: `RunQuery`, `BatchGetDocuments` and `Listen` are streams and `Write` is a bidirectional stream, so a unary-only interceptor lets `Write` through. The stream interceptor refuses a write stream before it is opened, so its first message is never sent.
+
+- Reads are `GetDocument`, `ListDocuments`, `BatchGetDocuments`, `RunQuery`, `RunAggregationQuery`, `PartitionQuery`, `Listen` and `ListCollectionIds`. `BeginTransaction` and `Rollback` are allowed. A `Commit` is a write when it carries at least one write; a read-write transaction that only reads ends with a `Commit` that carries none and is allowed. `BatchWrite` (the bulk writer), `Write` and the document RPCs are writes, and so is any method of another service or API version, unless it is an admin `Get` or `List`.
+- The Db entry's statement is the request message as JSON with every literal, document paths included, replaced by `"?"`; `target` is the collection. OAuth tokens and authorization metadata are never read.
+- Every collection, document, query, transaction and batch of a client built with these options is guarded, because they share its connection.
+- The Datastore-mode and Firestore-in-Datastore APIs are not covered.
+- With no emulator in CI, the hook is proven by replaying the requests recorded from a real SDK (`spec/data-stores/recordings/firestore.json`, recorded on the REST transport; the proto3 JSON body is the gRPC message) through the interceptors, and by driving the real `firestore` client against an in-process fake server.
+
+## Unsupported
+
+Everything the five batch-two stores' sections above do not name is not covered. In particular:
+
+- **Cassandra:** ScyllaDB's `scylladb/gocql` fork, and any driver but `cassandra-gocql-driver/v2`.
+- **Elasticsearch and OpenSearch:** none: any client that takes an `http.RoundTripper` can use `searchbench`, though only go-elasticsearch 8 and opensearch-go 4 are tested.
+- **Cosmos DB:** the non-NoSQL APIs, and Gremlin or Table clients.
+- **Firestore:** the Datastore API, and a client built without `firestorebench.ClientOptions()`.
 
 ## Mark an operation `preview: false`
 
@@ -117,7 +194,7 @@ In `preview` mode MongoDB blocks only what a transaction can't run, such as `$ou
 
 ## Host-declared reads
 
-Each hook takes `TreatAsRead`, a list of exact command names the guard should let through, such as a custom Redis module read:
+The Redis, MongoDB and DynamoDB hooks take `TreatAsRead`, a list of exact command names the guard should let through, such as a custom Redis module read. The batch-two hooks (Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore) classify only with the shared tables and take no such list:
 
 ```go
 rdb.AddHook(redisbench.Hook(redisbench.TreatAsRead("MYMODULE.GET")))
@@ -139,7 +216,7 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 
 ## Logs and redaction
 
-Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Session commands such as `AUTH` and `hello` are never logged.
+Every store command in a Preview or observed-Send trace is a `Db` log entry with the store, operation, target, sanitized statement, rows and time. Statements never carry values: MongoDB statements keep field names and operators with every literal as `"?"`, Redis statements keep the command and key names (`SET session:42 ?`), and DynamoDB statements are the PartiQL text with every inline string or number literal replaced by `?`. Cassandra statements are the CQL text with every literal replaced by `?`; Elasticsearch and OpenSearch statements are the request body with every literal as `"?"`; Cosmos DB statements are the query text with literals replaced by `?`; Firestore statements are the request message as JSON with every literal, document paths included, as `"?"`. Session commands such as `AUTH` and `hello` are never logged. The store ids for `sendproof.ForStores` and the 409 body are `cassandra`, `elasticsearch`, `opensearch`, `cosmosdb` and `firestore`, shown as Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore.
 
 Change records for MongoDB carry `store`, `namespace`, the collection as `table`, `{ _id }` as `key`, and whole nested documents as `before` and `after` in MongoDB Extended JSON (relaxed). A field with a secret name, such as `password_hash` or `apiKey`, is `"[REDACTED]"` at any depth. `via` is `"upsert"` or `"replace"` when the change came from an upsert or a whole-document replacement.
 
@@ -147,12 +224,17 @@ Change records for MongoDB carry `store`, `namespace`, the collection as `table`
 
 Capabilities list each registered store with its mode (`dataStores`), the operations marked `preview: false` (`previewUnavailable`), the binding (`binding`: `go` and the framework) and the SQL engine (`database.system`, such as `sqlite` or `postgresql`).
 
+## Guard-only limits
+
+Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore have no rollback that an arbitrary handler can use (see [Batch two stores](../../spec/data-stores.md#batch-two-stores)), so a Preview of a handler that writes to one answers 409 and nothing is written; Send is never blocked. Mark an operation you know writes to one `preview: false` (see above) to show the reason before anyone tries. A handler that must write to one of these stores and can't be Previewed is the normal case, not a failure of the hook.
+
 ## Running the tests
 
 ```sh
 docker compose -f tests/conformance/compose.yml up -d --wait mongodb redis dynamodb
+docker compose -f tests/conformance/compose.yml --profile heavy-stores up -d --wait cassandra opensearch
 adapters/go/scripts/test.sh                 # vet and race tests of every module
 node tests/conformance/run.mjs go-net-http  # after adapters/go/scripts/build-fixture.sh
 ```
 
-The store tests skip, with the compose command in the reason, when their service does not answer.
+The store tests skip, with the compose command in the reason, when their service does not answer (`BENCH_CASSANDRA_SERVER` as `host:port` and `BENCH_OPENSEARCH_SERVER_URL` point the Cassandra and OpenSearch tests elsewhere; the Elasticsearch, Cosmos DB and Firestore tests use fakes and need no service). Cassandra and OpenSearch need about 3 GB of free Docker disk and 4 GB of memory, and CI runs them in its heavy-stores job; set `BENCH_STORES=mongodb,redis,dynamodb` to run the conformance checks without them.

@@ -52,7 +52,7 @@ echo "Building the module zips"
 "$here/scripts/make-zips.sh" "$repo/adapters/go" "$version" "$work/zips" "$work/modzip"
 
 proxy="$work/proxy"
-for module in . chi gin echo gorm redisbench dynamobench mongobench; do
+for module in . chi gin echo gorm redisbench dynamobench mongobench cassandrabench searchbench cosmosbench firestorebench; do
   path="$base"; [[ "$module" == . ]] || path="$base/$module"
   dir="$proxy/$path/@v"
   mkdir -p "$dir"

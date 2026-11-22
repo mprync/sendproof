@@ -18,7 +18,7 @@ base="$(tr -d '[:space:]' < "$here/MODULE_PATH")"
 repository="${base%/adapters/go}"
 [[ "$repository" != "$base" ]] || { echo "MODULE_PATH must end with /adapters/go: $base" >&2; exit 1; }
 
-for module in . chi gin echo gorm redisbench dynamobench mongobench; do
+for module in . chi gin echo gorm redisbench dynamobench mongobench cassandrabench searchbench cosmosbench firestorebench; do
   directory="adapters/go"; [[ "$module" == . ]] || directory="adapters/go/$module"
   declared="$(awk '$1 == "module" { print $2; exit }' "$here/$module/go.mod")"
   if [[ "$declared" != "$repository/$directory" ]]; then
