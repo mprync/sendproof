@@ -16,7 +16,7 @@ A Preview never changes a guard-only store. It can read or stop at the first wri
 
 ### Preview session limits
 
-The PHP adapter rolls back PDO or DBAL transactions for SQLite, MySQL, MariaDB, SQL Server and PostgreSQL within each request. The MongoDB hook aborts its driver session on the same schedule. Both run with `previewSessions: false`. Octane or FrankenPHP worker mode could support holding those transactions in a future release. Standalone MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore use guard mode.
+The PHP adapter rolls back PDO or DBAL transactions for SQLite, MySQL, MariaDB, SQL Server and PostgreSQL within each request. The MongoDB hook aborts its driver session on the same schedule. Both run with `previewSessions: false`. Standalone MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore use guard mode. [PHP Preview session limits](README.md#preview-sessions)
 
 ### Stores the PHP binding doesn't support
 

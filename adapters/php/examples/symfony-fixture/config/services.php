@@ -9,6 +9,7 @@ use Fixture\Store\RedisController;
 use Fixture\Store\RememberController;
 use Fixture\Support\FailingRollbackProvider;
 use Fixture\Support\OpenSearchFactory;
+use Fixture\Support\RegisterJourneys;
 use MongoDB\Client as MongoClient;
 use OpenSearch\Client as OpenSearchClient;
 use Predis\Client as PredisClient;
@@ -22,6 +23,7 @@ return static function (ContainerConfigurator $container): void {
     $services = $container->services();
     $services->defaults()->autowire()->autoconfigure();
     $services->load('Fixture\\', '../src/')->exclude('../src/{Entity,Kernel.php,Support,Store}');
+    $services->set(RegisterJourneys::class);
     $services->set(FailingRollbackProvider::class)
         ->args([service('doctrine'), service(OrmChangeCollector::class), param('sendproof.connections'), null]);
 

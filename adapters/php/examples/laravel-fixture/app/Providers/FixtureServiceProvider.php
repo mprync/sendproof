@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\ServiceProvider;
 use OpenSearch\Client as OpenSearchClient;
 use OpenSearch\GuzzleClientFactory;
+use Sendproof\Laravel\Facades\Sendproof;
 
 /** Signed-cookie authentication plus the scenario switches of the conformance fixture. */
 final class FixtureServiceProvider extends ServiceProvider
@@ -71,6 +72,10 @@ final class FixtureServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $journeys = dirname(__DIR__, 3) . '/journeys/';
+        $openApi = require $journeys . 'openapi.php';
+        Sendproof::addJourneys(require $journeys . 'conformance.php', $openApi(in_array(config('database.default'), ['mysql', 'mariadb'], true)));
+
         Auth::viaRequest('fixture', function (Request $request): ?GenericUser {
             $persona = Personas::fromCookie((string) $request->cookies->get(Personas::COOKIE));
 

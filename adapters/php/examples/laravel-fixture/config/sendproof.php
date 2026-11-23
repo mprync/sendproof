@@ -10,7 +10,6 @@ use Aws\DynamoDb\DynamoDbClient;
  */
 return [
     'api_name' => 'Sendproof Conformance',
-    'journeys' => [dirname(__DIR__, 2) . '/journeys/conformance.arazzo.json'],
     'middleware' => [],
     'auth_providers' => [
         ['label' => 'Fixture password', 'kind' => 'cookie', 'url' => '/auth/sign-in'],

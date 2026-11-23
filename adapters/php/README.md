@@ -9,6 +9,33 @@ Sendproof guards and previews data stores beyond SQL: MongoDB, Redis and DynamoD
 | [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.1`, conformance-tested |
 | [`examples/laravel-fixture`](examples/laravel-fixture/README.md), [`examples/symfony-fixture`](examples/symfony-fixture/README.md) | Disposable apps for the shared conformance runner | test code |
 
+## Define journeys in PHP
+
+Build a document with one or more journeys. Operation IDs come from the OpenAPI document your app serves. Define inputs with `input()` or pass an object schema with named `properties` to `inputs()`. Apps with a PHP DTO schema generator can pass its generated schema directly.
+
+```php
+use Sendproof\Core\Journeys\JourneyDocument;
+use Sendproof\Core\Journeys\Ref;
+
+$journeys = new JourneyDocument('catalog', 'Catalog journeys');
+$journeys->journey('itemLookup')
+    ->name('Look up an item')
+    ->input('id', ['type' => 'string', 'default' => 'sample-item'])
+    ->step('getItem', 'readItem')
+    ->set('id', Ref::input('id'))
+    ->succeedsWith(200);
+```
+
+In Laravel, call `Sendproof::addJourneys($journeys, $openApi)` from a service provider's `boot()` method using the `Sendproof\Laravel\Facades\Sendproof` facade. In Symfony, set `sendproof.journey_provider` to an invokable service. Its `__invoke(SendproofManager $sendproof)` method calls `$sendproof->addJourneys($journeys, $openApi)`. Pass the same OpenAPI data your `openapi_url` route returns. During boot, unknown operation IDs, inputs and step outputs fail in development. Other enabled environments log and skip invalid definitions. Discovery lists generated documents with `source: "code"`.
+
+Use `output('itemId', '/id')` to expose a response field and `$step->ref('itemId')` to bind it in a later step. A step can define its body with `body()` and describe SQL, MongoDB, Redis and effects with `expectWrites()`. Use `MatchValue::any()`, `pattern()` and `changed()` for variable values. Redis and other guard-only store writes make the journey Send-only automatically.
+
+In CI, start a disposable API and run its published journeys with the Sendproof CLI. Supply credentials as required by the app. Send executes requests against the fixture's data.
+
+```sh
+npx --package @sendproof/cli sendproof journeys run itemLookup --api http://127.0.0.1:5361 --mode send --yes --allow-send-anywhere --junit journeys.xml
+```
+
 ## Register journey files
 
 Add Arazzo 1.1 JSON files to the workbench configuration. In Laravel's `config/sendproof.php`, set:
@@ -29,7 +56,7 @@ Use unique filenames ending in `.arazzo.json` and application-relative OpenAPI U
 
 ## Preview sessions
 
-The Laravel/Eloquent and Symfony/Doctrine adapters advertise `previewSessions: false`. PHP-FPM and the PHP development server release the PHP transaction objects at request shutdown. Multi-request sessions have no enable switch. A future implementation could retain those transactions in long-lived Octane or FrankenPHP workers. See [store limits](data-stores.md#preview-session-limits).
+The Laravel/Eloquent and Symfony/Doctrine adapters advertise `previewSessions: false`. PHP-FPM and the PHP development server release transaction objects at request shutdown. FrankenPHP preserves those objects in a worker. Its standard request dispatcher selects an available worker, or queues requests while a single worker is busy. Session support needs request affinity, rejection of overlapping steps before queuing, and a way to roll back idle transactions without waiting for new traffic. [FrankenPHP worker dispatcher](https://github.com/php/frankenphp/blob/main/worker.go#L1353-L1457) · [Preview session contract](../../spec/README.md#preview-sessions)
 
 ## Develop
 

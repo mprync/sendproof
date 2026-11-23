@@ -2,6 +2,7 @@
 
 use Fixture\Security\FixtureIdentity;
 use Fixture\Support\FailingRollbackProvider;
+use Fixture\Support\RegisterJourneys;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
 return static function (ContainerConfigurator $container): void {
@@ -10,7 +11,7 @@ return static function (ContainerConfigurator $container): void {
         'enabled' => true,
         'environments' => ['dev'],
         'api_name' => 'Sendproof Conformance',
-        'journeys' => [dirname(__DIR__, 3) . '/journeys/conformance.arazzo.json'],
+        'journey_provider' => RegisterJourneys::class,
         'identity' => FixtureIdentity::class,
         'provider' => match ($scenario) {
             'no-provider' => null,

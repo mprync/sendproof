@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Sendproof\Core;
 
-/** Serves only host-registered JSON files. Request paths are never used to open a file. */
+use Sendproof\Core\Journeys\JourneyDocument;
+
+/** Serves host-registered journey documents. Request paths are never used to open a file. */
 final class JourneyFiles
 {
     public const ROUTE_FILE = '[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:arazzo|expect)\.json';
 
-    /** @var array<string,array{name:string,arazzo:\stdClass,expectations:\stdClass}> */
+    /** @var array<string,array{name:string,source:string,arazzo:\stdClass,expectations:\stdClass}> */
     private array $documents = [];
 
     /** @param list<string> $paths */
@@ -41,7 +43,25 @@ final class JourneyFiles
                 || !(($expectations->journeys ?? null) instanceof \stdClass)) {
                 throw new \InvalidArgumentException("Invalid expectations for {$file}.");
             }
-            $this->documents[$stem] = ['name' => $name, 'arazzo' => $arazzo, 'expectations' => $expectations];
+            $this->documents[$stem] = ['name' => $name, 'source' => 'file', 'arazzo' => $arazzo, 'expectations' => $expectations];
+        }
+    }
+
+    /** @param callable(string):void $warn */
+    public function addJourneys(JourneyDocument $definition, string $url, array|\stdClass $openApi, bool $development, callable $warn): void
+    {
+        $name = $definition->name;
+        [$document, $problems] = isset($this->documents[$name])
+            ? [null, ["Duplicate Arazzo filename: {$name}.arazzo.json."]]
+            : $definition->build($url, $openApi);
+        if ($problems !== [] && $development) {
+            throw new \InvalidArgumentException("Invalid Sendproof journeys in {$name}:\n- " . implode("\n- ", $problems));
+        }
+        foreach ($problems as $problem) {
+            $warn("Skipped a Sendproof journey in {$name}: {$problem}");
+        }
+        if ($document !== null) {
+            $this->documents[$name] = $document;
         }
     }
 
@@ -53,7 +73,7 @@ final class JourneyFiles
             $path = $pathBase . '/sendproof/journeys/' . $stem;
             $entries[] = [
                 'name' => $document['name'],
-                'source' => 'file',
+                'source' => $document['source'],
                 'arazzoUrl' => $path . '.arazzo.json',
                 'expectationsUrl' => $path . '.expect.json',
             ];
