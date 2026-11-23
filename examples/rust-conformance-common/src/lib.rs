@@ -5,6 +5,7 @@
 
 pub mod auth;
 pub mod items;
+mod journeys;
 pub mod openapi;
 pub mod scenario;
 pub mod setup;

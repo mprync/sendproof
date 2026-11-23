@@ -15,7 +15,7 @@
       "steps": [
         {
           "stepId": "getItem",
-          "operationPath": "/items/{id}",
+          "operationId": "getItem",
           "parameters": [ { "name": "id", "in": "path", "value": "$inputs.id" } ],
           "successCriteria": [ { "condition": "$statusCode == 200" } ]
         }

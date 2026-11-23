@@ -26,6 +26,9 @@ dependencies {
     runtimeOnly("com.mysql:mysql-connector-j")
     // The MariaDB conformance entry (BENCH_DATABASE_SERVER=mariadb) uses MariaDB's own driver.
     runtimeOnly("org.mariadb.jdbc:mariadb-java-client")
+
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.bootJar {

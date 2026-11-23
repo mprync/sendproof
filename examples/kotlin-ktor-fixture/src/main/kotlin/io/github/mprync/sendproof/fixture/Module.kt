@@ -1,6 +1,8 @@
 package io.github.mprync.sendproof.fixture
 
 import io.github.mprync.sendproof.core.Capabilities
+import io.github.mprync.sendproof.core.Journey
+import io.github.mprync.sendproof.core.Json
 import io.github.mprync.sendproof.core.PreviewChange
 import io.github.mprync.sendproof.core.PreviewObservation
 import io.github.mprync.sendproof.core.PreviewProvider
@@ -51,6 +53,16 @@ private class FailingRollbackProvider(private val delegate: PreviewProvider) : P
     override fun beginObservation(): PreviewObservation? = delegate.beginObservation()
 }
 
+private data class ItemLookupInputs(val id: String)
+
+internal fun conformanceJourney(): Journey =
+    Journey.define("itemLookup").document("conformance").name("Conformance journeys").source("fixture")
+        .summary("Item lookup")
+        .inputs(ItemLookupInputs::class.java).defaultInput("id", "conformance-item")
+        .step("getItem", "getItem") { step ->
+            step.parameter(Journey.In.PATH, "id", Journey.inputRef("id")).succeedsWith(200)
+        }
+
 fun Application.fixtureModule(scenario: Scenario) {
     val accounts = Accounts()
     val database = Database()
@@ -58,6 +70,7 @@ fun Application.fixtureModule(scenario: Scenario) {
     val items = Items(database, capture)
     val stores = if (scenario.enabled) Stores() else Stores.none()
     val base = scenario.pathBase
+    val openApi = Application::class.java.classLoader.getResource("openapi.json")!!.readText()
 
     install(ContentNegotiation) { jackson() }
     install(Sendproof) {
@@ -66,7 +79,8 @@ fun Application.fixtureModule(scenario: Scenario) {
         environment = "Development"
         apiName = "Sendproof Conformance"
         openApiUrl = "/openapi.json"
-        journey("journeys/conformance.arazzo.json")
+        journeyOpenApi = { Json.MAPPER.readTree(openApi) }
+        journey(conformanceJourney())
         authProviders += Capabilities.AuthProvider("Fixture password", "cookie", "/auth/sign-in")
         authProviders += Capabilities.AuthProvider("Fixture personas", "personas", "/auth/personas")
         traceRetention = java.time.Duration.ofSeconds(5)
@@ -83,8 +97,7 @@ fun Application.fixtureModule(scenario: Scenario) {
         route(base) {
             get("/ready") { call.respondText("ok") }
             get("/openapi.json") {
-                val spec = Application::class.java.classLoader.getResource("openapi.json")!!.readText()
-                call.respondText(spec, io.ktor.http.ContentType.Application.Json)
+                call.respondText(openApi, io.ktor.http.ContentType.Application.Json)
             }
             authRoutes(accounts, base)
             itemRoutes(accounts, items, base, stores)

@@ -36,4 +36,7 @@ dependencies {
     implementation(libs.httpclient5)
     runtimeOnly("com.h2database:h2:2.3.232")
     runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
+
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

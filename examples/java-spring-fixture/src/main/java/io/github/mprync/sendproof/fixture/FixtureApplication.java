@@ -1,5 +1,6 @@
 package io.github.mprync.sendproof.fixture;
 
+import io.github.mprync.sendproof.core.Journey;
 import io.github.mprync.sendproof.spring.Sendproof;
 import java.net.URI;
 import java.util.ArrayList;
@@ -22,8 +23,18 @@ public class FixtureApplication {
 
     @Bean
     Sendproof sendproof() {
-        return Sendproof.builder().journey("journeys/conformance.arazzo.json").build();
+        return Sendproof.builder().journey(conformanceJourney()).build();
     }
+
+    static Journey conformanceJourney() {
+        return Journey.define("itemLookup").document("conformance").name("Conformance journeys").source("fixture")
+                .summary("Item lookup").definedIn(FixtureApplication.class)
+                .inputs(ItemLookupInputs.class).defaultInput("id", "conformance-item")
+                .step("getItem", "getItem", step -> step.parameter(Journey.In.PATH, "id", Journey.inputRef("id"))
+                        .succeedsWith(200));
+    }
+
+    private record ItemLookupInputs(String id) {}
 
     public static void main(String[] args) {
         var application = new SpringApplication(FixtureApplication.class);

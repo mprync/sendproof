@@ -9,6 +9,8 @@ workspace = "../../adapters/rust"
 
 [dependencies]
 sendproof-core.workspace = true
+sendproof-journeys = { path = "../../adapters/rust/sendproof-journeys" }
+schemars = "1.2"
 sendproof-sqlx = { workspace = true, features = ["sqlite", "postgres", "mysql"] }
 sendproof-mongodb.workspace = true
 sendproof-redis.workspace = true

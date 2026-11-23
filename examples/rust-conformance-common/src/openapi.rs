@@ -28,7 +28,7 @@ pub fn document() -> Value {
                 "responses": { "201": ok("201", "Created")["201"].clone(), "400": { "description": "Invalid item" } }
             } },
             "/items/{id}": {
-                "get": { "summary": "Read an item", "parameters": id_parameter(),
+                "get": { "operationId": "getItem", "summary": "Read an item", "parameters": id_parameter(),
                     "responses": { "200": ok("200", "The item")["200"].clone(), "404": { "description": "Not found" } } },
                 "patch": { "summary": "Rename an item", "parameters": id_parameter(),
                     "requestBody": { "required": true, "content": { "application/json": { "schema": {

@@ -1,0 +1,6 @@
+{
+  "sendproofExpectations": "1.0",
+  "arazzo": "conformance.arazzo.json",
+  "journeys": { "itemLookup": { "definedIn": { "type": "FixtureApplication" }, "steps": {} } },
+  "approvedDifferences": []
+}

@@ -3,6 +3,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use sendproof_core::{Config, ConfigBuilder};
+use sendproof_journeys::JourneyConfigExt;
 use sendproof_sqlx::{Backend, SqlxProvider};
 use sqlx::{
     MySqlPool, PgPool, Pool, SqlitePool,
@@ -13,6 +14,8 @@ use sqlx::{
 
 use crate::{
     auth::Sessions,
+    journeys::item_lookup,
+    openapi,
     scenario::{FailingRollback, Scenario},
     stores::Stores,
 };
@@ -178,11 +181,7 @@ pub fn config<B: Backend>(
         .open_api_url("/openapi.json")
         .auth_provider("Password", "cookie", Some("/auth/sign-in"))
         .auth_provider("Personas", "personas", Some("/auth/personas"))
-        .journey_file(
-            "conformance",
-            include_bytes!("../Journeys/conformance.arazzo.json").to_vec(),
-            include_bytes!("../Journeys/conformance.expect.json").to_vec(),
-        )
+        .journey("conformance", item_lookup(), openapi::document())
         .trace_retention(Duration::from_secs(5))
         .identity(move |headers| {
             let sessions = sessions.clone();
