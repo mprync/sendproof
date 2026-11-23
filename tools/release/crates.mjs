@@ -21,7 +21,7 @@ export const title = 'crates.io';
 /** The published crates in dependency order: sendproof-sqlx's dev-dependencies need axum, actix's need sqlx. */
 const CRATES = [
   'sendproof-core', 'sendproof-axum', 'sendproof-sqlx', 'sendproof-actix', 'sendproof-redis', 'sendproof-dynamodb', 'sendproof-mongodb',
-  'sendproof-cassandra', 'sendproof-elasticsearch',
+  'sendproof-cassandra', 'sendproof-elasticsearch', 'sendproof-journeys',
 ];
 const workspace = join(root, 'adapters/rust');
 
@@ -247,6 +247,7 @@ export async function verify(ctx) {
       `sendproof-mongodb = { path = ${quote(paths['sendproof-mongodb'])} }`,
       `sendproof-cassandra = { path = ${quote(paths['sendproof-cassandra'])} }`,
       `sendproof-elasticsearch = { path = ${quote(paths['sendproof-elasticsearch'])} }`,
+      `sendproof-journeys = { path = ${quote(paths['sendproof-journeys'])} }`,
       'axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }',
       'serde_json = "1"',
       'tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }', '',

@@ -37,6 +37,7 @@ sendproof-dynamodb = { path = "sendproof-dynamodb" }
 sendproof-mongodb = { path = "sendproof-mongodb" }
 sendproof-cassandra = { path = "sendproof-cassandra" }
 sendproof-elasticsearch = { path = "sendproof-elasticsearch" }
+sendproof-journeys = { path = "sendproof-journeys" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 http = "1"
