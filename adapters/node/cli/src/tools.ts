@@ -170,7 +170,7 @@ const TOOLS: Tool[] = [
         operations: ops.length,
         previewable,
         observedSend: caps.observedSend === true,
-        journeys: journeySources(caps).length,
+        journeyDocuments: journeySources(caps).length,
         send: allowSend === 'off' ? 'Only GET, HEAD and OPTIONS; other methods need --allow-send' : allowSend === 'development' ? 'Allowed in Development' : 'Allowed in any environment',
       };
       const who = identity?.name ? `signed in as ${String(identity.name)}` : 'not signed in';

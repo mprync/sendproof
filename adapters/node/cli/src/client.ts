@@ -250,7 +250,9 @@ export class SendproofClient {
     const body = await readJson(response);
     if (response.status !== 201 || !isJsonObject(body) || typeof body.id !== 'string') {
       if (isJsonObject(body) && typeof body.code === 'string' && body.code.startsWith('session_')) throw sessionError(body.code, response.status, body);
-      throw new SendproofError(`Couldn’t open a Preview session (HTTP ${response.status}).`);
+      // The API's problem title and detail say why (such as another session holding the database).
+      const why = isJsonObject(body) ? [body.title, body.detail].filter(t => typeof t === 'string' && t.trim()).join(' ') : '';
+      throw new SendproofError(`Couldn’t open a Preview session (HTTP ${response.status})${why ? `: ${why}` : '.'}`);
     }
     return { id: body.id, idleTimeoutSeconds: Number(body.idleTimeoutSeconds ?? 300), maxLifetimeSeconds: Number(body.maxLifetimeSeconds ?? 1800) };
   }

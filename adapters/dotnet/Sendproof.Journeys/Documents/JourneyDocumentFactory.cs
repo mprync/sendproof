@@ -71,7 +71,7 @@ internal sealed class JourneyDocumentFactory(IServiceProvider services, JourneyR
                 }
                 else if (mark is { Enabled: false })
                 {
-                    sendOnly ??= $"Step {step.StepId} is Send only: {mark.Reason ?? "its operation is marked preview: false"}.";
+                    sendOnly ??= $"Step {step.StepId} is Send only: {mark.Reason?.TrimEnd('.', ' ') ?? "its operation is marked preview: false"}.";
                 }
 
                 if (step.Writes?.Writes.FirstOrDefault(write => write.IsGuarded) is not null)
