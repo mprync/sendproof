@@ -85,7 +85,9 @@ const displayExpected = descriptor => (descriptor.matcher === 'changed' ? { from
 function findApproved(approved, target, kind, expected, actual, clock) {
   const now = clock();
   return approved.find(record => record.kind === kind
-    && record.target?.store === target.store && record.target?.table === target.table
+    // A record names its target the way the write does: a SQL table, a document collection or a key.
+    && record.target?.store === target.store
+    && (record.target?.table ?? record.target?.collection ?? record.target?.key) === target.table
     && (target.field === undefined || record.target?.field === target.field)
     && !(record.expires && new Date(record.expires) < now)
     && (record.expected === undefined || looseEqual(record.expected, expected))

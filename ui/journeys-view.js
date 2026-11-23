@@ -238,7 +238,7 @@ export function stepStrip(journey, run, index, { capabilities = {}, end = '', se
     : `<span class="pill pill-accent">${icon('flask', true)}${esc(t('jr.previewRun'))}</span>`;
   const note = send
     ? `<span class="sh7-note">${icon('db', true)}<span>${database ? th('jr.strip.commits', { db: ltr(code(database)) }) : esc(t('jr.strip.commitsAny'))}</span></span>`
-    : `<span class="sh7-note">${icon(sessionEnded ? 'undo' : 'clock', true, sessionEnded ? 'i-dir' : '')}<span>${esc(t(sessionEnded ? 'jr.strip.ended' : 'jr.strip.held'))}</span></span>`;
+    : `<span class="sh7-note" title="${esc(t(sessionEnded ? 'jr.strip.ended' : 'jr.strip.held'))}">${icon(sessionEnded ? 'undo' : 'clock', true, sessionEnded ? 'i-dir' : '')}<span>${esc(t(sessionEnded ? 'jr.strip.ended' : 'jr.strip.held'))}</span></span>`;
   return `<div class="sh7"><div class="sh7-top"><strong class="sh7-step">${esc(t('jr.stepOf', { n: formatNumber(index + 1), total: formatNumber(journey.steps.length) }))}</strong>${pill}${note}${end}</div>
     <div class="sh7-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${journey.steps.length}" aria-valuenow="${done}" aria-label="${esc(t('jr.stepsDone', { n: formatNumber(done), total: formatNumber(journey.steps.length) }))}">${segments}</div></div>`;
 }

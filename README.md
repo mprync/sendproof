@@ -23,7 +23,7 @@ document, email and log line the request would produce. **Send for real** when i
 [![Ruby](https://img.shields.io/badge/Ruby-Rails-CC342D?logo=rubyonrails&logoColor=white)](adapters/ruby)
 [![Rust](https://img.shields.io/badge/Rust-axum_·_Actix_Web-B7410E?logo=rust&logoColor=white)](adapters/rust)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Safety model](#safety-model) · [Support matrix](#support-matrix) · [Comparison](#how-it-compares) · [FAQ](#faq)
+[Quick start](#quick-start) · [Journeys](#journeys) · [How it works](#how-it-works) · [Safety model](#safety-model) · [Support matrix](#support-matrix) · [Comparison](#how-it-compares) · [FAQ](#faq)
 
 </div>
 
@@ -74,12 +74,83 @@ handler runs for real, then everything it wrote is rolled back, and you get the 
 | **Your auth, your users** | Uses the host's identity and policies. SSO works on localhost and hosted development. A persona switcher (when the app provides one) lets you try the same request as different roles. |
 | **Typed request builder** | Forms generated from the schema, with lookups that fetch real IDs as the signed-in user, enums, dates, money with currency, arrays, `oneOf` variants, a JSON mode, Autofill with valid or deliberately invalid values, and field-level validation. |
 | **Response viewer** | Pretty, raw, table and schema views, search, and a check that the body matches the documented schema. Follow links to related operations. |
+| **Journeys** | Whole flows (an order through to shipment) written as code in your app, published as [Arazzo 1.1](https://spec.openapis.org/arazzo/v1.1.html). Run them in the workbench step by step or to the end on one Preview session that rolls back at the end, and compare what each step wrote with what it should have. The same runs work from the CLI in CI (JUnit XML), from an AI agent over MCP, and as xUnit tests. |
 | **Docs and models** | A Docs view for every operation (press <kbd>D</kbd>) with request samples and response examples, and a Models tab with property trees, compositions and discriminators. |
 | **Observed Send** | In development, a Send can be traced too: the same Database, Side effects and Logs tabs show what was committed. Traces are private to the user who sent them and expire after five minutes. |
 | **Code export** | Copy the edited request as cURL, JavaScript, Python, C#, Go, Java, Kotlin, PHP, Ruby, Rust or PowerShell, with credentials masked. |
 | **Built for real use** | Keyboard first (<kbd>⌘K</kbd> command search, <kbd>?</kbd> for shortcuts), light and dark themes, three densities, [29 interface languages](ui/locales/README.md) including Arabic, Hebrew and Persian right to left, and a phone layout. WCAG 2.2 AA is the release target. |
 | **For AI agents too** | [`@sendproof/cli`](adapters/node/cli) is an MCP server: an agent can list and read operations, find real IDs, Preview any request and see exactly what it would write, and Send when you allow it, as the signed-in user or a development persona. It works with every adapter. |
 | **Zero front-end setup** | Each package embeds the same prebuilt UI, verified by SHA-256. Your app needs no Node, no build step and no second list of endpoints. |
+
+## Journeys
+
+A journey is the ordered set of calls a person makes to finish a task, with what each call should
+write. You define it in your app's own language, next to the endpoints it calls. Sendproof checks it
+at startup and publishes it as an Arazzo 1.1 workflow. You can then run it anywhere:
+
+- **In the workbench.** Switch to **Journeys**, then **Preview run**. Every step runs on one held
+  Preview session, so step 3 sees what step 1 wrote, and the whole run rolls back at the end. Each
+  step opens on its operation's own screen, with the values it got from earlier steps marked.
+- **In CI.** `npx sendproof journeys run --all --junit report.xml` runs the same journeys against a
+  development deployment. It exits non-zero when a step writes something it shouldn't.
+- **From an agent.** The MCP server's `start_run`, `run_step` and `run_remaining` tools use the same runner.
+  An agent can write a journey for you, run it, and draft an approved difference when a change is intended.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/journeys-dark.png">
+  <img alt="A Preview run of the Order to shipment journey in the store example: Passed with 1 approved difference, in 148 ms, signed in as Ada Admin. Five steps (Place order, List payments, Capture payment, Create shipment, Get order), each with its status, the number of writes that matched, and a timing bar. Below, the run's SQLite, MongoDB and side-effect changes are listed as rolled back, aborted and discarded, so nothing was written. On the right, approved difference AD-0011, which allows the audit trail to write the carrier code Dhl, and the CLI command that runs the same journey." src="docs/images/journeys-light.png" width="100%">
+</picture>
+
+In .NET, a journey is a class. Requests and responses are typed, and expectations name your
+`DbContext` sets and document classes:
+
+```csharp
+public sealed class OrderToShipmentJourney : Journey<OrderToShipmentInputs>
+{
+    protected override void Define(JourneyBuilder<OrderToShipmentInputs> journey)
+    {
+        journey.Name("Order to shipment");
+        journey.RunAs("ada.admin@acme.dev");
+
+        var placeOrder = journey.Step("placeOrder", StoreOperations.Orders.Place);
+        placeOrder.Set(r => r.Body.CustomerId, journey.Input(i => i.CustomerId));
+        placeOrder.SucceedsWith(201);
+        Ref<Guid> orderId = placeOrder.Output(order => order.Id, "orderId");
+
+        var shipOrder = journey.Step("shipOrder", StoreOperations.Shipments.Create);
+        shipOrder.Set(r => r.Body.OrderId, orderId);
+        shipOrder.Set(r => r.Body.Carrier, journey.Input(i => i.Carrier));
+        shipOrder.ExpectWrites(writes => writes.Sql<StoreDbContext>().Update(db => db.Orders)
+            .Where(o => o.Id, orderId)
+            .Set(o => o.Status, Match.Changed(OrderStatus.Paid, OrderStatus.Shipped)));
+    }
+}
+```
+
+`sendproof.AddJourneys(typeof(Program).Assembly)` registers every journey in the assembly
+([Sendproof.Journeys](adapters/dotnet/Sendproof.Journeys/README.md)), and a one-line
+`JourneyTestSuite<Program>` runs each one as an xUnit test
+([Sendproof.Journeys.Testing](adapters/dotnet/Sendproof.Journeys.Testing/README.md)). Every other
+adapter defines journeys in its own language too:
+[Node.js](adapters/node/README.md#preview-sessions-and-journeys) ·
+[Python](adapters/python/README.md#code-journeys) ·
+[Java and Kotlin](adapters/java/README.md#preview-sessions-and-journeys) ·
+[Go](adapters/go/README.md#preview-sessions-and-journeys) ·
+[Ruby](adapters/ruby/README.md#preview-sessions-and-journeys) ·
+[PHP](adapters/php/README.md#define-journeys-in-php) ·
+[Rust](adapters/rust/README.md#journeys-in-rust).
+
+### When a step writes something else
+
+A write that differs doesn't stop the run, so you see every difference at once. Open the step to
+see what it should have written next to what it wrote, field by field. When a change is intended,
+record it as an **approved difference**: a reviewed record in the journey's code, with a reason,
+an approver and an expiry date, so the journey passes until its expectations are updated.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/difference-dark.png">
+  <img alt="The same journey run with the carrier set to UPS: Failed at step 4 of 5. Step 4, Create shipment, is expanded with three differences: Shipments.Carrier expected Dhl and wrote Ups, Shipments.TrackingNumber expected to match a DHL pattern and wrote a UPS tracking number, and AuditEvents.Action wrote Order.Shipped: Ups. Step 5 still ran. A second panel shows step 4 on its own screen: the Shipments insert, with Expected and Written for Carrier and TrackingNumber highlighted as differences." src="docs/images/difference-light.png" width="100%">
+</picture>
 
 ## A closer look
 
@@ -547,8 +618,6 @@ The [binding checklist](docs/bindings/adding.md) walks through it.
 - **Store gaps.** Cassandra and Cosmos DB for PHP and Ruby; Cosmos DB and Firestore for Rust, which
   have no official SDK today.
 - **Framework versions.** Spring Boot 4 and WebFlux are not tested yet.
-- **Journeys.** Run an ordered set of operations (an order through to shipment) step by step or all at
-  once, and compare what each step wrote with what it should have ([design](docs/plans/journeys.md)).
 
 Have a stack you'd like covered? [Open an issue](https://github.com/mprync/sendproof/issues).
 

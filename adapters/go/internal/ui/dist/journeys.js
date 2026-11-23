@@ -576,7 +576,7 @@ export function createJourneys({ state, $, basePath, results, openOperation, nav
   }
 
   /** Records one step's result in the run; rewinds or ends the session as the run requires. */
-  function record(index, result, { preview, edited = [] }) {
+  function record(index, result, { preview, edited = [], onScreen = true }) {
     const live = j.live;
     if (!live || live.review) return;
     const step = live.journey.steps[index];
@@ -612,7 +612,10 @@ export function createJourneys({ state, $, basePath, results, openOperation, nav
     live.responses[index] = result.body;
     live.contentTypes[index] = Object.entries(result.headers ?? {}).find(([name]) => name.toLowerCase() === 'content-type')?.[1];
     live.results[index] = result;
-    live.drafts[index] = { paramValues: structuredClone(state.paramValues ?? {}), body: structuredClone(state.body) };
+    // The form is this step's only when it was on screen; a step Run to end sent from its bindings
+    // reopens with those, not with the form of the step that was showing.
+    if (onScreen) live.drafts[index] = { paramValues: structuredClone(state.paramValues ?? {}), body: structuredClone(state.body) };
+    else delete live.drafts[index];
     live.run.tally = tallyEnvelope(live.run.tally, traced ? envelope : {});
     if (live.run.status !== 'running') finishRun();
     refresh();
@@ -701,7 +704,7 @@ export function createJourneys({ state, $, basePath, results, openOperation, nav
         refresh();
         return;
       }
-      record(index, result, { preview: live.run.mode === 'preview', edited: index === from ? editedTargets(index) : [] });
+      record(index, result, { preview: live.run.mode === 'preview', edited: index === from ? editedTargets(index) : [], onScreen: index === from });
     }
     live.running = -1;
     if (j.live !== live) return;

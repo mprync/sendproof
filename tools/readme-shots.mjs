@@ -19,7 +19,9 @@
 // /…/orders, Place order), SHOT_LIST (a GET to Send; default: GET /…/products), SHOT_DOCS
 // (default: SHOT_ORDER), SHOT_UNAVAILABLE (default: the first `previewUnavailable` operation, Quote
 // price), SHOT_BLOCKED (a write whose Preview the guard blocks with 409; default: POST
-// /…/redemptions, Redeem coupon). SENDPROOF_URL defaults to http://127.0.0.1:5189; the frames'
+// /…/redemptions, Redeem coupon), SHOT_JOURNEY (a journey to Preview to the end; default: Order to
+// shipment) and SHOT_DIFFERENCE (an input, as name=option, that makes a step of it write something
+// other than it should; default: carrier=Ups). SENDPROOF_URL defaults to http://127.0.0.1:5189; the frames'
 // address pill shows its host, so capture from http://localhost:5080 (the README's `dotnet run`)
 // for the published images. SHOT_PERSONA defaults to the first persona the app lists. Every Preview
 // rolls back, so the app's data is unchanged; the List Send is a read.
@@ -67,6 +69,11 @@ async function discover() {
   const order = find('SHOT_ORDER', operation => operation.method === 'POST' && /\/orders$/.test(operation.path), 'the order Preview');
   const personas = await get(capabilities.authProviders.find(provider => provider.kind === 'personas')?.url ?? '/auth/personas').catch(() => []);
   const redeem = operations.find(operation => operation.method === 'POST' && /\/redemptions$/.test(operation.path))?.id;
+  // The journey to run: SHOT_JOURNEY, else the store example's Order to shipment, else the first published.
+  const arazzo = capabilities.journeys?.[0] ? await get(capabilities.journeys[0].arazzoUrl) : null;
+  const workflows = arazzo?.workflows ?? [];
+  const journey = process.env.SHOT_JOURNEY ?? (workflows.find(workflow => workflow.workflowId === 'orderToShipment') ?? workflows[0])?.workflowId;
+  const inputs = workflows.find(workflow => workflow.workflowId === journey)?.inputs?.properties ?? {};
   return {
     apiName: capabilities.apiName,
     document: capabilities.openApiUrl,
@@ -77,6 +84,10 @@ async function discover() {
     unavailable: find('SHOT_UNAVAILABLE', operation => unavailable && operation.method === unavailable.method && operation.path === unavailable.path, 'Preview unavailable'),
     // The store example's Redeem coupon runs Redis INCRBY, which the write guard stops.
     blocked: process.env.SHOT_BLOCKED ?? redeem,
+    journey,
+    // An input that makes the journey write something other than it expects ("name=option label"):
+    // in the store example a carrier other than DHL, which AD-0011 doesn't cover.
+    difference: process.env.SHOT_DIFFERENCE ?? ('carrier' in inputs ? 'carrier=Ups' : undefined),
   };
 }
 
@@ -169,6 +180,39 @@ const toDocuments = page => page.evaluate(() => {
   return true;
 });
 
+/** Opens a journey's overview in Journeys mode, with the journey list beside it. */
+async function openJourney(page, journey) {
+  await page.goto(`${url}/sendproof/#journey/${journey}`);
+  await page.reload();
+  await page.locator('.actionbar [data-action="journey-preview-run"]').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  await settle(page);
+}
+
+/** Sets a journey input by name ("carrier=Ups"): a choice picks the option, anything else is typed. */
+async function setInput(page, assignment) {
+  const [name, value] = assignment.split('=');
+  const id = await page.evaluate(name => [...document.querySelectorAll('main [id$="-label"]')].find(label => label.textContent.trim() === name)?.id.replace(/-label$/, ''), name);
+  if (!id) throw new Error(`no journey input ${name}`);
+  const field = page.locator(`#${id}`);
+  await field.scrollIntoViewIfNeeded();
+  if (await field.getAttribute('role') === 'combobox') {
+    await field.click();
+    await page.locator('[role="option"]', { hasText: value }).first().click();
+  } else await field.fill(value);
+}
+
+/** Previews the open journey to the end, on one Preview session, and waits for the run's summary. */
+async function previewJourney(page, label) {
+  await page.locator('.actionbar [data-action="journey-preview-run"]').click();
+  await page.locator('.actionbar [data-action="journey-run-to-end"]:not(:disabled)').click();
+  await page.waitForURL(/\/run\//, { timeout: 30000 });
+  await page.locator('.actionbar [data-action="journey-preview-run"]:not(:disabled):not([aria-busy="true"])').waitFor({ timeout: 30000 });
+  await toTop(page);
+  await settle(page);
+  console.log(`  ${label}: ${(await page.locator('#jr-title').first().textContent())?.trim()}`);
+}
+
 /** A phone shot of the order Preview: the form is filled at desktop width, as a person on a phone would by Autofill. */
 async function phonePreview(page, ids) {
   await page.setViewportSize(desktop);
@@ -245,6 +289,26 @@ const captures = {
       await save('blocked');
     },
   },
+  // Journeys mode keeps its journey list open: the steps of the run sit under the journey in it.
+  'journeys': {
+    shots: ['journey-run', 'journey-difference', 'journey-step'],
+    async take(page, ids, save) {
+      if (!ids.journey) return console.warn('  the app publishes no journeys');
+      await openJourney(page, ids.journey);
+      await previewJourney(page, 'journey preview');
+      await save('journey-run');
+      if (!ids.difference) return;
+      await openJourney(page, ids.journey);
+      await setInput(page, ids.difference);
+      await previewJourney(page, `journey preview with ${ids.difference}`);
+      await save('journey-difference');
+      // The failing step on its operation's own screen: expected and written, field by field.
+      await page.locator('#result a, #result button, main a, main button', { hasText: /^Open step/ }).first().click();
+      await page.locator('.cf7-head').first().waitFor();
+      await settle(page);
+      await save('journey-step');
+    },
+  },
   'phone': {
     viewport: phone,
     shots: ['phone', 'phone-rtl'],
@@ -295,6 +359,13 @@ const regions = page => page.evaluate(() => {
     const end = box(guard.querySelector('.blk-step') ?? guard.querySelector('.blk-safe') ?? guard).bottom;
     const y = Math.max(area.top - pad, box(body).top);
     out.blocked = { x: area.left - pad, y, w: area.width + pad * 2, h: Math.min(end + 12, height) - y };
+  }
+  // The first journey finding that differs, with its expected and written values.
+  const finding = document.querySelector('.cf7-head')?.parentElement;
+  if (visible(finding)) {
+    const pad = 16;
+    const area = box(finding);
+    out.finding = { x: area.left - pad, y: Math.max(area.top - pad, top), w: area.width + pad * 2, h: Math.min(area.bottom + pad, height) - Math.max(area.top - pad, top) };
   }
   const card = document.querySelector('#result [data-doc-card]');
   const group = card?.closest('section.sg');

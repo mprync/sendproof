@@ -970,7 +970,11 @@ button.env:hover { border-color: var(--line-strong); background: var(--hover); }
 
 /* The step strip: which step, the run's mode, then one segment per step. */
 .sh7 { flex: none; display: grid; gap: 0.5rem; padding: 0.625rem var(--pad) 0.75rem; border-block-end: 1px solid var(--line); background: var(--panel); }
-.sh7-top { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; row-gap: 0.25rem; min-inline-size: 0; }
+.sh7-top { display: flex; align-items: center; gap: 0.625rem; row-gap: 0.25rem; min-inline-size: 0; }
+/* One row on desktop: the note gives way with an ellipsis (its full text is its title), so the end
+   button never drops to a line of its own. A phone puts the note on its own row instead. */
+.sh7-top > :not(.sh7-note) { flex: none; }
+.sh7-note > span:last-child { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sh7-step { font-size: var(--fs-md); font-weight: 600; white-space: nowrap; }
 .sh7-note { display: inline-flex; align-items: center; gap: 0.375rem; font-size: var(--fs-sm); color: var(--text-3); min-inline-size: 0; }
 .sh7-note code { font-size: var(--fs-xs); }
@@ -1397,7 +1401,9 @@ a.j7-src-pill { text-decoration: none; }
   .sm8-outs .sm8-ov { order: 3; flex-basis: 100%; }
   .sm8-list .sm8-lw { display: none; }
   .actionbar.j7-actions .btn-run { flex: 1; padding-inline: 0.875rem; }
+  .sh7-top { flex-wrap: wrap; }
   .sh7-note { flex-basis: 100%; }
+  .sh7-note > span:last-child { white-space: normal; }
   .j7-body { padding-inline: 1rem; }
   .js7-step { grid-template-columns: 1.5rem minmax(0, 1fr); }
   .js7-l1 { flex-wrap: wrap; row-gap: 0.125rem; }

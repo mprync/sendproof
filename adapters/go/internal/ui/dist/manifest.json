@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-alpha.1",
-  "bundleHash": "246a3602a754c7217045c14ceb6cf7035eda8d4a37300c6dde4c86b8b6191638",
+  "bundleHash": "05ce8aab63577a8fe06a6eb89a6f4f11f8c935d31d7974543d3ac04dd04eee55",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
@@ -13,8 +13,8 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "app.css": {
-      "sha256": "2d94a813f538b396650af24ebfc3a0fb61997577bb7602eba6bbb52abb7ff151",
-      "bytes": 121524,
+      "sha256": "1101d6f3da4950f2aa51f7278295ef317f4abb669ea007d002a087c2ece5d881",
+      "bytes": 121946,
       "contentType": "text/css; charset=utf-8"
     },
     "app.js": {
@@ -258,18 +258,18 @@
       "contentType": "text/javascript; charset=utf-8"
     },
     "journeys-view.js": {
-      "sha256": "0afe282695ca0e5fff0de9a65219c88d2e36d1cd07b3453d5f70df2147b6a822",
-      "bytes": 94745,
+      "sha256": "24d7e0c2ccd0f0e30b9b2270325e864f51ed01712691f0816094fdd33587de70",
+      "bytes": 94814,
       "contentType": "text/javascript; charset=utf-8"
     },
     "journeys.js": {
-      "sha256": "7e0677506953d8b53fe9a7d421294caf6aebf8b041b5b285b6ee8d70a354bf7d",
-      "bytes": 58564,
+      "sha256": "cd0eba09012d0d966a71c07f8b07014b80dc5b798d7ea8b722f24bdeeae67747",
+      "bytes": 58832,
       "contentType": "text/javascript; charset=utf-8"
     },
     "journeys/compare.js": {
-      "sha256": "be063aba77a16068ceb85b0c1e89c55b5c01b2b9b159bc890617dc1690c6410e",
-      "bytes": 13908,
+      "sha256": "eafd9a9a50300e5b4294767a80c5d36b24ad5d374a64acdda8add49200023b46",
+      "bytes": 14067,
       "contentType": "text/javascript; charset=utf-8"
     },
     "journeys/expressions.js": {
