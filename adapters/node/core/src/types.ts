@@ -1,3 +1,5 @@
+import type { CodeJourney } from './journey-builder.js';
+
 export interface BenchIdentity {
   name?: string | null;
   role?: string;
@@ -118,9 +120,13 @@ export interface BenchOptions<Raw = unknown> {
   environment?: string;
   environments?: string[];
   openApiUrl?: string;
+  /** The OpenAPI document served at openApiUrl. Required when registering code journeys. */
+  openApiDocument?: object;
   documents?: { name: string; url: string }[];
-  /** Arazzo JSON files, each paired with a sibling .expect.json file. */
-  journeys?: readonly (string | URL)[];
+  /** Code workflows or Arazzo JSON files paired with sibling .expect.json files. */
+  journeys?: readonly (string | URL | CodeJourney)[];
+  /** The route ID and title for the document containing the code workflows. */
+  journeyDocument?: { id?: string; title?: string };
   fieldModules?: string[];
   /** Display name of the database, such as `PostgreSQL`. Connection strings, URLs and paths are rejected. */
   database?: string | null;

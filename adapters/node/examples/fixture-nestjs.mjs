@@ -1,16 +1,14 @@
 import 'reflect-metadata';
-import { readFile } from 'node:fs/promises';
 import { Controller, Delete, ForbiddenException, Get, Module, Patch, Post,
   Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
-import { authProviders, createFixture, journeys } from './fixture-service.mjs';
+import { authProviders, createFixture, fixtureJourneys, spec } from './fixture-service.mjs';
 import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const basePath = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT ?? 5355);
-const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
 const fixture = createFixture(scenario);
 const { session, previewProvider, ordinary } = fixture;
 const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
@@ -67,9 +65,9 @@ class FixtureModule {}
 Module({
   controllers: [FixtureController],
   imports: [SendproofModule.forRoot({
-    apiName: 'Sendproof Conformance',
+    ...fixtureJourneys,
     environment: scenario === 'disabled' ? 'production' : 'development',
-    basePath, database: 'SQLite', openApiUrl: '/openapi.json', authProviders, journeys, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
+    basePath, database: 'SQLite', openApiUrl: '/openapi.json', authProviders, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
     resolveIdentity: ({ headers }) => session(headers.cookie),
   })],
 })(FixtureModule);

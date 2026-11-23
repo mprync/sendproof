@@ -38,14 +38,41 @@ Configure `NODE_ENV=development` or the equivalent `environment` option to enabl
 
 Sessions are enabled when the configured Preview provider and every rollback-capable store can hold transactions across requests. Set `previewSessions: false` to disable them, or pass `previewSessions: { idleTimeoutSeconds: 300, maxLifetimeSeconds: 1800 }` to tune the defaults. Discovery reports `previewSessions` for the current host. Sessions are bound to one process and a stable caller subject, with limits of four per caller and sixteen per host. Sign in before opening a session and use sticky routing on multi-instance hosts.
 
-Pass `journeys` with the Arazzo 1.1 JSON files to register. Each file needs a sibling `<name>.expect.json`. Use the host's application-relative OpenAPI URL in the Arazzo source description (for example, `/openapi.json`). Discovery and the served document include the workbench's application mount.
+Define journeys in TypeScript with `defineJourney`. Pass the same OpenAPI object your application serves at `openApiUrl` (by default `/openapi.json`). At startup Sendproof checks the operation IDs and input and step references, then publishes the Arazzo 1.1 and expectations documents with `source: "code"`. Invalid definitions stop startup in Development. In other enabled environments, Sendproof logs and skips them.
 
 ```ts
+import { defineJourney } from '@sendproof/core';
+import { sendproof } from '@sendproof/express';
+
+const lookup = defineJourney({
+  id: 'itemLookup',
+  name: 'Look up an item',
+  inputs: { type: 'object', properties: { id: { type: 'string', default: 'demo-item' } } },
+}, ({ input, step }) => {
+  step<{ path: { id: string } }>('getItem', 'getItem')
+    .set('path', 'id', input('id'))
+    .succeedsWith(200)
+    .expectWrites({ writes: [] });
+});
+
 const bench = sendproof({
-  previewProvider: database,
-  journeys: [new URL('./journeys/store.arazzo.json', import.meta.url)],
+  openApiDocument,
+  previewProvider,
+  journeys: [lookup],
 });
 ```
+
+Bind request parameters with `set` and JSON bodies with `body`. Use the reference returned by `output<T>(name, expression)` in a later step. To assert writes, pass store operations and expected values to `expectWrites`. The `match` helpers describe generated values, patterns and before/after changes. Use `sendOnly` to record why a journey requires Send.
+
+The same `journeys` array accepts Arazzo 1.1 file URLs. Pair each file with a sibling `<name>.expect.json` and give its Arazzo source the application-relative OpenAPI URL. Discovery adds the application mount to both code and file URLs.
+
+In CI, start the API with representative test data and run its published journeys with the [Sendproof CLI](cli). The CLI defaults to Preview, requires Preview sessions for that mode, and returns a failing exit code if a journey fails.
+
+```sh
+npx @sendproof/cli journeys run itemLookup --api http://127.0.0.1:5351 --junit sendproof.xml
+```
+
+Pass the API's credentials with options such as `--sign-in` and the `SENDPROOF_PASSWORD` environment variable. For a Send-only journey, use `--mode send --yes --allow-send` against your development test API.
 
 Use these options with Express or Hono `sendproof()`, the Fastify plugin, or `SendproofModule.forRoot()` in NestJS. In Hono, pass `application: app` when session GETs need routes declared on the parent app. On shutdown, await `bench.close()` for Express and Hono before disposing of database clients. Fastify and NestJS close the sessions through their application shutdown hooks.
 

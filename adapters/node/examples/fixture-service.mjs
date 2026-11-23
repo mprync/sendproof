@@ -1,13 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { currentCapture, deliverEffect } from '@sendproof/core';
+import { currentCapture, defineJourney, deliverEffect } from '@sendproof/core';
 import { SQLiteDatabase } from '@sendproof/sqlite';
+import spec from './fixture-openapi.json' with { type: 'json' };
+
+export { spec };
 
 export const authProviders = [
   { kind: 'cookie', label: 'Fixture password', url: '/auth/sign-in' },
   { kind: 'personas', label: 'Development personas', url: '/auth/personas' },
 ];
-export const journeys = [new URL('./fixture.arazzo.json', import.meta.url)];
+const itemLookup = defineJourney({
+  id: 'itemLookup',
+  name: 'Look up an item',
+  definedIn: { type: 'itemLookup', file: 'examples/fixture-service.mjs' },
+  inputs: { type: 'object', properties: { id: { type: 'string', default: 'conformance-item' } } },
+}, ({ input, step }) => {
+  step('getItem', 'getItem').set('path', 'id', input('id')).succeedsWith(200);
+});
+
+export const fixtureJourneys = {
+  apiName: 'Sendproof Conformance',
+  openApiDocument: spec,
+  journeyDocument: { id: 'fixture', title: 'Conformance journeys' },
+  journeys: [itemLookup],
+};
 
 /** Fixtures own their clients, so exit after draining the HTTP host and rolling its sessions back. */
 export function stopOnSignal(close) {

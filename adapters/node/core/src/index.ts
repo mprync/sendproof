@@ -11,6 +11,8 @@ import { journeyPrefix, registerJourneys } from './journeys.js';
 import { failed, notFound, PreviewSessionEndedError, SessionProblem, Sessions } from './sessions.js';
 
 export type * from './types.js';
+export { defineJourney, match } from './journey-builder.js';
+export type { ApprovedDifference, CodeJourney, ExpectedEffect, ExpectedWrite, JourneyBuilder, JourneyOptions, JourneyStep, Ref } from './journey-builder.js';
 export { PreviewSessionEndedError, PreviewStoreBusyError } from './sessions.js';
 export { attributeRequest, Capture, currentCapture, currentPreview, deliverEffect, detached } from './capture.js';
 export { looksSecret, redacted, redactDeep, redactRow } from './secrets.js';
@@ -155,7 +157,8 @@ function databaseOf(label: string | null, provider: { system?: unknown } | undef
 export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, registered: () => RegisteredOperation[] = () => [], binding?: BenchBinding) {
   const {
     apiName = 'API', environment = process.env.NODE_ENV ?? 'production', environments = ['development'],
-    openApiUrl = '/openapi.json', documents = [], journeys = [], fieldModules = [], database = null, authProviders = [],
+    openApiUrl = '/openapi.json', openApiDocument, documents = [], journeys = [], journeyDocument,
+    fieldModules = [], database = null, authProviders = [],
     resolveIdentity = () => null, authorize = () => true, discoverAuth, previewProvider: sqlProvider,
     previewSessions = {},
     maxResponseBytes = 1024 * 1024, captureLimits = {}, traceTtlMs = 300000, traceClock = () => performance.now(),
@@ -186,7 +189,10 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
   // Preview is open can fail that Preview (guard.ts unattributedWrite).
   if (dataStores.length) attributeHttpRequests();
   const store = new TraceStore(traceTtlMs, traceClock);
-  const journeyFiles = registerJourneys(journeys);
+  const journeyDocuments = registerJourneys(journeys, {
+    apiName, openApiUrl, openApiDocument, document: journeyDocument, enabled,
+    development: environment.toLowerCase() === 'development',
+  });
   const sessions = previewSessions === false ? undefined
     : new Sessions(previewSessions.idleTimeoutSeconds ?? 300, previewSessions.maxLifetimeSeconds ?? 1800);
   const hasSessions = (stores: Awaited<ReturnType<typeof describeStores>>) => Boolean(
@@ -313,7 +319,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
         ...(previewProvider && unavailable().length ? { previewUnavailable: unavailable() } : {}),
         ...(dataStores.length ? { dataStores: stores } : {}),
         previewSessions: hasSessions(stores),
-        ...(journeys.length ? { journeys: journeyFiles.discover(basePath) } : {}),
+        ...(journeyDocuments.size ? { journeys: journeyDocuments.discover(basePath) } : {}),
         observedSend: Boolean(previewProvider),
       });
     }
@@ -325,7 +331,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     }
     if (pathname === '/sendproof') return { status: 302, headers: { ...noStore, Location: basePath + '/sendproof/' + query }, body: Buffer.alloc(0) };
     if (pathname.startsWith(journeyPrefix)) {
-      const document = journeyFiles.document(pathname, basePath);
+      const document = journeyDocuments.document(pathname, basePath);
       if (document !== undefined) return json(200, document, { 'X-Content-Type-Options': 'nosniff' });
     }
     const asset = pathname.slice('/sendproof/'.length) || 'index.html';

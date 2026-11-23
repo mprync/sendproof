@@ -1,7 +1,6 @@
-import { readFile } from 'node:fs/promises';
 import express from 'express';
 import { sendproof } from '@sendproof/express';
-import { authProviders, closeFixtureServer, createFixture, journeys, stopOnSignal } from './fixture-service.mjs';
+import { authProviders, closeFixtureServer, createFixture, fixtureJourneys, spec, stopOnSignal } from './fixture-service.mjs';
 import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -14,7 +13,6 @@ const database = {
   sqlserver: 'SQL Server',
 }[process.env.BENCH_DATABASE ?? 'sqlite'];
 if (!database) throw new Error('Unknown fixture database');
-const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
 
 const stores = {
   express: () => undefined,
@@ -31,11 +29,10 @@ const { session, previewProvider, ordinary } = fixture;
 const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
 const operations = [...fixture.operations, ...storeRoutes.operations];
 const options = {
-  apiName: 'Sendproof Conformance',
+  ...fixtureJourneys,
   environment: scenario === 'disabled' ? 'production' : 'development',
   database,
   authProviders,
-  journeys,
   previewProvider,
   dataStores: storeRoutes.dataStores,
   traceTtlMs: 5000,

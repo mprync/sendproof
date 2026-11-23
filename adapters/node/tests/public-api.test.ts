@@ -25,8 +25,8 @@ import type { MySql2Database } from 'drizzle-orm/mysql2';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { Knex } from 'knex';
 import type { DataSource, EntityManager } from 'typeorm';
-import { Capture, createBench, currentCapture } from '@sendproof/core';
-import type { CaptureRecorder, PreviewProvider } from '@sendproof/core';
+import { Capture, createBench, currentCapture, defineJourney } from '@sendproof/core';
+import type { CaptureRecorder, PreviewProvider, Ref } from '@sendproof/core';
 import { drizzlePreview } from '@sendproof/drizzle';
 import { sendproof as expressBench } from '@sendproof/express';
 import { sendproof as fastifyBench } from '@sendproof/fastify';
@@ -68,6 +68,25 @@ createBench<Request>({ resolveIdentity: ({ raw }) => {
 createBench({ maxResponseBytes: '1MB' });
 // @ts-expect-error Rollback providers acknowledge asynchronously and preserve the dispatch result.
 createBench({ previewProvider: { preview: () => false } });
+
+const journey = defineJourney({
+  id: 'review', name: 'Review',
+  inputs: { type: 'object', properties: { id: { type: 'string' }, count: { type: 'integer' } } },
+}, ({ input, step }) => {
+  const id = input('id');
+  expectTypeOf(id).toEqualTypeOf<Ref<string>>();
+  const read = step<{ path: { id: string } }>('read', 'getItem').set('path', 'id', id);
+  const confirmedId = read.output<string>('id', '$response.body#/id');
+  const write = step<{ body: { id: string; count: number } }>('write', 'updateItem');
+  write.body({ id: confirmedId, count: input('count') });
+  // @ts-expect-error A numeric input cannot bind a string parameter.
+  read.set('path', 'id', input('count'));
+  // @ts-expect-error A string output cannot bind a numeric body property.
+  write.body({ id, count: confirmedId });
+  // @ts-expect-error Only declared inputs are addressable.
+  input('missing');
+});
+createBench({ journeys: [journey, new URL('./demo.arazzo.json', import.meta.url)], openApiDocument: {} });
 
 const expressApp = express();
 const middleware = expressBench({ previewProvider: sqlite });
