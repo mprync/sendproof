@@ -1,5 +1,6 @@
 package io.github.mprync.sendproof.spring;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
 import java.util.List;
 
@@ -14,4 +15,9 @@ public interface OpenApiDocuments {
 
     /** Returns every document, including groups. */
     List<OpenApiDocument> documents();
+
+    /** The same JSON served at {@link #primaryUrl()}, or null to read it from the embedded server. */
+    default JsonNode primaryDocument() {
+        return null;
+    }
 }

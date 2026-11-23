@@ -77,6 +77,8 @@ import org.slf4j.LoggerFactory
 public val Sendproof: ApplicationPlugin<SendproofConfig> = createApplicationPlugin("Sendproof", ::SendproofConfig) {
     val config = pluginConfig
     if (config.enabled) {
+        val runtime = SendproofRuntime(application, config)
+        application.monitor.subscribe(ApplicationStopped) { runtime.close() }
         val logging = if (config.captureLogs) {
             try {
                 LogbackCapture.install()
@@ -89,8 +91,6 @@ public val Sendproof: ApplicationPlugin<SendproofConfig> = createApplicationPlug
         if (logging != null) {
             application.monitor.subscribe(ApplicationStopped) { logging.close() }
         }
-        val runtime = SendproofRuntime(application, config)
-        application.monitor.subscribe(ApplicationStopped) { runtime.close() }
         application.intercept(ApplicationCallPipeline.Setup) { runtime.setup(this) }
         application.routing {
             // After authentication and authorization (the Plugins phase) and before the route's handler.
@@ -106,11 +106,16 @@ public val Sendproof: ApplicationPlugin<SendproofConfig> = createApplicationPlug
 }
 
 internal class SendproofRuntime(private val application: Application, private val config: SendproofConfig) {
+    private val journeys = config.journeys.snapshot().apply {
+        startCode(config.openApiUrl, {
+            val openApi = checkNotNull(config.journeyOpenApi) { "Set journeyOpenApi to the JSON served at openApiUrl" }
+            openApi()
+        }, config.environment?.equals("Development", ignoreCase = true) ?: application.developmentMode)
+    }
     private val log = LoggerFactory.getLogger(Sendproof::class.java)
     private val store = TraceStore(config.traceRetention, System::nanoTime)
     private val assets = WorkbenchAssets(SendproofRuntime::class.java.classLoader)
     private val sessions = PreviewSessions()
-    private val journeys = config.journeys.snapshot()
 
     fun close() = sessions.close()
 

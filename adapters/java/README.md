@@ -55,6 +55,48 @@ Put `store.arazzo.json` and `store.expect.json` together in `src/main/resources/
 Use the application-relative OpenAPI URL in the Arazzo `sourceDescriptions`. Discovery and the served Arazzo document
 include the application's path base.
 
+### Code-defined journeys
+
+Expose a stable `operationId` for each step in your OpenAPI document. In Spring Boot, register a `Sendproof` bean like this:
+
+```java
+import io.github.mprync.sendproof.core.Journey;
+import io.github.mprync.sendproof.spring.Sendproof;
+
+record LookupInputs(String id) {}
+
+@Bean
+Sendproof sendproof() {
+    var lookup = Journey.define("orderLookup").name("Order lookup")
+            .inputs(LookupInputs.class).defaultInput("id", "sample-order")
+            .step("load", "getOrder", step -> step
+                    .parameter(Journey.In.PATH, "id", Journey.inputRef("id"))
+                    .succeedsWith(200)
+                    .expectWrites(writes -> writes.nothing()));
+    return Sendproof.builder().journey(lookup).build();
+}
+```
+
+Use the same fluent API from Kotlin. Pass the definition to `journey(lookup)` inside `install(Sendproof) { ... }`, and set
+`journeyOpenApi = { openApiJson }` to supply the same parsed JSON that your `openApiUrl` route serves. Spring Boot reads
+its configured OpenAPI endpoint on startup. If the endpoint requires authentication or runs outside the embedded
+server, supply the same JSON through an `OpenApiDocuments.primaryDocument()` override.
+
+Code and file journeys can be registered together. Code journeys appear in capabilities with `source: "code"`. In
+Development, a missing operation, input, or step output fails startup with the offending journey and step. In other
+environments Sendproof logs the error and skips that journey.
+
+Start the API in CI and run journeys with the Sendproof CLI:
+
+```sh
+npx @sendproof/cli journeys run orderLookup --api http://localhost:8080 --junit report.xml
+```
+
+The CLI uses Preview by default and returns a failing exit code if the journey fails. Pass `--inputs inputs.json` to
+override defaults. For an API without Preview sessions or a Send-only journey, use a disposable test environment and
+pass `--mode send --yes --allow-send` in Development. See the [CLI README](../node/cli/README.md) for authentication
+and Send options.
+
 ## Safety model
 
 - **Explicit opt-in.** Nothing is registered unless `sendproof.enabled=true`. Even then it stays off while a `prod` or `production` profile is active, unless `sendproof.allow-in-production=true` (a warning explains the refusal).

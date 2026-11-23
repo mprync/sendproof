@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.spring;
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
 import io.github.mprync.sendproof.core.DataStore;
+import io.github.mprync.sendproof.core.Journey;
 import io.github.mprync.sendproof.core.JourneyFiles;
 import io.github.mprync.sendproof.core.LocalUrl;
 import java.time.Duration;
@@ -243,7 +244,6 @@ public final class Sendproof {
             return this;
         }
 
-        /** Builds the configuration. */
         /** Registers an Arazzo resource and its adjacent {@code .expect.json} file from the application classpath. */
         public Builder journey(String classpathResource) {
             journeys.registerResource(classpathResource, org.springframework.util.ClassUtils.getDefaultClassLoader());
@@ -256,6 +256,13 @@ public final class Sendproof {
             return this;
         }
 
+        /** Registers a workflow built in code and checked against the primary OpenAPI document at startup. */
+        public Builder journey(Journey journey) {
+            journeys.register(journey);
+            return this;
+        }
+
+        /** Builds the configuration. */
         public Sendproof build() {
             return new Sendproof(this);
         }

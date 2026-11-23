@@ -6,6 +6,8 @@ dependencies {
     api("com.fasterxml.jackson.core:jackson-databind")
     api(rootProject.libs.slf4j.api)
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+    implementation(rootProject.libs.victools.generator)
+    implementation(rootProject.libs.victools.jackson)
 
     testImplementation(platform(rootProject.libs.spring.boot.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")

@@ -45,7 +45,7 @@ record SendproofSettings(String apiName, String environment, String openApiUrl, 
                 builder != null && builder.traceRetention() != null ? builder.traceRetention()
                         : properties.getTrace().getRetention(),
                 properties.getFilterOrder(), builder == null ? List.of() : builder.dataStores(),
-                builder == null ? new JourneyFiles() : builder.journeys());
+                builder == null ? new JourneyFiles() : builder.journeys().snapshot());
     }
 
     private static <T> T first(T preferred, T fallback) {

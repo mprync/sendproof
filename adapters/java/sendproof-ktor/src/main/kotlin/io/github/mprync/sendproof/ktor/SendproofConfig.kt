@@ -1,7 +1,9 @@
 package io.github.mprync.sendproof.ktor
 
+import com.fasterxml.jackson.databind.JsonNode
 import io.github.mprync.sendproof.core.Capabilities
 import io.github.mprync.sendproof.core.DataStore
+import io.github.mprync.sendproof.core.Journey
 import io.github.mprync.sendproof.core.JourneyFiles
 import io.github.mprync.sendproof.core.PreviewProvider
 import io.github.mprync.sendproof.core.TraceOwner
@@ -35,6 +37,9 @@ public class SendproofConfig {
 
     /** The primary OpenAPI document URL, relative to [pathBase]. */
     public var openApiUrl: String = "/openapi.json"
+
+    /** Supplies the same JSON as the primary OpenAPI route, for code journey validation during plugin startup. */
+    public var journeyOpenApi: (() -> JsonNode)? = null
 
     /** Extra OpenAPI documents, relative to [pathBase]. */
     public val documents: MutableList<Capabilities.OpenApiDocument> = mutableListOf()
@@ -75,6 +80,11 @@ public class SendproofConfig {
     /** Registers an Arazzo file and its adjacent `.expect.json` file from the filesystem. */
     public fun journey(file: java.nio.file.Path) {
         journeys.register(file)
+    }
+
+    /** Registers a workflow built in code and checked against [journeyOpenApi] at startup. */
+    public fun journey(definition: Journey) {
+        journeys.register(definition)
     }
 
     /** Resolves the identity shown in the workbench, or null for an anonymous caller. */
