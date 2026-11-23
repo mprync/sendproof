@@ -6,7 +6,6 @@ package fixture
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,8 +16,7 @@ import (
 	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
 
-//go:embed journeys/*.json
-var journeyFiles embed.FS
+const openAPIPath = "/openapi.json"
 
 // Config selects the fixture's behavior.
 type Config struct {
@@ -78,11 +76,12 @@ func New(cfg Config) (http.Handler, func(), error) {
 	}(cleanup)
 
 	people := newSessions()
+	openAPI := serveOpenAPI(stores)
 	options := []sendproof.Option{
 		sendproof.WithEnvironment("Development"),
 		sendproof.WithAPIName("Sendproof Conformance"),
-		sendproof.WithOpenAPIURL("/openapi.json"),
-		sendproof.WithJourneys(journeyFiles, "journeys/items.arazzo.json"),
+		sendproof.WithOpenAPIURL(openAPIPath),
+		sendproof.WithCodeJourneys(openAPI, itemJourneys()),
 		sendproof.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
 		sendproof.WithAuthProvider("Development personas", "personas", "/auth/personas"),
 		sendproof.WithPrincipal(people.principal),
@@ -125,7 +124,7 @@ func New(cfg Config) (http.Handler, func(), error) {
 
 	shared := http.NewServeMux()
 	shared.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	shared.HandleFunc("GET /openapi.json", serveOpenAPI(stores))
+	shared.Handle("GET "+openAPIPath, openAPI)
 	people.registerAuth(shared)
 
 	var router http.Handler

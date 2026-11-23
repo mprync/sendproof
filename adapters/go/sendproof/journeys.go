@@ -17,6 +17,7 @@ var journeyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 type journeyDocument struct {
 	name, stem   string
+	source       string
 	arazzo       json.RawMessage
 	expectations json.RawMessage
 }
@@ -59,7 +60,7 @@ func WithJourneys(files fs.FS, arazzoFile string) Option {
 			rules.Version != "1.0" || rules.Arazzo != path.Base(arazzoFile) || rules.Journeys == nil {
 			return fmt.Errorf("sendproof: %s needs a matching Sendproof expectations document", expectationsName)
 		}
-		c.journeys = append(c.journeys, journeyDocument{info.Info.Title, stem, arazzo, expectations})
+		c.journeys = append(c.journeys, journeyDocument{info.Info.Title, stem, "file", arazzo, expectations})
 		return nil
 	}
 }
@@ -69,7 +70,7 @@ func (b *Sendproof) journeyDiscovery(base string) []map[string]string {
 	for _, doc := range b.cfg.journeys {
 		url := base + journeyPath + doc.stem
 		result = append(result, map[string]string{
-			"name": doc.name, "source": "file", "arazzoUrl": url + ".arazzo.json", "expectationsUrl": url + ".expect.json",
+			"name": doc.name, "source": doc.source, "arazzoUrl": url + ".arazzo.json", "expectationsUrl": url + ".expect.json",
 		})
 	}
 	return result

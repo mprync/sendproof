@@ -107,6 +107,47 @@ With Sendproof enabled, `dbsql` and GORM support Preview sessions automatically.
 
 A session holds one transaction per rollback-capable store. It admits one request at a time, expires after five idle minutes or thirty minutes total, and rolls back on end. Each subject can open four sessions, with sixteen per process. Use sticky routing on multi-instance hosts. [Store limits](data-stores.md#preview-sessions) describes lock and lifetime differences.
 
+### Define journeys in Go
+
+Pass the JSON OpenAPI handler you serve at `WithOpenAPIURL` to `WithCodeJourneys`. `New` calls it at startup to check operation IDs. Invalid journeys fail startup in Development. Other environments log and skip them.
+
+```go
+type lookupInputs struct {
+	ID string `json:"id,omitempty" jsonschema:"default=sample-item"`
+}
+
+// Use the same openAPI handler for GET /openapi.json and this option.
+bench, err := sendproof.New(
+	sendproof.WithProvider(provider),
+	sendproof.WithOpenAPIURL("/openapi.json"),
+	sendproof.WithCodeJourneys(openAPI, sendproof.JourneyDocument{
+		ID: "items", Name: "Item journeys",
+		Journeys: []sendproof.Journey{{
+			ID: "lookupItem", Name: "Look up an item", Inputs: lookupInputs{},
+			Steps: []sendproof.JourneyStep{{
+				ID: "lookup", OperationID: "getItem",
+				Parameters: []sendproof.JourneyParameter{{Name: "id", In: "path", Value: sendproof.Input("id")}},
+				SuccessCriteria: []sendproof.JourneyCriterion{sendproof.StatusIs(http.StatusOK)},
+				ExpectWrites: &sendproof.StepWrites{},
+			}},
+		}},
+	}),
+)
+```
+
+`json` tags name the inputs and mark optional fields with `omitempty`. Use `jsonschema` tags for defaults and descriptions. Bind a later request to a named `Outputs` expression with `sendproof.StepOutput(step, name)`. `StepWrites` describes store writes, effects and approved differences. Set `SendOnlyReason` if a journey must commit. Redis writes are automatically Send-only.
+
+Run journeys with the Sendproof CLI in CI against a test instance. For the example above, seed `sample-item` or pass a JSON input file with `--inputs`. Provide a development persona or an auth header if the API requires authentication.
+
+```sh
+npx --package @sendproof/cli sendproof journeys run lookupItem \
+  --api http://127.0.0.1:8080 --mode preview --junit journeys.xml
+```
+
+Use `--all` to run every journey. Preview rolls back the run. To run a Send-only journey on a disposable test instance, use `--mode send --allow-send --yes`.
+
+### Register file journeys
+
 Register authored Arazzo JSON and a sibling expectations file using an embedded filesystem or `os.DirFS`:
 
 ```go

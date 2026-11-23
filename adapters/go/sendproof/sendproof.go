@@ -44,13 +44,16 @@ type Sendproof struct {
 	unavailable []*unavailable
 }
 
-// New creates a Sendproof from options. It returns the first invalid option's error.
+// New creates a Sendproof from options and builds its code-defined journeys.
 func New(options ...Option) (*Sendproof, error) {
 	cfg := defaultConfig()
 	for _, option := range options {
 		if err := option(&cfg); err != nil {
 			return nil, err
 		}
+	}
+	if err := cfg.buildCodeJourneys(); err != nil {
+		return nil, err
 	}
 	return &Sendproof{cfg: cfg, traces: newTraceStore(cfg.traceTTL, cfg.clock),
 		sessions: sessionRegistry{open: make(map[string]*heldPreview)}}, nil

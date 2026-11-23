@@ -31,6 +31,8 @@ func openAPI(stores *dataStores) map[string]any {
 		return entry
 	}
 	ok := func(description string) map[string]any { return map[string]any{"200": response(description, nil)} }
+	readItem := action("Read an item", map[string]any{"200": response("The item", itemSchema), "404": response("Not found", nil)})
+	readItem["operationId"] = readItemOperationID
 	paths := map[string]any{
 		"/accounts":          map[string]any{"post": operation("Create an account", "", map[string]any{"201": response("Created", nil)})},
 		"/accounts/{id}":     map[string]any{"get": operation("Read an account", "id", ok("The account"))},
@@ -90,7 +92,7 @@ func openAPI(stores *dataStores) map[string]any {
 				"responses":   map[string]any{"201": response("Created", itemSchema), "400": response("Invalid input", nil)},
 			}},
 			"/items/{id}": map[string]any{
-				"get": action("Read an item", map[string]any{"200": response("The item", itemSchema), "404": response("Not found", nil)}),
+				"get": readItem,
 				"patch": map[string]any{
 					"summary": "Rename an item", "parameters": append(append([]any{}, idParam...), map[string]any{
 						"name": "tag", "in": "query", "schema": map[string]any{"type": "string"}}),

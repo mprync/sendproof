@@ -20,6 +20,7 @@ type config struct {
 	openAPIURL    string
 	documents     []document
 	journeys      []journeyDocument
+	codeJourneys  []codeJourneyRegistration
 	fieldModules  []string
 	environment   string
 	environments  []string
