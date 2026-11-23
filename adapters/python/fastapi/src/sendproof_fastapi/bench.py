@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
+from sendproof_core.journey_builder import JourneyBuilder
 from sendproof_core.scope import install_logging_capture
 from sendproof_core.sessions import SessionRegistry, arun
 from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
@@ -47,6 +48,9 @@ class Sendproof:
         api_name: Display name. Defaults to the application's ``title``.
         openapi_url: Defaults to the application's ``openapi_url``.
         documents: Extra named OpenAPI documents.
+        journeys: Code journeys. Register after declaring the application's routes.
+        journey_openapi: Schema factory for the served OpenAPI document when using a custom route.
+            Defaults to FastAPI's ``app.openapi`` for its built-in route.
         auth_providers: Sign-in integrations to advertise, for example
             ``AuthProvider("Password", "cookie", "/auth/sign-in")``.
         field_modules: Same-origin ES module URLs that register custom field renderers.
@@ -79,6 +83,8 @@ class Sendproof:
         journey_files: Iterable[str | Path] = (),
         session_idle_timeout: int = 300,
         session_max_lifetime: int = 1800,
+        journeys: Iterable[JourneyBuilder] = (),
+        journey_openapi: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.stores = validate_stores(data_stores)
         # Without a SQL provider, hooked stores alone can carry a Preview: MongoDB aborts its own
@@ -101,9 +107,15 @@ class Sendproof:
             identity=identity,
             framework="FastAPI",
             journey_files=tuple(journey_files), session_idle_timeout=session_idle_timeout,
-            session_max_lifetime=session_max_lifetime,
+            session_max_lifetime=session_max_lifetime, journeys=tuple(journeys),
         )
-        self.workbench = Workbench(self.options, provider, assets)
+        default_openapi_url = getattr(app, "openapi_url", None)
+        if journey_openapi is None and default_openapi_url and openapi_url in (None, default_openapi_url):
+            journey_openapi = getattr(app, "openapi", None)
+        self.workbench = Workbench(
+            self.options, provider, assets, journey_openapi=journey_openapi,
+            default_openapi_url=default_openapi_url or "/openapi.json",
+        )
         self.sessions = SessionRegistry(self.options, provider, self.stores, asynchronous=True)
         if getattr(app, "middleware_stack", None) is not None:
             raise RuntimeError("Create Sendproof before the application starts serving requests.")

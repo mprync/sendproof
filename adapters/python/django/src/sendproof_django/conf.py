@@ -19,7 +19,7 @@ _bench: "DjangoBench | None" = None
 KEYS = {
     "API_NAME", "OPENAPI_URL", "DOCUMENTS", "ENVIRONMENT", "ENVIRONMENTS", "PROVIDER", "IDENTITY",
     "AUTHORIZE", "AUTH_PROVIDERS", "FIELD_MODULES", "INCLUDE_SQL_PARAMETER_VALUES", "TRACE_TTL", "DATA_STORES",
-    "JOURNEY_FILES", "SESSION_IDLE_TIMEOUT", "SESSION_MAX_LIFETIME",
+    "JOURNEY_FILES", "JOURNEYS", "JOURNEY_OPENAPI", "SESSION_IDLE_TIMEOUT", "SESSION_MAX_LIFETIME",
 }
 
 
@@ -73,9 +73,12 @@ class DjangoBench:
             journey_files=tuple(config.get("JOURNEY_FILES", ())),
             session_idle_timeout=config.get("SESSION_IDLE_TIMEOUT", 300),
             session_max_lifetime=config.get("SESSION_MAX_LIFETIME", 1800),
+            journeys=tuple(config.get("JOURNEYS", ())),
         )
         self.provider = provider
-        self.workbench = Workbench(self.options, provider)
+        schema_factory = config.get("JOURNEY_OPENAPI")
+        openapi = (lambda: import_string(schema_factory)()) if isinstance(schema_factory, str) else schema_factory
+        self.workbench = Workbench(self.options, provider, journey_openapi=openapi)
         self.engine = SyncBench(self.options, provider, self.workbench, authorize, stores)
 
 

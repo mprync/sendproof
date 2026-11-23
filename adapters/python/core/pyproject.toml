@@ -26,7 +26,7 @@ classifiers = [
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = ["jsonschema>=4.18,<5"]
 
 [project.optional-dependencies]
 # Client libraries for the data-store hooks in sendproof_core.stores; the core imports each on first use.

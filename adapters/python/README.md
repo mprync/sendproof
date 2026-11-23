@@ -78,6 +78,51 @@ the parent lifespan. Flask and Django roll back sessions at process exit. You ca
 `Sendproof.close()` or `sendproof_django.close_sessions()` in a WSGI server's worker shutdown hook
 to release connections before other resources are torn down. See [store limits](data-stores.md#held-preview-sessions).
 
+## Code journeys
+
+Give your Preview-enabled `POST /items` route an OpenAPI operation ID of `createItem`. After declaring
+the routes, define the journey and register it in your `Sendproof` setup.
+
+```python
+from pydantic import BaseModel
+from sendproof_core.journey_builder import JourneyBuilder
+
+class CreateInputs(BaseModel):
+    item_id: str
+    name: str = "Sample item"
+
+journey = JourneyBuilder("createItem", name="Create an item", group="Inventory", inputs=CreateInputs)
+create = journey.step("create", "createItem")
+create.request_body({"id": journey.input("item_id"), "name": journey.input("name")})
+create.succeeds_with(201)
+create.expect_writes().sql("items", "insert", key={"id": journey.input("item_id")},
+                           values={"name": journey.input("name")})
+
+Sendproof(app, provider=provider, environment="Development", journeys=[journey])
+```
+
+`inputs` accepts a Pydantic v2 model or a JSON Schema object. Use `step.set()` for parameters
+and `step.output()` for values needed later. `expect_writes()` supports SQL, MongoDB, Redis,
+other hooked stores and effects. Mark a journey that requires a real Send with `journey.send_only(reason)`.
+An `ApprovedDifference` names its target with `table` for SQL, `collection` for MongoDB, or `key` for Redis.
+
+FastAPI uses its built-in OpenAPI schema by default. For Flask or a custom OpenAPI route, pass
+`journey_openapi` the same schema factory that the route uses. In Django, set `SENDPROOF["JOURNEYS"]`
+and `SENDPROOF["JOURNEY_OPENAPI"]` to the journey list and schema factory (or its dotted import path).
+File and code journeys can be registered together. Invalid code journeys stop startup in Development.
+In other enabled environments, the adapter logs and skips them.
+
+In CI, start the API with Sendproof enabled and run its published journey with the Sendproof CLI.
+With Preview sessions enabled, this command rolls back the run and writes a JUnit report.
+
+```sh
+sendproof journeys run createItem --api http://127.0.0.1:8000 --inputs inputs.json --junit journeys.xml
+```
+
+Put `{"item_id":"ci-item"}` in `inputs.json` and supply the CLI's authentication options if the API
+requires sign-in. For Send-only runs against a disposable development API, add
+`--mode send --yes --allow-send`. The CLI's exit status determines the CI result.
+
 ## Develop in this repository
 
 ```sh

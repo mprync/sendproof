@@ -20,7 +20,8 @@ import django
 from django.conf import settings
 
 from fixture_stores import REMEMBERABLE, SyncStores
-from fixture_database import JOURNEY_FILE, sqlite_path
+from fixture_database import sqlite_path
+from fixture_journeys import item_lookup
 from time import sleep
 
 PORT = int(os.environ.get("PORT", "8000"))
@@ -87,7 +88,8 @@ def configure() -> None:
             ],
             "OPENAPI_URL": "/openapi.json",
             "TRACE_TTL": TRACE_TTL_SECONDS,
-            "JOURNEY_FILES": [JOURNEY_FILE],
+            "JOURNEYS": [item_lookup()],
+            "JOURNEY_OPENAPI": f"{__name__}.openapi_schema",
         },
     )
     django.setup()
@@ -218,7 +220,7 @@ class ItemOut(Schema):
     name: str
 
 
-@api.get("/items/{id}", response=ItemOut)
+@api.get("/items/{id}", response=ItemOut, operation_id="readItem")
 def read_item(request, id: str):
     require_user(request)
     if request.GET.get("hold") == "true":
@@ -519,9 +521,13 @@ if set(REMEMBERABLE) & set(stores.stores):
         return 201, item
 
 
-def openapi(request):
+def openapi_schema():
     # Paths are relative to the mount: the workbench adds the path base itself.
-    return JsonResponse(api.get_openapi_schema(path_prefix="/"))
+    return api.get_openapi_schema(path_prefix="/")
+
+
+def openapi(request):
+    return JsonResponse(openapi_schema())
 
 
 def ready(request):

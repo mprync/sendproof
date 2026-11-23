@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
@@ -13,6 +14,7 @@ from werkzeug.routing import Rule
 
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
+from sendproof_core.journey_builder import JourneyBuilder
 from sendproof_core.marker import apply_marker, enter, is_previewable, marked_methods, unavailable_info
 from sendproof_core.scope import current_scope, install_logging_capture
 from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
@@ -83,6 +85,8 @@ class Sendproof:
         api_name, openapi_url, documents, auth_providers, field_modules,
         include_sql_parameter_values, trace_ttl, clock: See ``sendproof_fastapi.Sendproof``.
             Flask has no built-in OpenAPI route; ``openapi_url`` defaults to ``/openapi.json``.
+        journeys: Code journeys, compiled using ``journey_openapi``.
+        journey_openapi: The schema factory also used by the application's OpenAPI route.
     """
 
     __test__ = False
@@ -109,6 +113,8 @@ class Sendproof:
         journey_files: Iterable[str | Path] = (),
         session_idle_timeout: int = 300,
         session_max_lifetime: int = 1800,
+        journeys: Iterable[JourneyBuilder] = (),
+        journey_openapi: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.app = app
         stores = validate_stores(data_stores)
@@ -122,9 +128,11 @@ class Sendproof:
             include_sql_parameter_values=include_sql_parameter_values, trace_ttl=trace_ttl, clock=clock, identity=identity,
             framework="Flask",
             journey_files=tuple(journey_files), session_idle_timeout=session_idle_timeout,
-            session_max_lifetime=session_max_lifetime,
+            session_max_lifetime=session_max_lifetime, journeys=tuple(journeys),
         )
-        self.workbench = Workbench(self.options, provider, assets)
+        context = app.app_context() if self.options.enabled and self.options.journeys else nullcontext()
+        with context:
+            self.workbench = Workbench(self.options, provider, assets, journey_openapi=journey_openapi)
         self.engine = SyncBench(self.options, provider, self.workbench, authorize, stores)
         app.wsgi_app = SendproofWsgi(app.wsgi_app, self)  # type: ignore[method-assign]
         # First in line, so no host hook or view runs for a preview that no longer targets the

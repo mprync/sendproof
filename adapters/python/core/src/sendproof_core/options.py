@@ -6,9 +6,12 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from .identity import Identity
+
+if TYPE_CHECKING:
+    from .journey_builder import JourneyBuilder
 
 
 def _is_local_url(url: str) -> bool:
@@ -96,6 +99,7 @@ class BenchOptions:
     journey_files: tuple[str | Path, ...] = ()
     session_idle_timeout: int = 300
     session_max_lifetime: int = 1800
+    journeys: tuple[JourneyBuilder, ...] = ()
 
     def __post_init__(self) -> None:
         if self.environment is None:

@@ -29,6 +29,7 @@ from sendproof_flask import AuthProvider, Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 
 import fixture_database
+from fixture_journeys import item_lookup
 import fixture_flask_persistence
 from fixture_stores import REMEMBERABLE, SyncStores
 
@@ -512,17 +513,16 @@ def _store_paths() -> dict:
     return paths
 
 
-@app.get("/openapi.json")
-def openapi():
+def openapi_schema():
     item = {"$ref": "#/components/schemas/Item"}
     action = lambda name: _operation(name, "200")  # noqa: E731
-    return jsonify({
+    return {
         "openapi": "3.0.3",
         "info": {"title": "Sendproof Conformance", "version": "1.0"},
         "paths": {
             "/items": {"post": {**_operation("Create item", "201", True, item), "parameters": []}},
             "/items/{id}": {
-                "get": _operation("Read item", "200", schema=item),
+                "get": {**_operation("Read item", "200", schema=item), "operationId": "readItem"},
                 "patch": {**_operation("Rename item", "200", schema=item), "requestBody": {"required": True, "content": {
                     "application/json": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}}}}},
                 "delete": _operation("Delete item", "204"),
@@ -540,7 +540,12 @@ def openapi():
             **_store_paths(),
         },
         "components": {"schemas": {"Item": _ITEM}},
-    })
+    }
+
+
+@app.get("/openapi.json")
+def openapi():
+    return jsonify(openapi_schema())
 
 
 class RollbackFailingProvider(SQLAlchemyPreview):
@@ -575,7 +580,8 @@ Sendproof(
         AuthProvider("Fixture personas", "personas", "/auth/personas"),
     ],
     trace_ttl=TRACE_TTL_SECONDS,
-    journey_files=[fixture_database.JOURNEY_FILE],
+    journeys=[item_lookup()],
+    journey_openapi=openapi_schema,
 )
 
 # Mount under the path base (WSGI SCRIPT_NAME) so that the workbench is absent without the prefix.

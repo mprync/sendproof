@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from . import limits, protocol
 from .assets import Asset, UiAssets, UiBundleError
 from .capture import CaptureSnapshot, CaptureTiming
 from .identity import Identity
-from .journeys import journey_document, load_journeys
+from .journeys import journey_document, load_journeys, register_code_journeys
 from .jsonsafe import body_from_bytes
 from .options import BenchOptions, OpenApiDocument, require_display_label
 from .provider import PreviewChange, PreviewProvider
@@ -101,7 +101,9 @@ def redact_row(row: Any) -> Any:
 class Workbench:
     """Discovery, UI assets, trace retrieval and envelope construction."""
 
-    def __init__(self, options: BenchOptions, provider: PreviewProvider | None = None, assets: UiAssets | None = None):
+    def __init__(self, options: BenchOptions, provider: PreviewProvider | None = None, assets: UiAssets | None = None,
+                 *, journey_openapi: Callable[[], dict[str, Any]] | None = None,
+                 default_openapi_url: str = "/openapi.json"):
         if provider is not None and provider.database is not None:
             require_display_label(provider.database)
         self.options = options
@@ -109,6 +111,13 @@ class Workbench:
         self.assets = assets or UiAssets()
         self.traces = TraceStore(options.trace_ttl, options.clock)
         self.journeys = load_journeys(options.journey_files) if options.enabled else {}
+        if options.enabled and options.journeys:
+            register_code_journeys(
+                self.journeys, options.journeys, openapi=journey_openapi,
+                openapi_url=options.openapi_url or default_openapi_url,
+                sql_store=(provider.system if provider is not None else None) or "sql",
+                development=(options.environment or "").lower() == "development",
+            )
 
     # ---------------------------------------------------------------- discovery
     def capabilities(

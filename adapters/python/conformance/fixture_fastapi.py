@@ -31,7 +31,8 @@ from sendproof_fastapi import AuthProvider, Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 
 from fixture_stores import REMEMBERABLE, AsyncStores
-from fixture_database import JOURNEY_FILE, sqlite_path
+from fixture_database import sqlite_path
+from fixture_journeys import item_lookup
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -164,7 +165,7 @@ def switch_persona(email: str, user: dict = Depends(require_admin)):
     return start_session(email)
 
 
-@app.get("/items/{id}")
+@app.get("/items/{id}", operation_id="readItem")
 def read_item(id: str, hold: bool = False, db: Session = Depends(get_db), user: dict = Depends(require_user)):
     if hold:
         time.sleep(1)
@@ -470,7 +471,7 @@ Sendproof(
         AuthProvider("Fixture personas", "personas", "/auth/personas"),
     ],
     trace_ttl=TRACE_TTL_SECONDS,
-    journey_files=[JOURNEY_FILE],
+    journeys=[item_lookup()],
 )
 
 # Mount under the path base so that the workbench is absent without the prefix.

@@ -15,7 +15,7 @@
       "steps": [
         {
           "stepId": "getItem",
-          "operationPath": "$sourceDescriptions.fixture#/paths/~1items~1{id}/get",
+          "operationId": "readItem",
           "parameters": [{ "name": "id", "in": "path", "value": "$inputs.id" }],
           "successCriteria": [{ "condition": "$statusCode == 200" }]
         }

@@ -213,6 +213,23 @@ test('MongoDB Extended JSON values compare as the plain values they stand for', 
   assert.equal(numericDate.verdict, 'passed');
 });
 
+test('an approved difference names a MongoDB target by collection and a Redis target by key', () => {
+  const mongo = compareStep({
+    expected: { writes: [{ store: 'mongodb', collection: 'order_events', op: 'insert', values: { type: 'order.shipped' } }] },
+    changes: [{ operation: 'insert', store: 'mongodb', table: 'order_events', after: { type: 'order.dispatched' } }],
+    approved: [{ id: 'AD-30', kind: 'value', target: { store: 'mongodb', collection: 'order_events', field: 'type' } }],
+    store: 'sqlite',
+  });
+  assert.equal(mongo.verdict, 'passed-approved');
+  assert.equal(mongo.findings[0].fields[0].record, 'AD-30');
+  const redis = compareStep({
+    expected: { writes: [{ store: 'redis', key: 'coupon:ACME10:uses', op: 'INCRBY' }] },
+    approved: [{ id: 'AD-31', kind: 'missing', target: { store: 'redis', key: 'coupon:ACME10:uses' } }],
+    store: 'sqlite',
+  });
+  assert.equal(redis.verdict, 'passed-approved');
+});
+
 test('a Redis write no change matches is matched against the step’s Db log entries, and missing when absent', () => {
   const expected = { writes: [
     { store: 'redis', key: 'quote:{$steps.priceCart.outputs.quoteId}', op: 'SET', values: { expiry: { type: 'any' } } },

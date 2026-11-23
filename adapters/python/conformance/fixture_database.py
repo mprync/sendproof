@@ -18,7 +18,6 @@ from sqlalchemy.engine import URL, make_url
 #: Driver used when the runner supplies a URL without one (``postgresql://...`` or ``mysql://...``).
 DEFAULT_DRIVERS = {"postgresql": "psycopg", "mysql": "pymysql"}
 ALIASES = {"postgres": "postgresql", "pg": "postgresql", "mariadb": "mysql", "mssql": "sqlserver"}
-JOURNEY_FILE = Path(__file__).with_name("journeys") / "conformance.arazzo.json"
 
 
 def sqlite_path(directory: Path) -> str:
