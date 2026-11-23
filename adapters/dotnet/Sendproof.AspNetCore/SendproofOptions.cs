@@ -17,6 +17,12 @@ internal sealed class SendproofOptions
     internal bool CaptureEfCommands { get; set; }
     internal bool IsMapped { get; set; }
 
+    /// <summary>How long a preview session may sit unused before it is rolled back.</summary>
+    internal TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a preview session may live in all before it is rolled back.</summary>
+    internal TimeSpan SessionMaxLifetime { get; set; } = TimeSpan.FromMinutes(30);
+
     internal bool Enabled(IHostEnvironment environment) => IsMapped && Environments.Contains(environment.EnvironmentName);
 }
 

@@ -173,7 +173,8 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
      */
     static RuntimeException refuseSavepointCall(String method, Object[] args) {
         Scope scope = CURRENT.get();
-        if (scope == null || scope.savepoint == null || args == null || args.length != 1) {
+        if (scope == null || scope.savepoint == null && PinnedConnection.current() == null
+                || args == null || args.length != 1) {
             return null;
         }
         String name = null;
@@ -186,7 +187,7 @@ final class PreviewTransactionGuard implements TransactionExecutionListener {
                 return null;
             }
         }
-        return name != null && name.replace("`", "").equalsIgnoreCase(PreviewSavepoint.NAME)
+        return name != null && PreviewSavepoint.isReserved(name)
                 ? refuseWhileHandling("Connection." + method + "() of the Preview's savepoint") : null;
     }
 

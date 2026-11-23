@@ -23,7 +23,7 @@ test('the v4 rules live in styles.css and views.css, with no separate v4.css', a
 
 test('the mock page and the workbench load only the shared stylesheets', async () => {
   assert.deepEqual(stylesheets(await read('mocks/workbench.html')), ['styles.css', 'views.css']);
-  assert.deepEqual(stylesheets(await read('ui/index.html')), ['styles.css', 'views.css', 'app.css']);
+  assert.deepEqual(stylesheets(await read('ui/index.html')), ['styles.css', 'views.css', 'app.css', 'dialog.css']);
 });
 
 // An earlier crumb reserves min(--crumb-parent-min, its own width): a flat 5rem floor left a gap

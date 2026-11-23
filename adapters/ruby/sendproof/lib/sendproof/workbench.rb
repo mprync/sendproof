@@ -3,13 +3,18 @@
 module Sendproof
   # The workbench's own routes under +/sendproof+: UI assets, discovery and trace retrieval.
   class Workbench
-    def initialize(config)
+    def initialize(config, sessions)
       @config = config
+      @sessions = sessions
     end
 
     # @param path [String] PATH_INFO, which starts with +/sendproof+
     # @return [Array] Rack response
     def call(env, request, path)
+      if (match = PreviewSessions::ROUTE.match(path)) && match[1] && !Protocol.same_origin?(request)
+        return PreviewSessions.not_found
+      end
+
       denied = authorize(request)
       return denied if denied
 
@@ -19,6 +24,8 @@ module Sendproof
       when "/sendproof/_api/capabilities" then capabilities(request)
       when %r{\A/sendproof/_api/traces/([^/]+)\z} then trace(request, Regexp.last_match(1))
       when "/sendproof/_api/challenge" then not_found
+      when PreviewSessions::ROUTE then @sessions.call(env, request, Regexp.last_match(1), Regexp.last_match(2))
+      when Journeys::ROUTE then @config.journeys.serve(request, Regexp.last_match(1), Regexp.last_match(2)) || not_found
       else
         name = path.delete_prefix("/sendproof/")
         name.start_with?("_") ? not_found : asset(Rack::Utils.unescape_path(name), request)
@@ -72,11 +79,14 @@ module Sendproof
         identity: identity && { name: identity.name, **(identity.role ? { role: identity.role } : {}) },
         authProviders: @config.auth_providers.map { |p| p.merge(url: p[:url] && base + p[:url]) },
         previewOperations: operations,
+        previewSessions: @config.preview_sessions?(provider),
         observedSend: !operations.empty?,
         documents:
       }
       document[:previewUnavailable] = unavailable unless unavailable.empty?
       document[:dataStores] = stores unless stores.empty?
+      journeys = @config.journeys.discovery(base)
+      document[:journeys] = journeys unless journeys.empty?
       Protocol.json(200, document, { "cache-control" => "no-store", "x-content-type-options" => "nosniff" })
     end
 

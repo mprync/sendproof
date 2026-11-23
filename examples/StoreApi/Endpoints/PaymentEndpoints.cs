@@ -14,6 +14,8 @@ internal static class PaymentEndpoints
             .WithMetadata(new SortKeysMetadata(SortKeys.Payments)).Produces<PagedList<Payment>>().ProducesValidationProblem();
         group.MapGet("/{id:guid}", Get).WithName("PaymentsController.Get").RequireAuthorization(Policies.Support)
             .Produces<Payment>().ProducesProblem(StatusCodes.Status404NotFound);
+        group.MapPost("/{id:guid}/capture", Capture).WithName("PaymentsController.Capture").RequireAuthorization(Policies.Support)
+            .Produces<Payment>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithSendproofPreview();
         group.MapPost("/{id:guid}/refunds", Refund).WithName("PaymentsController.Refund").RequireAuthorization(Policies.Support)
             .Produces<Payment>(StatusCodes.Status201Created).ProducesValidationProblem().ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity).WithSendproofPreview();
@@ -70,6 +72,37 @@ internal static class PaymentEndpoints
     internal static async Task<IResult> Get(Guid id, StoreDbContext db) =>
         await db.Payments.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id) is { } payment
             ? TypedResults.Ok(await payment.ToContractAsync(db)) : EndpointSupport.NotFound("payment", id);
+
+    /// <summary>Capture payment</summary>
+    /// <remarks>
+    /// Takes the funds of an authorised payment, such as a bank transfer that has arrived. The payment moves to `Captured`
+    /// and its `Pending` order to `Paid`, ready for the warehouse. Requires the `admin` or `support` role.
+    ///
+    /// Only an `Authorized` payment can be captured (409 otherwise).
+    /// </remarks>
+    /// <param name="id">The payment's ID, from `PaymentsController.List` or an order's `payment`.</param>
+    /// <response code="200">The captured payment.</response>
+    /// <response code="404">No payment has this ID.</response>
+    /// <response code="409">The payment is not authorised: it was already captured, failed or was refunded.</response>
+    internal static async Task<IResult> Capture(Guid id, StoreDbContext db, ClaimsPrincipal principal, DemoStores stores)
+    {
+        var payment = await db.Payments.SingleOrDefaultAsync(p => p.Id == id);
+        if (payment is null) return EndpointSupport.NotFound("payment", id);
+        if (payment.Status != PaymentStatus.Authorized)
+            return EndpointSupport.Conflict($"Only authorised payments can be captured; this one is {payment.Status}.");
+
+        var now = DateTimeOffset.UtcNow;
+        payment.Status = PaymentStatus.Captured;
+        var order = await db.Orders.SingleAsync(o => o.Id == payment.OrderId);
+        if (order.Status == OrderStatus.Pending) order.Status = OrderStatus.Paid;
+        order.UpdatedAt = now;
+        db.Audit("Payment", id, "Payment.Captured", principal.Email());
+        await db.SaveChangesAsync();
+        await stores.RecordOrderEventsAsync(order.Id, order.Number, order.Status.ToString(),
+            new ActorReference { Email = principal.Email(), Name = principal.DisplayName() },
+            [("Payment.Captured", now, $"Captured {payment.Amount:N2} {payment.Currency}.")]);
+        return TypedResults.Ok(await payment.ToContractAsync(db));
+    }
 
     /// <summary>Refund payment</summary>
     /// <remarks>

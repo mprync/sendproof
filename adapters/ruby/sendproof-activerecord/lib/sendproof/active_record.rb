@@ -15,6 +15,7 @@ module Sendproof
   # never synthesized into before/after rows; the preview logs a warning when it sees them.
   module ActiveRecord
     autoload :InlinedBinds, "sendproof/active_record/inlined_binds"
+    autoload :HeldSession, "sendproof/active_record/held_session"
     autoload :Observation, "sendproof/active_record/observation"
     autoload :Provider, "sendproof/active_record/provider"
     autoload :Session, "sendproof/active_record/session"
@@ -32,6 +33,7 @@ module Sendproof
       ::ActiveRecord::Base.include(Tracking)
       ::ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(TransactionGuard)
       ::ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(InlinedBinds)
+      ::ActiveRecord::ConnectionAdapters::ConnectionPool.prepend(HeldSession::Checkout)
       SqlSubscriber.subscribe
     end
   end

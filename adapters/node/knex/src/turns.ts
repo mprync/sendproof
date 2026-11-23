@@ -9,17 +9,33 @@
  */
 export class PreviewTurns {
   #tail: Promise<void> = Promise.resolve();
+  #pending = 0;
 
   /** Run `operation` once every earlier operation has settled, whether it succeeded or failed. */
   async run<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.#tail;
-    let release!: () => void;
-    this.#tail = new Promise<void>(resolve => { release = resolve; });
+    const release = this.#reserve();
     try {
       await previous;
       return await operation();
     } finally {
       release();
     }
+  }
+
+  /** Sessions can hold a turn for minutes, so decline if one is already taken or queued. */
+  tryEnter(): (() => void) | undefined {
+    if (this.#pending) return undefined;
+    return this.#reserve();
+  }
+
+  #reserve(): () => void {
+    this.#pending++;
+    let done!: () => void;
+    this.#tail = new Promise<void>(resolve => { done = resolve; });
+    return () => {
+      this.#pending--;
+      done();
+    };
   }
 }

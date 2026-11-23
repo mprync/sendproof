@@ -20,6 +20,7 @@ final class WorkbenchTest extends TestCase
         $this->assertSame(1, $capabilities['protocolVersion']);
         $this->assertSame(['name' => 'Alex', 'role' => 'admin'], $capabilities['identity']);
         $this->assertTrue($capabilities['observedSend']);
+        $this->assertFalse($capabilities['previewSessions']);
         $this->assertContains(['method' => 'POST', 'path' => '/widgets'], $capabilities['previewOperations']);
         $this->assertContains(['method' => 'PATCH', 'path' => '/widgets/{id}'], $capabilities['previewOperations']);
         $this->assertNotContains(['method' => 'POST', 'path' => '/widgets/{id}/ordinary'], $capabilities['previewOperations']);
@@ -32,6 +33,19 @@ final class WorkbenchTest extends TestCase
     public function testAnonymousDiscoveryHasNoIdentity(): void
     {
         $this->getJson('/sendproof/_api/capabilities')->assertOk()->assertJsonPath('identity', null);
+    }
+
+    public function testPreviewWithASessionHeaderIsRefusedBeforeDispatch(): void
+    {
+        $this->signIn();
+        $headers = ['Sendproof-Session' => str_repeat('a', 32)];
+        $item = ['id' => 'w1', 'name' => 'Bolt'];
+        $this->postJson('/sendproof/_preview/widgets', $item, $headers + ['Prefer' => 'tx=rollback'])
+            ->assertNotFound()
+            ->assertHeader('Content-Type', 'application/problem+json')
+            ->assertHeaderMissing('Preference-Applied')
+            ->assertJsonPath('code', 'session_not_found');
+        $this->postJson('/widgets', $item, $headers)->assertCreated();
     }
 
     public function testServesTheEmbeddedUiWithSecurityHeaders(): void

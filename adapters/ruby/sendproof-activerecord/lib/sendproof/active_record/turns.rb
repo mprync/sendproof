@@ -21,6 +21,16 @@ module Sendproof
       # @return [#call]
       def take
         @mutex.lock
+        release
+      end
+
+      def try_take
+        release if @mutex.try_lock
+      end
+
+      private
+
+      def release
         released = false
         lambda do
           next if released

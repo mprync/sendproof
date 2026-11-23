@@ -28,6 +28,34 @@ module Sendproof
 
       def framework = @framework || "Rails"
 
+      # Resolves relative paths from the Rails application root.
+      def journey(path, name: nil)
+        super(File.expand_path(path, ::Rails.application.config.root), name:)
+      end
+
+      def session_job(&block)
+        # Rails uses this same execution-state handoff for streaming responses. CurrentAttributes
+        # and middleware state belong to the original request even when its action runs on the worker.
+        state = ActiveSupport::IsolatedExecutionState
+        request_context = state.context
+        lambda do |session|
+          state.share_with(request_context)
+          block.call(session)
+        ensure
+          state.clear
+        end
+      end
+
+      def wait_for_session(&block)
+        ActiveSupport::Dependencies.interlock.permit_concurrent_loads(&block)
+      end
+
+      def resolve_session_get(path, env)
+        return :ineligible if super == :ineligible
+
+        Routes.resolve("GET", path, session: true)
+      end
+
       def preview_operations=(operations)
         @preview_operations_set = true
         super

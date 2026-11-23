@@ -16,7 +16,10 @@ EF = "Sendproof.EntityFrameworkCore"
 # Data-store guards: each depends on the host package and brings in the store's client library.
 STORES = ("Sendproof.Redis", "Sendproof.MongoDB", "Sendproof.DynamoDB", "Sendproof.Cassandra", "Sendproof.Elasticsearch",
           "Sendproof.OpenSearch", "Sendproof.CosmosDb", "Sendproof.Firestore")
-PACKAGES = (HOST, EF, *STORES)
+# Typed journeys, with their operations generator inside as an analyzer, and the xUnit suite that runs them.
+JOURNEYS = ("Sendproof.Journeys", "Sendproof.Journeys.Testing")
+GENERATOR = "Sendproof.Journeys.Generators"
+PACKAGES = (HOST, EF, *STORES, *JOURNEYS)
 
 
 def require(condition, message):
@@ -65,18 +68,25 @@ def copy_consumer(destination, version):
     # Use the same application and acceptance assertions contributors run from source.
     shutil.copytree(ROOT / "examples/StoreApi", destination,
                     ignore=shutil.ignore_patterns("bin", "obj", "*.db*", "*.keys", "TestResults"))
-    project = destination / "StoreApi.csproj"
-    tree = ET.parse(project)
     found = set()
-    for ref in tree.iter("ProjectReference"):
-        package_id = Path(ref.attrib["Include"]).stem
-        # The sample also wires the optional data-store guards (Redis, MongoDB, DynamoDB); each is restored from its archive.
-        require(package_id in PACKAGES, f"Unexpected sample project reference {package_id}")
-        ref.tag = "PackageReference"
-        ref.attrib = {"Include": package_id, "Version": f"[{version}]"}
-        found.add(package_id)
-    require({HOST, EF} <= found, "Consumer must reference both archives")
-    tree.write(project, encoding="utf-8")
+    for project in (destination / "StoreApi.csproj", destination / "tests/StoreApi.Tests.csproj"):
+        tree = ET.parse(project)
+        for group in tree.iter("ItemGroup"):
+            for ref in list(group.findall("ProjectReference")):
+                package_id = Path(ref.attrib["Include"]).stem
+                if package_id == "StoreApi":
+                    continue
+                if package_id == GENERATOR:
+                    # The generator comes with the Sendproof.Journeys package.
+                    group.remove(ref)
+                    continue
+                # The sample also wires the optional data-store guards (Redis, MongoDB, DynamoDB); each is restored from its archive.
+                require(package_id in PACKAGES, f"Unexpected sample project reference {package_id}")
+                ref.tag = "PackageReference"
+                ref.attrib = {"Include": package_id, "Version": f"[{version}]"}
+                found.add(package_id)
+        tree.write(project, encoding="utf-8")
+    require({HOST, EF, *JOURNEYS} <= found, "Consumer must reference the host, EF Core and journeys archives")
 
 
 def check_store_consumer(directory, version):

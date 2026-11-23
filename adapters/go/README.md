@@ -101,6 +101,24 @@ handler := sendproof.StripPathBase("/tenant", bench.Middleware(mux))
 
 When a reverse proxy strips the prefix before the request reaches Go, declare it with `sendproof.WithPathBase("/tenant")` instead. Request paths seen by the application never contain the base.
 
+## Preview sessions and journeys
+
+With Sendproof enabled, `dbsql` and GORM support Preview sessions automatically. The workbench opens a session for the signed-in subject or an anonymous caller and sends its ID with each Preview. Keep using the request context for store calls. Mark previewable writes as usual. Within a session, GET operations can read earlier steps' uncommitted changes unless explicitly marked unavailable. Call `bench.Close()` during shutdown before closing the clients or database pools.
+
+A session holds one transaction per rollback-capable store. It admits one request at a time, expires after five idle minutes or thirty minutes total, and rolls back on end. Each subject can open four sessions, with sixteen per process. Use sticky routing on multi-instance hosts. [Store limits](data-stores.md#preview-sessions) describes lock and lifetime differences.
+
+Register authored Arazzo JSON and a sibling expectations file using an embedded filesystem or `os.DirFS`:
+
+```go
+//go:embed journeys/*.json
+var journeyFiles embed.FS
+
+// Include this option in sendproof.New.
+sendproof.WithJourneys(journeyFiles, "journeys/store.arazzo.json")
+```
+
+Provide `journeys/store.expect.json` alongside the Arazzo file. Use app-relative paths such as `/openapi.json` in the Arazzo source descriptions. Sendproof adds the request's path base when serving the document and advertises both URLs under `/sendproof/journeys/`.
+
 ## Row changes
 
 `dbsql` needs no table registration. It runs each previewed or observed request on a dedicated connection and captures row changes **per statement, in execution order**, with the real before and after rows and the row's primary key. The engine is detected from the `database/sql` driver; `WithDialect` overrides it.

@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { withFixture } from './host.mjs';
+import { sessionStores } from './sessions.mjs';
 import { connectMongo } from './stores/mongodb.mjs';
 import { connectRedis } from './stores/redis.mjs';
 import { dynamoClient, fromItem, toItem } from './stores/dynamodb.mjs';
@@ -301,9 +302,8 @@ async function checks(t, request, schemas, stores, env, readers) {
   };
   const unavailableRoutes = { mongodb: '/documents/{id}', redis: '/counters/{key}', dynamodb: '/orders/{id}', cassandra: '/tickets/{id}', opensearch: '/articles/{id}' };
 
+  const capabilities = await (await status(await request(base + '/sendproof/_api/capabilities', { cookie }), 200)).json();
   await t.test('Data stores: discovery lists each store and its mode', async () => {
-    const response = await status(await request(base + '/sendproof/_api/capabilities', { cookie }), 200);
-    const capabilities = await response.json();
     schemas.assert('capabilities', capabilities);
     captured.push(capabilities);
     for (const store of stores) {
@@ -312,9 +312,9 @@ async function checks(t, request, schemas, stores, env, readers) {
       assert.equal(entry.mode, modes[store], `${store} runs in ${modes[store]} mode against the compose service`);
     }
   });
+  await sessionStores(t, request, schemas, capabilities, cookie, readers, stores.find(store => modes[store] === 'guard'));
 
   await t.test('Data stores: preview:false operations are not advertised and do not run', async () => {
-    const capabilities = await (await request(base + '/sendproof/_api/capabilities', { cookie })).json();
     for (const store of stores) {
       const path = unavailableRoutes[store];
       assert(!capabilities.previewOperations.some(item => item.method === 'DELETE' && item.path === path), `DELETE ${path} must not be advertised`);

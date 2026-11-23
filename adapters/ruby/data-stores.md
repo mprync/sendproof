@@ -242,6 +242,14 @@ These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spe
 - Document `before` images are read at the Preview transaction's snapshot time, so a concurrent commit by another request never shows up as a change.
 - An explicit `create` (`create_collection`) fails inside a Preview, because MongoDB refuses it in a transaction with snapshot read concern. Inserting into a new collection creates it and rolls back.
 
+## Preview session limits
+
+ActiveRecord holds a connection for each enrolled database on a session worker. File-backed SQLite, PostgreSQL, MySQL and MariaDB use savepoints. Private in-memory SQLite databases have separate schemas per connection, and other ActiveRecord adapters have no held-transaction verification in this binding. A configuration using either reports `previewSessions: false`. Size connection pools for active sessions and ordinary requests. SQLite holds its write lock for the session, and a competing session gets `store_busy` quickly. MySQL and MariaDB sessions keep the provider's Preview turn through rollback.
+
+The `mongo` driver and Mongoid hold one MongoDB transaction on a replica set or sharded cluster. Before images support rewind for document writes. If a step exceeds the 1,000-document capture limit, the session closes and rolls back. The store's `preview_timeout` (50 seconds by default) bounds the held MongoDB transaction once it starts. The server's `transactionLifetimeLimitSeconds` also applies.
+
+Standalone MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore use guard mode. Reads can run in session steps, and a refused write undoes the step on any held SQL or MongoDB transactions. A custom rollback-capable store without held-session support disables the capability.
+
 ## MySQL Previews take turns
 
 On MySQL and MariaDB, the ActiveRecord provider lets one Preview run at a time in each process, and further Previews wait their turn. InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the same key and the first one rolls back, as every Preview does, InnoDB aborts all but one of the rest with a deadlock (error 1213), at any isolation level. Previews sent to different processes still run at the same time and can still hit it; the Preview then fails safely and nothing is written. Sends and observed sends never wait. See [verified databases](../../docs/bindings/databases.md).

@@ -10,6 +10,9 @@
     <Project Path="adapters/dotnet/Sendproof.OpenSearch/Sendproof.OpenSearch.csproj" />
     <Project Path="adapters/dotnet/Sendproof.CosmosDb/Sendproof.CosmosDb.csproj" />
     <Project Path="adapters/dotnet/Sendproof.Firestore/Sendproof.Firestore.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Journeys/Sendproof.Journeys.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Journeys.Generators/Sendproof.Journeys.Generators.csproj" />
+    <Project Path="adapters/dotnet/Sendproof.Journeys.Testing/Sendproof.Journeys.Testing.csproj" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples/StoreApi/StoreApi.csproj" />
@@ -19,5 +22,6 @@
     <Project Path="tests/Sendproof.AspNetCore.Tests/Sendproof.AspNetCore.Tests.csproj" />
     <Project Path="tests/Sendproof.EntityFrameworkCore.Tests/Sendproof.EntityFrameworkCore.Tests.csproj" />
     <Project Path="tests/Sendproof.DataStores.Tests/Sendproof.DataStores.Tests.csproj" />
+    <Project Path="tests/Sendproof.Journeys.Tests/Sendproof.Journeys.Tests.csproj" />
   </Folder>
 </Solution>

@@ -11,8 +11,9 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.routing import RequestRedirect
 
 from sendproof_core import Identity, limits, protocol
-from sendproof_core.marker import is_marked, is_previewable, marked_methods
+from sendproof_core.marker import is_marked, is_previewable, marked_methods, unavailable_info
 from sendproof_core.scope import enter_request, leave_request
+from sendproof_core.sessions import HEADER, HeldSession, SessionError, session_id
 from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_response
 from sendproof_core.workbench import Response, problem_response
 
@@ -131,25 +132,38 @@ class SendproofWsgi:
             query=environ.get("QUERY_STRING", ""), identity=identity, authorized=self._authorized(environ, identity),
             origin_ok=self._origin_ok(environ, headers), operations=bench.operations,
             default_openapi_url="/openapi.json", default_api_name=bench.app.name, unavailable=bench.unavailable,
+            read_body=lambda: self._hook(environ, lambda request: request.stream.read(4097)),
         )
 
     # ------------------------------------------------------------------ preview
     def _preview(self, environ: dict, headers: EnvironHeaders, path: str, started: float) -> Response:
         bench, engine = self.bench, self.bench.engine
         method = environ["REQUEST_METHOD"]
+        origin_ok = self._origin_ok(environ, headers)
         rejection = engine.check_preview_request(
-            method=method, path=path, get_header=headers.getlist, origin_ok=self._origin_ok(environ, headers)
+            method=method, path=path, get_header=headers.getlist, origin_ok=origin_ok,
         )
         if rejection is not None:
             return rejection
+        identity = self._identity(environ)
+        try:
+            with engine.use_session(session_id(headers.getlist(HEADER)), identity, environ.get("SCRIPT_NAME", ""), origin_ok) as held:
+                return self._dispatch_preview(environ, path, started, identity, held)
+        except SessionError as error:
+            return error.response
+
+    def _dispatch_preview(self, environ: dict, path: str, started: float, identity: Identity | None,
+                          held: HeldSession | None) -> Response:
+        bench, engine = self.bench, self.bench.engine
+        method = environ["REQUEST_METHOD"]
         target = path[len(protocol.PREVIEW_PREFIX):]
         view, failure = self._match(environ, target)
         if view is None:
             return problem_response(404 if failure in (404, None) else 405 if failure == 405 else 404,
                                     "The preview target was not found for this method.")
-        if not is_previewable(view) or method not in marked_methods(view):
+        read_step = held is not None and method == "GET"
+        if unavailable_info(view) is not None or (not read_step and (not is_previewable(view) or method not in marked_methods(view))):
             return problem_response(409, "This operation is unavailable for preview.")
-        identity = self._identity(environ)
         if not self._authorized(environ, identity):
             return problem_response(403 if identity else 401, "This preview is forbidden.")
 
@@ -157,7 +171,7 @@ class SendproofWsgi:
         inner_env["PATH_INFO"] = target
         inner_env.pop("HTTP_ACCEPT_ENCODING", None)
         inner_env["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
-        inner_env[PREVIEW_VIEW] = view
+        inner_env[PREVIEW_VIEW] = (view, read_step)
 
         def dispatch(scope: Any) -> Inner:
             captured: dict[str, Any] = {}
@@ -187,7 +201,7 @@ class SendproofWsgi:
                 raise unhandled
             return Inner(captured["status"], captured["headers"], b"".join(chunks))
 
-        return engine.preview(dispatch=dispatch, started=started, method=method, path=path)
+        return engine.preview(dispatch=dispatch, started=started, method=method, path=path, held=held)
 
     # ----------------------------------------------------------------- observed
     def _observed(self, environ: dict, headers: EnvironHeaders, started: float):

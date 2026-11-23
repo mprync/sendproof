@@ -210,7 +210,7 @@ Preview envelopes and traces gain a log level `"Db"` for commands to non-SQL sto
 | --- | --- | --- | --- |
 | `system` | yes | `db.system.name` | The store id, as in `dataStores`. OpenTelemetry names `dynamodb` `aws.dynamodb` and `cosmosdb` `azure.cosmosdb`; the other ids are the same in both |
 | `operation` | yes | `db.operation.name` | Command or action name: `find`, `INCR`, `PutItem` |
-| `target` | no | `db.collection.name` | Collection or table. For Redis, the first key argument |
+| `target` | no | `db.collection.name` | Collection or table. For Redis, the first key argument, found with the table's `firstKey` positions, for `Execute`-style raw commands as well as typed calls |
 | `namespace` | no | `db.namespace` | MongoDB database or Redis database number |
 | `statement` | no | `db.query.text` | Sanitized command text: see below |
 | `parameters` | no | `db.query.parameter.<key>` | `[{name, value}]` with string or null values, as for SQL |
@@ -256,7 +256,7 @@ Change records gain optional fields so one list holds rows, documents, items and
 - `via` is optional and says how the change was made when the operation alone hides it: `"upsert"` for a change made by an upsert (an `insert` when it created the document, an `update` when it matched one), and `"replace"` for a whole-document replacement. The UI labels these. Absent means an ordinary insert, update or delete.
 - `before` and `after` are whole documents, nested as stored. BSON types without a JSON equivalent use [MongoDB Extended JSON v2 relaxed form](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/) (`{"$oid": …}`, `{"$date": …}`).
 
-Only `preview`-mode stores produce change records in a Preview, because a blocked Preview returns no envelope. Observed Send may record changes for any store whose hook can see them.
+Only `preview`-mode stores produce change records in a Preview, because a blocked Preview returns no envelope. Observed Send may record changes for any store whose hook can see them: MongoDB does, in either mode (see [Capturing changes in an observed Send](#capturing-changes-in-an-observed-send)).
 
 ### Secret fields
 
@@ -285,6 +285,16 @@ The binding computes changes after the handler, before `abortTransaction`:
 1. Collect candidate `_id` values: the `documents` of each `insert`, the `upserted` ids of each reply, the returned document of each `findAndModify`, and for each `update` and `delete` the ids its filter matches both in the transaction and in the snapshot read at the transaction's start time (`readConcern: { level: "snapshot", atClusterTime: <start operationTime> }`).
 2. For each candidate, read the document at the start time (`before`) and inside the transaction (`after`). A driver that doesn't expose the start time may read `before` from the committed view with read concern `majority`; nothing the Preview wrote is committed, so the only difference is a concurrent commit by another request.
 3. Emit a change for each candidate whose two reads differ: `insert` when `before` is absent, `delete` when `after` is absent, `update` otherwise. Stop at the change cap and set `changesTruncated`.
+
+### Capturing changes in an observed Send
+
+An observed Send commits its writes, so there is no transaction to read from and no start time to read at. The binding still records `store: "mongodb"` changes in the trace, in the same shape as a Preview's (`operation`, `table`, `namespace`, `key`, `before`, `after`, `via`, secret fields redacted), by reading around each write instead:
+
+1. **Before the write is sent**, from the command monitor: collect the candidates as for a Preview (the `documents` of an `insert`, the filters of an `update`, `delete`, `findAndModify` and `bulkWrite`), then read the documents they name or match from the primary with read concern `local`. The first image read of a document in the Send is its `before`; a document that wasn't there has none. An `insert` reads its ids too, so one that fails on a duplicate `_id` changes nothing and is not reported.
+2. **From the replies**: add the `upserted` ids and the returned document of each `findAndModify`.
+3. **After the handler**, before the trace is stored: read each candidate again (`after`) and emit a change when the two images differ, with the same `insert`, `update`, `delete` and `via` rules as a Preview. A document written several times reports one net change, and one created and deleted in the same Send reports none.
+
+It needs no transaction, so it works on a standalone server too. Writes made after the handler returns, and documents beyond the 1,000-candidate cap, aren't reported; a capture that stops at the cap, or whose reads fail or run past ten seconds, sets `changesTruncated`. It covers the same clients the hook covers.
 
 ### Limits
 

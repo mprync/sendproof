@@ -32,16 +32,30 @@ internal static class ObservedSend
         request.Invoked = true;
         var services = context.RequestServices;
         var logger = services.GetRequiredService<ILogger<ObservedRequest>>();
-        IPreviewObservation? observation = null;
+        // The SQL provider's observation and each data store's: their changes share the trace.
+        var observations = new List<IPreviewObservation>();
         var observing = false;
         try
         {
             if (await IsWorkbenchAuthorizedAsync(context, options, owner))
             {
                 var provider = PreviewEndpointPolicy.GetProvider(context);
-                observation = provider?.BeginObservation(context);
+                var stores = PreviewEndpointPolicy.GetDataStores(context);
+                if (provider?.BeginObservation(context) is { } sql)
+                {
+                    observations.Add(sql);
+                }
+
+                foreach (var dataStore in stores)
+                {
+                    if (dataStore.BeginObservation(context) is { } observed)
+                    {
+                        observations.Add(observed);
+                    }
+                }
+
                 // A host with only data stores (no SQL provider) is observed too: its Db entries still trace.
-                observing = provider is not null || PreviewEndpointPolicy.GetDataStores(context).Count > 0;
+                observing = provider is not null || stores.Count > 0;
             }
         }
         catch (Exception error) when (error is not OutOfMemoryException)
@@ -52,6 +66,7 @@ internal static class ObservedSend
 
         if (!observing)
         {
+            Release(observations, logger);
             await execute(context);
             return;
         }
@@ -92,10 +107,29 @@ internal static class ObservedSend
                 if (completed)
                 {
                     var serializeStarted = Stopwatch.GetTimestamp();
-                    var (changes, truncated) = CaptureLimits.SnapshotChanges([.. observation?.Changes ?? [], .. capture.Changes ?? []]);
+                    var observed = new List<PreviewChange>();
+                    var observedTruncated = false;
+                    foreach (var observation in observations)
+                    {
+                        try
+                        {
+                            await observation.CompleteAsync(context.RequestAborted);
+                        }
+                        catch (Exception error) when (error is not OutOfMemoryException and not OperationCanceledException)
+                        {
+                            // A store's after images couldn't be read: what it did capture is partial, and the trace says so.
+                            observedTruncated = true;
+                            logger.LogWarning(error, "Sendproof could not complete an observed send's change capture.");
+                        }
+
+                        observed.AddRange(observation.Changes);
+                        observedTruncated |= observation.ChangesTruncated;
+                    }
+
+                    var (changes, truncated) = CaptureLimits.SnapshotChanges([.. observed, .. capture.Changes ?? []]);
                     finishedTiming = recorder.Timing(clock, Stopwatch.GetElapsedTime(serializeStarted).TotalMilliseconds);
                     reservation.Result.TrySetResult(new ObservedTrace(changes, capture.Effects, capture.Logs, finishedTiming,
-                        truncated || observation?.ChangesTruncated == true || capture.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated));
+                        truncated || observedTruncated || capture.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated));
                 }
             }
             catch (Exception error) when (error is not OutOfMemoryException)
@@ -111,14 +145,22 @@ internal static class ObservedSend
                     store.Discard(reservation);
                 }
 
-                try
-                {
-                    observation?.Dispose();
-                }
-                catch (Exception error) when (error is not OutOfMemoryException)
-                {
-                    logger.LogWarning(error, "Sendproof could not release the send observation.");
-                }
+                Release(observations, logger);
+            }
+        }
+    }
+
+    private static void Release(List<IPreviewObservation> observations, ILogger logger)
+    {
+        foreach (var observation in observations)
+        {
+            try
+            {
+                observation.Dispose();
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                logger.LogWarning(error, "Sendproof could not release the send observation.");
             }
         }
     }

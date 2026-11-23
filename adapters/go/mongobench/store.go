@@ -118,10 +118,10 @@ type Store struct {
 	reads   map[string]bool
 	timeout time.Duration
 
-	mu        sync.Mutex
-	client    *mongo.Client
-	detected  *detection
-	pending   map[int64]*pendingCommand
+	mu       sync.Mutex
+	client   *mongo.Client
+	detected *detection
+	pending  map[int64]*pendingCommand
 	// monitored records that the monitor saw the detection hello, which is sent
 	// through the attached client: proof that this client, not just some client,
 	// was created with ClientOptions.
@@ -245,16 +245,20 @@ type preview struct {
 	// base carries the Preview, so timers can record faults on it.
 	base context.Context
 
-	mu       sync.Mutex
-	session  *mongo.Session
-	lsid     string
-	used     bool // a write carried the session to the server
+	mu      sync.Mutex
+	session *mongo.Session
+	lsid    string
+	used    bool // a write carried the session to the server
 	// sent is set once any command carried the session towards the server: from
 	// then on the server may hold the transaction, and its locks, until an abort
 	// reaches it.
-	sent     bool
-	finished bool
-	timer    *time.Timer
+	sent       bool
+	finished   bool
+	timer      *time.Timer
+	endedAck   chan struct{}
+	aborted    bool
+	held       *heldDocuments
+	heldFailed bool
 	// inflight is held for reading by every guarded call that carries the session
 	// (see guardCall) and for writing by end, so the abort waits for calls already
 	// past the ended check and none reaches the server after it.
@@ -285,8 +289,29 @@ type filter struct {
 // BeginPreview detects the mode and, in preview mode, starts the Preview's session
 // and transaction with read concern snapshot and write concern majority.
 func (s *Store) BeginPreview(ctx context.Context) (sendproof.StorePreview, error) {
+	p, err := s.begin(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// BeginHeld creates the driver session once, keeping it until close or the
+// transaction lifetime limit. Standalone servers remain guarded.
+func (s *Store) BeginHeld(ctx context.Context) (sendproof.HeldDataStore, error) {
+	p, err := s.begin(ctx, true)
+	if err != nil || p.session == nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) begin(ctx context.Context, held bool) (*preview, error) {
 	found := s.detect(ctx)
-	p := &preview{store: s, mode: found.mode, base: ctx, candidates: map[string]candidate{}}
+	if held && found.reason == UnreachableReason {
+		return nil, sendproof.ErrSessionFailed
+	}
+	p := &preview{store: s, mode: found.mode, base: ctx, candidates: map[string]candidate{}, endedAck: make(chan struct{})}
 	if found.mode != sendproof.ModePreview {
 		return p, nil
 	}
@@ -311,12 +336,19 @@ func (s *Store) BeginPreview(ctx context.Context) (sendproof.StorePreview, error
 		return nil, errors.New("mongobench: the driver did not expose the Preview session id")
 	}
 	p.session, p.lsid = session, lsid
+	if held {
+		p.held = &heldDocuments{}
+	}
 	// A handler still running at the limit loses its transaction: later commands
 	// fail, nothing commits, and the Preview answers 500 when it ends.
+	p.mu.Lock()
 	p.timer = time.AfterFunc(s.timeout, func() {
-		_ = sendproof.RefusePreview(p.base, fmt.Sprintf("The Preview ran longer than %s, so its MongoDB transaction was aborted.", s.timeout))
+		if !held {
+			_ = sendproof.RefusePreview(p.base, fmt.Sprintf("The Preview ran longer than %s, so its MongoDB transaction was aborted.", s.timeout))
+		}
 		p.end()
 	})
+	p.mu.Unlock()
 	return p, nil
 }
 
@@ -349,11 +381,12 @@ type abortKey struct{}
 // the server never answered the abort (the connection dropped), end returns false
 // at once, and the Preview answers 500, while the session is killed in the
 // background.
-func (p *preview) end() bool {
+func (p *preview) end() (acknowledgedResult bool) {
 	p.mu.Lock()
 	if p.finished {
 		p.mu.Unlock()
-		return true
+		<-p.endedAck
+		return p.aborted
 	}
 	p.finished = true
 	session := p.session
@@ -361,6 +394,10 @@ func (p *preview) end() bool {
 		p.timer.Stop()
 	}
 	p.mu.Unlock()
+	defer func() {
+		p.aborted = acknowledgedResult
+		close(p.endedAck)
+	}()
 	if session == nil {
 		return true
 	}
@@ -368,7 +405,8 @@ func (p *preview) end() bool {
 	p.inflight.Lock()
 	defer p.inflight.Unlock()
 	acknowledged := &atomic.Bool{}
-	ctx := internal(context.Background())
+	ctx, cancel := context.WithTimeout(internal(context.Background()), killTryLimit)
+	defer cancel()
 	_ = session.AbortTransaction(context.WithValue(ctx, abortKey{}, acknowledged))
 	if hook := windowHooks.afterAbort; hook != nil {
 		hook()
@@ -452,7 +490,9 @@ func serverAnswered(err error) bool {
 // Close releases the session. It is always called. A Preview dropped before Finish
 // whose abort is lost still has its session killed in the background.
 func (p *preview) Close() error {
-	p.end()
+	if !p.end() && p.held != nil {
+		return errors.New("mongobench: MongoDB didn't acknowledge the abort of the Preview session")
+	}
 	return nil
 }
 

@@ -17,7 +17,7 @@ export const Item = new EntitySchema({
  * PostgreSQL and MySQL and passes its URL in `BENCH_DATABASE_URL`; the fixture creates its own table.
  */
 const connections = {
-  sqlite: () => ({ type: 'better-sqlite3', database: ':memory:' }),
+  sqlite: (_url, env) => ({ type: 'better-sqlite3', database: env.BENCH_SQLITE_PATH ?? ':memory:' }),
   postgresql: url => ({ type: 'postgres', url }),
   mysql: url => ({ type: 'mysql', url }),
 };
@@ -30,7 +30,7 @@ export async function createTypeOrmStore(env = process.env) {
   if (!Object.hasOwn(connections, dialect)) throw new Error(`The TypeORM fixture does not support BENCH_DATABASE=${dialect}.`);
   const url = env.BENCH_DATABASE_URL;
   if (dialect !== 'sqlite' && !url) throw new Error('BENCH_DATABASE_URL is required for ' + dialect + '.');
-  const source = await new DataSource({ ...connections[dialect](url), entities: [Item], synchronize: true }).initialize();
+  const source = await new DataSource({ ...connections[dialect](url, env), entities: [Item], synchronize: true }).initialize();
   if (dialect === 'mysql') await source.query(commitProbeProcedure);
   const provider = new TypeOrmPreview(source);
   return () => ({

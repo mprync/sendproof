@@ -19,6 +19,10 @@ public sealed class ServiceFactAttribute : FactAttribute
     internal static string MySqlRoot { get; } =
         $"server={Environment.GetEnvironmentVariable("BENCH_MYSQL_SERVER") ?? "127.0.0.1"};port={Environment.GetEnvironmentVariable("BENCH_MYSQL_PORT") ?? "53306"};user=root;password=bench_local;SslMode=Disabled;AllowPublicKeyRetrieval=True";
 
+    /// <summary>The MariaDB root connection string of the compose service, reached through the same MySQL driver.</summary>
+    internal static string MariaDbRoot { get; } =
+        $"server={Environment.GetEnvironmentVariable("BENCH_MARIADB_SERVER") ?? "127.0.0.1"};port={Environment.GetEnvironmentVariable("BENCH_MARIADB_PORT") ?? "53307"};user=root;password=bench_local;SslMode=Disabled;AllowPublicKeyRetrieval=True";
+
     /// <summary>The PostgreSQL connection string of the compose service, on its <c>postgres</c> database.</summary>
     internal static string PostgresRoot { get; } =
         $"Host={Environment.GetEnvironmentVariable("BENCH_POSTGRES_SERVER") ?? "127.0.0.1"};Port=55432;Username=bench;Password=bench_local;Timeout=5";
@@ -52,6 +56,13 @@ public sealed class ServiceFactAttribute : FactAttribute
                 case "mysql":
                     using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
                     using (var db = new DbContext(new DbContextOptionsBuilder().UseMySQL(MySqlRoot).Options))
+                    {
+                        db.Database.ExecuteSqlRaw("SELECT 1");
+                    }
+
+                    return null;
+                case "mariadb":
+                    using (var db = new DbContext(new DbContextOptionsBuilder().UseMySQL(MariaDbRoot).Options))
                     {
                         db.Database.ExecuteSqlRaw("SELECT 1");
                     }

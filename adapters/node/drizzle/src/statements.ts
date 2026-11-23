@@ -2,8 +2,8 @@ import { performance } from 'node:perf_hooks';
 import { currentCapture, refusedStatement, rollsBackTransaction } from '@sendproof/core';
 import { is, Placeholder } from 'drizzle-orm';
 import type { DrizzleDialect } from './metadata.js';
-import { endedMessage, isInternal, parameterNames } from './scope.js';
-import type { Scope } from './scope.js';
+import { currentScope, endedMessage, isInternal, parameterNames } from './scope.js';
+import type { Outcome, Scope } from './scope.js';
 
 /** The parts of a Drizzle session this module relies on. They are stable across 0.45 drivers. */
 export interface SessionLike {
@@ -58,7 +58,7 @@ function wrapPrepared(prepared: Record<string, unknown>, query: CompiledQuery, s
         try {
           return await (method as PreparedMethod).apply(prepared, args);
         } catch (error) {
-          if (outcome && rollsBackTransaction(error, dialect)) outcome.broken = true;
+          if (outcome) noteError(outcome, dialect, error);
           throw error;
         }
       }
@@ -99,16 +99,21 @@ function wrapPrepared(prepared: Record<string, unknown>, query: CompiledQuery, s
  * deadlock or lock wait timeout a statement would run with autocommit and commit for real. The handler still gets the
  * database's own error for the statement that hit it.
  */
-async function watch(outcome: { broken: boolean }, dialect: DrizzleDialect, send: () => Promise<unknown>): Promise<unknown> {
+async function watch(outcome: Outcome, dialect: DrizzleDialect, send: () => Promise<unknown>): Promise<unknown> {
   if (outcome.broken) {
     throw new Error('The database rolled the Preview transaction back after a deadlock or lock wait timeout, so no further statement runs in this Preview.');
   }
   try {
     return await send();
   } catch (error) {
-    if (rollsBackTransaction(error, dialect)) outcome.broken = true;
+    noteError(outcome, dialect, error);
     throw error;
   }
+}
+
+function noteError(outcome: Outcome, dialect: DrizzleDialect, error: unknown): void {
+  if (rollsBackTransaction(error, dialect)) outcome.broken = true;
+  outcome.onError?.(error);
 }
 
 /** Refuse a statement that would escape the transaction its session belongs to. */
@@ -116,12 +121,16 @@ function guard(text: string, session: object, dialect: DrizzleDialect): void {
   const scope = sessionScopes.get(session);
   if (!scope) return;
   if (!scope.open) throw new Error(endedMessage);
+  if (scope.held) {
+    const caller = currentScope();
+    if (!caller?.open || !caller.step || caller.step !== scope.held.active) throw new Error(endedMessage);
+  }
   if (!scope.preview) return;
   // The shared classifier also covers MySQL's implicit commits, CALL and executable comments.
   const statement = refusedStatement(text, dialect, scope.safeProcedures);
   if (statement === undefined) return;
   // The Preview fails even if the operation catches this error.
-  scope.refused = true;
+  if (scope.outcome) scope.outcome.refused = true;
   throw new Error('Preview owns the transaction and must roll it back, so "' + statement.slice(0, 40) +
     '" cannot run during Preview. Use client.transaction() for a nested unit of work.');
 }

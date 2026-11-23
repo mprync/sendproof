@@ -8,14 +8,17 @@
  * model metadata from `sendproof-prisma-generator` (or a `Prisma.dmmf` document) is supplied.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import {
-  controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, previewSavepoint, previewSavepointHeld,
-  rollsBackTransaction, safeProcedureNames, setPreviewSavepoint, type PreviewProvider,
+  controlsTransaction, currentCapture, endsTransaction, isRollback, mayWrite, PreviewSessionEndedError,
+  PreviewStoreBusyError, previewSavepointHeld, rollsBackTransaction, safeProcedureNames, setPreviewSavepoint,
+  type HeldPreview, type PreviewProvider,
 } from '@sendproof/core';
 import type { SqlDriverAdapter, SqlDriverAdapterFactory, SqlQuery, Transaction } from '@prisma/driver-adapter-utils';
 import { ChangeCapture, isWrite, type ModelOperation } from './capture.js';
+import { checkSavepoint, isStoreBusy, ownStatement, sessionError, stepSavepoint, takeSQLiteWriteLock } from './held-statements.js';
 import { normalizeModels, type PrismaModels } from './metadata.js';
 
 export { fromDmmf, normalizeModels, type DmmfDocument, type DmmfModel, type PrismaModelKeys,
@@ -73,6 +76,11 @@ interface Probe {
   escaped?: string;
   /** The Preview's driver transaction, undecorated, for the provider's own savepoint statements. */
   transaction?: Transaction;
+  held?: {
+    finish: () => void;
+    onError: (error: unknown) => void;
+    expired?: boolean;
+  };
 }
 
 interface Scope {
@@ -95,6 +103,7 @@ function decorate<T extends object>(target: T, methods: Partial<Record<keyof T, 
 export class PrismaPreview<Client = unknown> implements PreviewProvider {
   /** Pass this factory to `new PrismaClient({ adapter })`. */
   readonly adapter: SqlDriverAdapterFactory;
+  readonly openSession?: () => Promise<HeldPreview>;
   /** The SQL provider id discovery reports as `database.system`: the adapter's provider, such as `postgresql`. */
   get system(): string {
     return this.#provider;
@@ -112,7 +121,9 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   readonly #transactionOptions: TransactionOptions | undefined;
   readonly #capture: ChangeCapture | undefined;
   #queue: Promise<void> = Promise.resolve();
+  #pendingTurns = 0;
   #invalid = false;
+  #heldSQLite?: Probe;
   /**
    * MySQL previews take turns. InnoDB checks a new key for duplicates under a shared lock: when three or more
    * transactions insert the same key and the first rolls back, as every Preview does, the waiters each hold that lock
@@ -120,7 +131,6 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
    * first insert commits and the others get a duplicate-key error instead.
    */
   readonly #serialPreviews: boolean;
-  #previewQueue: Promise<void> = Promise.resolve();
 
   constructor(factory: SqlDriverAdapterFactory, options: PrismaPreviewOptions = {}) {
     this.#provider = factory.provider;
@@ -128,6 +138,9 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     this.#singleConnection = factory.provider === 'sqlite';
     this.#serialPreviews = factory.provider === 'mysql';
     this.#transactionOptions = options.transactionOptions;
+    if (factory.provider === 'sqlite' || factory.provider === 'mysql' || factory.provider === 'postgres') {
+      this.openSession = () => this.#openSession();
+    }
     const maxRows = options.maxTrackedRows ?? 1000;
     if (!Number.isInteger(maxRows) || maxRows < 1) throw new RangeError('maxTrackedRows must be a positive integer.');
     this.#capture = options.models && new ChangeCapture(normalizeModels(options.models), {
@@ -246,6 +259,125 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     }));
   }
 
+  /** Hold one interactive transaction open while each request supplies its own capture and client scope. */
+  async #openSession(): Promise<HeldPreview> {
+    if (this.#scopes.getStore()) throw new Error('Nested Prisma previews are unavailable.');
+    if (!this.#client || this.#invalid) throw new Error('The Prisma preview client is unavailable.');
+    const label = this.#singleConnection ? 'SQLite' : this.#serialPreviews ? 'MySQL' : 'PostgreSQL';
+    const exclusive = this.#singleConnection || this.#serialPreviews;
+    if (exclusive && this.#pendingTurns > 0) throw new PreviewStoreBusyError(label);
+
+    const client = this.#client as ClientWithTransaction<unknown>;
+    const ready = Promise.withResolvers<HeldPreview>();
+    const finish = Promise.withResolvers<void>();
+    const rollback = new Error('Sendproof requests rollback.');
+    let unavailable: { error: unknown } | undefined;
+    let socket: EventEmitter | undefined;
+    const disconnected = (error: Error) => { unavailable ??= { error: sessionError(error) }; };
+    const noteExpiry = (error: unknown) => {
+      const failure = sessionError(error);
+      if (failure instanceof PreviewSessionEndedError) unavailable ??= { error: failure };
+      return failure;
+    };
+    const held: NonNullable<Probe['held']> = { finish: finish.resolve, onError: noteExpiry };
+    const probe: Probe = { started: false, settled: false, rolledBack: false, committed: false, held };
+
+    const start = () => this.#probe.run(probe, () => client.$transaction(async transaction => {
+      const own = async (sql: string) => {
+        try { await this.#ownStatement(probe, ownSql => ownSql(sql)); }
+        catch (error) { throw noteExpiry(error); }
+      };
+      const mark = () => own('SAVEPOINT ' + checkSavepoint);
+      const prove = () => own('RELEASE SAVEPOINT ' + checkSavepoint);
+      const assertHeld = () => {
+        if (unavailable) throw unavailable.error;
+        if (held.expired) throw new PreviewSessionEndedError('The Prisma Preview transaction expired.');
+        if (probe.settled || probe.escaped || probe.committed) throw new Error('The Prisma Preview transaction could not be confirmed.');
+      };
+      try {
+        const driverTransaction = probe.transaction;
+        if (!driverTransaction) throw new Error('The Prisma transaction was not started through the provider adapter.');
+        const driver = (driverTransaction as { client?: unknown }).client;
+        if (driver instanceof EventEmitter && 'connectionParameters' in driver) {
+          socket = driver;
+          socket.on('error', disconnected);
+        }
+        if (this.#singleConnection) {
+          this.#heldSQLite = probe;
+          await takeSQLiteWriteLock(driverTransaction);
+        }
+        await mark();
+        ready.resolve({
+          async checkpoint(step) {
+            assertHeld();
+            await prove();
+            await own('SAVEPOINT ' + stepSavepoint(step));
+            await mark();
+          },
+          run: async (_capture, dispatch) => {
+            assertHeld();
+            try {
+              return await this.#probe.run(probe, () => this.#withClient(transaction, dispatch));
+            } catch (error) {
+              throw noteExpiry(error);
+            }
+          },
+          async verify() {
+            assertHeld();
+            // RELEASE proves the marker still exists and PostgreSQL has not marked the transaction aborted.
+            await prove();
+            await mark();
+          },
+          async rewind(step) {
+            assertHeld();
+            await own('ROLLBACK TO SAVEPOINT ' + stepSavepoint(step));
+            await own('RELEASE SAVEPOINT ' + stepSavepoint(step));
+            await mark();
+          },
+          async close() {
+            finish.resolve();
+            await finished;
+          },
+        });
+        await finish.promise;
+        throw rollback;
+      } finally {
+        probe.settled = true;
+      }
+    }, {
+      maxWait: Math.min(this.#transactionOptions?.maxWait ?? 1500, 1500),
+      // Prisma's default is five seconds. The core owns the normal idle and lifetime limits.
+      timeout: Math.max(this.#transactionOptions?.timeout ?? 0, 31 * 60 * 1000),
+    })).then(() => {
+      this.#invalid = true;
+      throw new Error('The Prisma Preview transaction returned without rolling back.');
+    }).catch(error => {
+      probe.settled = true;
+      // PostgreSQL explicitly ended the pinned transaction. The rest of its pool is still usable.
+      if (unavailable?.error instanceof PreviewSessionEndedError && !held.expired) {
+        ready.reject(unavailable.error);
+        return;
+      }
+      if (probe.started && (!probe.rolledBack || probe.committed)) {
+        this.#invalid = true;
+        throw new Error('The Prisma driver did not acknowledge rollback.', { cause: error });
+      }
+      if (error === rollback && probe.rolledBack) return;
+      if (isStoreBusy(error)) throw new PreviewStoreBusyError(label);
+      throw sessionError(error);
+    }).finally(() => {
+      if (this.#heldSQLite === probe) this.#heldSQLite = undefined;
+      socket?.off('error', disconnected);
+    });
+    const finished = (exclusive ? this.#turn(start) : start()).catch(error => {
+      unavailable ??= { error };
+      ready.reject(unavailable.error);
+      throw unavailable.error;
+    });
+    void finished.catch(() => {});
+    return ready.promise;
+  }
+
   /**
    * Runs the provider's own savepoint statements on the Preview's driver transaction itself, out of the capture and past
    * the guard that refuses a handler's statements naming that savepoint. MySQL refuses `SAVEPOINT` in the prepared
@@ -254,25 +386,12 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   async #ownStatement<T>(probe: Probe, use: (run: (sql: string) => Promise<unknown>) => Promise<T>): Promise<T> {
     const transaction = probe.transaction;
     if (!transaction) throw new Error('The Prisma preview transaction was not started through the provider adapter.');
-    return use(async sql => {
-      if (sql.startsWith('SAVEPOINT ') && transaction.createSavepoint) return transaction.createSavepoint(previewSavepoint);
-      if (sql.startsWith('ROLLBACK TO SAVEPOINT ') && transaction.rollbackToSavepoint) return transaction.rollbackToSavepoint(previewSavepoint);
-      return transaction.executeRaw({ sql, args: [], argTypes: [] });
-    });
+    return use(sql => ownStatement(transaction, sql));
   }
 
   /** Run a MySQL Preview once every earlier one has settled; other databases run previews at once. */
   async #previewTurn<T>(operation: () => Promise<T>): Promise<T> {
-    if (!this.#serialPreviews) return operation();
-    const previous = this.#previewQueue;
-    let release!: () => void;
-    this.#previewQueue = new Promise(resolve => { release = resolve; });
-    try {
-      await previous;
-      return await operation();
-    } finally {
-      release();
-    }
+    return this.#serialPreviews ? this.#turn(operation) : operation();
   }
 
   async #intercept({ model, operation, args, query }: ModelOperation): Promise<unknown> {
@@ -286,15 +405,23 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
   async #lease<T>(operation: () => Promise<T>): Promise<T> {
     if (!this.#client || this.#invalid) throw new Error('The Prisma preview client is unavailable.');
     if (!this.#singleConnection) return operation();
+    return this.#turn(async () => {
+      if (this.#invalid) throw new Error('The Prisma preview client requires recovery after a failed rollback.');
+      return operation();
+    });
+  }
+
+  async #turn<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.#queue;
-    let release!: () => void;
-    this.#queue = new Promise(resolve => { release = resolve; });
+    const turn = Promise.withResolvers<void>();
+    this.#queue = turn.promise;
+    this.#pendingTurns++;
     try {
       await previous;
-      if (this.#invalid) throw new Error('The Prisma preview client requires recovery after a failed rollback.');
       return await operation();
     } finally {
-      release();
+      this.#pendingTurns--;
+      turn.resolve();
     }
   }
 
@@ -314,8 +441,10 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
         this.#guard('connection', script);
         return connection.executeScript(script);
       },
-      startTransaction: async (level?: Parameters<SqlDriverAdapter['startTransaction']>[0]) =>
-        this.#instrumentTransaction(await connection.startTransaction(level)),
+      startTransaction: async (level?: Parameters<SqlDriverAdapter['startTransaction']>[0]) => {
+        if (this.#heldSQLite) throw new Error('Use PrismaPreview.run() while a SQLite Preview session holds the connection.');
+        return this.#instrumentTransaction(await connection.startTransaction(level));
+      },
     });
   }
 
@@ -328,25 +457,41 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
     let wireRollback = false;
     return decorate(transaction, {
       ...this.#queries(transaction, 'preview', sql => {
-        if (probe.settled && isRollback(sql)) wireRollback = true;
-      }),
+        if ((probe.settled || probe.held?.expired) && isRollback(sql)) wireRollback = true;
+      }, probe.held ? probe : undefined),
       commit: async () => {
         probe.committed = true;
         await transaction.commit();
       },
       rollback: async () => {
-        await transaction.rollback();
-        // Some adapters execute a physical ROLLBACK in their method. Others accept the raw
-        // statement from Prisma and then use rollback() to release the driver resources.
-        probe.rolledBack = transaction.options.usePhantomQuery || wireRollback;
+        if (probe.held && !probe.settled) probe.held.expired = true;
+        try {
+          await transaction.rollback();
+          // Some adapters execute a physical ROLLBACK in their method. Others accept the raw
+          // statement from Prisma and then use rollback() to release the driver resources.
+          probe.rolledBack = transaction.options.usePhantomQuery || wireRollback;
+        } finally {
+          if (probe.held?.expired) probe.held.finish();
+        }
       },
     });
   }
 
   /** Record executed SQL and prevent statements that would escape the Preview transaction. */
-  #queries(target: SqlDriverAdapter | Transaction, kind: ConnectionKind, onExecute?: (sql: string) => void) {
+  #queries(target: SqlDriverAdapter | Transaction, kind: ConnectionKind,
+    onExecute?: (sql: string) => void, heldProbe?: Probe) {
     const run = <R>(execute: (query: SqlQuery) => Promise<R>, counts: boolean) => async (query: SqlQuery): Promise<R> => {
-      this.#guard(kind, query.sql);
+      const scopeProbe = this.#probe.getStore();
+      const scope = this.#scopes.getStore();
+      // Prisma's transaction manager can send ROLLBACK from its timer even with no request running.
+      if (heldProbe?.held && heldProbe === scopeProbe && !scope && isRollback(query.sql)) {
+        if (!heldProbe.settled) heldProbe.held.expired = true;
+      } else {
+        if (heldProbe && (heldProbe !== scopeProbe || !scope?.open || heldProbe.settled || heldProbe.held?.expired)) {
+          throw new Error('The Prisma Preview request scope has ended.');
+        }
+        this.#guard(kind, query.sql);
+      }
       const recorder = this.#internal.getStore() ? undefined : currentCapture();
       const started = performance.now();
       let result: R;
@@ -356,6 +501,7 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
         // The handler still gets the database's error. After a deadlock the Preview transaction is gone, so every
         // later statement would run with autocommit: the guard now refuses them and the Preview fails.
         const probe = this.#probe.getStore();
+        probe?.held?.onError(error);
         if (kind === 'preview' && probe && !probe.escaped && rollsBackTransaction(error, this.#provider)) {
           probe.escaped = 'the database rolled the Preview transaction back after a deadlock or lock wait timeout.';
         }
@@ -383,6 +529,12 @@ export class PrismaPreview<Client = unknown> implements PreviewProvider {
 
   #guard(kind: ConnectionKind, sql: string): void {
     const probe = this.#probe.getStore();
+    if (kind === 'connection' && this.#heldSQLite) {
+      if (probe !== this.#heldSQLite || !this.#scopes.getStore()?.open || probe.settled || probe.held?.expired) {
+        throw new Error('Use PrismaPreview.run() while a SQLite Preview session holds the connection.');
+      }
+      kind = 'preview';
+    }
     if (!probe || probe.settled || kind === 'plain') return;
     if (probe.escaped) throw new Error('The Prisma preview was not contained: ' + probe.escaped);
     if (kind === 'preview') {

@@ -17,6 +17,21 @@ None of the batch-two stores (Cassandra, Elasticsearch, OpenSearch, Cosmos DB, F
 
 Send and observed Send are never blocked. Their writes commit as usual, and an observed Send traces every store command as a `Db` log entry.
 
+## Preview sessions
+
+Each session holds one transaction per rollback-capable store until it ends. A refused step rolls back its own changes. Rewind discards that step and every later step. For session timeouts and registration, see [Preview sessions and journeys](README.md#preview-sessions-and-journeys).
+
+| Store or provider | Session behavior |
+| --- | --- |
+| SQLite | `@sendproof/sqlite` and Drizzle's SQLite wrapper hold one connection. Knex, TypeORM and Prisma support their `better-sqlite3` integrations. Other work using the leased connection may wait. A competing session open reports `store_busy` quickly. |
+| PostgreSQL | Drizzle, Knex, TypeORM and Prisma pin their transaction. A server transaction timeout may end a session before the workbench's lifetime limit. |
+| MySQL and MariaDB | Drizzle, Knex, TypeORM and Prisma pin their transaction and hold the provider's Preview turn. A competing session open reports `store_busy`. |
+| SQL Server | Knex pins its transaction. With read-committed snapshot disabled, outside reads of rows changed by the session may wait on locks. |
+| MongoDB driver and Mongoose | Replica sets and sharded clusters hold one client transaction. Rewind uses before images from existing collections, bounded to 1,000 documents and 16 MiB per step and 64 MiB of retained undo images per session. MongoDB's `transactionLifetimeLimitSeconds` may end the transaction sooner than the workbench limit. |
+| Guard-mode stores | Includes standalone MongoDB. Reads run, writes are blocked and preceding writes in that step are undone across the held stores. |
+
+Discovery reports `previewSessions: false` for an adapter or driver without held transaction support, including a custom rollback provider without `openSession()`. Single-request Preview remains available through that provider.
+
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]

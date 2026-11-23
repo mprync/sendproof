@@ -4,11 +4,14 @@ import io.github.mprync.sendproof.core.Capabilities
 import io.github.mprync.sendproof.core.CaptureContext
 import io.github.mprync.sendproof.core.DataStore
 import io.github.mprync.sendproof.core.Json
+import io.github.mprync.sendproof.core.JourneyFiles
 import io.github.mprync.sendproof.core.LocalUrl
 import io.github.mprync.sendproof.core.ObservedExecution
 import io.github.mprync.sendproof.core.PreviewExecution
 import io.github.mprync.sendproof.core.PreviewOutcome
+import io.github.mprync.sendproof.core.PreviewSessions
 import io.github.mprync.sendproof.core.Protocol
+import io.github.mprync.sendproof.core.TraceOwner
 import io.github.mprync.sendproof.core.TraceStore
 import io.github.mprync.sendproof.core.WorkbenchAssets
 import io.github.mprync.sendproof.logback.LogbackCapture
@@ -25,8 +28,10 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.PipelineCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.auth.principal
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.uri
 import io.ktor.server.response.ApplicationSendPipeline
 import io.ktor.server.response.header
@@ -36,15 +41,19 @@ import io.ktor.server.routing.HttpMethodRouteSelector
 import io.ktor.server.routing.OpenApiRoutePathFormat
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingPipelineCall
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.getAllRoutes
 import io.ktor.server.routing.intercept
 import io.ktor.server.routing.path
+import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.routing.routingRoot
 import io.ktor.util.pipeline.PipelineContext
+import io.ktor.utils.io.readBuffer
 import java.util.UUID
+import kotlinx.io.readByteArray
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -81,6 +90,7 @@ public val Sendproof: ApplicationPlugin<SendproofConfig> = createApplicationPlug
             application.monitor.subscribe(ApplicationStopped) { logging.close() }
         }
         val runtime = SendproofRuntime(application, config)
+        application.monitor.subscribe(ApplicationStopped) { runtime.close() }
         application.intercept(ApplicationCallPipeline.Setup) { runtime.setup(this) }
         application.routing {
             // After authentication and authorization (the Plugins phase) and before the route's handler.
@@ -99,6 +109,10 @@ internal class SendproofRuntime(private val application: Application, private va
     private val log = LoggerFactory.getLogger(Sendproof::class.java)
     private val store = TraceStore(config.traceRetention, System::nanoTime)
     private val assets = WorkbenchAssets(SendproofRuntime::class.java.classLoader)
+    private val sessions = PreviewSessions()
+    private val journeys = config.journeys.snapshot()
+
+    fun close() = sessions.close()
 
     init {
         LocalUrl.validate(config.openApiUrl)
@@ -138,7 +152,11 @@ internal class SendproofRuntime(private val application: Application, private va
             call.request.httpMethod == HttpMethod.Head -> call.respondProblem(405, "A preview requires a response body.")
             !Protocol.isValidTarget(target) -> call.respondProblem(400, "The Sendproof preview target is invalid.")
             // Refused before the inner call runs any plugin, so a cross-site page cannot drive one through a preview.
-            !sameOrigin(call) -> call.respondProblem(403, "Cross-origin previews are refused.")
+            !sameOrigin(call) -> if (call.request.headers[PreviewSessions.HEADER] == null) {
+                call.respondProblem(403, "Cross-origin previews are refused.")
+            } else {
+                write(call, PreviewSessions.notFound().outcome())
+            }
             else -> preview(context, config.pathBase + target, started)
         }
         context.finish()
@@ -175,14 +193,14 @@ internal class SendproofRuntime(private val application: Application, private va
                 throw cancelled
             }
             // Rolling back and capturing store changes block on I/O, so they run off the request's event loop.
-            withContext(Dispatchers.IO) { execution.finish(inner.response.captured(), failure) }
+            withContext(NonCancellable + Dispatchers.IO) { execution.finish(inner.response.captured(), failure) }
         }
         write(call, outcome)
     }
 
     private suspend fun write(call: ApplicationCall, outcome: PreviewOutcome) {
         if (outcome.blocked()) {
-            // A guarded store refused a write: 409 problem+json, never a confirmation and without the handler's output.
+            // Session and store refusals already have a complete problem body.
             call.response.header("Cache-Control", "no-store")
             call.respondBytes(
                 outcome.problem(), ContentType.parse("application/problem+json; charset=UTF-8"), HttpStatusCode.fromValue(outcome.status()),
@@ -217,10 +235,21 @@ internal class SendproofRuntime(private val application: Application, private va
 
     private suspend fun previewGate(context: PipelineContext<Unit, PipelineCall>, route: Route, preview: PreviewState) {
         val call = context.call
+        val session = call.request.headers[PreviewSessions.HEADER]
+        val sessionRead = session != null && call.request.httpMethod == HttpMethod.Get
         val reject = when {
-            !route.isPreviewable() || preview.execution.hasInvoked() -> HttpStatusCode.Conflict
+            route.unavailable() != null || (!route.isPreviewable() && !sessionRead) || preview.execution.hasInvoked() ->
+                HttpStatusCode.Conflict
             !sameOrigin(call) || !config.access(call) -> HttpStatusCode.Forbidden
             else -> null
+        }
+        if (session != null) {
+            try {
+                preview.execution.join(sessions, session, sessionOwner(call))
+            } catch (_: PreviewSessions.Refusal) {
+                context.finish()
+                return
+            }
         }
         val provider = config.provider?.takeIf { it.isAvailable }
         // A Preview needs a SQL provider or at least one hooked data store, so a MongoDB-only or guard-only app can Preview.
@@ -283,6 +312,9 @@ internal class SendproofRuntime(private val application: Application, private va
             get("/signin.html") { asset(call, "index.html") }
             get("/_api/capabilities") { capabilities(call) }
             get("/_api/traces/{id}") { trace(call) }
+            post("/_api/sessions") { openSession(call) }
+            post("/_api/sessions/{id}/rewind") { changeSession(call, rewind = true) }
+            delete("/_api/sessions/{id}") { changeSession(call, rewind = false) }
             get("/{path...}") { asset(call, call.parameters.getAll("path").orEmpty().joinToString("/")) }
         }
     }
@@ -299,6 +331,10 @@ internal class SendproofRuntime(private val application: Application, private va
     private suspend fun asset(call: ApplicationCall, requested: String) {
         if (!config.access(call)) {
             return call.respond(HttpStatusCode.Forbidden)
+        }
+        if (JourneyFiles.matches(requested)) {
+            val document = journeys.find(requested, config.pathBase) ?: return call.respond(HttpStatusCode.NotFound)
+            return json(call, document.toString().toByteArray())
         }
         val asset = assets.find(requested.ifEmpty { "index.html" }).orElse(null) ?: return call.respond(HttpStatusCode.NotFound)
         call.response.header(HttpHeaders.CacheControl, "no-cache")
@@ -336,8 +372,53 @@ internal class SendproofRuntime(private val application: Application, private va
             database, config.identity(call),
             config.authProviders.map { Capabilities.AuthProvider(it.label(), it.kind(), it.url()?.let { url -> mount + url }) },
             operations, operations.isNotEmpty(), documents, stores, unavailable, Capabilities.Binding("kotlin", "Ktor"),
+            withContext(Dispatchers.IO) { PreviewSessions.supported(provider, config.dataStores) },
+            journeys.discover(mount),
         )
         json(call, Json.MAPPER.writeValueAsBytes(body))
+    }
+
+    private fun sessionOwner(call: ApplicationCall): TraceOwner? = PreviewSessions.owner(
+        config.traceOwner(call), call.principal<Any>() != null || config.identity(call) != null, config.pathBase,
+    )
+
+    private suspend fun openSession(call: ApplicationCall) {
+        if (!config.access(call) || !sameOrigin(call)) {
+            return call.respondProblem(403, "Preview session access was refused.")
+        }
+        val owner = sessionOwner(call)
+        try {
+            val opened = withContext(Dispatchers.IO) {
+                sessions.open(owner, config.provider?.takeIf { it.isAvailable }, config.dataStores)
+            }
+            json(call, Json.MAPPER.writeValueAsBytes(opened), HttpStatusCode.Created)
+        } catch (refused: PreviewSessions.Refusal) {
+            write(call, refused.outcome())
+        }
+    }
+
+    private suspend fun changeSession(call: ApplicationCall, rewind: Boolean) {
+        if (!config.access(call) || !sameOrigin(call)) {
+            return write(call, PreviewSessions.notFound().outcome())
+        }
+        val owner = sessionOwner(call)
+        try {
+            val step = if (rewind) {
+                val bytes = call.receiveChannel().readBuffer(1025L).readByteArray()
+                if (bytes.size > 1024) 0 else PreviewSessions.rewindStep(bytes)
+            } else {
+                0
+            }
+            withContext(Dispatchers.IO) {
+                sessions.enter(call.parameters["id"], owner).use { lease ->
+                    if (rewind) lease.rewind(step) else lease.end()
+                }
+            }
+            call.response.header(HttpHeaders.CacheControl, "no-store")
+            call.respond(HttpStatusCode.NoContent)
+        } catch (refused: PreviewSessions.Refusal) {
+            write(call, refused.outcome())
+        }
     }
 
     /** A store that can't describe itself is reported as guarded, never left out. */
@@ -399,9 +480,9 @@ internal class SendproofRuntime(private val application: Application, private va
         }
     }
 
-    private suspend fun json(call: ApplicationCall, bytes: ByteArray) {
+    private suspend fun json(call: ApplicationCall, bytes: ByteArray, status: HttpStatusCode = HttpStatusCode.OK) {
         call.response.header("Cache-Control", "no-store")
         call.response.header("X-Content-Type-Options", "nosniff")
-        call.respondBytes(bytes, ContentType.Application.Json, HttpStatusCode.OK)
+        call.respondBytes(bytes, ContentType.Application.Json, status)
     }
 }

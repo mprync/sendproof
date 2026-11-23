@@ -14,8 +14,9 @@ module Sendproof
       # @return [Array<String>] the procedures the host declared never commit (see {Provider#initialize})
       attr_reader :safe_procedures
 
-      def initialize(safe_procedures: [])
+      def initialize(safe_procedures: [], connections: nil)
         @safe_procedures = safe_procedures
+        @connections = connections
         @ended = {}.compare_by_identity
         @mutex = Mutex.new
         @changes = []
@@ -25,6 +26,8 @@ module Sendproof
         @tracked_writes = 0
         @previous = nil
       end
+
+      def holds?(connection) = @connections.nil? || @connections.include?(connection)
 
       # Records that the server itself ended the Preview transaction on +connection+ (a MySQL deadlock).
       def end_transaction(connection, reason)

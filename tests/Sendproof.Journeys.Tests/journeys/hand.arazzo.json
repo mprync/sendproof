@@ -1,0 +1,16 @@
+{
+  "arazzo": "1.1.0",
+  "info": { "title": "Hand-written journeys", "version": "1.0.0" },
+  "sourceDescriptions": [{ "name": "parcels", "url": "/openapi/v1.json", "type": "openapi" }],
+  "workflows": [{
+    "workflowId": "registerByHand",
+    "summary": "Register a parcel, written by hand",
+    "steps": [{
+      "stepId": "register",
+      "operationId": "ParcelsController.Register",
+      "requestBody": { "contentType": "application/json", "payload": { "label": "Green box" } },
+      "successCriteria": [{ "condition": "$statusCode == 201" }],
+      "outputs": { "parcelId": "$response.body#/id" }
+    }]
+  }]
+}

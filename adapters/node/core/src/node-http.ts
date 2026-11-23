@@ -16,6 +16,23 @@ interface CapturedResponse extends ServerResponse {
 
 type Completion = (error?: Error | null) => void;
 
+/** Read the small rewind payload when the host has no JSON middleware ahead of Sendproof. */
+export async function readSessionBody(req: IncomingMessage): Promise<unknown> {
+  if ('body' in req && req.body !== undefined) return req.body;
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    const buffer = Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 1024) {
+      req.resume();
+      return null;
+    }
+    chunks.push(buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString());
+}
+
 /** Execute an in-process Node request against a bounded, socket-free response. */
 export function captureResponse<Request extends CapturedRequest, Response extends CapturedResponse>(
   router: (request: Request, response: Response, done: (error?: unknown) => void) => void,

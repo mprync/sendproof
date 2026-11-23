@@ -23,6 +23,7 @@ from sendproof_core import (
 )
 from sendproof_core.provider import run_in_thread
 from sendproof_core.scope import current_scope
+from sendproof_core.sessions import HeldPart, StepFailed, StoreEnded, savepoint
 
 from . import changes as change_capture
 from .connection import SAVEPOINT, Hold, ensure_supported
@@ -61,6 +62,7 @@ class _State:
         self.changes: list[PreviewChange] = []
         self.changes_truncated = False
         self.finished = False
+        self.held = False
         self.unsafe: str | None = None
         self.lock = threading.RLock()
 
@@ -74,28 +76,25 @@ class _State:
     def connect(self, engine: Engine, original: Any) -> Any:
         """Answer ``engine.raw_connection()`` from the shared, rollback-only connection."""
         with self.lock:
-            hold = self.holds.get(engine)
-            if hold is None:
-                # Wait for a MySQL preview's turn before checking out a connection (see ``turns``).
-                release_turn = take_turn(engine)
-                try:
-                    fairy = original()
-                except BaseException:
-                    if release_turn is not None:
-                        release_turn()
-                    raise
-                try:
-                    hold = self.holds[engine] = Hold(engine, fairy)
-                except BaseException:
-                    try:
-                        fairy.invalidate()
-                        fairy.close()
-                    finally:
-                        if release_turn is not None:
-                            release_turn()
-                    raise
-                hold.release_turn = release_turn
-        return hold.connect()
+            if engine not in self.holds:
+                self.open_hold(engine, original)
+            return self.holds[engine].connect()
+
+    def open_hold(self, engine: Engine, original: Any, *, held: bool = False) -> None:
+        release_turn = take_turn(engine, nowait=held)
+        try:
+            fairy = original()
+            try:
+                hold = self.holds[engine] = Hold(engine, fairy, held=held)
+            except BaseException:
+                fairy.invalidate()
+                fairy.close()
+                raise
+        except BaseException:
+            if release_turn is not None:
+                release_turn()
+            raise
+        hold.release_turn = release_turn
 
 
 class _Instrumentation:
@@ -135,12 +134,16 @@ class _Instrumentation:
                 return True
 
         reason = server_ended_transaction(context.original_exception, self.engine.dialect.name, rollback_on_timeout)
+        if state.held and context.is_disconnect:
+            reason = "The SQL server closed the held Preview connection."
         if reason is not None:
             hold.ended = hold.unsafe = reason
 
     def _raw_connection(self) -> Any:
         scope = current_scope()
         state = scope.extensions.get(STATE_KEY) if scope else None
+        if state is not None and state.held and state.finished:
+            raise PreviewRollbackError("The held Preview request has ended.")
         if state is None or not state.rollback or state.finished:
             return self._original()
         return state.connect(self.engine, self._original)
@@ -150,6 +153,8 @@ class _Instrumentation:
         if scope is None:
             return
         state = scope.extensions.get(STATE_KEY)
+        if state is not None and state.held and state.finished:
+            raise PreviewRollbackError("The held Preview request has ended.")
         if state is not None and state.rollback and not state.finished:
             hold = state.holds.get(self.engine)
             if hold is not None and hold.ended:
@@ -241,6 +246,45 @@ class SQLAlchemyPreview(PreviewProvider):
         state = _State(self._engines, rollback=False)
         scope.extensions[STATE_KEY] = state
         return _Observation(state)
+
+    def supports_held(self, asynchronous: bool) -> bool:
+        if self._async and not asynchronous:
+            return False
+        for engine in self._engines:
+            try:
+                ensure_supported(engine)
+            except PreviewUnavailable:
+                return False
+            if engine.dialect.name == "oracle" or (
+                engine.dialect.name == "sqlite" and (
+                    engine.url.database in (None, "", ":memory:")
+                    or engine.url.query.get("mode") == "memory"
+                    or str(engine.url.database).startswith("file::memory:")
+                )
+            ):
+                return False
+        return True
+
+    def _held(self) -> "_Held":
+        return _Held(self._engines, self._async, self._safe_procedures)
+
+    def hold(self) -> HeldPart:
+        part = self._held()
+        try:
+            part.open()
+        except BaseException:
+            part.close()
+            raise
+        return part
+
+    async def ahold(self) -> HeldPart:
+        part = self._held()
+        try:
+            await part.ainvoke(part.open)
+        except BaseException:
+            await part.ainvoke(part.close)
+            raise
+        return part
 
     def uninstall(self) -> None:
         """Remove the hooks from the engines. Meant for tests and shutdown."""
@@ -369,3 +413,149 @@ def _raise_first(errors: list[BaseException | None]) -> None:
     for error in errors:
         if error is not None:
             raise error
+
+
+class _Held(HeldPart):
+    """Reuse the rollback-only DBAPI proxy while resetting the request's ORM capture."""
+
+    def __init__(self, engines: frozenset[Engine], async_engines: set[Engine], procedures: frozenset[str]) -> None:
+        self.engines = sorted(engines, key=id)
+        self.async_engines = async_engines
+        self.procedures = procedures
+        self.state = _State(engines, rollback=True, safe_procedures=procedures)
+        self.sqlite_pools: dict[Engine, Any] = {}
+
+    def _open_engine(self, engine: Engine) -> None:
+        if engine.dialect.name != "sqlite":
+            self.state.open_hold(engine, engine.raw_connection, held=True)
+            return
+        # Keep the application's pool available for readers, even with a one-slot pool.
+        pool = engine.pool.recreate()
+        try:
+            self.state.open_hold(engine, pool.connect, held=True)
+        except BaseException:
+            pool.dispose()
+            raise
+        self.sqlite_pools[engine] = pool
+
+    def open(self) -> None:
+        for engine in self.engines:
+            self._open_engine(engine)
+
+    def _check(self) -> None:
+        holds = self.state.holds.values()
+        if any(hold.ended for hold in holds):
+            raise StoreEnded("The SQL server ended the Preview transaction.")
+        _Session(self.state, self.async_engines)._check_before()
+
+    def _attach_engine(self, engine: Engine, step: int) -> None:
+        self._control(engine, "SAVEPOINT " + savepoint(step), "SAVEPOINT " + SAVEPOINT)
+
+    def _control(self, engine: Engine, *statements: str) -> None:
+        hold = self.state.holds[engine]
+        try:
+            hold.run(*statements)
+        except Exception as error:
+            dialect = engine.dialect
+            if isinstance(error, dialect.dbapi.Error) and dialect.is_disconnect(error, hold.proxy._tb_real, None):
+                raise StoreEnded("The SQL server closed the held Preview connection.") from error
+            raise
+
+    def _bind(self, scope: RequestScope) -> None:
+        previous = self.state
+        self.state = _State(previous.engines, rollback=True, safe_procedures=self.procedures)
+        self.state.held = True
+        self.state.holds = previous.holds
+        scope.extensions[STATE_KEY] = self.state
+
+    def attach(self, scope: RequestScope, step: int) -> None:
+        self._check()
+        for engine in self.engines:
+            self._attach_engine(engine, step)
+        self._bind(scope)
+
+    def _collect_engine(self, engine: Engine) -> None:
+        try:
+            # The marker predates the handler. Creating a new marker would miss an implicit commit.
+            self._control(engine, "RELEASE SAVEPOINT " + SAVEPOINT)
+        except Exception as error:
+            if getattr(error, "sqlstate", getattr(error, "pgcode", None)) == "25P02":
+                raise StepFailed("The Preview statement failed inside PostgreSQL.") from error
+            raise
+
+    def _changes(self, scope: RequestScope) -> None:
+        scope.store_changes[:0] = self.state.changes
+        scope.store_changes_truncated |= self.state.changes_truncated
+
+    def collect(self, scope: RequestScope, step: int) -> None:
+        self.state.finished = True
+        self._check()
+        for engine in self.engines:
+            self._collect_engine(engine)
+        self._changes(scope)
+
+    def detach(self, scope: RequestScope) -> None:
+        state = scope.extensions.get(STATE_KEY)
+        if state is not None:
+            state.finished = True
+
+    def _rewind_engine(self, engine: Engine, step: int) -> None:
+        self._control(engine, "ROLLBACK TO SAVEPOINT " + savepoint(step), "RELEASE SAVEPOINT " + savepoint(step))
+
+    def rewind(self, step: int) -> None:
+        self.state.finished = True
+        self._check()
+        for engine in self.engines:
+            self._rewind_engine(engine, step)
+
+    def _close_engine(self, engine: Engine) -> None:
+        hold = self.state.holds.pop(engine)
+        cleanup = _Session(self.state, self.async_engines)
+        try:
+            hold.proxy._tb_real.rollback()
+            cleanup._rolled_back = not bool(hold.unsafe)
+        finally:
+            try:
+                _raise_first([cleanup._release(hold)])
+            finally:
+                pool = self.sqlite_pools.pop(engine, None)
+                if pool is not None:
+                    pool.dispose()
+
+    def close(self) -> None:
+        errors = []
+        for engine in tuple(self.state.holds):
+            try:
+                self._close_engine(engine)
+            except BaseException as error:
+                errors.append(error)
+        _raise_first(errors)
+
+    async def ainvoke(self, method: Any, *args: Any) -> Any:
+        if not self.async_engines:
+            return await super().ainvoke(method, *args)
+        if method == self.detach:
+            return self.detach(*args)
+        engine_methods = {
+            self.open: self._open_engine, self.attach: self._attach_engine,
+            self.collect: self._collect_engine, self.rewind: self._rewind_engine, self.close: self._close_engine,
+        }
+        errors = []
+        if method in (self.attach, self.collect, self.rewind):
+            if method != self.attach:
+                self.state.finished = True
+            self._check()
+        for engine in tuple(self.state.holds) if method == self.close else self.engines:
+            invoke = greenlet_spawn if engine in self.async_engines else run_in_thread
+            values = args[-1:] if method in (self.attach, self.rewind) else ()
+            try:
+                await invoke(engine_methods[method], engine, *values)
+            except BaseException as error:
+                if method != self.close:
+                    raise
+                errors.append(error)
+        _raise_first(errors)
+        if method == self.attach:
+            self._bind(args[0])
+        elif method == self.collect:
+            self._changes(args[0])

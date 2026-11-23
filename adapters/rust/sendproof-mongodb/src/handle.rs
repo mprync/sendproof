@@ -10,7 +10,10 @@
 //!
 //! Outside a Preview every call passes straight through to the driver.
 
-use std::{borrow::Borrow, sync::Arc};
+use std::{
+    borrow::Borrow,
+    sync::{Arc, atomic::Ordering},
+};
 
 use futures_util::TryStreamExt;
 use mongodb::{
@@ -59,6 +62,9 @@ impl Access {
         if !self.scope.in_preview() {
             return Ok(());
         }
+        if self.state.as_ref().is_some_and(|state| !state.active.load(Ordering::SeqCst) || state.lifetime_ended.load(Ordering::SeqCst)) {
+            return Err(Error::custom(self.scope.refuse("This MongoDB Preview step has ended.")));
+        }
         if ends_transaction(&operation.to_lowercase()) {
             let fault =
                 self.scope.refuse(format!("Preview owns the MongoDB transaction, so the handler's {operation} cannot run during Preview."));
@@ -89,7 +95,7 @@ impl Access {
         let session = session.lock_owned().await;
         {
             let mut data = state.data();
-            if data.finished {
+            if data.finished || state.lifetime_ended.load(Ordering::SeqCst) || !state.active.load(Ordering::SeqCst) {
                 // The transaction was aborted (the time limit): a command now would run outside any transaction.
                 drop(data);
                 let fault = self.scope.refuse("The Preview's MongoDB transaction has ended, so this call was refused.");

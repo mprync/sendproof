@@ -180,7 +180,9 @@ def escapes_transaction(sql: str, dialect: str, reserved: str | None = None,
             return "Switching autocommit on would commit the preview transaction."
         if first == "set" and words[1:3] == ["session", "characteristics"]:
             continue
-        if reserved_name and first in ("release", "savepoint", "rollback") and reserved_name in words:
+        if reserved_name and first in ("release", "savepoint", "rollback") and (
+            reserved_name in words or any(word.startswith("sendproof_step_") for word in words[1:])
+        ):
             return "The preview savepoint is reserved for Sendproof."
         if dialect in _MYSQL:
             if first == "call":

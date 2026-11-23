@@ -355,20 +355,22 @@ v7 designs journeys ([`docs/plans/journeys.md`](../docs/plans/journeys.md)): an 
 
 | File | What it holds |
 | --- | --- |
-| `v7-journeys.js` | The data (journeys, steps, one run), the builders (Journeys tab with the progress rail, step strip, bound-field chips, expected-writes list, comparison card, approved-difference record) and the seven scenes |
+| `v7-journeys.js` | The data (journeys, steps, one run), the builders (the mode switch, the journeys sidebar with the progress rail, step strip, bound-field chips, expected-writes list, comparison card, approved-difference record) and the eight scenes |
 | `v7.css` | Every v7 style, scoped to `:root[data-v7]`, with container queries for narrow comparison cards and phone rules |
 | `journeys.html`, `v7-board.js` | The findings board: every finding, verdict and rail state, built from the same builders |
 
 ### Parameters (v7)
 
-`v5=1&v6=1&v7=1` plus `jv=overview|step|result|summary|refused|empty|loading`. `mode=send` shows the step in a Send run. Also `theme=dark`, `text=130`, `lang=ar`, `mview=request|result` and `drawer=1`. Board: `journeys.html?v6=1&v7=1&set=findings`.
+`v5=1&v6=1&v7=1` plus `jv=spec|overview|step|result|summary|refused|empty|loading`. `mode=send` shows the step in a Send run. Also `theme=dark`, `text=130`, `lang=ar`, `mview=request|result` and `drawer=1`. Board: `journeys.html?v6=1&v7=1&set=findings`.
 
 ### Screens (v7)
 
 | PNG | Query (`v5=1&v6=1&v7=1&` plus) | What it shows |
 | --- | --- | --- |
-| 132-v7-overview | `jv=overview` | A Journeys tab beside Operations and Models: groups from the Arazzo document, the step count, the last result, an "Inferred from links" group. The overview: steps as a timeline (what each should write, which values come from earlier steps), the inputs as real fields, the last run and earlier runs (one by an agent over MCP) |
+| 132-v7-overview | `jv=overview` | Journeys mode, picked in the top bar's mode switch. The sidebar's head row says the journeys come from code (`StoreApi.Journeys`, opening the generated Arazzo) in place of tabs, its bar has Run all, then groups from the Arazzo document, the step count, the last result, an "Inferred from links" group. The overview: steps as a timeline (what each should write, which values come from earlier steps), the inputs as real fields, the last run and earlier runs (one by an agent over MCP) |
 | 133-v7-overview-dark | same `&theme=dark` | The same in dark |
+| 150-v7-mode-spec | `jv=spec` | Specification mode: the mode switch in the top bar, after the environment; the operation screen is exactly as before |
+| 151-v7-mode-spec-dark | same `&theme=dark` | The same in dark |
 | 134-v7-step | `jv=step` | A Preview run at step 4: the open journey unfolds into the progress rail; the step strip says the session is held; bound fields say where their value came from ("From step 1 · orderId") and the status line names the expression; the result pane lists what the step should write before it runs |
 | 135-v7-step-dark | same `&theme=dark` | The same in dark |
 | 136-v7-step-send-run | `jv=step&mode=send` | The same step in a Send run: Preview the step first, then Send it |
@@ -376,27 +378,59 @@ v7 designs journeys ([`docs/plans/journeys.md`](../docs/plans/journeys.md)): an 
 | 138-v7-result-dark | same `&theme=dark` | The same in dark |
 | 139-v7-result-130 | `jv=result&text=130` | At 130% the comparison card stacks each field (Expected and Written on their own lines) and the tabs scroll with a fade |
 | 140-v7-rtl-ar-result | `jv=result&lang=ar` | Arabic: the rail, strip and cards mirror; table names, values and expressions stay LTR |
-| 141-v7-summary | `jv=summary` | The run: verdict in words, counts, each step with its result, findings and time, the session rolled back store by store, the outputs; the approved differences used, one not needed, export to JSON and JUnit, and the CLI and MCP equivalents |
+| 141-v7-summary | `jv=summary` | The run, read as a document rather than a dashboard: the verdict in one line, the run's facts as one byline under it, the way an issue reads ("Ada Admin ran a Preview · today at 14:02 · 412 ms · rolled back"), then one single-line row per step (findings as counts, a waterfall of where it sat in the run, its time). The failed step opens in place with each finding on one line and Open step 4. Then what was rolled back store by store and the outputs with copy buttons; the approved differences used, one not needed, export to JSON and JUnit, and the CLI and MCP equivalents |
 | 142-v7-summary-dark | same `&theme=dark` | The same in dark |
 | 143-v7-refused | `jv=refused` | A Send run stopped at step 3 by an unexpected 409: why it stopped, that the step wrote nothing, that steps 4 and 5 didn't run, what steps 1 and 2 left in the database, and Cancel order with the order filled in |
 | 144-v7-refused-dark | same `&theme=dark` | The same in dark |
-| 145-v7-empty | `jv=empty` | No journeys: what a journey is, the three steps to publish one, the capabilities snippet |
+| 145-v7-empty | `jv=empty` | No journeys: what a journey is, Copy a prompt for your agent, or the three steps by hand (write a journey class, register the journeys, run them as tests), each with its C# |
 | 146-v7-loading | `jv=loading` | Skeletons in the shape of the sidebar, the timeline, the inputs and the last run; the run buttons wait, disabled |
 | 147-v7-loading-dark | same `&theme=dark` | The same in dark |
 | 148-v7-board-findings | `journeys.html?v6=1&v7=1&set=findings` | Every finding (differs, missing, match, extra, approved, not checked, an expired record), every verdict (passed, passed with an approved difference, failed, refused, blocked by the Preview guard, refused as expected) and the rail in three runs |
 | 149-v7-board-findings-dark | same `&theme=dark` | The same in dark |
-| m32-v7-journeys-drawer-130 | `jv=overview&drawer=1&text=130` | The Journeys tab as a drawer at 130% |
+| m32-v7-journeys-drawer-130 | `jv=overview&drawer=1&text=130` | The journeys sidebar as a drawer at 130%, with the mode switch at its top |
 | m33-v7-overview-130 | `jv=overview&text=130` | The overview on a phone |
 | m34-v7-step-130 | `jv=step&text=130` | The step on a phone: the strip keeps "Step 4 of 5" and the segments; previous and next are 44 px |
 | m35-v7-result-130 | `jv=result&mview=result&text=130` | The comparison on a phone: the filter is a 2 × 2 grid, cards stack, nothing scrolls sideways |
 | m36-v7-result-ar-130-dark | `…&lang=ar&theme=dark` | Arabic, dark, 130% |
-| m37-v7-summary-130 | `jv=summary&text=130` (320 px) | The summary at 320 px |
+| m37-v7-summary-130 | `jv=summary&text=130` (320 px) | The summary at 320 px: the byline wraps between its items, never inside one; the buttons stack |
+| m39-v7-summary-390 | `jv=summary` (390 px) | The summary on a phone: each step keeps one line for its name and time, its findings go on a second |
+| m40-v7-mode-drawer-spec-130 | `jv=spec&drawer=1&text=130` | Specification mode's drawer at 130%: the mode switch, then Operations and Models |
 | m38-v7-refused-130 | `jv=refused&mview=result&text=130` | The stopped run on a phone |
 
 ### Design rules (new in v7)
 
-- **A journey is a place, not a mode.** It's a third sidebar tab; opening a run unfolds the journey into its steps, so the rail is the navigation and nothing new appears around the shell. Each step is its operation's own screen.
+- **Journeys is a mode beside the Specification.** A segmented switch in the top bar picks Specification (operations and models, from the OpenAPI document) or Journeys (workflows, from the Arazzo document); with two modes both stay visible, one click apart, and each reopens where it was left (`G S`, `G J`). The shell never moves: the journeys sidebar keeps the tab row's height for its head row. Opening a run unfolds the journey into its steps, so the rail is the navigation. Each step is its operation's own screen. Below 1280 px the switch shows icons only; on phones it heads the drawer.
+- **Journeys are code.** A journey is a typed C# class (usually written by an agent) that the API turns into Arazzo and expected writes at startup; the workbench runs, explains and approves, and never authors. Screens name the class or file a journey, its inputs and its expected writes come from.
+- **One line per row.** Rows, status lines and facts never wrap: labels are short enough to fit, long values truncate with the full value in a title, and on a phone a row moves its secondary parts to a second line rather than letting text wrap. Prose (descriptions, reasons) is the only text that wraps.
+- **Run buttons fit their label.** A journey's buttons ("Preview step 4", "Run to end") size to their content and shortcut and never shrink; the status line beside them gives way first.
 - **Say where every value came from.** A bound field carries a chip ("From step 1 · orderId", "Journey input", "Fixed") and its status line names the runtime expression. Editing one is allowed and recorded.
 - **Colour points at the problem.** The verdict's colour lives in its icon tile; only the field that differs is tinted. Red fails, blue is covered by an approved-difference record, green matched. Every finding also has a word.
 - **An approval is a record, never a button.** The workbench drafts a record to commit; it shows the record's ID, reason, approver and expiry wherever it's used, and says when one wasn't needed or has expired.
 - **A stop says what's left behind.** A Send run that stops lists what earlier steps committed and offers the operation that undoes it.
+
+## v8: the workbench's own dialogs
+
+The workbench never uses a native browser dialog (`confirm`, `alert`, `prompt`). Each question or notice is one of these dialogs, so it can show what will happen instead of one line of text. v8 sits on v7 and lives in `v8-dialogs.js` and `v8.css`, written in only with `v8=1`.
+
+Parameters: `v5=1&v6=1&v7=1&v8=1` plus `dlg=sendrun|endrun|stopsend|persona|expired` over the v7 scene it belongs to (`jv=step`, with `mode=send` for a Send run).
+
+| PNG | Query (plus) | What it shows |
+| --- | --- | --- |
+| 160-v8-dialog-send-run | `jv=step&mode=send&dlg=sendrun` | Starting a Send run (it replaced the native `confirm`): what each store keeps afterwards (rows with the store mark, a name and a subtitle), the environment beside the list's label, a reminder that a Preview run rolls back. Focus starts on Cancel; Send run carries its shortcut |
+| 161-v8-dialog-send-run-dark | same `&theme=dark` | The same in dark |
+| 162-v8-dialog-end-run | `jv=step&dlg=endrun` | Ending a Preview run partway: the steps the held session has run, and that ending it rolls them back. Session time in the footer |
+| 163-v8-dialog-stop-send | `jv=step&mode=send&dlg=stopsend` | Stopping a Send run partway: what earlier steps left in the database and the operation that undoes it, as a row to open. Stop run is the danger action, Keep going has focus |
+| 164-v8-dialog-stop-send-dark | same `&theme=dark` | The same in dark |
+| 165-v8-dialog-persona | `jv=step&dlg=persona` | Switching persona while a Preview session is held: a card per person (the held one quiet, the next one lifted), each with its role and one segment per journey step, refused steps hatched; the steps the new persona can't run named below; the rollback in the footer |
+| 167-v8-dialog-persona-dark | `jv=step&dlg=persona&theme=dark` | The same, dark |
+| m45-v8-dialog-persona-130 | `jv=step&dlg=persona&text=130`, phone | The cards stack with the arrow turned down; the main action first |
+| 166-v8-dialog-expired | `jv=step&dlg=expired` | A session that ended on its own (idle timeout): nothing was written, the results stay, Start again |
+| m43-v8-dialog-send-run-130 | `…&dlg=sendrun&text=130` (phone) | On a phone each dialog is a bottom sheet: a grab handle, subtitles may take two lines, actions full width with the main one first |
+| m44-v8-dialog-stop-send-130-dark | `…&dlg=stopsend&text=130&theme=dark` (phone) | The stop sheet in dark at 130% |
+
+### Design rules (new in v8)
+
+- **One shape.** A tinted icon tile (amber for a commit, red for something lost, neutral otherwise), the title and one sentence beside it, an optional list, then the actions bottom right. No native dialog, anywhere.
+- **Show what will happen.** A dialog that asks lists the consequences (stores and what stays in them, steps rolled back, rows left behind) as rows of a name with a subtitle under it; nothing is pushed to the right of a row.
+- **The safe choice has focus.** Cancel, Keep running and Keep going take focus; Esc closes; the committing action shows its shortcut.
+- **Phones get a sheet.** Bottom sheet, full-width actions, no close button (Cancel and a swipe close it).

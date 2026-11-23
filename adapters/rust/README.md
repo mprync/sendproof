@@ -40,10 +40,34 @@ let app = bench.wrap(api);               // serve this router
 
 Open `http://localhost:3000/sendproof/`.
 
+## Preview sessions
+
+Both framework adapters advertise `previewSessions` automatically when Sendproof is enabled and every registered rollback-capable store supports held transactions. Gate the routes that journeys use, including GET routes, so each request joins the held transaction after authorization. A GET may run in a session unless marked with `preview_unavailable`. Write operations still need `preview_operation`.
+
+Open a session with `POST /sendproof/_api/sessions` and pass its ID as `Sendproof-Session` on Preview requests. Signed-in callers need an identity resolver that returns a stable `subject`. Sessions take one request at a time, stay in one process, and expire after five minutes idle or thirty minutes total. The limits are four sessions per owner and sixteen per application. Call `bench.shutdown_sessions().await` after graceful server shutdown and before closing database pools to await rollback.
+
+## Journey file discovery
+
+Register a paired Arazzo 1.1 document and Sendproof expectations document with `ConfigBuilder::journey_file`:
+
+```rust
+Config::builder("Inventory")
+    .path_base("/tenant") // omit when the API is mounted at the root
+    .open_api_url("/openapi.json")
+    .journey_file(
+        "inventory",
+        include_bytes!("../Journeys/inventory.arazzo.json").to_vec(),
+        include_bytes!("../Journeys/inventory.expect.json").to_vec(),
+    )
+    .build()?;
+```
+
+The name is the route stem, without a suffix. Capabilities use the Arazzo `info.title` as the display name, falling back to the route stem. Each root-relative source URL is prefixed with the configured mount; distinct URLs and absolute URLs are preserved. The Arazzo document must contain an OpenAPI `sourceDescriptions` entry. The paired documents are advertised in capabilities and served from `/sendproof/journeys/{name}.arazzo.json` and `/sendproof/journeys/{name}.expect.json`. Unregistered names and suffixes return no document. The conformance fixture references `/openapi.json` in its Arazzo file and includes a minimal expectations pair in `examples/rust-conformance-common/Journeys/`.
+
 ## Safety model
 
 * **Off by default.** Nothing is served unless the configured environment is in `enable_in`. When disabled, `/sendproof/**` and previews answer as if absent and ordinary routes are untouched.
-* **Explicit opt-in per operation.** Only operations declared with `preview_operation` can run in a preview, and each is checked three times: before dispatch, by the gate on the matched route, and by the data layer, which refuses to run an unenrolled preview.
+* **Explicit opt-in per operation.** Declare operations with `preview_operation`. A session can also Preview GET routes that are gated and available. The outer transport and matched-route gate check eligibility, and the data layer refuses to run an unenrolled Preview.
 * **Real authorization.** The rewritten request goes through your router and middleware in-process; the gate runs after your auth layers. A `workbench_policy` gates previews too, not only the workbench and observed sends.
 * **Gate every route.** A route the gate does not wrap answers a preview with `409` and logs a warning; effects recorded through `sendproof_core::capture` are suppressed even there, but anything else such a handler does is real.
 * **No commit escapes a preview.** Statements that would end the transaction are refused before they are sent, whether through named queries or plain SQLx on the handler's connection, which is never handed out raw (see `sendproof-sqlx`).
@@ -56,23 +80,13 @@ Open `http://localhost:3000/sendproof/`.
 ```sh
 adapters/rust/scripts/pack-assets.sh        # packs the shared UI (needs Node) into sendproof-core/ui-assets
 cargo test --locked --manifest-path adapters/rust/Cargo.toml --workspace --all-features
-node tests/conformance/run.mjs rust-axum rust-actix                         # SQLite, from the repository root
-BENCH_POSTGRES_URL=postgresql://… BENCH_MYSQL_URL=mysql://… \
-  node tests/conformance/run.mjs rust-axum-postgresql rust-actix-postgresql rust-axum-mysql rust-actix-mysql
+cargo build --locked --manifest-path adapters/rust/Cargo.toml -p rust-conformance -p rust-conformance-actix
+node tests/conformance/run.mjs rust-axum rust-actix
+BENCH_POSTGRES_URL=postgresql://… BENCH_MYSQL_URL=mysql://… BENCH_MARIADB_URL=mysql://… \
+  node tests/conformance/run.mjs rust-axum-postgresql rust-actix-postgresql rust-axum-mysql rust-actix-mysql \
+    rust-axum-mariadb rust-actix-mariadb
 ```
 
-With `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` set to a disposable server, and the compose MongoDB replica set running (`docker compose -f tests/conformance/compose.yml up -d --wait mongodb`), the workspace runs 193 tests:
-
-| Crate | Tests |
-| --- | --- |
-| `sendproof-core` | 41 unit, 11 data-store rules (tables parity, guard, 409 and 500 pipeline, cleanup, discovery), 1 doc |
-| `sendproof-sqlx` | 26 unit, 14 SQLite, 25 PostgreSQL and MySQL |
-| `sendproof-redis` | 17 (a recording fake connection), 1 against the compose Redis, 1 doc |
-| `sendproof-dynamodb` | 15 (a recording HTTP client), 1 against the compose DynamoDB Local, 1 doc |
-| `sendproof-mongodb` | 27 (the compose replica set), 1 doc |
-| `sendproof-actix` | 8, 1 doc |
-| `sendproof-axum` | 1, 1 doc |
-
-Without the server variables, the PostgreSQL and MySQL tests are skipped and pass anyway; without the MongoDB, Redis or DynamoDB service, the tests that need it skip with the compose command in the message. Build the fixtures before running the HTTP conformance suite (`cargo build -p rust-conformance -p rust-conformance-actix`), because the runner starts the binaries as they are.
+The workspace suite uses the PostgreSQL and MySQL URLs when set and skips live store tests when their service is unavailable. The HTTP runner starts the built fixtures and provisions its own disposable databases. The SQLite conformance bindings also exercise the stores listed in the manifest. Set `BENCH_STORES` to a comma-separated subset when running against fewer services.
 
 `build.rs` embeds the packed UI. Without it the crate still builds and the workbench answers `503`. The UI source is never copied into this tree. Requires Rust 1.94+.

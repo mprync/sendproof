@@ -11,9 +11,12 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
+    <!-- WebApplicationFactory's build targets record where the app's content root is, for JourneyTests. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" PrivateAssets="all" />
     <ProjectReference Include="../StoreApi.csproj" />
+    <ProjectReference Include="../../../adapters/dotnet/Sendproof.Journeys.Testing/Sendproof.Journeys.Testing.csproj" />
   </ItemGroup>
 </Project>

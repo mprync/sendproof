@@ -24,6 +24,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("com.h2database:h2")
+    testImplementation("org.postgresql:postgresql")
+    testImplementation("org.xerial:sqlite-jdbc")
     // MySqlJpaEscapeTest runs against the compose MySQL when it answers, and is skipped otherwise.
     testImplementation("com.mysql:mysql-connector-j")
     testImplementation("org.mariadb.jdbc:mariadb-java-client")

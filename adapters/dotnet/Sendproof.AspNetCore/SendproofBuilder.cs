@@ -97,6 +97,22 @@ public sealed class SendproofBuilder
         return this;
     }
 
+    /// <summary>
+    /// Sets how long a preview session may sit unused, and live in all, before it is rolled back. The defaults are five and
+    /// thirty minutes. A held session keeps a transaction open on one connection, so keep both short.
+    /// </summary>
+    public SendproofBuilder WithPreviewSessionLimits(TimeSpan idleTimeout, TimeSpan maxLifetime)
+    {
+        if (idleTimeout <= TimeSpan.Zero || maxLifetime <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(idleTimeout), "Preview session limits must be positive.");
+        }
+
+        _options.SessionIdleTimeout = idleTimeout;
+        _options.SessionMaxLifetime = maxLifetime;
+        return this;
+    }
+
     internal void EnableEfCommandCapture() => _options.CaptureEfCommands = true;
 
     /// <summary>Requires the named host authorization policy for workbench routes and preview requests.</summary>

@@ -23,15 +23,25 @@ type previewEnvelope struct {
 	ChangesTruncated bool              `json:"changesTruncated,omitempty"`
 	EffectsTruncated bool              `json:"effectsTruncated,omitempty"`
 	LogsTruncated    bool              `json:"logsTruncated,omitempty"`
+	Session          *sessionPosition  `json:"session,omitempty"`
 }
 
 // servePreview handles /sendproof/_preview/{target}. It validates the transport,
 // dispatches the rewritten request through the application's own handler, and
 // confirms the result only after the provider has rolled back.
 func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next http.Handler, target string, started time.Time) {
+	sessionHeaders := r.Header.Values(sessionHeader)
+	hasSession := len(sessionHeaders) != 0
+	id := ""
+	if len(sessionHeaders) == 1 {
+		id = sessionHeaders[0]
+	}
 	switch {
 	case !b.Enabled():
 		reject(w, http.StatusNotFound, "Sendproof previews are unavailable.")
+		return
+	case hasSession && !isSameOrigin(r):
+		sessionProblem(w, "session_not_found", "")
 		return
 	case !hasExactRollbackPreference(r):
 		reject(w, http.StatusBadRequest, "A Sendproof preview requires Prefer: tx=rollback.")
@@ -59,13 +69,13 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 		reject(w, status, title)
 		return
 	}
-	if !b.previewReady() {
+	if !hasSession && !b.previewReady() {
 		reject(w, http.StatusServiceUnavailable, "Preview requires one available preview provider.")
 		return
 	}
 	// Only routes that were marked for preview may run. Checking before dispatch
 	// keeps an unreviewed handler, with its unrecorded effects, from executing.
-	if !b.hasOperation(r.Method, target) {
+	if !hasSession && !b.hasOperation(r.Method, target) {
 		reject(w, http.StatusConflict, "This operation is unavailable for preview.")
 		return
 	}
@@ -77,26 +87,25 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 	}
 	state := &requestState{bench: b, kind: kindPreview, rec: newRecorder(b, started), pathBase: b.pathBase(r),
 		target: decoded, method: r.Method, escaped: target}
-	// While the handler and cleanup run, a store write with no request context may
-	// be this handler's: it fails the Preview (see ReportWrite).
+	// Keep the write tripwire active through store cleanup as well as dispatch.
 	openPreview(state)
 	defer closePreview(state)
-	inner := withState(r.Clone(r.Context()), state)
-	inner.URL.Path, inner.URL.RawPath = decoded, ""
-	if inner.URL.EscapedPath() != target {
-		inner.URL.RawPath = target
+	if hasSession {
+		s, code := b.enterSession(r, id)
+		if code != "" {
+			sessionProblem(w, code, "")
+			return
+		}
+		defer b.exitSession(s)
+		if b.isUnavailable(r.Method, target) || r.Method != http.MethodGet && !b.hasOperation(r.Method, target) {
+			reject(w, http.StatusConflict, "This operation is unavailable for preview.")
+			return
+		}
+		state.held = s
+		b.serveHeldStep(w, r, next, state, s)
+		return
 	}
-	inner.RequestURI = inner.URL.RequestURI()
-	// An encoding middleware would compress the buffered body the preview must read.
-	inner.Header.Del("Accept-Encoding")
-	for _, name := range methodOverrideHeaders {
-		inner.Header.Del(name)
-	}
-
-	capture := newCaptureWriter()
-	capture.header.Set("Cache-Control", "no-store")
-	failure := runProtected(func() { next.ServeHTTP(capture, inner) })
-	state.rec.endHandler()
+	capture, failure := dispatchPreview(r, next, state)
 
 	// Cleanup uses a context that outlives a disconnected client, so rollback and
 	// disposal always complete.
@@ -138,6 +147,42 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 			cleanupFailure = errors.Join(cleanupFailure, protect("the provider session Close", session.Close))
 		}
 	}
+	b.finishPreviewResponse(w, r, state, capture, envelope, handlerFailure, cleanupFailure, failure, beginFailure, invoked)
+}
+
+func dispatchPreview(r *http.Request, next http.Handler, state *requestState) (*captureWriter, error) {
+	inner := withState(r.Clone(r.Context()), state)
+	inner.URL.Path, inner.URL.RawPath = state.target, ""
+	if inner.URL.EscapedPath() != state.escaped {
+		inner.URL.RawPath = state.escaped
+	}
+	inner.RequestURI = inner.URL.RequestURI()
+	// An encoding middleware would compress the buffered body the preview must read.
+	inner.Header.Del("Accept-Encoding")
+	inner.Header.Del(sessionHeader)
+	for _, name := range methodOverrideHeaders {
+		inner.Header.Del(name)
+	}
+
+	capture := newCaptureWriter()
+	capture.header.Set("Cache-Control", "no-store")
+	failure := runProtected(func() {
+		if state.held != nil && r.Method == http.MethodGet && !state.beginHeldStep(inner.Context(), capture) {
+			return
+		}
+		next.ServeHTTP(capture, inner)
+		if state.held != nil && r.Method == http.MethodGet {
+			state.mu.Lock()
+			state.completed = true
+			state.mu.Unlock()
+		}
+	})
+	state.rec.endHandler()
+	return capture, failure
+}
+
+func (b *Sendproof) finishPreviewResponse(w http.ResponseWriter, r *http.Request, state *requestState, capture *captureWriter,
+	envelope *previewEnvelope, handlerFailure, cleanupFailure, failure, beginFailure error, invoked bool) {
 	if r.Context().Err() != nil {
 		return
 	}
@@ -177,6 +222,10 @@ func (b *Sendproof) servePreview(w http.ResponseWriter, r *http.Request, next ht
 		reject(w, http.StatusInternalServerError, "The preview could not be completed safely.")
 		return
 	}
+	writePreviewEnvelope(w, state, encoded, serialized)
+}
+
+func writePreviewEnvelope(w http.ResponseWriter, state *requestState, encoded []byte, serialized time.Time) {
 	timing := state.rec.timing(float64(time.Since(serialized)) / float64(time.Millisecond))
 	headers := w.Header()
 	headers.Set("Cache-Control", "no-store")
@@ -297,11 +346,22 @@ func rejectUnexecuted(w http.ResponseWriter, capture *captureWriter, invoked boo
 // the provider's session and activates the journal. It writes the rejection status
 // and returns false when the handler must not run.
 func (s *requestState) enterPreview(w http.ResponseWriter, r *http.Request, op *Operation) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	// The marker must belong to the operation the transport checked: a router
 	// rewrite or method override must not swap in another marked operation.
-	if s.invoked || op.method != r.Method || op.method != s.method || !op.matches(s.method, s.escaped) {
+	if op.bench != s.bench || op.method != r.Method || op.method != s.method || !op.matches(s.method, s.escaped) {
+		w.WriteHeader(http.StatusConflict)
+		return false
+	}
+	if s.held != nil {
+		if r.Method == http.MethodGet {
+			// Session GETs are already enlisted by dispatch.
+			return true
+		}
+		return s.beginHeldStep(r.Context(), w)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.invoked {
 		w.WriteHeader(http.StatusConflict)
 		return false
 	}
@@ -333,20 +393,8 @@ func (s *requestState) enterPreview(w http.ResponseWriter, r *http.Request, op *
 	s.rec.begin(true)
 	// Stores begin with the lock released: they call back into the Preview scope.
 	s.mu.Unlock()
-	var failure error
-	var entries []storeEntry
-	for _, store := range s.bench.cfg.stores {
-		preview, err := store.BeginPreview(ctx)
-		if preview != nil {
-			entries = append(entries, storeEntry{store: store, preview: preview})
-		}
-		if err != nil {
-			failure = errors.Join(failure, fmt.Errorf("a data store could not begin the preview: %w", err))
-			break
-		}
-	}
+	failure := s.beginStores(ctx, nil)
 	s.mu.Lock()
-	s.stores = append(s.stores, entries...)
 	if failure != nil {
 		s.failure = errors.Join(s.failure, failure)
 		w.WriteHeader(http.StatusInternalServerError)

@@ -221,6 +221,9 @@ func PreviewStore(ctx context.Context, store DataStore) StorePreview {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	if state.sealed {
+		return nil
+	}
 	for _, entry := range state.stores {
 		if entry.store == store {
 			return entry.preview
@@ -351,8 +354,9 @@ const UnknownRows int64 = -1
 
 // unavailable is an operation an API author marked `preview: false`.
 type unavailable struct {
-	method, path, reason string
-	stores               []string
+	operation *Operation
+	reason    string
+	stores    []string
 }
 
 // UnavailableOption refines an operation marked unavailable for Preview.
@@ -373,8 +377,7 @@ var storeID = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 // OpenAPI template, as for Operation. It panics on an empty reason without stores
 // or a malformed store id, because both are programming errors.
 func (b *Sendproof) Unavailable(method, path, reason string, options ...UnavailableOption) {
-	template, _ := normalizeTemplate(path)
-	op := &unavailable{method: strings.ToUpper(method), path: template, reason: strings.TrimSpace(reason)}
+	op := &unavailable{operation: newOperation(b, method, path), reason: strings.TrimSpace(reason)}
 	for _, option := range options {
 		option(op)
 	}
@@ -413,13 +416,24 @@ func (b *Sendproof) previewUnavailable() []map[string]any {
 	defer b.mu.RUnlock()
 	result := make([]map[string]any, 0, len(b.unavailable))
 	for _, op := range b.unavailable {
-		entry := map[string]any{"method": op.method, "path": op.path, "reason": op.reason}
+		entry := map[string]any{"method": op.operation.method, "path": op.operation.path, "reason": op.reason}
 		if len(op.stores) > 0 {
 			entry["stores"] = op.stores
 		}
 		result = append(result, entry)
 	}
 	return result
+}
+
+func (b *Sendproof) isUnavailable(method, target string) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, op := range b.unavailable {
+		if op.operation.matches(method, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- Discovery and the blocked response ----

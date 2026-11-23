@@ -11,6 +11,7 @@ const recoveryMessage = 'The TypeORM source requires recovery after transaction 
 export class ConnectionLease {
   readonly #serialized: boolean;
   #queue: Promise<void> = Promise.resolve();
+  #pending = 0;
   #invalid = false;
 
   constructor(serialized: boolean) {
@@ -26,8 +27,7 @@ export class ConnectionLease {
     this.#assertUsable();
     if (!this.#serialized) return operation();
     const previous = this.#queue;
-    let release!: () => void;
-    this.#queue = new Promise<void>(resolve => { release = resolve; });
+    const release = this.#reserve();
     try {
       await previous;
       this.#assertUsable();
@@ -35,6 +35,24 @@ export class ConnectionLease {
     } finally {
       release();
     }
+  }
+
+  /** A held session takes the exclusive lease only when every earlier operation has finished. */
+  tryEnter(): (() => void) | undefined {
+    this.#assertUsable();
+    if (!this.#serialized) return () => {};
+    if (this.#pending) return undefined;
+    return this.#reserve();
+  }
+
+  #reserve(): () => void {
+    this.#pending++;
+    let done!: () => void;
+    this.#queue = new Promise<void>(resolve => { done = resolve; });
+    return () => {
+      this.#pending--;
+      done();
+    };
   }
 
   #assertUsable(): void {

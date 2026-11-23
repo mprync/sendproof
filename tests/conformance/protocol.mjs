@@ -11,7 +11,7 @@ const viewerEmail = 'viewer@example.test';
 const fixtureTitle = 'Sendproof Conformance';
 const readItem = (request, id, cookie) => request(base + '/items/' + id, { cookie });
 
-async function status(response, expected) {
+export async function status(response, expected) {
   const allowed = [expected].flat();
   if (!allowed.includes(response.status)) {
     assert.fail(`Expected HTTP ${allowed.join(' or ')}, got ${response.status} from ${response.url}\n${(await response.text()).slice(0, 1000)}`);
@@ -44,7 +44,7 @@ async function noConfirmation(response, expected) {
   return content;
 }
 
-async function confirmed(response, schemas) {
+export async function confirmed(response, schemas) {
   await status(response, 200);
   assert.equal(response.headers.get('preference-applied'), 'tx=rollback');
   assert.match(response.headers.get('cache-control') ?? '', /\bno-store\b/);
@@ -382,6 +382,7 @@ export async function standard(t, request, schemas, binding, database) {
     }
     await status(await request(path, { cookie: admin }), 404);
   });
+  return { capabilities, admin, viewer };
 }
 
 export async function alternates(t, binding, schemas) {

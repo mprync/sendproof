@@ -7,6 +7,9 @@ module Sendproof
   # A store runs in one of two modes. +:preview+ stores join the Preview: their writes run in a
   # transaction the hook aborts after the handler. +:guard+ stores can't roll back: reads run and
   # the first write blocks the Preview before any byte of it reaches the store.
+  #
+  # For held sessions, a +:preview+ store implements +begin_held_preview(context)+ and returns a
+  # part with +begin_step(step, recorder)+, +capture_step(recorder)+, +rewind(step)+ and +close+.
   class DataStore
     # @return [String] the store id: +"mongodb"+, +"redis"+ or +"dynamodb"+
     def system

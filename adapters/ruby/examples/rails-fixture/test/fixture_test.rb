@@ -85,6 +85,31 @@ class FixtureTest < Minitest::Test
     assert_empty durable_ids
   end
 
+  def test_failed_session_step_is_undone_and_transaction_control_closes_the_session
+    sign_in
+    post "/sendproof/_api/sessions"
+    assert_equal 201, last_response.status, last_response.body
+    session = json.fetch("id")
+    headers = ROLLBACK.merge("HTTP_SENDPROOF_SESSION" => session)
+    path = "/sendproof/_preview/items/x"
+
+    post "#{path}/fail?mode=raise", "{}", headers
+    assert_equal 500, last_response.status, last_response.body
+    get path, {}, headers
+    assert_equal 200, last_response.status, last_response.body
+    assert_equal 404, json.fetch("status")
+    assert_equal 1, json.dig("session", "step")
+
+    post "#{path}/commit", JSON.generate(name: "Escaped"), headers
+    assert_equal 500, last_response.status, last_response.body
+    get path, {}, headers
+    assert_equal 404, last_response.status, last_response.body
+    assert_equal "session_not_found", json.fetch("code")
+    assert_empty durable_ids
+  ensure
+    delete "/sendproof/_api/sessions/#{session}" if session
+  end
+
   def test_discovery_names_the_binding_and_the_sql_system
     get "/sendproof/_api/capabilities"
     assert_equal({ "language" => "ruby", "framework" => "Rails" }, json["binding"])

@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.mongodb;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoNamespace;
 import com.mongodb.event.CommandFailedEvent;
 import com.mongodb.event.CommandListener;
 import com.mongodb.event.CommandStartedEvent;
@@ -137,23 +138,34 @@ final class MongoEngine {
                            String statement, long startedNanos, BsonDocument command) {
     }
 
-    /** The state of one {@code preview}-mode Preview. */
-    final class PreviewState {
+    /** The driver transaction shared by all steps of a held Preview. */
+    static final class Transaction {
         final Object session;
-        /** The handler's session: the only one handler code can reach. */
-        final Object guarded;
-        /** The session guarded handles hand to the driver in place of the handler's; never given to handler code. */
-        Object driver;
         final String lsid;
-        /** Set once a write carried the session to the server. */
-        volatile boolean used;
-        /**
-         * Set once any command carried the session to the server: from then on the server may hold the transaction, and
-         * its locks, until an abort reaches it.
-         */
+        final boolean held;
         volatile boolean sent;
-        /** Set when the server answered the abort: acknowledged it, or said the transaction no longer exists. */
         volatile boolean abortAcknowledged;
+        volatile boolean finished;
+        volatile MongoNamespace probe;
+        volatile Throwable serverEnded;
+        volatile Throwable unsafe;
+        volatile PreviewState step;
+
+        Transaction(Object session, String lsid, boolean held) {
+            this.session = session;
+            this.lsid = lsid;
+            this.held = held;
+        }
+    }
+
+    /** The state of one request enrolled in a transaction. */
+    final class PreviewState {
+        final Transaction transaction;
+        final RequestCapture capture;
+        final MongoHeldPreview.Turn held;
+        final Object guarded;
+        final Object driver;
+        volatile boolean used;
         volatile boolean finished;
         final Map<String, Candidate> candidates = new LinkedHashMap<>();
         final List<Filter> filters = new ArrayList<>();
@@ -165,15 +177,17 @@ final class MongoEngine {
         volatile BsonValue startTime;
         volatile ScheduledFuture<?> timer;
         final SessionBinder binder;
-        /** Closed before the abort, so the handler's session refuses every later call. */
-        final PreviewSessions.Gate gate;
+        final PreviewSessions.Gate gate = new PreviewSessions.Gate();
 
-        PreviewState(Object session, Object guarded, String lsid, SessionBinder binder, PreviewSessions.Gate gate) {
-            this.session = session;
-            this.guarded = guarded;
-            this.lsid = lsid;
+        PreviewState(Transaction transaction, RequestCapture capture, SessionBinder binder, MongoHeldPreview.Turn held) {
+            this.transaction = transaction;
+            this.capture = capture;
             this.binder = binder;
-            this.gate = gate;
+            this.held = held;
+            Object originator = ((com.mongodb.session.ClientSession) transaction.session).getOriginator();
+            Object guardedOriginator = originator == null ? null : new GuardedMongo(MongoEngine.this).wrap(originator);
+            this.guarded = PreviewSessions.create(backend, transaction.session, capture, gate, () -> guardedOriginator);
+            this.driver = PreviewSessions.create(backend, transaction.session, capture, gate, null);
         }
 
         /** The driver session the handler sees: it joins the Preview transaction and refuses to end it. */
@@ -186,10 +200,6 @@ final class MongoEngine {
             return driver;
         }
 
-        /** The real driver session, used only by the engine. */
-        Object realSession() {
-            return session;
-        }
     }
 
     private final MongoBackend backend;
@@ -203,9 +213,9 @@ final class MongoEngine {
     private final Map<RequestCapture, PreviewState> states = Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Integer, Pending> pending = new ConcurrentHashMap<>();
     /** Each Preview whose session is still open, by the hex of its {@code lsid}. */
-    private final Map<String, PreviewState> byLsid = new ConcurrentHashMap<>();
+    private final Map<String, Transaction> byLsid = new ConcurrentHashMap<>();
     /** The Preview of each {@code abortTransaction} sent and not yet answered, by request id. */
-    private final Map<Integer, PreviewState> aborts = new ConcurrentHashMap<>();
+    private final Map<Integer, Transaction> aborts = new ConcurrentHashMap<>();
     private volatile DataStore.Description detected;
     private volatile Mode mode;
     private final String name;
@@ -330,52 +340,79 @@ final class MongoEngine {
         if (detectedMode != Mode.PREVIEW) {
             return null;
         }
-        Object real = internal(backend::startTransaction);
+        Transaction transaction = startTransaction(false);
         PreviewState state;
         try {
-            String lsid = backend.lsid(real);
-            var gate = new PreviewSessions.Gate();
-            Object originator = ((com.mongodb.session.ClientSession) real).getOriginator();
-            Object[] guardedOriginator = new Object[1];
-            Object guarded = PreviewSessions.create(backend, real, capture, gate, () -> {
-                synchronized (guardedOriginator) {
-                    if (guardedOriginator[0] == null && originator != null) {
-                        guardedOriginator[0] = new GuardedMongo(this).wrap(originator);
-                    }
-                    return guardedOriginator[0];
-                }
-            });
-            state = new PreviewState(real, guarded, lsid, binder, gate);
-            state.driver = PreviewSessions.create(backend, real, capture, gate, null);
+            state = enroll(transaction, capture, binder, null);
         } catch (RuntimeException failure) {
-            internal(() -> {
-                backend.abort(real);
-                backend.end(real);
-                return null;
-            });
+            end(transaction);
             throw failure;
         }
-        states.put(capture, state);
-        byLsid.put(state.lsid, state);
         // A handler still running at the limit loses its transaction: later commands fail, nothing commits, and the
         // Preview answers 500 when it ends.
         state.timer = TIMERS.schedule(() -> {
             capture.refuse(new PreviewTransactionControlException(
                     "The Preview ran longer than " + timeoutMs + " ms, so its MongoDB transaction was aborted."));
-            end(state);
+            endOrdinary(state);
         }, timeoutMs, TimeUnit.MILLISECONDS);
-        try {
-            binder.bind(guarded(state));
-        } catch (RuntimeException failure) {
-            states.remove(capture);
-            end(state);
-            throw failure;
-        }
         return state;
     }
 
-    private Object guarded(PreviewState state) {
-        return state.guarded;
+    private Transaction startTransaction(boolean held) {
+        Object session = internal(backend::startTransaction);
+        try {
+            var transaction = new Transaction(session, backend.lsid(session), held);
+            byLsid.put(transaction.lsid, transaction);
+            return transaction;
+        } catch (RuntimeException failure) {
+            internal(() -> {
+                backend.abort(session);
+                backend.end(session);
+                return null;
+            });
+            throw failure;
+        }
+    }
+
+    MongoHeldPreview hold(SessionBinder binder) {
+        DataStore.Description description = detect();
+        if (UNREACHABLE_REASON.equals(description.reason())) {
+            throw new IllegalStateException(description.reason());
+        }
+        return "preview".equals(description.mode()) ? new MongoHeldPreview(this, startTransaction(true), binder) : null;
+    }
+
+    PreviewState enroll(Transaction transaction, RequestCapture capture, SessionBinder binder, MongoHeldPreview.Turn held) {
+        var state = new PreviewState(transaction, capture, binder, held);
+        modes.put(capture, Mode.PREVIEW);
+        states.put(capture, state);
+        transaction.step = state;
+        try {
+            binder.bind(state.guardedSession());
+            return state;
+        } catch (RuntimeException failure) {
+            seal(state);
+            modes.put(capture, Mode.GUARD);
+            states.remove(capture);
+            transaction.step = null;
+            throw failure;
+        }
+    }
+
+    void seal(PreviewState state) {
+        state.finished = true;
+        state.gate.close();
+    }
+
+    void unbind(PreviewState state) {
+        try {
+            seal(state);
+            state.binder.unbind();
+        } finally {
+            modes.put(state.capture, Mode.GUARD);
+            states.remove(state.capture);
+            state.transaction.step = null;
+        }
     }
 
     /**
@@ -383,24 +420,29 @@ final class MongoEngine {
      * {@code preview} mode only what MongoDB can't run inside a transaction does. A write on the admin, config or local
      * database runs outside the transaction, so it blocks too.
      */
-    void check(Map<?, ?> command, String operation, String database) {
+    CommandKind check(Map<?, ?> command, String operation, String database) {
         RequestCapture capture = StoreGuard.currentPreview();
+        var classified = StoreClassifier.mongo(command, reads);
         if (capture == null) {
-            return;
+            return classified.kind();
         }
         if (endsTransaction(operation.toLowerCase(Locale.ROOT))) {
             throw StoreGuard.refuseInPreview("Preview owns the MongoDB transaction, so the handler's " + operation
                     + " cannot run during Preview.");
         }
-        var classified = StoreClassifier.mongo(command, reads);
         if (modeOf(capture) == Mode.PREVIEW && !systemDatabase(database)) {
+            PreviewState state = states.get(capture);
+            if (state == null || state.finished) {
+                throw StoreGuard.refuseInPreview("The Preview's MongoDB step has ended.");
+            }
             if (classified.refusedInTransaction() != null) {
                 StoreGuard.guard("mongodb", operation, CommandKind.WRITE,
                         StoreGuard.refusedReason(classified.refusedInTransaction()));
             }
-            return;
+            return classified.kind();
         }
         StoreGuard.guard("mongodb", operation, classified.kind(), null);
+        return classified.kind();
     }
 
     /** Commands on these databases can't join a transaction. */
@@ -471,12 +513,17 @@ final class MongoEngine {
             }
             // Before the internal check: the engine sends the abort itself.
             String sessionId = byLsid.isEmpty() ? null : lsidOf(event.getCommand());
-            PreviewState own = sessionId == null ? null : byLsid.get(sessionId);
+            Transaction own = sessionId == null ? null : byLsid.get(sessionId);
             if (own != null) {
                 if (event.getCommandName().equals("abortTransaction")) {
                     aborts.put(event.getRequestId(), own);
                 } else {
                     own.sent = true;
+                    BsonValue target = event.getCommand().get(event.getCommandName());
+                    if (own.held && own.probe == null && !systemDatabase(event.getDatabaseName())
+                            && target instanceof BsonString collection) {
+                        own.probe = new MongoNamespace(event.getDatabaseName(), collection.getValue());
+                    }
                 }
             }
             if (internalEvent(event.getRequestContext())) {
@@ -490,6 +537,15 @@ final class MongoEngine {
             CommandKind kind = StoreClassifier.mongo(command, reads).kind();
             RequestCapture capture = captureOf(event.getRequestContext());
             RequestCapture preview = capture != null && capture.inPreviewScope() ? capture : null;
+            if (own != null && own.held && (kind == CommandKind.WRITE || endsTransaction(lower))) {
+                PreviewState step = own.step;
+                if (endsTransaction(lower) || step == null || step.finished) {
+                    own.unsafe = new PreviewTransactionControlException("A MongoDB " + commandName
+                            + " reached the server outside the Preview's control.");
+                } else if (preview == null && capture == null) {
+                    preview = step.capture;
+                }
+            }
             if (preview != null && endsTransaction(lower)) {
                 // Sent around the hook, for example through a raw client the guard never saw: it may have committed the
                 // Preview transaction, so the Preview can never be confirmed.
@@ -538,7 +594,7 @@ final class MongoEngine {
             open = new ArrayList<>(states.entrySet());
         }
         for (Map.Entry<RequestCapture, PreviewState> entry : open) {
-            if (entry.getValue().lsid.equals(lsid)) {
+            if (entry.getValue().transaction.lsid.equals(lsid)) {
                 watchWrite(entry.getKey(), command, namespace, lower, original);
                 return;
             }
@@ -557,12 +613,16 @@ final class MongoEngine {
         PreviewState state = states.get(preview);
         String lsid = lsidOf(command);
         // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
-        if (state == null || state.finished || !state.lsid.equals(lsid)
+        if (state == null || state.finished || !state.transaction.lsid.equals(lsid)
                 || !(command.containsKey("autocommit") && command.get("autocommit").isBoolean()
                 && !command.getBoolean("autocommit").getValue())) {
             // The hook couldn't stop it and nothing can undo it: never claim a rollback.
             preview.refuse(new PreviewTransactionControlException("A MongoDB " + original
                     + " escaped the Preview session; the Preview can't be confirmed."));
+            return;
+        }
+        if (state.held != null) {
+            state.held.observeWrite(preview, command, namespace, name);
             return;
         }
         state.used = true;
@@ -649,7 +709,7 @@ final class MongoEngine {
     }
 
     private void succeeded(CommandSucceededEvent event) {
-        PreviewState aborted = aborts.remove(event.getRequestId());
+        Transaction aborted = aborts.remove(event.getRequestId());
         if (aborted != null) {
             aborted.abortAcknowledged = true;
         }
@@ -661,11 +721,11 @@ final class MongoEngine {
             BsonDocument reply = event.getResponse() == null ? new BsonDocument() : event.getResponse();
             PreviewState state = taken.preview() == null ? null : states.get(taken.preview());
             // The first reply in the transaction carries its snapshot time (the read timestamp).
-            if (state != null && state.startTime == null && reply.containsKey("operationTime")
-                    && state.lsid.equals(lsidOf(taken.command()))) {
+            if (state != null && state.held == null && state.startTime == null && reply.containsKey("operationTime")
+                    && state.transaction.lsid.equals(lsidOf(taken.command()))) {
                 state.startTime = reply.get("operationTime");
             }
-            if (state != null && taken.target() != null) {
+            if (state != null && state.held == null && taken.target() != null) {
                 synchronized (state) {
                     // Upserted ids appear only in the reply.
                     if (reply.containsKey("upserted") && reply.get("upserted").isArray()) {
@@ -701,11 +761,10 @@ final class MongoEngine {
     }
 
     private void failed(CommandFailedEvent event) {
-        PreviewState aborted = aborts.remove(event.getRequestId());
+        Transaction aborted = aborts.remove(event.getRequestId());
         // NoSuchTransaction: the server has no such transaction, so nothing holds its locks. A network error proves
         // nothing reached the server, and any other answer leaves the transaction in doubt.
-        if (aborted != null && event.getThrowable() instanceof MongoCommandException command
-                && command.getErrorCode() == NO_SUCH_TRANSACTION) {
+        if (aborted != null && transactionEnded(event.getThrowable())) {
             aborted.abortAcknowledged = true;
         }
         Pending taken = pending.remove(event.getRequestId());
@@ -713,6 +772,11 @@ final class MongoEngine {
             return;
         }
         Throwable failure = event.getThrowable();
+        String lsid = lsidOf(taken.command());
+        Transaction transaction = lsid == null ? null : byLsid.get(lsid);
+        if (transaction != null && transaction.held && transactionEnded(failure)) {
+            transaction.serverEnded = failure;
+        }
         String code = failure instanceof MongoCommandException command ? command.getErrorCodeName()
                 : failure == null ? "Error" : failure.getClass().getSimpleName();
         // The server refused something a transaction can't do and applied nothing: a block, not a crash.
@@ -721,6 +785,11 @@ final class MongoEngine {
             taken.preview().block(new BlockedWrite("mongodb", taken.name(), StoreGuard.refusedReason(taken.name())));
         }
         log(taken, event.getElapsedTime(TimeUnit.NANOSECONDS), null, code == null || code.isEmpty() ? "Error" : code);
+    }
+
+    static boolean transactionEnded(Throwable failure) {
+        return failure instanceof MongoCommandException command && (command.getErrorCode() == NO_SUCH_TRANSACTION
+                || "TransactionExceededLifetimeLimitSeconds".equals(command.getErrorCodeName()));
     }
 
     private void log(Pending taken, long elapsedNanos, Integer rows, String error) {
@@ -763,7 +832,7 @@ final class MongoEngine {
                 failure = error;
             }
         } finally {
-            ended = end(state);
+            ended = endOrdinary(state);
         }
         if (failure != null) {
             throw failure;
@@ -777,11 +846,20 @@ final class MongoEngine {
 
     /** Releases the Preview's session binding once the Preview is over. */
     void release(RequestCapture capture) {
-        PreviewState state = states.remove(capture);
+        PreviewState state = states.get(capture);
         if (state != null) {
-            end(state);
-            state.binder.unbind();
+            endOrdinary(state);
+            unbind(state);
         }
+    }
+
+    private boolean endOrdinary(PreviewState state) {
+        seal(state);
+        ScheduledFuture<?> timer = state.timer;
+        if (timer != null) {
+            timer.cancel(false);
+        }
+        return end(state.transaction);
     }
 
     /**
@@ -793,36 +871,30 @@ final class MongoEngine {
      * session and the server didn't answer the abort, this returns {@code false} at once (the Preview answers 500) and
      * kills the session in the background.
      */
-    private boolean end(PreviewState state) {
-        synchronized (state) {
-            if (state.finished) {
+    boolean end(Transaction transaction) {
+        synchronized (transaction) {
+            if (transaction.finished) {
                 return true;
             }
-            state.finished = true;
-        }
-        // From here the handler's session refuses every call, so nothing it sends can run outside the aborted transaction.
-        state.gate.close();
-        ScheduledFuture<?> timer = state.timer;
-        if (timer != null) {
-            timer.cancel(false);
+            transaction.finished = true;
         }
         boolean lost = internal(() -> {
-            backend.abort(state.session);
-            return state.sent && !state.abortAcknowledged;
+            backend.abort(transaction.session);
+            return transaction.sent && !transaction.abortAcknowledged && transaction.serverEnded == null;
         });
         if (!lost) {
-            close(state);
+            close(transaction);
             return true;
         }
-        KILLERS.execute(() -> kill(state));
+        KILLERS.execute(() -> kill(transaction));
         return false;
     }
 
     /** Ends the session, after which the driver may hand its id to another operation. */
-    private void close(PreviewState state) {
-        byLsid.remove(state.lsid, state);
+    private void close(Transaction transaction) {
+        byLsid.remove(transaction.lsid, transaction);
         internal(() -> {
-            backend.end(state.session);
+            backend.end(transaction.session);
             return null;
         });
     }
@@ -833,10 +905,10 @@ final class MongoEngine {
      * the server ends the transaction at its lifetime limit. The session stays open until then, so the driver can't hand
      * its id to another operation meanwhile.
      */
-    private void kill(PreviewState state) {
+    private void kill(Transaction transaction) {
         String failure;
         try {
-            var session = ((com.mongodb.session.ClientSession) state.session).getServerSession();
+            var session = ((com.mongodb.session.ClientSession) transaction.session).getServerSession();
             // The id may still name a transaction on the server: never let the driver's pool reuse it.
             session.markDirty();
             failure = killSession(session.getIdentifier());
@@ -846,11 +918,11 @@ final class MongoEngine {
         } catch (RuntimeException refused) {
             failure = refused.getMessage();
         } finally {
-            close(state);
+            close(transaction);
         }
         if (failure != null) {
             LOG.warn("Couldn't end the transaction of MongoDB Preview session {} ({}); the server ends it, and releases its "
-                    + "locks, at transactionLifetimeLimitSeconds.", state.lsid, failure);
+                    + "locks, at transactionLifetimeLimitSeconds.", transaction.lsid, failure);
         }
     }
 
@@ -929,7 +1001,7 @@ final class MongoEngine {
         BsonDocument projection = new BsonDocument("_id", new BsonInt32(1));
         for (Filter filter : filters) {
             var documents = new ArrayList<>(backend.find(filter.namespace(), filter.collection(), filter.filter(),
-                    projection, CANDIDATE_LIMIT, state.session));
+                    projection, CANDIDATE_LIMIT, state.transaction.session));
             documents.addAll(atStart(state, filter.namespace(), filter.collection(), filter.filter(), projection));
             for (BsonDocument document : documents) {
                 synchronized (state) {
@@ -953,7 +1025,7 @@ final class MongoEngine {
             BsonDocument byId = new BsonDocument("_id", candidate.id());
             List<BsonDocument> beforeDocuments = atStart(state, candidate.namespace(), candidate.collection(), byId, null);
             List<BsonDocument> afterDocuments = backend.find(candidate.namespace(), candidate.collection(), byId, null, 1,
-                    state.session);
+                    state.transaction.session);
             JsonNode was = beforeDocuments.isEmpty() ? null : BsonPlain.plain(beforeDocuments.get(0));
             JsonNode now = afterDocuments.isEmpty() ? null : BsonPlain.plain(afterDocuments.get(0));
             if (java.util.Objects.equals(was, now)) {

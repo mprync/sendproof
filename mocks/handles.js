@@ -5,6 +5,8 @@
 if (/[?&]v6=/.test(location.search)) document.write('<script src="v6-icons.js"><\/script><script src="v6-stores.js"><\/script>');
 // v7 (?v7=1, on top of v6): journeys. Written in the same way, so nothing changes without it.
 if (/[?&]v7=/.test(location.search)) document.write('<script src="v7-journeys.js"><\/script>');
+// v8 (?v8=1, on top of v7): the workbench's own dialogs, which replace every native browser dialog.
+if (/[?&]v8=/.test(location.search)) document.write('<script src="v8-dialogs.js"><\/script>');
 (function () {
   const ws = document.querySelector('.workspace');
   if (!ws || innerWidth <= 896) return;

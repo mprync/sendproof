@@ -3,10 +3,12 @@ package io.github.mprync.sendproof.spring;
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
 import io.github.mprync.sendproof.core.DataStore;
+import io.github.mprync.sendproof.core.JourneyFiles;
 import io.github.mprync.sendproof.core.LocalUrl;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Path;
 import java.util.Objects;
 
 /**
@@ -70,6 +72,7 @@ public final class Sendproof {
     private final WorkbenchIdentityResolver identity;
     private final TraceOwnerResolver traceOwner;
     private final List<DataStore> dataStores;
+    private final JourneyFiles journeys;
 
     private Sendproof(Builder builder) {
         this.apiName = builder.apiName;
@@ -83,6 +86,7 @@ public final class Sendproof {
         this.identity = builder.identity;
         this.traceOwner = builder.traceOwner;
         this.dataStores = List.copyOf(builder.dataStores);
+        this.journeys = builder.journeys.snapshot();
     }
 
     /** Starts a new configuration. */
@@ -134,6 +138,10 @@ public final class Sendproof {
         return dataStores;
     }
 
+    JourneyFiles journeys() {
+        return journeys;
+    }
+
     /** Fluent builder for {@link Sendproof}. URLs are application-relative and are validated immediately. */
     public static final class Builder {
         private String apiName;
@@ -147,6 +155,7 @@ public final class Sendproof {
         private WorkbenchIdentityResolver identity;
         private TraceOwnerResolver traceOwner;
         private final List<DataStore> dataStores = new ArrayList<>();
+        private final JourneyFiles journeys = new JourneyFiles();
 
         private Builder() {
         }
@@ -235,6 +244,18 @@ public final class Sendproof {
         }
 
         /** Builds the configuration. */
+        /** Registers an Arazzo resource and its adjacent {@code .expect.json} file from the application classpath. */
+        public Builder journey(String classpathResource) {
+            journeys.registerResource(classpathResource, org.springframework.util.ClassUtils.getDefaultClassLoader());
+            return this;
+        }
+
+        /** Registers an Arazzo file and its adjacent {@code .expect.json} file from the filesystem. */
+        public Builder journey(Path file) {
+            journeys.register(file);
+            return this;
+        }
+
         public Sendproof build() {
             return new Sendproof(this);
         }

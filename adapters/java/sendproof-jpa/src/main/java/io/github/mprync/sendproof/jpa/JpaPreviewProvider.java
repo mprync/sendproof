@@ -1,15 +1,22 @@
 package io.github.mprync.sendproof.jpa;
 
+import io.github.mprync.sendproof.core.HeldPreview;
 import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
+import io.github.mprync.sendproof.core.PreviewSavepoint;
 import io.github.mprync.sendproof.core.PreviewSession;
 import io.github.mprync.sendproof.core.PreviewTurns;
 import io.github.mprync.sendproof.core.TransactionControl;
 import jakarta.persistence.EntityManagerFactory;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.support.JdbcTransactionManager;
+import org.springframework.orm.jpa.EntityManagerFactoryInfo;
 import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.vendor.HibernateJpaDialect;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 
@@ -27,6 +34,8 @@ public final class JpaPreviewProvider implements PreviewProvider {
     private final EntityManagerFactory entityManagerFactory;
     private final Supplier<String> database;
     private final Supplier<String> system;
+    private final CaptureDataSource heldDataSource;
+    private final Supplier<String> heldSystem;
     private final PreviewTurns turns = new PreviewTurns();
     private volatile Set<String> safeProcedures = Set.of();
 
@@ -56,6 +65,8 @@ public final class JpaPreviewProvider implements PreviewProvider {
                 : transactions instanceof JpaTransactionManager jpa ? jpa.getEntityManagerFactory() : null;
         this.database = database;
         this.system = system;
+        this.heldDataSource = heldDataSource();
+        this.heldSystem = DatabaseLabel.lazySystem(heldDataSource);
         if (transactions instanceof AbstractPlatformTransactionManager manager) {
             manager.addListener(new PreviewTransactionGuard());
         }
@@ -99,7 +110,7 @@ public final class JpaPreviewProvider implements PreviewProvider {
      */
     @Override
     public PreviewSession begin() {
-        String id = system.get();
+        String id = heldDatabaseSystem();
         if (!PreviewTurns.needed(id)) {
             return new JpaPreviewSession(transactions, entityManagerFactory, id, safeProcedures);
         }
@@ -115,5 +126,55 @@ public final class JpaPreviewProvider implements PreviewProvider {
     @Override
     public PreviewObservation beginObservation() {
         return new JpaObservation();
+    }
+
+    private CaptureDataSource heldDataSource() {
+        if (transactions == null || !(JpaPreviewSession.transactionDataSource(transactions) instanceof CaptureDataSource source)
+                || !source.canPin()) {
+            return null;
+        }
+        Class<?> manager = transactions.getClass();
+        if (manager == JpaTransactionManager.class) {
+            var jpa = (JpaTransactionManager) transactions;
+            return jpa.getJpaDialect() instanceof HibernateJpaDialect
+                    && entityManagerFactory == jpa.getEntityManagerFactory()
+                    && entityManagerFactory instanceof EntityManagerFactoryInfo info && info.getDataSource() == source
+                    ? source : null;
+        }
+        return entityManagerFactory == null
+                && (manager == DataSourceTransactionManager.class || manager == JdbcTransactionManager.class)
+                ? source : null;
+    }
+
+    private String heldDatabaseSystem() {
+        String configured = system.get();
+        return configured != null ? configured : heldSystem.get();
+    }
+
+    @Override
+    public boolean supportsHeldPreview() {
+        return heldDataSource != null && PreviewSavepoint.supportsHeld(heldDatabaseSystem());
+    }
+
+    @Override
+    public HeldPreview beginHeld() throws Exception {
+        if (!supportsHeldPreview()) {
+            throw new UnsupportedOperationException("The Spring transaction manager or DataSource cannot hold a Preview.");
+        }
+        String id = heldDatabaseSystem();
+        boolean takesTurn = PreviewTurns.needed(id) || "sqlite".equals(id);
+        if (takesTurn && !turns.tryAcquire()) {
+            throw new HeldPreview.StoreBusy(id);
+        }
+        Runnable release = takesTurn ? turns::release : () -> { };
+        try {
+            return new JpaHeldPreview(transactions, entityManagerFactory, heldDataSource, id, safeProcedures, release);
+        } catch (Exception | Error failure) {
+            release.run();
+            if (failure instanceof SQLException sql && PreviewSavepoint.isStoreBusy(id, sql)) {
+                throw new HeldPreview.StoreBusy(id);
+            }
+            throw failure;
+        }
     }
 }

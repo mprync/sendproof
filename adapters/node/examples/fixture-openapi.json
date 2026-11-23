@@ -10,7 +10,7 @@
     },
     "/items/{id}": {
       "parameters": [{ "$ref": "#/components/parameters/Id" }],
-      "get": { "responses": { "200": { "$ref": "#/components/responses/Item" }, "404": { "description": "Unknown item" } } },
+      "get": { "operationId": "getItem", "responses": { "200": { "$ref": "#/components/responses/Item" }, "404": { "description": "Unknown item" } } },
       "patch": {
         "parameters": [{ "name": "tag", "in": "query", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } } } } },

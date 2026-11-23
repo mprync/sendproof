@@ -37,6 +37,15 @@ public interface PreviewProvider {
      */
     PreviewSession begin() throws Exception;
 
+    /** Whether this provider can hold its transaction across requests. */
+    default boolean supportsHeldPreview() {
+        return false;
+    }
+
+    default HeldPreview beginHeld() throws Exception {
+        throw new UnsupportedOperationException("This Preview provider cannot hold transactions.");
+    }
+
     /**
      * Starts capturing row changes for an ordinary send without managing its transaction.
      *

@@ -14,9 +14,12 @@ module Sendproof
       @app = app
       @config = config || Configuration.new(**options)
       @config.validate!
-      @workbench = Workbench.new(@config)
-      @preview = PreviewTransport.new(app, @config)
+      @sessions = PreviewSessions.new(@config)
+      @workbench = Workbench.new(@config, @sessions)
+      @preview = PreviewTransport.new(app, @config, @sessions)
     end
+
+    def close = @sessions.shutdown
 
     def call(env)
       return @app.call(env) unless @config.enabled?

@@ -7,6 +7,8 @@ import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.PreviewExecution;
 import io.github.mprync.sendproof.core.PreviewOutcome;
+import io.github.mprync.sendproof.core.PreviewSessions;
+import io.github.mprync.sendproof.core.TraceOwner;
 import java.util.List;
 import java.util.Map;
 
@@ -41,12 +43,20 @@ final class Harness {
 
     /** Runs {@code handler} as a Preview with the given stores and returns what the adapter would send. */
     static PreviewOutcome preview(Handler handler, DataStore... stores) throws Exception {
+        return preview(null, null, null, handler, stores);
+    }
+
+    static PreviewOutcome preview(PreviewSessions sessions, String id, TraceOwner owner, Handler handler,
+                                  DataStore... stores) throws Exception {
         var execution = new PreviewExecution(System.nanoTime());
         Throwable failure = null;
         PreviewOutcome outcome;
         try (var ignored = CaptureContext.enter(execution.capture())) {
-            execution.begin(null, List.of(stores));
             try {
+                if (sessions != null) {
+                    execution.join(sessions, id, owner);
+                }
+                execution.begin(null, List.of(stores));
                 handler.run();
                 execution.markCompleted();
             } catch (Throwable error) {

@@ -14,7 +14,7 @@ use axum::{Router, body::Body, extract::Request, response::Response};
 use futures_util::FutureExt;
 use http::{HeaderName, HeaderValue, StatusCode, header};
 use http_body_util::{BodyExt, Limited};
-use sendproof_core::{Config, Core, Failure, Headers, Inner, Ordinary, PreviewRequired, PreviewState, Reply, Route, capture, limits};
+use sendproof_core::{Config, Core, Failure, Headers, Inner, Ordinary, PreviewRequired, Reply, Route, capture, limits};
 use tower::ServiceExt;
 
 /// Sendproof for one Axum application. Cheap to clone.
@@ -32,6 +32,11 @@ impl Sendproof {
     /// The configuration.
     pub fn config(&self) -> &Config {
         self.core.config()
+    }
+
+    /// Rolls back held Preview sessions after the HTTP server finishes graceful shutdown.
+    pub async fn shutdown_sessions(&self) {
+        self.core.shutdown_sessions().await;
     }
 
     /// Wraps the finished application. Serve the returned router.
@@ -96,6 +101,18 @@ impl BenchService {
                 let headers = Headers::from(request.headers());
                 respond(self.bench.core.workbench(request.method().as_str(), &rest, request.uri().query(), &headers).await)
             }
+            Route::Session { tail } => {
+                let tail = tail.to_owned();
+                let (parts, body) = request.into_parts();
+                let method = parts.method.as_str();
+                let headers = Headers::from(&parts.headers);
+                let body = if method == "POST" && tail.ends_with("/rewind") {
+                    axum::body::to_bytes(body, limits::REWIND_BODY_BYTES).await.unwrap_or_default()
+                } else {
+                    Default::default()
+                };
+                respond(self.bench.core.session_request(method, &tail, &headers, &body).await)
+            }
             Route::Ordinary => self.ordinary(request).await,
         }
     }
@@ -118,10 +135,11 @@ impl BenchService {
     async fn preview(&self, mut request: Request, target: String) -> Response {
         let core = &self.bench.core;
         let started = Instant::now();
-        let rewritten = match core.check_preview(request.method().as_str(), &Headers::from(request.headers()), &target).await {
-            Ok(path) => path,
-            Err(reply) => return respond(reply),
-        };
+        let (rewritten, state) =
+            match core.prepare_preview(request.method().as_str(), &Headers::from(request.headers()), &target, started).await {
+                Ok(prepared) => prepared,
+                Err(reply) => return respond(reply),
+            };
         let path_and_query = match request.uri().query() {
             Some(query) => format!("{rewritten}?{query}"),
             None => rewritten,
@@ -134,7 +152,6 @@ impl BenchService {
         headers.remove(header::ACCEPT_ENCODING);
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache, no-store"));
 
-        let state = PreviewState::new(core, started);
         request.extensions_mut().insert(state.clone());
         request.extensions_mut().insert(PreviewRequired { rollback: true });
 

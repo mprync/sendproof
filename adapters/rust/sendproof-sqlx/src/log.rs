@@ -57,8 +57,8 @@ impl ChangeLog {
     }
 
     pub(crate) fn take(&self) -> Changes {
-        let mut inner = self.lock();
-        Changes { changes: std::mem::take(&mut inner.changes), truncated: inner.truncated }
+        let inner = std::mem::take(&mut *self.lock());
+        Changes { changes: inner.changes, truncated: inner.truncated }
     }
 }
 

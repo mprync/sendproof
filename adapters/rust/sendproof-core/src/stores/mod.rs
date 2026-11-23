@@ -30,4 +30,5 @@ pub use guard::{
 };
 pub use open::OpenPreviews;
 pub use search::{classify_search, sanitize_search_body, search_needs_body, search_target};
+pub(crate) use store::HeldGuard;
 pub use store::{DataStore, StoreDescription, StoreMode};

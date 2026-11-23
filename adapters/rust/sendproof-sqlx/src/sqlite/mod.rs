@@ -81,8 +81,8 @@ impl Driver for Sqlite {
         }
     }
 
-    fn run_raw<'a>(connection: &'a mut SqliteConnection, sql: &'static str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move { sqlx::raw_sql(sql).execute(connection).await.map(drop) })
+    fn run_raw<'a>(connection: &'a mut SqliteConnection, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
+        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(connection).await.map(drop) })
     }
 
     fn run<'a>(

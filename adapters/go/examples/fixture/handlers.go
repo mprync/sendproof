@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
@@ -52,6 +53,15 @@ func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) read(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("hold") == "true" {
+		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	found, ok, err := h.store.get(r.Context(), r.PathValue("id"))
 	switch {
 	case err != nil:

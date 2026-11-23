@@ -7,8 +7,10 @@ final class PreviewState {
     static final String ATTRIBUTE = PreviewState.class.getName();
 
     final PreviewExecution execution;
+    final String sessionId;
 
-    PreviewState(PreviewExecution execution) {
+    PreviewState(PreviewExecution execution, String sessionId) {
         this.execution = execution;
+        this.sessionId = sessionId;
     }
 }

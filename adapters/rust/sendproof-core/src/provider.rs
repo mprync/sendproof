@@ -48,11 +48,63 @@ pub trait PreviewProvider: Send + Sync + 'static {
     /// (the request's extensions). On failure release every partially acquired resource.
     fn begin_preview<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Box<dyn PreviewSession>, BoxError>>;
 
+    /// Whether this provider can hold a rollback transaction across requests.
+    fn supports_held_preview(&self) -> bool {
+        false
+    }
+
+    /// Acquires a rollback transaction for a Preview session.
+    fn begin_held_preview(&self) -> BoxFuture<'_, Result<Box<dyn HeldPreview>, OpenSessionError>> {
+        Box::pin(async { Err(OpenSessionError::Failed("the provider does not support Preview sessions".into())) })
+    }
+
     /// Begins observing a normal send that will commit. Returns `None` when this
     /// provider cannot observe changes.
     fn begin_observation<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Option<Box<dyn Observation>>, BoxError>> {
         let _ = extensions;
         Box::pin(async { Ok(None) })
+    }
+}
+
+/// Why a Preview session could not acquire a store.
+#[derive(Debug)]
+pub enum OpenSessionError {
+    Failed(BoxError),
+    /// The display name of a store held by another transaction.
+    Busy(String),
+}
+
+impl From<BoxError> for OpenSessionError {
+    fn from(error: BoxError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// Whether an unsuccessful step can be undone.
+#[derive(Debug)]
+pub enum HeldStepError {
+    Recoverable(BoxError),
+    Broken(BoxError),
+    Ended(BoxError),
+}
+
+/// One rollback-only transaction retained for a sequence of Previews.
+pub trait HeldPreview: Send {
+    /// Prepares a checkpoint and enrolls the step's request.
+    fn begin_step<'a>(&'a mut self, step: u32, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<(), BoxError>>;
+
+    /// Collects this step's changes and retains the checkpoint for rewinding.
+    fn keep_step(&mut self) -> BoxFuture<'_, Result<Changes, HeldStepError>>;
+
+    /// Undoes the given step and all later steps.
+    fn rewind(&mut self, step: u32) -> BoxFuture<'_, Result<(), BoxError>>;
+
+    /// Aborts the held transaction and releases its resources. Dropping the handle must also abort it.
+    fn end(self: Box<Self>) -> BoxFuture<'static, Result<(), BoxError>>;
+
+    /// Classifies a transaction lost while establishing or rewinding a checkpoint.
+    fn ended(&self, _error: &BoxError) -> bool {
+        false
     }
 }
 

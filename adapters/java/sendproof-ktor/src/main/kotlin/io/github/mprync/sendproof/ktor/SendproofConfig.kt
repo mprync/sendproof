@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.ktor
 
 import io.github.mprync.sendproof.core.Capabilities
 import io.github.mprync.sendproof.core.DataStore
+import io.github.mprync.sendproof.core.JourneyFiles
 import io.github.mprync.sendproof.core.PreviewProvider
 import io.github.mprync.sendproof.core.TraceOwner
 import io.github.mprync.sendproof.core.TraceStore
@@ -63,6 +64,18 @@ public class SendproofConfig {
      * ```
      */
     public val dataStores: MutableList<DataStore> = mutableListOf()
+
+    internal val journeys: JourneyFiles = JourneyFiles()
+
+    /** Registers an Arazzo resource and its adjacent `.expect.json` file from the application classpath. */
+    public fun journey(classpathResource: String) {
+        journeys.registerResource(classpathResource, Thread.currentThread().contextClassLoader ?: javaClass.classLoader)
+    }
+
+    /** Registers an Arazzo file and its adjacent `.expect.json` file from the filesystem. */
+    public fun journey(file: java.nio.file.Path) {
+        journeys.register(file)
+    }
 
     /** Resolves the identity shown in the workbench, or null for an anonymous caller. */
     public var identity: (ApplicationCall) -> Capabilities.Identity? = { null }

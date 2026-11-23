@@ -1,0 +1,6 @@
+<Project>
+  <!-- Lets the operations generator read <SendproofOperationsClass>, the name of the generated operations class. -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="SendproofOperationsClass" />
+  </ItemGroup>
+</Project>

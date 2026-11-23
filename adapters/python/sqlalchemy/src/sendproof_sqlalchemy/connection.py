@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 
 from sendproof_core import PreviewRollbackError, PreviewUnavailable
+from sendproof_core.sessions import StoreBusy
 
 #: Dialects with ANSI ``SAVEPOINT`` / ``RELEASE SAVEPOINT`` / ``ROLLBACK TO SAVEPOINT``.
 SUPPORTED_DIALECTS = frozenset({"sqlite", "postgresql", "mysql", "mariadb", "oracle"})
@@ -113,7 +114,7 @@ class RollbackOnlyConnection:
 class Hold:
     """The connection one engine contributes to a preview."""
 
-    def __init__(self, engine: Any, fairy: Any) -> None:
+    def __init__(self, engine: Any, fairy: Any, *, held: bool = False) -> None:
         self.engine = engine
         self.fairy = fairy  # real pooled connection, checked out for the whole preview
         self.unsafe: str | None = None
@@ -127,10 +128,33 @@ class Hold:
         # lock up front, so concurrent previews queue behind the driver's busy timeout. A deferred BEGIN lets two
         # previews take the read lock and then fail at once with "database is locked" when both try to write.
         opening = ["BEGIN IMMEDIATE"] if engine.dialect.name == "sqlite" else []
-        self.run(*opening, "SAVEPOINT " + SAVEPOINT)
+        if held and opening:
+            self._begin_sqlite()
+        else:
+            self.run(*opening, "SAVEPOINT " + SAVEPOINT)
         self.pool = StaticPool(
             lambda: self.proxy, reset_on_return=None, dialect=engine.dialect, logging_name="sendproof-preview"
         )
+
+    def _begin_sqlite(self) -> None:
+        cursor = self.proxy._tb_real.cursor()
+        try:
+            cursor.execute("PRAGMA busy_timeout")
+            timeout = int(cursor.fetchone()[0])
+            cursor.execute("PRAGMA busy_timeout=0")
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("SAVEPOINT " + SAVEPOINT)
+            except Exception as error:
+                if getattr(error, "sqlite_errorcode", 0) & 0xff in (5, 6):
+                    from pathlib import Path
+
+                    raise StoreBusy(Path(self.engine.url.database).name) from error
+                raise
+            finally:
+                cursor.execute(f"PRAGMA busy_timeout={timeout}")
+        finally:
+            cursor.close()
 
     def refuse(self, reason: str) -> None:
         """Mark the preview unsafe and stop the operation before the driver commits anything."""

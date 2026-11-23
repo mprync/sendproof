@@ -1,5 +1,5 @@
-// NuGet: Sendproof.AspNetCore, Sendproof.EntityFrameworkCore and the Sendproof.Redis, .MongoDB and
-// .DynamoDB data-store guards, each with a symbol package.
+// NuGet: Sendproof.AspNetCore, Sendproof.EntityFrameworkCore, the data-store guards (Sendproof.Redis, .MongoDB,
+// .DynamoDB and the rest), and Sendproof.Journeys with Sendproof.Journeys.Testing, each with a symbol package.
 //
 // pack    `dotnet pack` with the release version and repository URL as MSBuild properties (the same
 //         properties CI always used), into ctx.out.
@@ -16,7 +16,9 @@ export const title = 'NuGet';
 
 // Dependency order: the host first; every other package depends on it.
 const PROJECTS = ['Sendproof.AspNetCore', 'Sendproof.EntityFrameworkCore', 'Sendproof.Redis', 'Sendproof.MongoDB', 'Sendproof.DynamoDB',
-  'Sendproof.Cassandra', 'Sendproof.Elasticsearch', 'Sendproof.OpenSearch', 'Sendproof.CosmosDb', 'Sendproof.Firestore'];
+  'Sendproof.Cassandra', 'Sendproof.Elasticsearch', 'Sendproof.OpenSearch', 'Sendproof.CosmosDb', 'Sendproof.Firestore',
+  // Journeys carry their operations generator inside as an analyzer; the testing package depends on them.
+  'Sendproof.Journeys', 'Sendproof.Journeys.Testing'];
 
 export async function available() {
   if (!which('dotnet')) return 'the .NET SDK (dotnet) is not on PATH';

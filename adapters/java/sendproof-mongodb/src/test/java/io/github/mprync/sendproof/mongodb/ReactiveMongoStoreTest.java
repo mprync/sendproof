@@ -12,6 +12,8 @@ import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import io.github.mprync.sendproof.core.PreviewOutcome;
+import io.github.mprync.sendproof.core.PreviewSessions;
+import io.github.mprync.sendproof.core.TraceOwner;
 import io.github.mprync.sendproof.core.stores.PreviewWriteBlockedException;
 import java.util.List;
 import java.util.UUID;
@@ -67,6 +69,33 @@ class ReactiveMongoStoreTest {
     private long committed(Object id) {
         return ReactiveBackend.first(raw.getDatabase(databaseName).getCollection("documents")
                 .countDocuments(new Document("_id", id)));
+    }
+
+    @Test
+    void aSubscribedReactiveWriteSharesTheHeldTransactionAndCanBeRewound() throws Exception {
+        var owner = new TraceOwner(null, null, "/sendproof");
+        try (var sessions = new PreviewSessions()) {
+            String id = sessions.open(owner, null, List.of(store)).id();
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                // An unsubscribed write consumes no before images and leaves no changes.
+                documents().insertOne(new Document("_id", "unused"));
+                ReactiveBackend.first(documents().insertOne(new Document("_id", "held").append("stage", 1)));
+            }, store));
+            var second = Harness.envelope(Harness.preview(sessions, id, owner, () -> ReactiveBackend.first(
+                    documents().updateOne(new Document("stage", 1), new Document("$set", new Document("stage", 2)))), store));
+            assertThat(second.get("changes")).hasSize(1);
+            assertThat(second.at("/changes/0/before/stage").asInt()).isEqualTo(1);
+            assertThat(second.at("/changes/0/after/stage").asInt()).isEqualTo(2);
+            assertThat(committed("held")).isZero();
+            try (var lease = sessions.enter(id, owner)) {
+                lease.rewind(2);
+            }
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                assertThat(ReactiveBackend.first(documents().find(new Document("_id", "held"))).getInteger("stage")).isEqualTo(1);
+                assertThat(ReactiveBackend.first(documents().find(new Document("_id", "unused")))).isNull();
+            }, store));
+        }
+        assertThat(committed("held")).isZero();
     }
 
     @Test

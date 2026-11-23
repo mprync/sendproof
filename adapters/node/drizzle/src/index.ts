@@ -1,13 +1,13 @@
 import { previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
 import type { PreviewProvider } from '@sendproof/core';
 import type { SQLiteDatabase, TrackedRows } from '@sendproof/sqlite';
-import { sql } from 'drizzle-orm';
 import type { MySqlDatabase } from 'drizzle-orm/mysql-core';
 import type { PgDatabase } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/sqlite-proxy';
 import type { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy';
 import type { DatabaseLike, ProviderState, SQLiteConnection } from './capture.js';
 import { createClient } from './client.js';
+import { holdPreview, openPreviewScope, runRaw } from './held-preview.js';
 import { dialectOf } from './metadata.js';
 import type { DrizzleDialect } from './metadata.js';
 import { asCaller, asInternal, currentScope, inScope, isInternal, withLabels } from './scope.js';
@@ -115,6 +115,7 @@ export function drizzlePreview(
     dialect,
     system: dialect,
     preview: dispatch => preview(state, dispatch, turns),
+    openSession: () => holdPreview(state, turns),
     withParameterNames: (names, query) => withLabels(names, () => settle(query)),
     track: (_rows, mutate) => settle(mutate),
     dispose: restore,
@@ -140,12 +141,14 @@ function sqliteProvider(
     rows: await database.queryRows(text, parameters, method, undefined, !isInternal()) as unknown[],
   }), schema ? { schema } : {});
   const state: ProviderState = { dialect: 'sqlite', base: proxy as unknown as DatabaseLike, sqlite: database, trackedRowLimit };
+  const openSession = database.openSession?.bind(database);
   return {
     client: createClient(state),
     dialect: 'sqlite',
     system: 'sqlite',
     // Await inside the transaction: a returned query builder only runs when awaited.
     preview: dispatch => database.preview(async () => await dispatch()),
+    ...openSession && { openSession },
     withParameterNames: (_names, query) => settle(query),
     track: (_rows, mutate) => settle(mutate),
     dispose: () => {},
@@ -187,12 +190,8 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
   try {
     // Drizzle rethrows the error only after its ROLLBACK succeeds, which confirms the rollback.
     await asInternal(() => state.base.transaction(async transaction => {
-      const scope: Scope = {
-        target: transaction, preview: true, open: true, outcome: { broken: false },
-        ...state.safeProcedures && { safeProcedures: state.safeProcedures },
-      };
+      const scope = openPreviewScope(state, transaction);
       opened = scope;
-      instrumentSession(transaction.session, state.dialect, scope);
       // The backstop of spec/data-stores.md: a savepoint set now survives until the rollback only if nothing committed.
       await setPreviewSavepoint(statement => runRaw(transaction, statement), state.dialect);
       try {
@@ -210,17 +209,11 @@ async function previewNow<T>(state: ProviderState, dispatch: () => Promise<T>): 
     throw new Error('The Drizzle preview was not contained: the database rolled the Preview transaction back after a deadlock or lock wait timeout.');
   }
   // Rolled back, but the operation tried to end the transaction itself: never confirm that Preview.
-  if (opened?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');
+  if (opened?.outcome?.refused) throw new Error('The Drizzle preview was not contained: the operation tried to end the Preview transaction.');
   if (!contained) {
     throw new Error('The Drizzle preview was not contained: the savepoint set when the Preview started was gone, so something committed the Preview transaction.');
   }
   if (!outcome) throw new Error('Drizzle did not run the Preview operation.');
   return outcome.value;
-}
-
-/** Runs one provider-owned statement on a Drizzle transaction. Called in the internal context, so the guard passes it. */
-async function runRaw(transaction: DatabaseLike, statement: string): Promise<unknown> {
-  const execute = transaction['execute'] as (query: unknown) => Promise<unknown>;
-  return execute.call(transaction, sql.raw(statement));
 }
 

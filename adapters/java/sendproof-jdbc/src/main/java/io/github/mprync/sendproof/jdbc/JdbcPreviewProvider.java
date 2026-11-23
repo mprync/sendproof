@@ -1,7 +1,9 @@
 package io.github.mprync.sendproof.jdbc;
 
 import io.github.mprync.sendproof.core.PreviewObservation;
+import io.github.mprync.sendproof.core.HeldPreview;
 import io.github.mprync.sendproof.core.PreviewProvider;
+import io.github.mprync.sendproof.core.PreviewSavepoint;
 import io.github.mprync.sendproof.core.PreviewSession;
 import io.github.mprync.sendproof.core.PreviewTurns;
 import io.github.mprync.sendproof.core.TransactionControl;
@@ -116,5 +118,36 @@ public final class JdbcPreviewProvider implements PreviewProvider {
                 // The scope's lifetime belongs to the web adapter.
             }
         };
+    }
+
+    @Override
+    public boolean supportsHeldPreview() {
+        return PreviewSavepoint.supportsHeld(system.get());
+    }
+
+    @Override
+    public HeldPreview beginHeld() throws Exception {
+        String id = system.get();
+        if (!PreviewSavepoint.supportsHeld(id)) {
+            throw new UnsupportedOperationException("The JDBC database cannot hold a Preview transaction.");
+        }
+        boolean takeTurn = PreviewTurns.needed(id) || "sqlite".equals(id);
+        String label = database.get();
+        String store = label == null || label.isBlank() ? id : label;
+        if (takeTurn && !turns.tryAcquire()) {
+            throw new HeldPreview.StoreBusy(store);
+        }
+        try {
+            JdbcPreviewSession held = dataSource.beginHeld(id, safeProcedures);
+            return new JdbcHeldPreview(held, takeTurn ? turns::release : () -> {});
+        } catch (SQLException | RuntimeException | Error failure) {
+            if (takeTurn) {
+                turns.release();
+            }
+            if (failure instanceof SQLException sql && PreviewSavepoint.isStoreBusy(id, sql)) {
+                throw new HeldPreview.StoreBusy(store);
+            }
+            throw failure;
+        }
     }
 }

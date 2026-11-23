@@ -1,14 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import Fastify from 'fastify';
 import { sendproof } from '@sendproof/fastify';
-import { authProviders, createFixture } from './fixture-service.mjs';
+import { authProviders, createFixture, journeys, stopOnSignal } from './fixture-service.mjs';
 import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const base = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT ?? 5353);
 const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
-const fixture = createFixture(':memory:', scenario);
+const fixture = createFixture(scenario);
 const { session, previewProvider, ordinary } = fixture;
 const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
 const operations = [...fixture.operations, ...storeRoutes.operations];
@@ -18,7 +18,7 @@ await app.register(async scope => {
   await scope.register(sendproof, {
     apiName: 'Sendproof Conformance',
     environment: scenario === 'disabled' ? 'production' : 'development',
-    database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
+    database: 'SQLite', authProviders, journeys, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
     resolveIdentity: ({ headers }) => session(headers.cookie),
   });
   for (const { method, path, handler } of operations) scope.sendproof.operation(method, path, wrap(handler));
@@ -43,3 +43,4 @@ function wrap(handler) {
 }
 
 await app.listen({ port, host: '127.0.0.1' });
+stopOnSignal(() => app.close());

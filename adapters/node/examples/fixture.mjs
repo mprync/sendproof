@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import express from 'express';
 import { sendproof } from '@sendproof/express';
-import { authProviders, createFixture } from './fixture-service.mjs';
+import { authProviders, closeFixtureServer, createFixture, journeys, stopOnSignal } from './fixture-service.mjs';
 import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
@@ -26,7 +26,7 @@ const stores = {
 const profile = process.argv[2] ?? 'express';
 if (!Object.hasOwn(stores, profile)) throw new Error('Unknown fixture store');
 const store = await stores[profile]();
-const fixture = createFixture(':memory:', scenario, store);
+const fixture = createFixture(scenario, store);
 const { session, previewProvider, ordinary } = fixture;
 const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
 const operations = [...fixture.operations, ...storeRoutes.operations];
@@ -35,6 +35,7 @@ const options = {
   environment: scenario === 'disabled' ? 'production' : 'development',
   database,
   authProviders,
+  journeys,
   previewProvider,
   dataStores: storeRoutes.dataStores,
   traceTtlMs: 5000,
@@ -58,7 +59,8 @@ function registerExpress() {
     if (res.headersSent) return next(error);
     res.status(error.status ?? 500).json({ message: 'Fixture request failed' });
   });
-  app.listen(port, '127.0.0.1');
+  const server = app.listen(port, '127.0.0.1');
+  stopOnSignal(() => closeFixtureServer(server, bench));
 }
 
 function wrap(handler) {

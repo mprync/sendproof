@@ -42,11 +42,15 @@ internal static class ItemEndpoints
     {
         var items = app.MapGroup("/items").WithTags("Items");
 
-        items.MapGet("/{id}", async (string id, FixtureDbContext db) =>
-            await db.Items.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id) is { } item
+        items.MapGet("/{id}", async (string id, bool? hold, FixtureDbContext db, CancellationToken cancellationToken) =>
+        {
+            // Give two concurrent session reads a bounded interval in which to overlap.
+            if (hold == true) await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            return await db.Items.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken) is { } item
                 ? Results.Ok(new ItemResponse(item.Id, item.Name))
-                : Results.NotFound())
-            .RequireAuthorization().WithSummary("Get an item")
+                : Results.NotFound();
+        })
+            .RequireAuthorization().WithName("Items.Get").WithSummary("Get an item")
             .Produces<ItemResponse>().Produces(StatusCodes.Status404NotFound);
 
         items.MapPost("", CreateAsync)

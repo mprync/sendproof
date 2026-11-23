@@ -24,6 +24,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { classifyMongo, currentCapture, currentPreview, guard, PreviewTransactionControlError, refuseInPreview, sanitizeDocument, unattributedWrite } from '@sendproof/core';
 import type { CaptureRecorder, DataStoreDescription } from '@sendproof/core';
 import type { ClientSession, MongoClient } from 'mongodb';
+import { MongoHeldPreview } from './held.js';
 
 /** The reason a standalone server, or any reply the binding doesn't recognise, runs in `guard` mode. */
 export const standaloneReason = "Preview unavailable: this MongoDB server doesn't support transactions";
@@ -95,6 +96,7 @@ export interface PreviewState {
   readonly lsid: string;
   /** The driver's own transaction methods, which only the engine calls for this session. */
   readonly controls: Record<SessionControl, ControlMethod>;
+  held?: MongoHeldPreview;
   /** Set once a write carried the session to the server. */
   used: boolean;
   /**
@@ -295,7 +297,8 @@ export class MongoEngine {
   detect(): Promise<Pick<DataStoreDescription, 'mode' | 'reason'>> {
     this.#detected ??= (async () => {
       const probe = { seen: false };
-      const hello = await this.#internal.run({ probe }, () => this.client.db('admin').command({ hello: 1 })) as Doc;
+      const signal = AbortSignal.timeout(4_000);
+      const hello = await this.#internal.run({ probe }, () => this.client.db('admin').command({ hello: 1 }, { signal })) as Doc;
       this.#monitored = probe.seen;
       const transactions = Boolean((hello.setName || hello.msg === 'isdbgrid') && hello.logicalSessionTimeoutMinutes != null);
       this.mode = transactions && probe.seen ? 'preview' : 'guard';
@@ -316,6 +319,49 @@ export class MongoEngine {
     return capture ? this.#states.get(capture) : undefined;
   }
 
+  #assertMonitoring(): void {
+    if (this.#monitored === false || !this.client.listeners('commandStarted').includes(this.#onStarted)) {
+      throw new PreviewTransactionControlError(unmonitoredReason);
+    }
+  }
+
+  async #start(): Promise<PreviewState> {
+    const session = this.client.startSession();
+    const controls = sealSessionClass(Object.getPrototypeOf(session) as object);
+    try {
+      controls.startTransaction.call(session, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
+      const lsid = sessionHex(session.id);
+      if (!lsid) throw new Error('The MongoDB driver did not expose the Preview session id.');
+      const state: PreviewState = { session, lsid, controls, used: false, sent: false, abortAcknowledged: false, finished: false, candidates: new Map(), filters: [] };
+      this.#open.set(lsid, state);
+      return state;
+    } catch (error) {
+      await this.#endSession({ session, controls });
+      throw error;
+    }
+  }
+
+  async openSession(dispatchInSession: <T>(session: ClientSession, dispatch: () => Promise<T>) => Promise<T>): Promise<MongoHeldPreview> {
+    const description = await this.detect();
+    if (description.mode !== 'preview') throw new Error(description.reason);
+    this.#assertMonitoring();
+    const state = await this.#start();
+    try {
+      return state.held = new MongoHeldPreview(
+        this.client, state.session, work => this.internal(work), () => this.#internal.getStore() !== undefined,
+        capture => {
+          previewSessions.set(state.session, capture);
+          this.#states.set(capture, state);
+          this.#modes.set(capture, 'preview');
+        },
+        () => this.#assertMonitoring(), dispatchInSession, () => this.#end(state),
+      );
+    } catch (error) {
+      await this.#end(state);
+      throw error;
+    }
+  }
+
   /**
    * Prepare a Preview: detect the mode and, in `preview` mode, start the Preview's session and
    * transaction. The session's class is sealed, so handler code holding the session joins the
@@ -325,31 +371,23 @@ export class MongoEngine {
    * listener, or the listener has since been removed from the client, the Preview fails with 500
    * before the handler runs, because a write that bypassed the hook would go unseen.
    */
-  async begin(capture: CaptureRecorder): Promise<PreviewState | undefined> {
+  async begin(capture: CaptureRecorder, modeOverride?: 'guard'): Promise<PreviewState | undefined> {
     const existing = this.#states.get(capture);
     if (existing || this.#modes.has(capture)) return existing;
-    const { mode } = await this.detect();
+    const mode = modeOverride ?? (await this.detect()).mode;
     if (capture.mode !== 'preview') return undefined;
-    if (this.#monitored === false || !this.client.listeners('commandStarted').includes(this.#onStarted)) {
-      const error = new PreviewTransactionControlError(unmonitoredReason);
-      capture.refuse(error);
+    try {
+      this.#assertMonitoring();
+    } catch (error) {
+      capture.refuse(error as Error);
       throw error;
     }
     this.#modes.set(capture, mode);
     if (mode !== 'preview') return undefined;
-    const session = this.client.startSession();
-    const controls = sealSessionClass(Object.getPrototypeOf(session) as object);
-    controls.startTransaction.call(session, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
-    const lsid = sessionHex(session.id);
-    if (!lsid) {
-      await (controls.endSession.call(session) as Promise<void>).catch(() => {});
-      throw new Error('The MongoDB driver did not expose the Preview session id.');
-    }
+    const state = await this.#start();
     // From here on, handler code holding the session joins the Preview transaction and can't end it.
-    previewSessions.set(session, capture);
-    const state: PreviewState = { session, lsid, controls, used: false, sent: false, abortAcknowledged: false, finished: false, candidates: new Map(), filters: [] };
+    previewSessions.set(state.session, capture);
     this.#states.set(capture, state);
-    this.#open.set(lsid, state);
     // A handler still running at the limit loses its transaction: later commands fail, nothing
     // commits, and the Preview answers 500 when it ends.
     state.timer = setTimeout(() => {
@@ -370,7 +408,7 @@ export class MongoEngine {
    * blocks; in `preview` mode only what MongoDB can't run inside a transaction does. `database`
    * on the admin, config or local database runs outside the transaction, so its writes block too.
    */
-  check(command: Doc, operation = Object.keys(command)[0] ?? 'command', database?: string): void {
+  check(command: Doc, operation = Object.keys(command)[0] ?? 'command', database?: string, canSnapshot = true): void {
     const capture = currentPreview();
     if (!capture) return;
     if (endsTransaction(operation.toLowerCase())) {
@@ -379,6 +417,9 @@ export class MongoEngine {
     const { kind, refusedInTransaction } = classifyMongo(command, this.#reads);
     if (this.#modeOf(capture) === 'preview' && !systemDatabase(database)) {
       if (refusedInTransaction) guard('mongodb', operation, 'write', refusedReason(refusedInTransaction));
+      if (!canSnapshot && this.state(capture)?.held) {
+        guard('mongodb', operation, kind, `Preview unavailable: MongoDB can't capture before images for ${operation} in a session`);
+      }
       return;
     }
     guard('mongodb', operation, kind);
@@ -393,24 +434,37 @@ export class MongoEngine {
     if (open && event.commandName === 'abortTransaction') this.#aborts.set(event.requestId, open);
     else if (open) open.sent = true;
     const internal = this.#internal.getStore();
+    const command = event.command ?? {};
+    const name = event.commandName;
+    const lower = name.toLowerCase();
+    const target = typeof command[name] === 'string' ? command[name] as string : undefined;
+    if (open?.held && !endsTransaction(lower)) {
+      open.held.command(command, event.databaseName, lower, target);
+      if (!internal && !open.held.accepting(currentPreview())) open.held.fault();
+    }
     if (internal) {
       // Detection's hello, seen by this very listener on this very client: the tripwire works.
       if (internal.probe && event.commandName === 'hello') internal.probe.seen = true;
       return;
     }
-    const command = event.command ?? {};
-    const name = event.commandName;
-    const lower = name.toLowerCase();
     const { kind } = classifyMongo(command, this.#reads);
     const preview = currentPreview();
     if (preview && endsTransaction(lower)) {
       // Sent around the hook, for example through Mongoose's connection.db: it may have committed
       // the Preview transaction, so the Preview can never be confirmed.
       preview.refuse(new PreviewTransactionControlError(`A MongoDB ${name} reached the server during a Preview; the Preview can't be confirmed.`));
+      open?.held?.fault();
+      this.#states.get(preview)?.held?.fault();
     } else if (preview && kind === 'write') this.#watchWrite(preview, command, event.databaseName, lower);
     else if (kind === 'write') unattributedWrite('mongodb', name);
+    else if (preview && kind === 'read' && !systemDatabase(event.databaseName)) {
+      const held = this.#states.get(preview)?.held;
+      if (held && (open?.held !== held || command.autocommit !== false)) {
+        held.fault();
+        preview.refuse(new PreviewTransactionControlError(`A MongoDB ${name} escaped the Preview session's snapshot.`));
+      }
+    }
     if (kind === 'session' || sensitive.has(lower)) return;
-    const target = typeof command[name] === 'string' ? command[name] as string : undefined;
     const body = Object.fromEntries(Object.entries(command).filter(([field]) => !envelope.has(field)));
     this.#pending.set(event.requestId, {
       capture: currentCapture(), preview, name, namespace: event.databaseName,
@@ -422,6 +476,12 @@ export class MongoEngine {
   #watchWrite(preview: CaptureRecorder, command: Doc, namespace: string, name: string) {
     const state = this.#states.get(preview);
     const lsid = sessionHex(command.lsid);
+    const collection = typeof command[name] === 'string' ? command[name] as string :
+      typeof command[Object.keys(command)[0]!] === 'string' ? command[Object.keys(command)[0]!] as string : '';
+    if (state?.held) {
+      state.held.watchWrite(preview, namespace, collection, name, !state.finished && lsid === state.lsid && command.autocommit === false);
+      return;
+    }
     // Only a command inside the Preview transaction (its lsid and autocommit: false) rolls back.
     if (!state || state.finished || lsid !== state.lsid || command.autocommit !== false) {
       // The hook couldn't stop it and nothing can undo it: never claim a rollback.
@@ -429,7 +489,6 @@ export class MongoEngine {
       return;
     }
     state.used = true;
-    const collection = typeof command[Object.keys(command)[0]!] === 'string' ? command[Object.keys(command)[0]!] as string : '';
     if (name === 'insert' && Array.isArray(command.documents)) {
       for (const document of command.documents as Doc[]) this.#candidate(state, { namespace, collection, id: document?._id });
     } else if (name === 'update' && Array.isArray(command.updates)) {
@@ -475,6 +534,10 @@ export class MongoEngine {
     if (!pending) return;
     const reply = (event.reply ?? {}) as Doc;
     const state = pending.preview ? this.#states.get(pending.preview) : undefined;
+    if (state?.held && sessionHex(pending.command.lsid) === state.lsid) {
+      if (Array.isArray(reply.writeErrors) && reply.writeErrors.length) state.held.fault(reply.writeErrors[0]);
+      if (reply.writeConcernError) state.held.fault(reply.writeConcernError);
+    }
     // The first reply in the transaction carries its snapshot time (the read timestamp).
     if (state && state.startTime === undefined && reply.operationTime !== undefined && sessionHex(pending.command.lsid) === state.lsid) {
       state.startTime = reply.operationTime;
@@ -499,6 +562,8 @@ export class MongoEngine {
     const pending = this.#take(event);
     if (!pending) return;
     const failure = event.failure as { code?: number; codeName?: string; name?: string } | undefined;
+    const state = pending.preview ? this.#states.get(pending.preview) : undefined;
+    if (state?.held && sessionHex(pending.command.lsid) === state.lsid) state.held.fault(failure ?? new Error('MongoDB command failed.'));
     // The server refused something a transaction can't do and applied nothing: a block, not a crash.
     if (pending.preview && this.#states.has(pending.preview) && failure?.code === 263) {
       pending.preview.block({ store: 'mongodb', operation: pending.name, detail: refusedReason(pending.name) });
@@ -532,7 +597,7 @@ export class MongoEngine {
    */
   async finish(capture: CaptureRecorder): Promise<void> {
     const state = this.#states.get(capture);
-    if (!state || state.finished) return;
+    if (!state || state.finished || state.held) return;
     let failure: unknown;
     try {
       if (state.used) await this.internal(() => this.#capture(capture, state));
@@ -584,7 +649,7 @@ export class MongoEngine {
     }));
   }
 
-  async #endSession(state: PreviewState): Promise<void> {
+  async #endSession(state: Pick<PreviewState, 'session' | 'controls'>): Promise<void> {
     try {
       await state.controls.endSession.call(state.session);
     } catch { /* The server ends the session itself once its timeout passes. */ }

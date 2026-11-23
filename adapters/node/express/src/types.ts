@@ -6,6 +6,8 @@ export type ExpressBenchOptions = BenchOptions<Request>;
 
 /** Express middleware that also registers rollback-eligible operations. */
 export interface SendproofMiddleware extends RequestHandler {
+  /** Roll back all sessions as the HTTP host shuts down. */
+  close(): Promise<void>;
   /**
    * Register a rollback-eligible operation on the workbench mount's Express router.
    *

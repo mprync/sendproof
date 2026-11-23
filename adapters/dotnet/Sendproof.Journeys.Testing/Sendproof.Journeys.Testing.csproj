@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Title>Sendproof journeys for tests</Title>
+    <PackageTags>openapi;aspnetcore;api-testing;arazzo;journeys;xunit</PackageTags>
+    <PackageIcon>package-icon.png</PackageIcon>
+    <Description>Runs every Sendproof journey as an xUnit test case, in memory through WebApplicationFactory, with Preview by default.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../../docs/package-icon.png" Pack="true" PackagePath="/" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
+    <!-- The OpenAPI document's operations, read as ASP.NET Core writes it. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+    <!-- JSONPath success criteria. JSON pointers come with Bielu.Arazzo.NET's JsonPointer.Net. -->
+    <PackageReference Include="JsonPath.Net" Version="3.1.0" />
+    <PackageReference Include="xunit.extensibility.core" Version="2.5.3" />
+    <PackageReference Include="xunit.assert" Version="2.5.3" />
+    <ProjectReference Include="../Sendproof.Journeys/Sendproof.Journeys.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sendproof.Journeys.Tests" />
+  </ItemGroup>
+</Project>

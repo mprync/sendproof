@@ -12,7 +12,11 @@ Sendproof Preview promises that a confirmed Preview never leaves a write behind.
 | OpenSearch | `opensearch-project/opensearch-php` 2 `Client`, on its PSR-18 transport or its legacy `ClientBuilder` transport | `guard` | Runs reads, including searches sent as a `POST`. The first write stops the Preview. |
 | Firestore | `google/cloud-firestore` 2 `FirestoreClient` (needs `ext-grpc`) | `guard` | Runs reads. The first write stops the Preview. |
 
-None of these four guard-only stores can roll back, so a Preview never changes them: it either reads or stops at the first write, with a 409.
+A Preview never changes a guard-only store. It can read or stop at the first write with HTTP 409.
+
+### Preview session limits
+
+The PHP adapter rolls back PDO or DBAL transactions for SQLite, MySQL, MariaDB, SQL Server and PostgreSQL within each request. The MongoDB hook aborts its driver session on the same schedule. Both run with `previewSessions: false`. Octane or FrankenPHP worker mode could support holding those transactions in a future release. Standalone MongoDB, Redis, DynamoDB, Elasticsearch, OpenSearch and Firestore use guard mode.
 
 ### Stores the PHP binding doesn't support
 

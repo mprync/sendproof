@@ -28,11 +28,22 @@ export interface AuthProvider {
 export interface PreviewProvider {
   /** Run dispatch in the enrolled transaction and resolve only after rollback. */
   preview<T>(dispatch: () => Promise<T>): Promise<T>;
+  /** Open a pinned transaction for a sequence of rollback-only requests. */
+  openSession?(): Promise<HeldPreview>;
   /**
    * The SQL provider id discovery reports as `database.system`: `sqlite`, `postgresql`, `mysql`,
    * `mariadb`, `mssql` or another lower-case id, so the workbench shows that provider's mark.
    */
   readonly system?: string;
+}
+
+/** A rollback-only lease. Rewinding discards this checkpoint and any later steps. */
+export interface HeldPreview {
+  checkpoint(step: number): Promise<void>;
+  run<T>(capture: CaptureRecorder, dispatch: () => Promise<T>): Promise<T>;
+  verify(step: number): Promise<void>;
+  rewind(step: number): Promise<void>;
+  close(): Promise<void>;
 }
 
 /** The binding serving the workbench, reported as capabilities `binding`. */
@@ -64,8 +75,10 @@ export interface DataStore {
   readonly system: string;
   /** Describe the store for discovery. May detect the server topology on first call. */
   describe(): Promise<DataStoreDescription>;
-  /** Wrap a Preview's dispatch, for example to make the Preview session ambient for an ORM. */
-  around?<T>(capture: CaptureRecorder, dispatch: () => Promise<T>): Promise<T>;
+  /** Required in Preview mode for the host to support sessions. */
+  openSession?(): Promise<HeldPreview>;
+  /** Wrap dispatch. In a held session, a store enrolled in guard mode must stay in guard mode. */
+  around?<T>(capture: CaptureRecorder, dispatch: () => Promise<T>, mode?: 'guard'): Promise<T>;
   /**
    * Called once after the handler of every Preview, before the SQL rollback: capture changes and
    * abort the store transaction. A rejection means the abort may not have happened, and the
@@ -106,6 +119,8 @@ export interface BenchOptions<Raw = unknown> {
   environments?: string[];
   openApiUrl?: string;
   documents?: { name: string; url: string }[];
+  /** Arazzo JSON files, each paired with a sibling .expect.json file. */
+  journeys?: readonly (string | URL)[];
   fieldModules?: string[];
   /** Display name of the database, such as `PostgreSQL`. Connection strings, URLs and paths are rejected. */
   database?: string | null;
@@ -119,6 +134,8 @@ export interface BenchOptions<Raw = unknown> {
    * database the binding has no provider for is then not covered, like any unhooked client.
    */
   previewProvider?: PreviewProvider;
+  /** Sessions are enabled for capable stores by default. */
+  previewSessions?: false | { idleTimeoutSeconds?: number; maxLifetimeSeconds?: number };
   captureLimits?: Partial<Record<'effects' | 'logs' | 'changes' | 'bytes' | 'valueBytes', number>>;
   maxResponseBytes?: number;
   traceTtlMs?: number;
@@ -265,7 +282,8 @@ export interface Observation {
 }
 
 export type DispatchResponse = TransportResponse | { unmatched: true };
-export type LookupResponse = TransportResponse | { target: string } | null;
+export interface SessionAccess { id: string; owner: string | undefined }
+export type LookupResponse = TransportResponse | { target: string; session?: SessionAccess } | null;
 export interface PreviewOperation { method: string; path: string; }
 
 /** An operation a framework package registered: previewable, or marked `preview: false`. */

@@ -54,6 +54,7 @@
 mod classify;
 mod engine;
 mod handle;
+mod held;
 mod monitor;
 mod preview;
 mod sanitize;
@@ -87,6 +88,7 @@ pub use axum_extractor::NotEnrolledResponse;
 
 use engine::{Engine, MongoSession};
 use handle::Access;
+use held::MongoHeld;
 use preview::{PreviewState, Shared};
 
 /// The store id used in capabilities, `Db` entries, changes and the blocked response.
@@ -205,6 +207,14 @@ impl MongoStore {
 }
 
 impl DataStore for MongoStore {
+    fn supports_held_preview(&self) -> bool {
+        true
+    }
+
+    fn begin_held_preview(&self) -> BoxFuture<'_, Result<Option<Box<dyn sendproof_core::HeldPreview>>, sendproof_core::OpenSessionError>> {
+        Box::pin(async move { Ok(Some(Box::new(MongoHeld::open(self.engine.clone()).await?) as Box<dyn sendproof_core::HeldPreview>)) })
+    }
+
     fn describe(&self) -> BoxFuture<'_, StoreDescription> {
         Box::pin(async move {
             let detected = self.engine.detect().await;

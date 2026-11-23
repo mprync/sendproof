@@ -120,7 +120,9 @@ function fail(method: string, error: unknown): unknown {
  * commit on its own; after it, the driver's expired-session error would be the only stop. The guard stops it first.
  */
 export function refuseEnded(engine: MongoEngine): void {
-  if (engine.state()?.finished) {
+  const capture = currentPreview();
+  const state = engine.state(capture);
+  if (state?.finished || (state?.held && !state.held.accepting(capture))) {
     throw refuseInPreview('The Preview has ended, so its MongoDB session and handles refuse every further call.')!;
   }
 }
@@ -130,10 +132,10 @@ export function refuseEnded(engine: MongoEngine): void {
  * the arguments to call the driver with. Throws the guard's error, or a refusal for a foreign
  * session.
  */
-function prepare(engine: MongoEngine, rule: Rule, method: string, name: string, args: unknown[], database: string | undefined): unknown[] {
+function prepare(engine: MongoEngine, rule: Rule, method: string, name: string, args: unknown[], database: string | undefined, canSnapshot: boolean): unknown[] {
   refuseEnded(engine);
   const command = rule.command(name, args);
-  engine.check(command, Object.keys(command)[0] ?? method, database);
+  engine.check(command, Object.keys(command)[0] ?? method, database, canSnapshot);
   const state = engine.state();
   if (!state || systemDatabase(database)) return args;
   const given = args[rule.options] as { session?: ClientSession } | undefined;
@@ -195,7 +197,7 @@ function guarded<T extends object>(target: T, engine: MongoEngine, rules: Record
         }
         let prepared;
         try {
-          prepared = prepare(engine, rule!, property, name, args, database);
+          prepared = prepare(engine, rule!, property, name, args, database, rules === collectionRules && !bulkBuilders.has(property));
         } catch (error) {
           return fail(property, error);
         }

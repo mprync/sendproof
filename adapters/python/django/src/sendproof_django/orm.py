@@ -6,6 +6,8 @@ import re
 import sys
 import threading
 import time
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Iterable
 
 from django.core.signals import got_request_exception
@@ -25,6 +27,7 @@ from sendproof_core import (
 from sendproof_core.jsonsafe import is_missing, snapshot
 from sendproof_core.redaction import describe_parameters, python_type_name
 from sendproof_core.scope import current_scope
+from sendproof_core.sessions import HeldPart, StepFailed, StoreBusy, StoreEnded, savepoint
 from sendproof_core.txguard import escapes_transaction, normalize_procedures, server_ended_transaction
 
 STATE_KEY = "django_orm"
@@ -53,7 +56,7 @@ _mysql_turns: dict[str, threading.Lock] = {}
 _mysql_turns_guard = threading.Lock()
 
 
-def _take_mysql_turn(alias: str) -> threading.Lock:
+def _take_mysql_turn(alias: str, *, nowait: bool = False) -> threading.Lock:
     """Wait until no other preview on ``alias`` runs, and answer the held lock.
 
     InnoDB checks a new key for duplicates under a shared lock. When three or more transactions insert the
@@ -64,7 +67,8 @@ def _take_mysql_turn(alias: str) -> threading.Lock:
     """
     with _mysql_turns_guard:
         lock = _mysql_turns.setdefault(alias, threading.Lock())
-    lock.acquire()
+    if not lock.acquire(blocking=not nowait):
+        raise StoreBusy(alias)
     return lock
 
 
@@ -324,16 +328,20 @@ class DjangoOrmPreview(PreviewProvider):
             return None
 
     def begin(self, scope: RequestScope) -> PreviewSession:
-        state = _State(self.aliases, rollback=True, safe_procedures=self.safe_procedures)
+        state = self._begin()
         scope.extensions[STATE_KEY] = state
+        return _Session(state)
+
+    def _begin(self, *, held: bool = False) -> _State:
+        state = _State(self.aliases, rollback=True, safe_procedures=self.safe_procedures)
         try:
             for alias in self.aliases:
                 connection = connections[alias]
                 if not connection.features.supports_transactions:
                     raise PreviewUnavailable(f"Database '{alias}' does not support transactions.")
                 if connection.vendor == "mysql":
-                    state.turns.append(_take_mysql_turn(alias))
-                state.atomics.append((alias, _enter_atomic(alias)))
+                    state.turns.append(_take_mysql_turn(alias, nowait=held))
+                state.atomics.append((alias, _open_atomic(alias, held)))
                 # The backstop's mark, made first thing in the Preview transaction (see ``rollback``).
                 _raw(alias, "SAVEPOINT " + SAVEPOINT)
                 state.marked.append(alias)
@@ -341,7 +349,19 @@ class DjangoOrmPreview(PreviewProvider):
         except BaseException:
             _Session(state).close()
             raise
-        return _Session(state)
+        return state
+
+    def supports_held(self, asynchronous: bool) -> bool:
+        for alias in self.aliases:
+            connection = connections[alias]
+            if connection.vendor not in ("sqlite", "postgresql", "mysql") or (
+                connection.vendor == "sqlite" and connection.is_in_memory_db()
+            ):
+                return False
+        return not asynchronous
+
+    def hold(self) -> HeldPart:
+        return _Held(self)
 
     def begin_observation(self, scope: RequestScope) -> PreviewObservation | None:
         state = _State(self.aliases, rollback=False)
@@ -430,3 +450,133 @@ class _Session(PreviewSession):
                 state.turns.pop().release()
         if failure is not None:
             raise failure
+
+
+def _open_atomic(alias: str, held: bool) -> Any:
+    connection = connections[alias]
+    if not held or connection.vendor != "sqlite":
+        return _enter_atomic(alias)
+
+    connection.ensure_connection()
+    cursor = connection.connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout")
+        timeout = int(cursor.fetchone()[0])
+        cursor.execute("PRAGMA busy_timeout=0")
+        try:
+            return _enter_atomic(alias)
+        except Exception as error:
+            if getattr(error.__cause__, "sqlite_errorcode", 0) & 0xff in (5, 6):
+                raise StoreBusy(Path(connection.settings_dict["NAME"]).name) from error
+            raise
+        finally:
+            cursor.execute(f"PRAGMA busy_timeout={timeout}")
+    finally:
+        cursor.close()
+
+
+class _Held(HeldPart):
+    """Django wrappers belong to a request by default. Install private ones only during a step."""
+
+    def __init__(self, provider: DjangoOrmPreview) -> None:
+        self.provider = provider
+        self.wrappers = {alias: connections.create_connection(alias) for alias in provider.aliases}
+        for connection in self.wrappers.values():
+            connection.inc_thread_sharing()
+        self.binding = None
+        self.state = None
+        try:
+            with self._bound():
+                self.root = provider._begin(held=True)
+                self.root.remove_wrappers()
+        except BaseException:
+            self._close_connections()
+            raise
+
+    @contextmanager
+    def _bound(self):
+        previous = {alias: connections[alias] for alias in self.wrappers}
+        try:
+            for alias, connection in self.wrappers.items():
+                connections[alias] = connection
+            yield
+        finally:
+            for alias, connection in previous.items():
+                connections[alias] = connection
+
+    def _check(self) -> None:
+        if self.state is not None:
+            if self.state.ended:
+                raise StoreEnded("The SQL server ended the Preview transaction.")
+            if self.state.unsafe:
+                raise PreviewRollbackError(self.state.unsafe)
+        for alias, atomic in self.root.atomics:
+            connection = self.wrappers[alias]
+            if connection.closed_in_transaction or connection.atomic_blocks != [atomic]:
+                raise PreviewRollbackError("The handler changed the held Django transaction.")
+
+    def attach(self, scope: RequestScope, step: int) -> None:
+        self._check()
+        self.binding = self._bound()
+        self.binding.__enter__()
+        for alias in self.wrappers:
+            _raw(alias, "SAVEPOINT " + savepoint(step))
+            _raw(alias, "SAVEPOINT sendproof_step_proof")
+        self.state = _State(self.provider.aliases, rollback=True, safe_procedures=self.provider.safe_procedures)
+        self.state.install_wrappers()
+        scope.extensions[STATE_KEY] = self.state
+
+    def collect(self, scope: RequestScope, step: int) -> None:
+        self._check()
+        for alias, connection in self.wrappers.items():
+            if connection.needs_rollback:
+                raise StepFailed("The Preview statement failed inside Django's transaction.")
+            try:
+                _raw(alias, "RELEASE SAVEPOINT sendproof_step_proof")
+            except Exception as error:
+                if getattr(error, "sqlstate", getattr(error, "pgcode", None)) == "25P02":
+                    raise StepFailed("The Preview statement failed inside PostgreSQL.") from error
+                raise
+        scope.store_changes[:0] = self.state.changes
+        scope.store_changes_truncated |= self.state.changes_truncated
+
+    def detach(self, scope: RequestScope) -> None:
+        if self.binding is not None:
+            try:
+                if self.state is not None:
+                    self.state.finished = True
+                    self.state.remove_wrappers()
+            finally:
+                binding, self.binding = self.binding, None
+                binding.__exit__(None, None, None)
+
+    def rewind(self, step: int) -> None:
+        self._check()
+        with self._bound():
+            for alias, connection in self.wrappers.items():
+                _raw(alias, "ROLLBACK TO SAVEPOINT " + savepoint(step))
+                _raw(alias, "RELEASE SAVEPOINT " + savepoint(step))
+                connection.set_rollback(False)
+
+    def _close_connections(self) -> None:
+        errors = []
+        for connection in self.wrappers.values():
+            try:
+                connection.close()
+            except Exception as error:
+                errors.append(error)
+            finally:
+                connection.dec_thread_sharing()
+        if errors:
+            raise errors[0]
+
+    def close(self) -> None:
+        with self._bound():
+            try:
+                session = _Session(self.root)
+                try:
+                    session.rollback()
+                finally:
+                    session.close()
+            finally:
+                self._close_connections()

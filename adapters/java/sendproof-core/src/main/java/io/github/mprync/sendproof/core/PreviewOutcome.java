@@ -13,7 +13,7 @@ import java.util.Map;
  * @param json         the serialized envelope for a confirmed preview, or {@code null}
  * @param serverTiming the {@code Server-Timing} value for a confirmed preview, or {@code null}
  * @param challenge    a {@code WWW-Authenticate} value to forward on 401, or {@code null}
- * @param problem      the serialized {@code application/problem+json} body of a blocked Preview (409), or {@code null}
+ * @param problem      a serialized protocol-specific {@code application/problem+json} body, or {@code null}
  */
 public record PreviewOutcome(int status, String title, byte[] json, String serverTiming, String challenge,
                              byte[] problem) {
@@ -28,7 +28,7 @@ public record PreviewOutcome(int status, String title, byte[] json, String serve
         return json != null;
     }
 
-    /** Returns whether a guarded store refused a write, so the Preview answers 409 with {@link #problem()}. */
+    /** Returns whether the response has a complete protocol-specific problem body. */
     public boolean blocked() {
         return problem != null;
     }

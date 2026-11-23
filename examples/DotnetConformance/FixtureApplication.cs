@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Sendproof.AspNetCore;
 using Sendproof.EntityFrameworkCore;
+using Sendproof.Journeys;
 
 namespace DotnetConformance;
 
@@ -21,7 +22,8 @@ public static class FixtureApplication
         });
         builder.WebHost.UseUrls($"http://127.0.0.1:{options.Port}");
 
-        var databasePath = Path.Combine(Path.GetTempPath(), $"bench-conformance-{Guid.NewGuid():N}.db");
+        var databasePath = Environment.GetEnvironmentVariable("BENCH_SQLITE_PATH") ??
+            Path.Combine(Path.GetTempPath(), $"bench-conformance-{Guid.NewGuid():N}.db");
         // The runner picks the engine: SQLite (the default) uses a throwaway file; MySQL gets a fresh database to use.
         var mysql = Environment.GetEnvironmentVariable("BENCH_DATABASE") == "mysql";
         var mysqlConnection = mysql ? MySqlConnectionString(Environment.GetEnvironmentVariable("BENCH_DATABASE_URL")) : null;
@@ -52,7 +54,8 @@ public static class FixtureApplication
         var sendproof = builder.Services.AddSendproof()
             .WithApiName("Sendproof Conformance")
             .WithAuthProvider("Password", "cookie", "/auth/sign-in")
-            .WithAuthProvider("Personas", "personas", "/auth/personas");
+            .WithAuthProvider("Personas", "personas", "/auth/personas")
+            .WithJourneys(Path.Combine(AppContext.BaseDirectory, "Journeys", "conformance.arazzo.json"));
         if (options.Scenario != FixtureScenario.NoProvider)
         {
             sendproof.AddEntityFrameworkCore<FixtureDbContext>();

@@ -314,6 +314,56 @@ public sealed class MongoTests
             await Documents(raw, database).InsertOneAsync(new BsonDocument("_id", "unguarded"));
             return Results.Ok();
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/{id}/grow", async (string id, IMongoClient client) =>
+        {
+            // One document written three times: an insert, an update, then a second update.
+            var documents = Documents(client, database);
+            await documents.InsertOneAsync(new BsonDocument { { "_id", id }, { "name", "First" }, { "password_hash", "hashed:grow-secret" } });
+            await documents.UpdateOneAsync(new BsonDocument("_id", id), Builders<BsonDocument>.Update.Set("name", "Second"));
+            await documents.UpdateOneAsync(new BsonDocument("_id", id), Builders<BsonDocument>.Update.Set("name", "Third"));
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/{id}/churn", async (string id, IMongoClient client) =>
+        {
+            // Created and deleted inside one request: the Send leaves nothing behind.
+            var documents = Documents(client, database);
+            await documents.InsertOneAsync(new BsonDocument { { "_id", id }, { "name", "Gone" } });
+            await documents.DeleteOneAsync(new BsonDocument("_id", id));
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/{id}/duplicate", async (string id, IMongoClient client) =>
+        {
+            try
+            {
+                await Documents(client, database).InsertOneAsync(new BsonDocument { { "_id", id }, { "name", "Duplicate" } });
+            }
+            catch (MongoWriteException)
+            {
+            }
+
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/rename-all", async (IMongoClient client) =>
+        {
+            var result = await Documents(client, database).UpdateManyAsync(new BsonDocument("kind", "batch"), Builders<BsonDocument>.Update.Set("name", "Batched"));
+            return Results.Ok(new { modified = result.ModifiedCount });
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/{id}/swap", async (string id, IMongoClient client) =>
+        {
+            var swapped = await Documents(client, database).FindOneAndUpdateAsync(new BsonDocument("_id", id),
+                Builders<BsonDocument>.Update.Set("name", "Swapped"));
+            return swapped is null ? Results.NotFound() : Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/documents/bulk", async (IMongoClient client) =>
+        {
+            await Documents(client, database).BulkWriteAsync(
+            [
+                new InsertOneModel<BsonDocument>(new BsonDocument { { "_id", "bulk-new" }, { "name", "Bulk" } }),
+                new UpdateOneModel<BsonDocument>(new BsonDocument("_id", "seeded"), Builders<BsonDocument>.Update.Set("name", "Bulked")),
+                new DeleteOneModel<BsonDocument>(new BsonDocument("_id", "to-delete"))
+            ]);
+            return Results.Ok();
+        }).AllowAnonymous().WithSendproofPreview();
     }
 
     private sealed record CreateInput(string Id, string Name, string City, string Password);
@@ -602,6 +652,183 @@ public sealed class MongoTests
         // Session commands such as hello and authentication are never logged.
         Assert.DoesNotContain(trace.GetProperty("logs").EnumerateArray(), log => log.TryGetProperty("db", out var db) &&
             db.GetProperty("operation").GetString() is "hello" or "saslStart" or "authenticate");
+    }
+
+    // ---- Observed Send: changes are read around each committed write ----
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendTracesAnInsertWithItsAfterImageAndHidesSecrets()
+    {
+        await using var f = await Fixture.StartAsync();
+        var (response, trace) = await f.App.ObservedAsync("POST", "/documents", NewDocument with { Id = "observed-insert" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var insert = Assert.Single(Changes(trace));
+        Assert.Equal("insert", insert.GetProperty("operation").GetString());
+        Assert.Equal("documents", insert.GetProperty("table").GetString());
+        Assert.Equal(f.Database, insert.GetProperty("namespace").GetString());
+        Assert.Equal("observed-insert", insert.GetProperty("key").GetProperty("_id").GetString());
+        Assert.Equal(JsonValueKind.Null, insert.GetProperty("before").ValueKind);
+        Assert.Equal("York", insert.GetProperty("after").GetProperty("profile").GetProperty("city").GetString());
+        Assert.Equal("[REDACTED]", insert.GetProperty("after").GetProperty("password_hash").GetString());
+        Assert.Equal("[REDACTED]", insert.GetProperty("after").GetProperty("profile").GetProperty("apiKey").GetString());
+        Assert.True(insert.GetProperty("after").GetProperty("createdAt").TryGetProperty("$date", out _), "Dates keep their extended JSON form.");
+        Assert.DoesNotContain("mongo-secret-value", trace.GetRawText());
+        // The write committed once, and the trace still carries its command.
+        Assert.NotNull(await f.FindAsync("observed-insert"));
+        Assert.Single(Expect.DbEntries(trace, "mongodb", "insert"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendTracesUpdateReplaceAndDeleteWithBeforeAndAfter()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.SeedAsync();
+
+        var (_, patched) = await f.App.ObservedAsync("PATCH", "/documents/seeded", new PatchInput("Renamed", "Hull"));
+        var update = Assert.Single(Changes(patched));
+        Assert.Equal("update", update.GetProperty("operation").GetString());
+        Assert.Equal("Seeded", update.GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal("Renamed", update.GetProperty("after").GetProperty("name").GetString());
+        Assert.Equal(("Leeds", "Hull"), (update.GetProperty("before").GetProperty("profile").GetProperty("city").GetString(),
+            update.GetProperty("after").GetProperty("profile").GetProperty("city").GetString()));
+        Assert.Equal("[REDACTED]", update.GetProperty("before").GetProperty("password_hash").GetString());
+        Assert.False(update.TryGetProperty("via", out _));
+        Assert.Equal("Renamed", (await f.FindAsync("seeded"))!["name"].AsString);
+
+        var (_, replaced) = await f.App.ObservedAsync("PUT", "/documents/seeded");
+        var replace = Assert.Single(Changes(replaced));
+        Assert.Equal("update", replace.GetProperty("operation").GetString());
+        Assert.Equal("replace", replace.GetProperty("via").GetString());
+        Assert.Equal("Renamed", replace.GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal("Replaced", replace.GetProperty("after").GetProperty("name").GetString());
+
+        var (_, removed) = await f.App.ObservedAsync("POST", "/documents/seeded/remove");
+        var delete = Assert.Single(Changes(removed));
+        Assert.Equal("delete", delete.GetProperty("operation").GetString());
+        Assert.Equal("Replaced", delete.GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal(JsonValueKind.Null, delete.GetProperty("after").ValueKind);
+        Assert.Null(await f.FindAsync("seeded"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendLabelsAnUpsertThatCreatedAndOneThatMatched()
+    {
+        await using var f = await Fixture.StartAsync();
+        var (_, created) = await f.App.ObservedAsync("POST", "/documents/upserted/upsert");
+        var insert = Assert.Single(Changes(created));
+        Assert.Equal(("insert", "upsert"), (insert.GetProperty("operation").GetString(), insert.GetProperty("via").GetString()));
+        Assert.Equal(JsonValueKind.Null, insert.GetProperty("before").ValueKind);
+        Assert.Equal("Upserted", insert.GetProperty("after").GetProperty("name").GetString());
+
+        await f.SeedAsync();
+        var (_, matched) = await f.App.ObservedAsync("POST", "/documents/seeded/upsert");
+        var update = Assert.Single(Changes(matched));
+        Assert.Equal(("update", "upsert"), (update.GetProperty("operation").GetString(), update.GetProperty("via").GetString()));
+        Assert.Equal("Seeded", update.GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal("Upserted", update.GetProperty("after").GetProperty("name").GetString());
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendReportsOneNetChangePerDocumentWrittenSeveralTimes()
+    {
+        await using var f = await Fixture.StartAsync();
+        var (_, grown) = await f.App.ObservedAsync("POST", "/documents/grown/grow");
+        var insert = Assert.Single(Changes(grown));
+        Assert.Equal("insert", insert.GetProperty("operation").GetString());
+        Assert.Equal("Third", insert.GetProperty("after").GetProperty("name").GetString());
+        Assert.Equal("[REDACTED]", insert.GetProperty("after").GetProperty("password_hash").GetString());
+        // The three writes are still three Db entries.
+        Assert.Equal(3, Expect.DbEntries(grown, "mongodb").Count(entry => entry.GetProperty("db").GetProperty("operation").GetString() is "insert" or "update"));
+
+        // A document created and deleted inside one request never existed as far as the Send is concerned.
+        var (_, churned) = await f.App.ObservedAsync("POST", "/documents/churned/churn");
+        Assert.Empty(Changes(churned));
+        Assert.Null(await f.FindAsync("churned"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendDoesNotReportAFailedInsertOrAnUntouchedRead()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.SeedAsync();
+        var (_, duplicate) = await f.App.ObservedAsync("POST", "/documents/seeded/duplicate");
+        Assert.Empty(Changes(duplicate));
+        Assert.Equal("Seeded", (await f.FindAsync("seeded"))!["name"].AsString);
+
+        var (_, read) = await f.App.ObservedAsync("GET", "/documents/seeded");
+        Assert.Empty(Changes(read));
+        Assert.Single(Expect.DbEntries(read, "mongodb", "find"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendReadsEveryDocumentAFilterMatchedAndTheOneFindAndModifyReturned()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.Documents.InsertManyAsync(
+        [
+            new BsonDocument { { "_id", "b1" }, { "kind", "batch" }, { "name", "One" } },
+            new BsonDocument { { "_id", "b2" }, { "kind", "batch" }, { "name", "Two" } },
+            new BsonDocument { { "_id", "other" }, { "kind", "single" }, { "name", "Other" } }
+        ]);
+        var (_, many) = await f.App.ObservedAsync("POST", "/documents/rename-all");
+        var updates = Changes(many, "update");
+        Assert.Equal(["b1", "b2"], updates.Select(change => change.GetProperty("key").GetProperty("_id").GetString()).Order().ToArray());
+        Assert.All(updates, change => Assert.Equal("Batched", change.GetProperty("after").GetProperty("name").GetString()));
+        Assert.Equal(["One", "Two"], updates.Select(change => change.GetProperty("before").GetProperty("name").GetString()).Order().ToArray());
+        Assert.Equal(2, updates.Length);
+
+        var (swappedResponse, swapped) = await f.App.ObservedAsync("POST", "/documents/other/swap");
+        Assert.Equal(HttpStatusCode.OK, swappedResponse.StatusCode);
+        var swap = Assert.Single(Changes(swapped));
+        Assert.Equal("Other", swap.GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal("Swapped", swap.GetProperty("after").GetProperty("name").GetString());
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendCoversABulkWriteOfAnInsertAnUpdateAndADelete()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.SeedAsync();
+        await f.Documents.InsertOneAsync(new BsonDocument { { "_id", "to-delete" }, { "name", "Doomed" } });
+        var (_, trace) = await f.App.ObservedAsync("POST", "/documents/bulk");
+        var byOperation = Changes(trace).ToDictionary(change => change.GetProperty("operation").GetString()!);
+        Assert.Equal(3, byOperation.Count);
+        Assert.Equal("bulk-new", byOperation["insert"].GetProperty("key").GetProperty("_id").GetString());
+        Assert.Equal("Seeded", byOperation["update"].GetProperty("before").GetProperty("name").GetString());
+        Assert.Equal("Bulked", byOperation["update"].GetProperty("after").GetProperty("name").GetString());
+        Assert.Equal("Doomed", byOperation["delete"].GetProperty("before").GetProperty("name").GetString());
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendChangesDoNotLeakBetweenRequestsOrIntoAPreview()
+    {
+        await using var f = await Fixture.StartAsync();
+        await f.SeedAsync();
+        // Concurrent observed Sends each see only their own writes.
+        var sends = await Task.WhenAll(Enumerable.Range(0, 6).Select(index =>
+            f.App.ObservedAsync("POST", "/documents", NewDocument with { Id = $"concurrent-{index}" })));
+        for (var index = 0; index < sends.Length; index++)
+        {
+            Assert.Equal($"concurrent-{index}", Assert.Single(Changes(sends[index].Trace)).GetProperty("key").GetProperty("_id").GetString());
+        }
+
+        // A Preview of the same route still rolls back and reports its own change.
+        var preview = await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/documents", NewDocument));
+        Assert.Equal("preview-doc", Assert.Single(Changes(preview)).GetProperty("key").GetProperty("_id").GetString());
+        Assert.Null(await f.FindAsync("preview-doc"));
+    }
+
+    [ServiceFact("mongodb")]
+    public async Task ObservedSendTracesChangesOnAStandaloneServerToo()
+    {
+        // Observation needs no transaction: against a server that can't run one, Preview is in guard mode but a Send is still traced.
+        await using var f = await Fixture.StartAsync(hello: () => Task.FromResult(new BsonDocument("isWritablePrimary", true)));
+        var (response, trace) = await f.App.ObservedAsync("POST", "/documents", NewDocument with { Id = "standalone-insert" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var insert = Assert.Single(Changes(trace));
+        Assert.Equal("insert", insert.GetProperty("operation").GetString());
+        Assert.Equal("York", insert.GetProperty("after").GetProperty("profile").GetProperty("city").GetString());
+        Assert.NotNull(await f.FindAsync("standalone-insert"));
     }
 
     [ServiceFact("mongodb")]

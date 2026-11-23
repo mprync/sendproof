@@ -29,6 +29,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /** Wraps the real provider and reports an injected failure after it has rolled back for real. */
@@ -65,6 +66,7 @@ fun Application.fixtureModule(scenario: Scenario) {
         environment = "Development"
         apiName = "Sendproof Conformance"
         openApiUrl = "/openapi.json"
+        journey("journeys/conformance.arazzo.json")
         authProviders += Capabilities.AuthProvider("Fixture password", "cookie", "/auth/sign-in")
         authProviders += Capabilities.AuthProvider("Fixture personas", "personas", "/auth/personas")
         traceRetention = java.time.Duration.ofSeconds(5)
@@ -128,6 +130,7 @@ private fun io.ktor.server.routing.Route.itemRoutes(accounts: Accounts, items: I
         install(Secured) { this.accounts = accounts }
 
         get("/{id}") {
+            if (call.request.queryParameters["hold"] == "true") delay(1000)
             val item = items.find(call.parameters["id"]!!)
             if (item == null) call.respond(HttpStatusCode.NotFound) else call.respond(item)
         }

@@ -16,6 +16,17 @@ class TransactionControlTest {
     private static final Set<String> NONE = Set.of();
 
     @Test
+    void protectsHeldSavepointsAndImplicitH2Commits() {
+        assertThat(TransactionControl.find("ROLLBACK TO SAVEPOINT \"sendproof_preview_42\"", "postgresql", NONE))
+                .isEqualTo("savepoint sendproof_preview");
+        assertThat(TransactionControl.find("RELEASE SAVEPOINT handler_savepoint", "postgresql", NONE)).isNull();
+        assertThat(TransactionControl.findHeld("SET SCHEMA PUBLIC", "h2", NONE)).isEqualTo("set");
+        assertThat(TransactionControl.findHeld("PREPARE COMMIT example", "h2", NONE)).isEqualTo("prepare");
+        assertThat(TransactionControl.findHeld("{? = call alias()}", "h2", NONE)).isEqualTo("call");
+        assertThat(TransactionControl.findHeld("SELECT 'SET SCHEMA PUBLIC'", "h2", NONE)).isNull();
+    }
+
+    @Test
     void mysqlRefusesEveryImplicitlyCommittingStatement() {
         for (String sql : List.of("CREATE TABLE sendproof_escape_1 (n INT)", "create index i on t (a)",
                 "ALTER TABLE t ADD c INT", "DROP TABLE t", "RENAME TABLE a TO b", "TRUNCATE t", "LOCK TABLES t WRITE",
@@ -125,7 +136,8 @@ class TransactionControlTest {
                 "ROLLBACK TO `sendproof_preview`", "SAVEPOINT sendproof_preview", "SELECT 1; SAVEPOINT sendproof_preview")) {
             assertThat(TransactionControl.find(sql, "mysql", NONE)).as(sql).isEqualTo("savepoint sendproof_preview");
         }
-        assertThat(TransactionControl.find("SAVEPOINT sendproof_preview_2", "mysql", NONE)).isNull();
+        assertThat(TransactionControl.find("SAVEPOINT sendproof_preview_2", "mysql", NONE))
+                .isEqualTo("savepoint sendproof_preview");
         assertThat(TransactionControl.find("ROLLBACK TO SAVEPOINT s1", "mysql", NONE)).isNull();
     }
 

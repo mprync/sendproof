@@ -40,7 +40,7 @@ func noRelease() {}
 // either passes the ended check and runs inside the transaction, or is refused:
 // none can reach the server after the abort, when the session has no transaction
 // and the command would commit on its own.
-func (s *Store) guardCall(ctx context.Context, database string, document stores.Doc) (context.Context, func(), error) {
+func (s *Store) guardCall(ctx context.Context, database string, document stores.Doc, targets ...collectionName) (context.Context, func(), error) {
 	name := ""
 	if len(document) > 0 {
 		name = document[0].Key
@@ -70,11 +70,17 @@ func (s *Store) guardCall(ctx context.Context, database string, document stores.
 			return nil, noRelease, sendproof.RefusePreview(ctx, "A MongoDB "+name+" was sent with a session other than the Preview's.")
 		}
 		if state.ended() {
+			if state.held != nil {
+				return nil, noRelease, sendproof.ErrSessionFailed
+			}
 			return nil, noRelease, sendproof.RefusePreview(ctx, endedReason)
 		}
 		if !systemDatabase(database) {
 			if classified.Refused != "" {
 				return nil, noRelease, sendproof.Guard(ctx, system, name, true, refusedReason(classified.Refused))
+			}
+			if state.held != nil {
+				return state.guardHeldCall(ctx, database, document, classified.Kind == stores.Write, targets)
 			}
 			state.inflight.RLock()
 			// Checked again under the lock: the Preview may have ended while this call waited for it.
@@ -131,7 +137,11 @@ func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOp
 
 // BulkWrite runs a client-level bulk write across namespaces.
 func (c *Client) BulkWrite(ctx context.Context, writes []mongo.ClientBulkWrite, opts ...options.Lister[options.ClientBulkWriteOptions]) (*mongo.ClientBulkWriteResult, error) {
-	ctx, release, err := c.store.guardCall(ctx, "", command("bulkWrite", "admin"))
+	var targets []collectionName
+	for _, write := range writes {
+		targets = append(targets, collectionName{write.Database, write.Collection})
+	}
+	ctx, release, err := c.store.guardCall(ctx, "", command("bulkWrite", "admin"), targets...)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +271,14 @@ func (d *Database) RunCommand(ctx context.Context, runCommand any, opts ...optio
 	if err != nil {
 		return failedResult(err)
 	}
-	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), rawToDoc(raw))
+	var targets []collectionName
+	for _, info := range arrayDocuments(raw, "nsInfo") {
+		if name, ok := info.Lookup("ns").StringValueOK(); ok {
+			database, collection := splitNamespace(name, "")
+			targets = append(targets, collectionName{database, collection})
+		}
+	}
+	ctx, release, err := d.store.guardCall(ctx, d.raw.Name(), rawToDoc(raw), targets...)
 	if err != nil {
 		return failedResult(err)
 	}

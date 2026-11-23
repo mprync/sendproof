@@ -20,6 +20,8 @@ import django
 from django.conf import settings
 
 from fixture_stores import REMEMBERABLE, SyncStores
+from fixture_database import JOURNEY_FILE, sqlite_path
+from time import sleep
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -70,7 +72,7 @@ def configure() -> None:
         ROOT_URLCONF=__name__,
         INSTALLED_APPS=["django.contrib.contenttypes"],
         MIDDLEWARE=["sendproof_django.middleware.SendproofMiddleware"],
-        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": str(_directory / "items.db")}},
+        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path(_directory)}},
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
         USE_TZ=True,
         LOGGING_CONFIG=None,
@@ -85,6 +87,7 @@ def configure() -> None:
             ],
             "OPENAPI_URL": "/openapi.json",
             "TRACE_TTL": TRACE_TTL_SECONDS,
+            "JOURNEY_FILES": [JOURNEY_FILE],
         },
     )
     django.setup()
@@ -218,6 +221,8 @@ class ItemOut(Schema):
 @api.get("/items/{id}", response=ItemOut)
 def read_item(request, id: str):
     require_user(request)
+    if request.GET.get("hold") == "true":
+        sleep(1)
     item = Item.objects.filter(pk=id).first()
     if item is None:
         raise HttpError(404, "Item not found.")

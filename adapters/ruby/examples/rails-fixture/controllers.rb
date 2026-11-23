@@ -78,6 +78,7 @@ module Fixture
     before_action :require_admin!, except: :show
 
     def show
+      sleep 1 if params[:hold] == "true"
       render json: item_json(Item.find(params[:id]))
     end
 
@@ -392,11 +393,11 @@ module Fixture
       openapi: "3.0.3",
       info: { title: "Sendproof Conformance", version: "1.0.0" },
       paths: {
-        "/items" => { post: { summary: "Create an item", requestBody: body.call(ref),
+        "/items" => { post: { operationId: "createItem", summary: "Create an item", requestBody: body.call(ref),
                               responses: { "201" => json.call("Created"), "422" => { description: "Invalid" } } } },
         "/items/{id}" => {
           parameters: [id_param],
-          get: { summary: "Read an item", responses: { "200" => json.call("The item"), "404" => { description: "Missing" } } },
+          get: { operationId: "readItem", summary: "Read an item", responses: { "200" => json.call("The item"), "404" => { description: "Missing" } } },
           patch: { summary: "Rename an item", parameters: [{ name: "tag", in: "query", schema: { type: "string" } }],
                    requestBody: body.call({ type: "object", required: %w[name], properties: { name: { type: "string" } } }),
                    responses: { "200" => json.call("Renamed") } },

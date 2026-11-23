@@ -85,6 +85,65 @@ When capabilities contain `observedSend: true`, clients can send `Prefer: trace`
 
 The reference workbench traces Send by default when the capabilities report `environment: "Development"`, and leaves it off elsewhere; the user can turn it on or off in the result pane or the command palette, and the choice is kept in that browser. A trace is only requested for operations in `previewOperations`; other Sends are not traced, and the result pane says so.
 
+## Preview sessions
+
+A preview session lets a series of Previews behave like one: a later Preview sees what an earlier one wrote, and nothing is ever committed. Journeys use it to preview every step of a task in turn. Capabilities report `previewSessions: true` when the adapter supports sessions for every store that can roll back; a host whose provider can't hold a transaction across requests reports `false`.
+
+### Opening a session
+
+`POST /sendproof/_api/sessions` opens one. Admission is the same as for a Preview: the same-origin rules, any workbench authorization policy, and Sendproof enabled in this environment. The response is `201` with `Cache-Control: no-store`:
+
+```json
+{ "id": "5f0c…", "idleTimeoutSeconds": 300, "maxLifetimeSeconds": 1800 }
+```
+
+The ID is at least 122 random bits from a cryptographic generator, as lowercase hex. A session belongs to the caller's stable subject (`NameIdentifier` or `sub`, as for traces) when the caller is signed in; an anonymous caller's session is reachable only with its ID, and only anonymously. A signed-in caller without one stable subject can't open one (403). Because a session belongs to the identity that opened it, a client signs in, or switches persona, before opening one; after a switch of identity mid-session the session is foreign and answers `404 session_not_found`. The .NET adapter allows four open sessions per owner and sixteen per host, and answers `429` with `code: "session_limit"` beyond that.
+
+### Previews inside a session
+
+A Preview carrying `Sendproof-Session: <id>` runs inside the session. Every store that can roll back keeps one transaction for the whole session, on one pinned connection or client session, so a later step sees an earlier step's uncommitted rows. Before each step the adapter takes a savepoint. The envelope is the normal Preview envelope, with `changes`, `effects` and `logs` for that step only, plus:
+
+```json
+"session": { "id": "5f0c…", "step": 2 }
+```
+
+`step` counts from 1. `rolledBack: true` still means nothing was committed. Effects stay held per step, as in a single Preview. Only Previews read the header; a Send or observed Send ignores it.
+
+Inside a session a Preview may also run any `GET` operation, marked for Preview or not, so a journey's read steps see the earlier steps' uncommitted rows. It runs in the session's transaction and connection, and its envelope is the normal one: `changes` is empty unless the handler writes, and anything it writes rolls back with the session; guard stores still block writes. An operation marked `preview: false` stays refused, and other methods still need to be in `previewOperations`. Outside a session nothing changes: an unmarked `GET` Preview is refused as before. `HEAD` can't be previewed in or out of a session, because a preview response needs a body.
+
+A blocked write (`preview_unavailable`, 409), a failed handler (500) and any other refused step roll back to that step's savepoint and leave the session usable at the same step. A step that succeeds but leaves the transaction unusable (a PostgreSQL error the handler caught) is rolled back the same way and answers 500. A step whose held transaction can't be vouched for (its savepoints are gone, or a handler tried to end the transaction) closes the session and answers 500 without confirmation.
+
+### Rewinding and ending
+
+- `POST /sendproof/_api/sessions/{id}/rewind` with `{ "step": n }` rolls back to the savepoint before step `n`, where `n` runs from 1 to the next step. Steps `n` and later are discarded and the next Preview is step `n`. `204`; `400` for a step out of range.
+- `DELETE /sendproof/_api/sessions/{id}` rolls everything back and ends the session. `204`.
+- The idle timeout, the maximum lifetime and host shutdown do the same. A session that is serving a request when it reaches its maximum lifetime ends as soon as that request does.
+
+### Session errors
+
+Errors are RFC 9457 problems with a `code`, never cached:
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `session_not_found` | 404 | Unknown, expired, ended or foreign. A cross-origin request gets the same answer. |
+| `session_busy` | 409 | The session is serving another request: it takes one at a time. |
+| `session_failed` | 409 | A required store could not be acquired on open, or a store ended the transaction, such as MongoDB at its 60-second `transactionLifetimeLimitSeconds`. Roll back any transactions already held. |
+| `session_limit` | 429 | The caller or host already has as many open sessions as it may. |
+| `store_busy` | 409 | Opening a session was refused because another session or transaction already holds a store that can't be shared (SQLite's write lock, a database lock timeout). |
+
+`store_busy` answers `POST /sendproof/_api/sessions` only, and quickly: an adapter waits a few seconds at most for the store (not the driver's own, longer, timeout) and does not answer `500`. Its `title` names the store, such as `Another Preview session is holding store.db.`, its `detail` says the holder ends by itself after its idle timeout or when it is ended, and the problem carries `idleTimeoutSeconds` so a client can say how long that is. Nothing was opened, so nothing needs ending; a client may offer to try again. A client that closes (or crashes) while holding a session leaves it open until its idle timeout, so a workbench remembers its session ID for the tab and ends it on `pagehide` and on the next load.
+
+### What holding a transaction costs
+
+A held transaction pins a connection and holds its locks between steps. A held SQLite write transaction blocks other writers until the session ends; the idle timeout bounds that. On SQL Server without read-committed snapshot, other requests' reads of the rows a session wrote wait for it too. The .NET adapter lets MySQL and MariaDB Previews take turns per process, so a session there keeps the turn and other MySQL Previews wait for it. MongoDB ends a transaction after `transactionLifetimeLimitSeconds` (60 seconds by default), so a step-by-step session over MongoDB needs a longer limit on a development server, or steps run quickly. A session lives in one process, so an API on more than one instance needs sticky routing for the workbench.
+
+### Implementing Preview sessions and journeys in an adapter
+
+- Advertise `previewSessions` when every rollback-capable store can hold its transaction. Bind each session to its owner, enforce one request at a time, and bound acquisition and session lifetime.
+- Run each step, including GET, on the held transactions. Capture only that step, undo refused steps, implement rewind, and roll back all stores on end or expiry.
+- Publish each journey's name, source (`code` or `file`), and mount-aware `arazzoUrl` and `expectationsUrl`. Serve the paired `{name}.arazzo.json` and `{name}.expect.json` documents alongside the journey engine assets.
+- Run `node tests/conformance/run.mjs <binding>` against the [fixture contract](conformance/fixture.md). The [session checks](../tests/conformance/sessions.mjs) and [journey discovery checks](../tests/conformance/journey-discovery.mjs) run when the fixture advertises each capability.
+
 ## Timing
 
 Successful .NET previews and observed sends emit `Server-Timing` with the metrics `auth`, `handler`, `db` and `serialize`, all in milliseconds. `db` is the sum of recorded command durations and its `desc` uses `"N queries"`. `auth` includes routing and access checks up to handler entry. `serialize` measures Sendproof capture serialization, including the preview envelope. Observed send headers reflect the work completed when response headers are written. The trace's final `timing` object includes `auth`, `handler`, `db`, `serialize` and integer `queryCount`.

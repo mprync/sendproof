@@ -35,7 +35,7 @@ pub const PREVIEW_OPERATIONS: [(&str, &str); 10] = [
 
 /// The fixture's database, chosen by `BENCH_DATABASE` (`sqlite`, the default, `postgresql` or
 /// `mysql`). PostgreSQL and MySQL connect to `BENCH_DATABASE_URL`, a fresh disposable database
-/// that the runner provides. SQLite uses its own file in the temp directory. Either way the fixture
+/// that the runner provides. SQLite uses BENCH_SQLITE_PATH when supplied. Either way the fixture
 /// creates its `items` table itself.
 pub enum Database {
     Sqlite { pool: SqlitePool, file: PathBuf },
@@ -53,9 +53,14 @@ impl Database {
         };
         Ok(match kind.as_str() {
             "sqlite" => {
-                let file = std::env::temp_dir()
-                    .join(format!("sendproof-rust-fixture-{}.db", std::process::id()));
-                remove(&file);
+                let file = std::env::var_os("BENCH_SQLITE_PATH")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| {
+                        let file = std::env::temp_dir()
+                            .join(format!("sendproof-rust-fixture-{}.db", std::process::id()));
+                        remove(&file);
+                        file
+                    });
                 let options = SqliteConnectOptions::new()
                     .filename(&file)
                     .create_if_missing(true)
@@ -173,6 +178,11 @@ pub fn config<B: Backend>(
         .open_api_url("/openapi.json")
         .auth_provider("Password", "cookie", Some("/auth/sign-in"))
         .auth_provider("Personas", "personas", Some("/auth/personas"))
+        .journey_file(
+            "conformance",
+            include_bytes!("../Journeys/conformance.arazzo.json").to_vec(),
+            include_bytes!("../Journeys/conformance.expect.json").to_vec(),
+        )
         .trace_retention(Duration::from_secs(5))
         .identity(move |headers| {
             let sessions = sessions.clone();

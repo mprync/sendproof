@@ -6,6 +6,7 @@ package fixture
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/mprync/sendproof/adapters/go/sendproof"
 )
+
+//go:embed journeys/*.json
+var journeyFiles embed.FS
 
 // Config selects the fixture's behavior.
 type Config struct {
@@ -78,6 +82,7 @@ func New(cfg Config) (http.Handler, func(), error) {
 		sendproof.WithEnvironment("Development"),
 		sendproof.WithAPIName("Sendproof Conformance"),
 		sendproof.WithOpenAPIURL("/openapi.json"),
+		sendproof.WithJourneys(journeyFiles, "journeys/items.arazzo.json"),
 		sendproof.WithAuthProvider("Password", "cookie", "/auth/sign-in"),
 		sendproof.WithAuthProvider("Development personas", "personas", "/auth/personas"),
 		sendproof.WithPrincipal(people.principal),
@@ -137,7 +142,10 @@ func New(cfg Config) (http.Handler, func(), error) {
 		cleanup()
 		return nil, nil, fmt.Errorf("unknown framework %q", cfg.Framework)
 	}
-	return sendproof.StripPathBase(cfg.PathBase, bench.Middleware(router)), cleanup, nil
+	return sendproof.StripPathBase(cfg.PathBase, bench.Middleware(router)), func() {
+		bench.Close()
+		cleanup()
+	}, nil
 }
 
 // frameworkLabel is the web framework as capabilities `binding.framework` names it.

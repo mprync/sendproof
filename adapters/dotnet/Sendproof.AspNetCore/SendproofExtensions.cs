@@ -27,6 +27,7 @@ public static class SendproofExtensions
             capture = new CaptureContext();
             services.TryAddSingleton(capture);
             services.TryAddSingleton<ObservedTraceStore>();
+            services.TryAddSingleton<PreviewSessionStore>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, CaptureLoggerProvider>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, PreviewStartupFilter>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<MatcherPolicy, PreviewEndpointPolicy>());

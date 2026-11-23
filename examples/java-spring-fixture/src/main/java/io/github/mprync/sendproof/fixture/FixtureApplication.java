@@ -1,5 +1,6 @@
 package io.github.mprync.sendproof.fixture;
 
+import io.github.mprync.sendproof.spring.Sendproof;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
 import org.springframework.context.ApplicationListener;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -17,6 +19,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @SpringBootApplication
 public class FixtureApplication {
+
+    @Bean
+    Sendproof sendproof() {
+        return Sendproof.builder().journey("journeys/conformance.arazzo.json").build();
+    }
 
     public static void main(String[] args) {
         var application = new SpringApplication(FixtureApplication.class);

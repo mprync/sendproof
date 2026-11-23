@@ -64,6 +64,20 @@
       }
     },
     "observedSend": { "type": "boolean", "description": "Supports Prefer: trace for advertised preview operations." },
+    "previewSessions": { "type": "boolean", "description": "Supports preview sessions: POST /sendproof/_api/sessions, then Previews carrying Sendproof-Session that share one held transaction. See README.md, Preview sessions." },
+    "journeys": {
+      "type": "array",
+      "description": "Arazzo 1.1 documents of journeys, each with its Sendproof expectations document. See docs/plans/journeys.md.",
+      "items": {
+        "type": "object", "required": ["name", "arazzoUrl", "expectationsUrl"],
+        "properties": {
+          "name": { "type": "string" },
+          "arazzoUrl": { "$ref": "#/$defs/localUrl" },
+          "expectationsUrl": { "$ref": "#/$defs/localUrl" },
+          "source": { "enum": ["code", "file"], "description": "code: built from journey classes at startup; file: a registered Arazzo file." }
+        }
+      }
+    },
     "dataStores": {
       "type": "array",
       "description": "Data stores the binding has hooked and how Preview treats each. See data-stores.md.",

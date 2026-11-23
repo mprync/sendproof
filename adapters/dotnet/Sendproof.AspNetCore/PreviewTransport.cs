@@ -50,6 +50,8 @@ internal sealed class PreviewTransport
         Exception? failure = null;
         // A store or rollback failure: the Preview is never confirmed and never reported as blocked.
         Exception? unsafeFailure = null;
+        // What happened to the held transactions of a Preview inside a session.
+        var step = StepOutcome.None;
 
         try
         {
@@ -111,13 +113,21 @@ internal sealed class PreviewTransport
                 }
             }
 
+            var succeeded = failure is null && unsafeFailure is null && recorder.Fault is null && recorder.Blocked is null &&
+                preview.EndpointCompleted && !capture.ExceededLimit;
+            if (preview.HeldSession is { } held && (preview.StepBegun || preview.StepBroken is not null))
+            {
+                (step, unsafeFailure) = await FinishStepAsync(context.RequestServices.GetRequiredService<PreviewSessionStore>(), held, preview,
+                    recorder, succeeded, unsafeFailure);
+                succeeded &= step == StepOutcome.Kept;
+            }
+
             try
             {
-                if (failure is null && unsafeFailure is null && recorder.Fault is null && recorder.Blocked is null &&
-                    preview.EndpointCompleted && !capture.ExceededLimit)
+                if (succeeded)
                 {
                     var snapshot = recorder.Finish();
-                    envelope = CreateEnvelope(capture, session, snapshot);
+                    envelope = CreateEnvelope(capture, session, preview.HeldSession, preview.Step, snapshot);
                 }
             }
             catch (Exception error)
@@ -161,10 +171,34 @@ internal sealed class PreviewTransport
             context.SetEndpoint(originalEndpoint);
             context.Request.RouteValues = originalRouteValues;
             await capture.Stream.DisposeAsync();
+            if (preview.HeldSession is { } held)
+            {
+                await context.RequestServices.GetRequiredService<PreviewSessionStore>().ExitAsync(held);
+            }
         }
 
         if (context.RequestAborted.IsCancellationRequested)
         {
+            return;
+        }
+
+        if (preview.SessionRefused is { } refusal)
+        {
+            await PreviewProtocol.RejectSessionAsync(context, refusal);
+            return;
+        }
+
+        if (step == StepOutcome.Failed)
+        {
+            await PreviewProtocol.RejectSessionAsync(context, SessionRefusal.Failed, CaptureLimits.Clip(preview.HeldSession!.EndedReason ??
+                preview.StepBroken?.Message ?? "A store ended the session's transaction."));
+            return;
+        }
+
+        if (step == StepOutcome.StepUndone)
+        {
+            await PreviewProtocol.RejectAsync(context, StatusCodes.Status500InternalServerError,
+                "The step left the session's transaction unusable, so it was undone. Run it again or rewind.");
             return;
         }
 
@@ -246,19 +280,142 @@ internal sealed class PreviewTransport
         return PreviewProtocol.RejectAsync(context, status, title);
     }
 
-    private static PreviewEnvelope CreateEnvelope(PreviewResponseCapture response, IPreviewSession? session, CaptureSnapshot capture)
+    /// <summary>
+    /// After a step's handler: keeps the step in every held transaction when it succeeded, or rolls each back to the step's
+    /// savepoint when it didn't, so a blocked write or a failed handler leaves the session usable. A store that ended its
+    /// transaction, a fault, or a held transaction that can't be vouched for closes the session and rolls everything back.
+    /// </summary>
+    private static async Task<(StepOutcome Outcome, Exception? UnsafeFailure)> FinishStepAsync(PreviewSessionStore sessions, PreviewSession held, PreviewRequest preview,
+        SendproofPreview recorder, bool succeeded, Exception? unsafeFailure)
     {
-        var (changes, truncated) = CaptureLimits.SnapshotChanges([.. session?.Changes ?? [], .. capture.Changes ?? []]);
+        var outcome = preview.StepBroken switch
+        {
+            PreviewSessionFailedException => StepOutcome.Failed,
+            { } broken => Fail(broken),
+            _ when held.EndedReason is not null => StepOutcome.Failed,
+            _ when unsafeFailure is not null || recorder.Fault is not null => StepOutcome.Broken,
+            _ => StepOutcome.None
+        };
+
+        if (outcome == StepOutcome.None)
+        {
+            outcome = succeeded ? await KeepAsync() : await UndoAsync(StepOutcome.Undone);
+        }
+
+        if (outcome is StepOutcome.Failed or StepOutcome.Broken)
+        {
+            try
+            {
+                await sessions.CloseAsync(held);
+            }
+            catch (Exception error)
+            {
+                unsafeFailure = Combine(unsafeFailure, error);
+            }
+        }
+        else if (outcome == StepOutcome.Kept)
+        {
+            held.NextStep = preview.Step + 1;
+        }
+
+        return (outcome, unsafeFailure);
+
+        StepOutcome Fail(Exception error)
+        {
+            unsafeFailure = Combine(unsafeFailure, error);
+            return StepOutcome.Broken;
+        }
+
+        async Task<StepOutcome> KeepAsync()
+        {
+            foreach (var part in held.Parts)
+            {
+                try
+                {
+                    await part.KeepStepAsync(CancellationToken.None);
+                }
+                catch (PreviewStepUndoneException)
+                {
+                    // That store rolled the step back on its own; the others follow so the session stays consistent.
+                    return await UndoAsync(StepOutcome.StepUndone);
+                }
+                catch (PreviewSessionFailedException)
+                {
+                    return StepOutcome.Failed;
+                }
+                catch (Exception error)
+                {
+                    return Fail(error);
+                }
+            }
+
+            return StepOutcome.Kept;
+        }
+
+        async Task<StepOutcome> UndoAsync(StepOutcome undone)
+        {
+            foreach (var part in held.Parts)
+            {
+                try
+                {
+                    await part.UndoStepAsync(CancellationToken.None);
+                }
+                catch (PreviewSessionFailedException)
+                {
+                    return StepOutcome.Failed;
+                }
+                catch (Exception error)
+                {
+                    return Fail(error);
+                }
+            }
+
+            return held.EndedReason is null ? undone : StepOutcome.Failed;
+        }
+    }
+
+    /// <summary>What happened to a session step's held transactions.</summary>
+    private enum StepOutcome
+    {
+        /// <summary>Not a session step.</summary>
+        None,
+
+        /// <summary>The step's writes stay in the held transactions.</summary>
+        Kept,
+
+        /// <summary>The step was rolled back to its savepoint (a blocked write, a failed handler); the session is usable.</summary>
+        Undone,
+
+        /// <summary>The step succeeded but couldn't be kept, so it was rolled back; the session is usable.</summary>
+        StepUndone,
+
+        /// <summary>A store ended the session's transaction: closed, 409 <c>session_failed</c>.</summary>
+        Failed,
+
+        /// <summary>A held transaction can't be vouched for: closed, 500 without confirmation.</summary>
+        Broken
+    }
+
+    private static PreviewEnvelope CreateEnvelope(PreviewResponseCapture response, IPreviewSession? session, PreviewSession? held,
+        int step, CaptureSnapshot capture)
+    {
+        var (changes, truncated) = CaptureLimits.SnapshotChanges(
+            [.. session?.Changes ?? [], .. held?.Parts.SelectMany(part => part.Changes) ?? [], .. capture.Changes ?? []]);
         var headers = response.Headers.Where(header => !PrivateHeaders.Contains(header.Key) && header.Key.Length <= CaptureLimits.Name)
             .Take(CaptureLimits.Parameters).ToDictionary(header => header.Key.ToLowerInvariant(),
                 header => CaptureLimits.Clip(header.Value.ToString()), StringComparer.Ordinal);
         return new PreviewEnvelope(response.StatusCode, headers, response.ReadBody(), changes, capture.Effects, capture.Logs, true,
-            truncated || session?.ChangesTruncated == true || capture.ChangesTruncated, capture.EffectsTruncated, capture.LogsTruncated);
+            truncated || session?.ChangesTruncated == true || held?.Parts.Any(part => part.ChangesTruncated) == true || capture.ChangesTruncated,
+            capture.EffectsTruncated, capture.LogsTruncated, held is null ? null : new SessionStep(held.Id, step));
     }
 
     private sealed record PreviewEnvelope(int Status, Dictionary<string, string> Headers, object? Body,
         PreviewChange[] Changes, PreviewEffect[] Effects, PreviewLog[] Logs, bool RolledBack,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ChangesTruncated,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool EffectsTruncated,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool LogsTruncated);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool LogsTruncated,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SessionStep? Session);
+
+    /// <summary>The envelope's <c>session</c>: which session the step ran in, and its number from 1.</summary>
+    private sealed record SessionStep(string Id, int Step);
 }

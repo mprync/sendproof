@@ -7,6 +7,9 @@ internal static class PreviewProtocol
 {
     internal const string Prefix = "/sendproof/_preview";
     internal const string RollbackPreference = "tx=rollback";
+
+    /// <summary>The request header that runs a Preview inside a preview session.</summary>
+    internal const string SessionHeader = "Sendproof-Session";
     internal static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web);
 
     internal static bool RequestsRollback(HttpRequest request) => request.Headers["Prefer"].Any(value =>
@@ -44,6 +47,24 @@ internal static class PreviewProtocol
         return Results.Problem(statusCode: statusCode, title: title).ExecuteAsync(context);
     }
 
+    /// <summary>A preview-session problem (spec/README.md "Preview sessions"): RFC 9457, with a <c>code</c>, never cached.</summary>
+    internal static Task RejectSessionAsync(HttpContext context, SessionRefusal refusal, string? detail = null)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        return SessionProblem(refusal, detail).ExecuteAsync(context);
+    }
+
+    internal static IResult SessionProblem(SessionRefusal refusal, string? detail = null, int? idleTimeoutSeconds = null)
+    {
+        var extensions = new Dictionary<string, object?> { ["code"] = refusal.Code };
+        if (idleTimeoutSeconds is { } idle)
+        {
+            extensions["idleTimeoutSeconds"] = idle;
+        }
+
+        return Results.Problem(type: "about:blank", title: refusal.Title, statusCode: refusal.Status, detail: detail, extensions: extensions);
+    }
+
     /// <summary>
     /// The blocked-Preview response (spec/data-stores.md): 409, <c>application/problem+json</c>, no-store, and never
     /// <c>Preference-Applied</c>, so no client can mistake it for a confirmed rollback. It names the store and the
@@ -73,6 +94,21 @@ internal sealed class PreviewRequest(PathString originalPath, PathString targetP
     internal CaptureClock Clock { get; } = new(started);
     internal bool HasInvokedEndpoint { get; set; }
     internal bool EndpointCompleted { get; set; }
+
+    /// <summary>The preview session this Preview runs in, with its turn taken; <see langword="null"/> for a single Preview.</summary>
+    internal PreviewSession? HeldSession { get; set; }
+
+    /// <summary>The session step this Preview runs as.</summary>
+    internal int Step { get; set; }
+
+    /// <summary>Set once every held transaction has taken this step's savepoint.</summary>
+    internal bool StepBegun { get; set; }
+
+    /// <summary>Why a held transaction couldn't begin this step, which closes the session.</summary>
+    internal Exception? StepBroken { get; set; }
+
+    /// <summary>Why the Preview's session header was refused (unknown, foreign, busy), answered before anything else.</summary>
+    internal SessionRefusal? SessionRefused { get; set; }
 
     internal bool MatchesTarget(HttpRequest request) => request.Path == targetPath &&
         request.PathBase.Add(new PathString(PreviewProtocol.Prefix)).Add(request.Path) == originalPath;

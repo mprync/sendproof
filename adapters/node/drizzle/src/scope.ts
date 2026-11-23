@@ -14,15 +14,23 @@ export interface Scope {
    * released, and dropped when it rolls back, so the capture never shows rows that were undone.
    */
   changes?: Change[];
-  /** Set when the Preview refused a statement that would have ended its transaction. */
-  refused?: boolean;
   /** MySQL stored procedures the host declared never commit; every other `CALL` is refused in a Preview. */
   safeProcedures?: ReadonlySet<string>;
   /**
    * Shared by a Preview and every transaction nested in it: set when the database rolled the Preview transaction
    * back after a deadlock or lock wait timeout, after which every statement is refused.
    */
-  outcome?: { broken: boolean };
+  outcome?: Outcome;
+  /** The held transaction's current request, for statements prepared on the pinned session. */
+  held?: { active?: object };
+  step?: object;
+}
+
+export interface Outcome {
+  broken: boolean;
+  /** Set when the Preview refused a statement that would have ended its transaction. */
+  refused?: boolean;
+  onError?(error: unknown): void;
 }
 
 export const endedMessage = 'The Drizzle transaction has ended.';

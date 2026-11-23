@@ -323,6 +323,11 @@ impl Driver for Postgres {
     const DIALECT: Dialect = dialects::POSTGRES;
     const CLOSE_UNFINISHED: bool = true;
     const SYSTEM: &'static str = "postgresql";
+    const CAPTURE_PER_STEP: bool = false;
+
+    fn step_aborted(error: &sqlx::Error) -> bool {
+        is_aborted(error)
+    }
 
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments> {
         match value {
@@ -334,8 +339,8 @@ impl Driver for Postgres {
         }
     }
 
-    fn run_raw<'a>(connection: &'a mut PgConnection, sql: &'static str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move { sqlx::raw_sql(sql).execute(connection).await.map(drop) })
+    fn run_raw<'a>(connection: &'a mut PgConnection, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>> {
+        Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(connection).await.map(drop) })
     }
 
     fn run<'a>(
@@ -394,6 +399,16 @@ impl Driver for Postgres {
     fn abandon<'a>(connection: &'a mut PgConnection, capture: &'a Capture) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             let _ = capture.remove(connection).await;
+        })
+    }
+
+    fn finish_held_step<'a>(connection: &'a mut PgConnection, capture: &'a Capture) -> BoxFuture<'a, Result<(), BoxError>> {
+        Box::pin(async move {
+            capture.collect(connection).await?;
+            // The audit rows are transactional. Each retained savepoint precedes an empty table,
+            // so rewinding to any of them leaves the next step with an empty capture.
+            sqlx::raw_sql("DELETE FROM pg_temp.sendproof_changes").execute(connection).await?;
+            Ok(())
         })
     }
 

@@ -12,6 +12,7 @@ import os
 import secrets
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Iterator
 
@@ -30,6 +31,7 @@ from sendproof_fastapi import AuthProvider, Identity, Sendproof, preview
 from sendproof_sqlalchemy import SQLAlchemyPreview
 
 from fixture_stores import REMEMBERABLE, AsyncStores
+from fixture_database import JOURNEY_FILE, sqlite_path
 
 PORT = int(os.environ.get("PORT", "8000"))
 BASE = os.environ.get("BENCH_PATH_BASE", "").rstrip("/")
@@ -41,7 +43,7 @@ log = logging.getLogger("fixture")
 
 # ----------------------------------------------------------------------------- database
 _directory = Path(tempfile.mkdtemp(prefix="sendproof-fixture-"))
-engine = create_engine(f"sqlite:///{_directory / 'items.db'}")
+engine = create_engine(f"sqlite:///{sqlite_path(_directory)}")
 
 
 @event.listens_for(engine, "connect")
@@ -163,7 +165,9 @@ def switch_persona(email: str, user: dict = Depends(require_admin)):
 
 
 @app.get("/items/{id}")
-def read_item(id: str, db: Session = Depends(get_db), user: dict = Depends(require_user)):
+def read_item(id: str, hold: bool = False, db: Session = Depends(get_db), user: dict = Depends(require_user)):
+    if hold:
+        time.sleep(1)
     item = db.get(Item, id)
     if item is None:
         raise HTTPException(404, "Item not found.")
@@ -466,6 +470,7 @@ Sendproof(
         AuthProvider("Fixture personas", "personas", "/auth/personas"),
     ],
     trace_ttl=TRACE_TTL_SECONDS,
+    journey_files=[JOURNEY_FILE],
 )
 
 # Mount under the path base so that the workbench is absent without the prefix.

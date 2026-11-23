@@ -14,3 +14,5 @@ const documents = mongooseStore(mongoose, { name: 'catalog' });
 ```
 
 Only hooked clients are covered. See [Data stores in the Node binding](../data-stores.md) for setup, the `preview: false` mark, limits and redaction.
+
+Preview sessions on a replica set or sharded cluster share one uncommitted transaction. The guarded driver's collection write methods and Mongoose model writes support rewind on existing collections. Before the first write to a collection in a step, Sendproof reads its documents in the transaction. It bounds those images across the step at 1,000 documents and 16 MiB, with a 64 MiB limit for retained undo images across the session. Writes that exceed the before-image bounds are refused. If the transaction expires or complete undo images cannot be verified after dispatch, the session closes without confirming the step.

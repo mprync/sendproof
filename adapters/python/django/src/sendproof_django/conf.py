@@ -19,6 +19,7 @@ _bench: "DjangoBench | None" = None
 KEYS = {
     "API_NAME", "OPENAPI_URL", "DOCUMENTS", "ENVIRONMENT", "ENVIRONMENTS", "PROVIDER", "IDENTITY",
     "AUTHORIZE", "AUTH_PROVIDERS", "FIELD_MODULES", "INCLUDE_SQL_PARAMETER_VALUES", "TRACE_TTL", "DATA_STORES",
+    "JOURNEY_FILES", "SESSION_IDLE_TIMEOUT", "SESSION_MAX_LIFETIME",
 }
 
 
@@ -69,6 +70,9 @@ class DjangoBench:
             auth_providers=providers, field_modules=list(config.get("FIELD_MODULES", [])),
             include_sql_parameter_values=config.get("INCLUDE_SQL_PARAMETER_VALUES"),
             trace_ttl=float(config.get("TRACE_TTL", 300.0)), identity=self.identity, framework="Django",
+            journey_files=tuple(config.get("JOURNEY_FILES", ())),
+            session_idle_timeout=config.get("SESSION_IDLE_TIMEOUT", 300),
+            session_max_lifetime=config.get("SESSION_MAX_LIFETIME", 1800),
         )
         self.provider = provider
         self.workbench = Workbench(self.options, provider)
@@ -88,4 +92,6 @@ def reset() -> None:
     """Forget the cached engine (tests)."""
     global _bench
     with _lock:
+        if _bench is not None:
+            _bench.engine.sessions.close()
         _bench = None

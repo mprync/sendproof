@@ -42,6 +42,10 @@ Preview selects a request-local Knex transaction and confirms rollback after Kne
 
 Knex exposes positional SQL bindings. Their values are always recorded as `[REDACTED]`. For a specific awaited query, use `withParameterNames` to label the parameters.
 
+## Preview sessions
+
+Preview sessions hold one Knex transaction across requests on `better-sqlite3`, PostgreSQL, MySQL, MariaDB and SQL Server. Writes stay visible to later steps and roll back on rewind or session close. SQLite takes a write lock when the session opens. MySQL and MariaDB hold the provider's Preview turn until the session closes. SQL Server uses `CURRENT_TRANSACTION_ID()` to verify the held transaction because it cannot release savepoints.
+
 ## Dialects and tests
 
 SQLite (`better-sqlite3`), PostgreSQL (`pg`), MySQL and MariaDB (`mysql2`) and SQL Server (`tedious`). `tests/knex.test.mts` runs 15 provider tests per database plus 2 rollback confirmation tests: 17 on SQLite alone and 62 with all four databases. Set `BENCH_POSTGRES_URL`, `BENCH_MYSQL_URL` or `BENCH_SQLSERVER_URL` to a server and each run creates and drops its own database. With the SQLite suite's 11 tests, the two packages pass 73 tests.

@@ -5,9 +5,11 @@ use std::{fmt, sync::Arc, time::Duration};
 use crate::{
     headers::Headers,
     provider::{BoxFuture, PreviewProvider},
-    stores::{DataStore, StoreDescription},
+    stores::{DataStore, StoreDescription, StoreMode},
     trace_store::DEFAULT_RETENTION,
 };
+
+pub(crate) mod journeys;
 
 /// The authenticated caller, as resolved by the host.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -90,6 +92,7 @@ pub struct Config {
     pub(crate) open_api_url: String,
     pub(crate) documents: Vec<OpenApiDocument>,
     pub(crate) field_modules: Vec<String>,
+    pub(crate) journeys: Vec<journeys::JourneyFile>,
     pub(crate) auth_providers: Vec<AuthProvider>,
     pub(crate) include_sql_parameter_values: Option<bool>,
     pub(crate) path_base: String,
@@ -112,6 +115,7 @@ impl Config {
             open_api_url: "/openapi/v1.json".into(),
             documents: Vec::new(),
             field_modules: Vec::new(),
+            journeys: Vec::new(),
             auth_providers: Vec::new(),
             include_sql_parameter_values: None,
             path_base: String::new(),
@@ -150,6 +154,24 @@ impl Config {
         &self.unavailable
     }
 
+    /// Looks up a registered journey document by the workbench route tail, such as
+    /// `/journeys/example.arazzo.json`. Unknown names and suffixes return `None`.
+    pub fn journey_document(&self, tail: &str) -> Option<&[u8]> {
+        let name = tail.strip_prefix("/journeys/")?;
+        if name.contains('/') {
+            return None;
+        }
+        self.journeys.iter().find_map(|journey| {
+            if name == format!("{}.arazzo.json", journey.name()) {
+                Some(journey.arazzo())
+            } else if name == format!("{}.expect.json", journey.name()) {
+                Some(journey.expectations())
+            } else {
+                None
+            }
+        })
+    }
+
     /// The registered data stores.
     pub fn data_stores(&self) -> &[Arc<dyn DataStore>] {
         &self.stores
@@ -168,6 +190,19 @@ impl Config {
     /// needs no SQL provider when the application's only stores are hooked data stores.
     pub fn can_preview(&self) -> bool {
         self.available_provider().is_some() || !self.stores.is_empty()
+    }
+
+    /// A rollback-capable store must support holding its transaction. Guard stores hold nothing.
+    pub(crate) fn can_hold_preview(&self, described: &[StoreDescription]) -> bool {
+        self.enabled()
+            && self.can_preview()
+            && self.provider.as_ref().is_none_or(|provider| provider.is_available() && provider.supports_held_preview())
+            && self.stores.len() == described.len()
+            && self
+                .stores
+                .iter()
+                .zip(described)
+                .all(|(store, description)| description.mode == StoreMode::Guard || store.supports_held_preview())
     }
 
     /// Whether `method` and the matched route template (relative to the mount) are declared for preview.
@@ -259,6 +294,13 @@ impl ConfigBuilder {
         self
     }
 
+    /// Registers a paired Arazzo and Sendproof expectations file under `/sendproof/journeys/`.
+    /// `name` is the route stem without a file extension.
+    pub fn journey_file(mut self, name: impl Into<String>, arazzo_json: impl Into<Vec<u8>>, expectations_json: impl Into<Vec<u8>>) -> Self {
+        self.0.journeys.push(journeys::JourneyFile::new(name.into(), arazzo_json.into(), expectations_json.into()));
+        self
+    }
+
     /// Advertises a sign-in method. `url` is `None` for non-interactive handlers.
     pub fn auth_provider(mut self, label: impl Into<String>, kind: impl Into<String>, url: Option<&str>) -> Self {
         self.0.auth_providers.push(AuthProvider { label: label.into(), kind: kind.into(), url: url.map(str::to_owned) });
@@ -340,7 +382,7 @@ impl ConfigBuilder {
 
     /// Validates and builds the configuration.
     pub fn build(self) -> Result<Config, ConfigError> {
-        let config = self.0;
+        let mut config = self.0;
         let base = &config.path_base;
         if !(base.is_empty() || (base.starts_with('/') && !base.ends_with('/') && is_local_url(base))) {
             return Err(ConfigError(format!("path base `{base}` must be empty or start with `/` and not end with `/`")));
@@ -352,6 +394,14 @@ impl ConfigBuilder {
         for url in urls {
             if !is_local_url(url) {
                 return Err(ConfigError(format!("`{url}` must be an application-relative, same-origin path")));
+            }
+        }
+        for journey in &mut config.journeys {
+            journey.prepare(base)?;
+        }
+        for (index, journey) in config.journeys.iter().enumerate() {
+            if config.journeys[..index].iter().any(|previous| previous.name() == journey.name()) {
+                return Err(ConfigError(format!("journey `{}` is registered more than once", journey.name())));
             }
         }
         for operation in &config.unavailable {
@@ -444,5 +494,43 @@ mod tests {
     fn rejects_a_trailing_slash_path_base() {
         assert!(Config::builder("x").path_base("/tenant/").build().is_err());
         assert!(Config::builder("x").path_base("/tenant").build().is_ok());
+    }
+
+    #[test]
+    fn registers_paired_journey_documents_with_mount_aware_openapi_source() {
+        let config = Config::builder("x")
+            .path_base("/tenant")
+            .open_api_url("/openapi.json")
+            .journey_file(
+                "sample",
+                br#"{"arazzo":"1.1.0","info":{"title":"Sample","version":"1.0.0"},"sourceDescriptions":[{"name":"api","url":"/openapi.json","type":"openapi"},{"name":"other","url":"/catalog/openapi.json","type":"openapi"},{"name":"nested","url":"/catalog/reference.json","type":"arazzo"},{"name":"external","url":"https://schemas.example.test/openapi.json","type":"openapi"},{"name":"networkPath","url":"//cdn.example.test/openapi.json","type":"openapi"}],"workflows":[{"workflowId":"sample","steps":[{"stepId":"get","operationPath":"/items","parameters":[{"name":"id","in":"query","value":"x"}]}]}]}"#.to_vec(),
+                br#"{"sendproofExpectations":"1.0","arazzo":"old-name","journeys":{}}"#.to_vec(),
+            )
+            .build()
+            .unwrap();
+
+        let arazzo: serde_json::Value = serde_json::from_slice(config.journey_document("/journeys/sample.arazzo.json").unwrap()).unwrap();
+        let expectations: serde_json::Value =
+            serde_json::from_slice(config.journey_document("/journeys/sample.expect.json").unwrap()).unwrap();
+        assert_eq!(arazzo["sourceDescriptions"][0]["url"], "/tenant/openapi.json");
+        assert_eq!(arazzo["sourceDescriptions"][1]["url"], "/tenant/catalog/openapi.json");
+        assert_eq!(arazzo["sourceDescriptions"][2]["url"], "/tenant/catalog/reference.json");
+        assert_eq!(arazzo["sourceDescriptions"][3]["url"], "https://schemas.example.test/openapi.json");
+        assert_eq!(arazzo["sourceDescriptions"][4]["url"], "//cdn.example.test/openapi.json");
+        assert_eq!(expectations["arazzo"], "sample.arazzo.json");
+        assert!(config.journey_document("/journeys/unknown.arazzo.json").is_none());
+        assert!(config.journey_document("/journeys/sample.js").is_none());
+        assert!(config.journey_document("/journeys/sample.arazzo.json/extra").is_none());
+    }
+
+    #[test]
+    fn rejects_duplicate_or_unsafe_journey_names() {
+        let duplicate = Config::builder("x")
+            .journey_file("sample", br#"{"sourceDescriptions":[{"type":"openapi"}]}"#.to_vec(), br#"{}"#.to_vec())
+            .journey_file("sample", br#"{"sourceDescriptions":[{"type":"openapi"}]}"#.to_vec(), br#"{}"#.to_vec())
+            .build();
+        assert!(duplicate.is_err());
+        let unsafe_name = Config::builder("x").journey_file("../secret", br#"{}"#.to_vec(), br#"{}"#.to_vec()).build();
+        assert!(unsafe_name.is_err());
     }
 }

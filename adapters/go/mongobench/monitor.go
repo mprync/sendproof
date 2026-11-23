@@ -158,6 +158,10 @@ func (s *Store) watchWrite(ctx context.Context, state *preview, e *event.Command
 		_ = sendproof.RefusePreview(ctx, "A MongoDB "+e.CommandName+" escaped the Preview session; the Preview can't be confirmed.")
 		return
 	}
+	if state.held != nil && ctx.Value(heldCallKey{}) != state {
+		_ = sendproof.RefusePreview(ctx, "A MongoDB write reached the Preview session without a before image.")
+		return
+	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	state.used = true
@@ -367,6 +371,9 @@ func (s *Store) succeeded(ctx context.Context, e *event.CommandSucceededEvent) {
 func (p *preview) noteReply(pending *pendingCommand, reply bson.Raw) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.held != nil && commandSession(pending.command) == p.lsid && len(arrayDocuments(reply, "writeErrors")) != 0 {
+		p.heldFailed = true
+	}
 	if p.startTime == nil {
 		if lsidValue, err := pending.command.LookupErr("lsid"); err == nil && lsidValue.Type == bson.TypeEmbeddedDocument {
 			if lsid, _ := sessionID(lsidValue.Document()); lsid == p.lsid {
@@ -404,6 +411,11 @@ func (s *Store) failed(ctx context.Context, e *event.CommandFailedEvent) {
 	// block, not a crash.
 	if code, answered := replyCode(e.Failure); pending.preview != nil && answered && code == 263 {
 		sendproof.BlockPreview(pending.ctx, system, pending.name, refusedReason(pending.name))
+	}
+	if code, answered := replyCode(e.Failure); pending.preview != nil && pending.preview.held != nil && answered && code == noSuchTransaction {
+		pending.preview.mu.Lock()
+		pending.preview.heldFailed = true
+		pending.preview.mu.Unlock()
 	}
 	s.log(pending, e.Duration, sendproof.UnknownRows, errorName(e.Failure))
 }

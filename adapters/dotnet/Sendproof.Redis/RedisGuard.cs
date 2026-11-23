@@ -162,7 +162,7 @@ internal sealed class RedisGuard(CaptureContext capture, IReadOnlySet<string>? t
             return Invoke(method, inner, arguments);
         }
 
-        var (statement, target) = RedisCommandMap.Describe(command, isExecute ? arguments.Skip(1).ToArray() : arguments, keysKnown: !isExecute);
+        var (statement, target) = isExecute ? RedisCommandMap.DescribeExecute(command, arguments) : RedisCommandMap.Describe(command, arguments);
         var entry = new DbEntry("redis", command.Name) { Target = target, Namespace = database < 0 ? null : database.ToString(System.Globalization.CultureInfo.InvariantCulture), Statement = statement };
         var started = Stopwatch.GetTimestamp();
         object? result;

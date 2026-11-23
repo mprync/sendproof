@@ -113,6 +113,16 @@ class PreviewProvider(ABC):
         """Optionally observe changes without a transaction."""
         return None
 
+    def supports_held(self, asynchronous: bool) -> bool:
+        """Whether this provider can hold a transaction across requests."""
+        return False
+
+    async def ahold(self) -> Any:
+        return await run_in_thread(self.hold)
+
+    def hold(self) -> Any:
+        raise PreviewUnavailable("This provider cannot hold a Preview transaction.")
+
 
 async def run_in_thread(function: Callable[..., T], *args: Any) -> T:
     """Run a blocking callable in the default executor, preserving context variables."""

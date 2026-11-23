@@ -45,13 +45,13 @@ const KILL_FIRST_DELAY: Duration = Duration::from_millis(100);
 const KILL_MAX_DELAY: Duration = Duration::from_secs(2);
 
 /// Most candidate documents read back for change capture in one Preview.
-const CANDIDATE_LIMIT: usize = 1000;
+pub(crate) const CANDIDATE_LIMIT: usize = 1000;
 
 /// Server error codes meaning the collection or snapshot didn't exist at the start time.
 const NAMESPACE_NOT_FOUND: i32 = 26;
 const SNAPSHOT_UNAVAILABLE: i32 = 246;
 /// `NoSuchTransaction`: the server already ended it, so there is nothing to capture.
-const NO_SUCH_TRANSACTION: i32 = 251;
+pub(crate) const NO_SUCH_TRANSACTION: i32 = 251;
 
 /// The detected topology.
 #[derive(Clone)]
@@ -173,6 +173,7 @@ impl Engine {
                 return true;
             }
             data.finished = true;
+            state.lifetime_ended.store(true, Ordering::SeqCst);
             // The timer must not cancel itself while it aborts.
             if let Some(timer) = data.timer.take()
                 && !from_timer
@@ -231,7 +232,7 @@ impl Engine {
     /// start time, outside the transaction, as a raw `find` command. Without a start time (no reply
     /// carried one) it reads the majority-committed view, which the spec allows: nothing the Preview
     /// wrote is committed, so the only difference is a concurrent commit by another request.
-    async fn at_start(
+    pub(crate) async fn at_start(
         &self,
         state: &PreviewState,
         namespace: &str,
@@ -239,6 +240,19 @@ impl Engine {
         filter: &Document,
         projection: Option<&Document>,
     ) -> Result<Vec<Document>, Error> {
+        self.at_start_batch(state, namespace, collection, filter, projection).await.map(|(documents, _)| documents)
+    }
+
+    /// Reports whether a capped snapshot read left a server cursor. Held steps must treat that as
+    /// incomplete even when the first batch contains fewer than 1,001 large documents.
+    pub(crate) async fn at_start_batch(
+        &self,
+        state: &PreviewState,
+        namespace: &str,
+        collection: &str,
+        filter: &Document,
+        projection: Option<&Document>,
+    ) -> Result<(Vec<Document>, bool), Error> {
         let read_concern = match state.data().start_time {
             Some(time) => doc! { "level": "snapshot", "atClusterTime": time },
             None => doc! { "level": "majority" },
@@ -246,23 +260,30 @@ impl Engine {
         let mut command = doc! {
             "find": collection,
             "filter": filter.clone(),
-            "batchSize": CANDIDATE_LIMIT as i64,
-            "limit": CANDIDATE_LIMIT as i64,
-            "singleBatch": true,
+            // The extra document proves a capped match was incomplete. Held steps must refuse
+            // that checkpoint rather than offering an undo log missing a deleted document.
+            "batchSize": (CANDIDATE_LIMIT + 1) as i64,
+            "limit": (CANDIDATE_LIMIT + 1) as i64,
             "readConcern": read_concern,
         };
         if let Some(projection) = projection {
             command.insert("projection", projection.clone());
         }
         match self.client.database(namespace).run_command(command).await {
-            Ok(reply) => Ok(reply
-                .get_document("cursor")
-                .ok()
-                .and_then(|cursor| cursor.get_array("firstBatch").ok())
-                .map(|batch| batch.iter().filter_map(Bson::as_document).cloned().collect())
-                .unwrap_or_default()),
+            Ok(reply) => {
+                let malformed = || Error::custom(sendproof_core::ConfigError("MongoDB returned an incomplete snapshot find reply.".into()));
+                let cursor = reply.get_document("cursor").map_err(|_| malformed())?;
+                let batch = cursor.get_array("firstBatch").map_err(|_| malformed())?;
+                let documents =
+                    batch.iter().map(|item| item.as_document().cloned().ok_or_else(malformed)).collect::<Result<Vec<_>, _>>()?;
+                let cursor_id = cursor.get_i64("id").map_err(|_| malformed())?;
+                if cursor_id != 0 {
+                    let _ = self.client.database(namespace).run_command(doc! { "killCursors": collection, "cursors": [cursor_id] }).await;
+                }
+                Ok((documents, cursor_id != 0))
+            }
             // The collection was created after the start time: nothing in it existed then.
-            Err(error) if matches!(code_of(&error), NAMESPACE_NOT_FOUND | SNAPSHOT_UNAVAILABLE) => Ok(Vec::new()),
+            Err(error) if matches!(code_of(&error), NAMESPACE_NOT_FOUND | SNAPSHOT_UNAVAILABLE) => Ok((Vec::new(), false)),
             Err(error) => Err(error),
         }
     }

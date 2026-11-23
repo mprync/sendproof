@@ -28,4 +28,8 @@ final class PreviewEligibility {
         SendproofPreview mark = mark(handler);
         return mark != null && !mark.enabled();
     }
+
+    static boolean allows(HandlerMethod handler, boolean sessionRead) {
+        return sessionRead ? !isUnavailable(handler) : isMarked(handler);
+    }
 }

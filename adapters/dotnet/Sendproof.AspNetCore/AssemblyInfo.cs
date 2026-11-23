@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Sendproof.OpenSearch")]
 [assembly: InternalsVisibleTo("Sendproof.CosmosDb")]
 [assembly: InternalsVisibleTo("Sendproof.Firestore")]
+[assembly: InternalsVisibleTo("Sendproof.Journeys")]
 [assembly: InternalsVisibleTo("Sendproof.AspNetCore.Tests")]
 [assembly: InternalsVisibleTo("Sendproof.DataStores.Tests")]
 [assembly: InternalsVisibleTo("Sendproof.EntityFrameworkCore.Tests")]

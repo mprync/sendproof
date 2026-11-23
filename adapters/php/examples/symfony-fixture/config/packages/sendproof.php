@@ -10,6 +10,7 @@ return static function (ContainerConfigurator $container): void {
         'enabled' => true,
         'environments' => ['dev'],
         'api_name' => 'Sendproof Conformance',
+        'journeys' => [dirname(__DIR__, 3) . '/journeys/conformance.arazzo.json'],
         'identity' => FixtureIdentity::class,
         'provider' => match ($scenario) {
             'no-provider' => null,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Iterable
 
 from .identity import Identity
@@ -92,11 +93,17 @@ class BenchOptions:
     #: The web framework serving the workbench, published as capabilities ``binding.framework``
     #: so the workbench shows the ``preview: false`` snippet in the host's own language.
     framework: str | None = None
+    journey_files: tuple[str | Path, ...] = ()
+    session_idle_timeout: int = 300
+    session_max_lifetime: int = 1800
 
     def __post_init__(self) -> None:
         if self.environment is None:
             self.environment = os.environ.get("SENDPROOF_ENVIRONMENT") or "Production"
         self.environments = tuple(self.environments)
+        for timeout in (self.session_idle_timeout, self.session_max_lifetime):
+            if type(timeout) is not int or timeout <= 0:
+                raise ValueError("Preview session timeouts must be positive integer seconds.")
         if self.openapi_url is not None:
             require_local_url(self.openapi_url)
         for url in self.field_modules:

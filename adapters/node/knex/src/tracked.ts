@@ -136,6 +136,8 @@ export interface StatementGuard {
   refused: () => void;
   /** True while the provider runs its own statements, such as the final ROLLBACK. */
   internal: () => boolean;
+  /** Refuse queries from work that outlived its Preview step. */
+  active: () => boolean;
   /** Whether the database already rolled the Preview transaction back (a deadlock), and how to record that it did. */
   broken: () => boolean;
   markBroken: () => void;
@@ -161,6 +163,7 @@ export function guardStatements(transaction: Knex.Transaction, guard: StatementG
   const client = transaction.client as unknown as TransactionClient;
   const check = (query: unknown): Error | undefined => {
     if (guard.internal()) return undefined;
+    if (!guard.active()) return new Error('The Knex preview transaction scope has ended.');
     // After a deadlock the transaction is gone: a statement now would run with autocommit and commit for real.
     if (guard.broken()) return new Error(deadlockMessage);
     const text = typeof query === 'string' ? query : (query as { sql?: unknown } | null)?.sql;

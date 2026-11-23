@@ -3,7 +3,9 @@ package io.github.mprync.sendproof.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.mprync.sendproof.core.HeldPreview;
 import io.github.mprync.sendproof.core.PreviewSession;
+import io.github.mprync.sendproof.core.RequestCapture;
 import io.github.mprync.sendproof.jpa.testapp.JpaTestApp;
 import java.net.URI;
 import java.sql.Connection;
@@ -74,6 +76,39 @@ class MySqlJpaEscapeTest {
         if (mysqlAvailable()) {
             admin("DROP DATABASE IF EXISTS " + DATABASE);
         }
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void aHeldPreviewKeepsItsTurnAndSupportsRewind() throws Exception {
+        assertThat(provider.supportsHeldPreview()).isTrue();
+        try (var preview = provider.beginHeld()) {
+            assertThatThrownBy(provider::beginHeld).isInstanceOf(HeldPreview.StoreBusy.class);
+            preview.checkpoint();
+            try (var empty = preview.begin(new RequestCapture())) {
+                empty.finish();
+            }
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                insert("held-first");
+                step.finish();
+            }
+            var second = preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                insert("held-second");
+                step.finish();
+            }
+            second.rollback();
+            second.discard();
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                assertThat(jdbc.queryForObject("select count(*) from widgets where id like 'held-%'", Integer.class))
+                        .isEqualTo(1);
+                step.finish();
+            }
+        }
+        assertThat(jdbc.queryForObject("select count(*) from widgets where id like 'held-%'", Integer.class))
+                .isZero();
     }
 
     @Test

@@ -120,6 +120,12 @@ public sealed class SendproofPreview
     internal ConcurrentDictionary<object, object> State { get; } = new();
 
     /// <summary>
+    /// Gets whether this Preview runs inside a preview session. A store that holds no transaction for the session must not
+    /// start one of its own for a step: it would be rolled back at the step's end, and later steps wouldn't see its writes.
+    /// </summary>
+    internal bool InSession { get; set; }
+
+    /// <summary>
     /// Gets whether this request is a Preview, from the moment the Preview transport took it over and even after it
     /// finished, so a write a handler sends late (after its response settled) is still refused, never sent unguarded.
     /// </summary>

@@ -12,7 +12,10 @@ use std::{
 use http::Extensions;
 use sendproof_core::{
     BoxError, BoxFuture, Changes, CommandKind, Config, Core, DataStore, Failure, Headers, Inner, PreviewProvider, PreviewSession,
-    PreviewState, StoreDescription, StoreMode, StoreScope, capture, model::Change, protocol, stores::tables,
+    PreviewState, StoreDescription, StoreMode, StoreScope, capture,
+    model::Change,
+    protocol,
+    stores::{OpenPreviews, tables},
 };
 use serde_json::{Value, json};
 
@@ -257,6 +260,44 @@ async fn without_the_guard_a_write_is_not_blocked() {
     let core = Core::new(config(GuardStore));
     let reply = run(&core, || async { handler_response(200) }).await;
     assert_eq!(reply.status, 200, "no guard call, no block");
+}
+
+#[tokio::test]
+async fn a_held_step_keeps_guard_hooks_for_writes_outside_request_capture() {
+    struct Tripwire(OpenPreviews);
+    impl DataStore for Tripwire {
+        fn describe(&self) -> BoxFuture<'_, StoreDescription> {
+            GuardStore.describe()
+        }
+
+        fn begin_preview<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Option<Box<dyn PreviewSession>>, BoxError>> {
+            Box::pin(async { self.0.begin(extensions).map(Some) })
+        }
+    }
+    let open = OpenPreviews::new();
+    let core = Core::new(config(Tripwire(open.clone())));
+    let mut headers = Headers::new();
+    let opened = core.session_request("POST", "", &headers, &[]).await;
+    assert_eq!(opened.status, 201);
+    let session = json_body(&opened);
+    headers.push(protocol::SESSION_HEADER, session["id"].as_str().unwrap());
+    headers.push("prefer", "tx=rollback");
+    let (_, state) = core.prepare_preview("POST", &headers, "/things", Instant::now()).await.unwrap();
+    state.enroll(&core, "POST", Some("/things"), &headers).await.unwrap();
+    // A task missing both its request and recorder must still be refused during this Preview.
+    let blocked = open.block_unattributed(&StoreScope::current(), "redis", "SET", CommandKind::Write);
+    assert!(blocked.is_err());
+    state.complete();
+    let blocked = state.finish(handler_response(200)).await;
+    assert_eq!(json_body(&blocked)["code"], "preview_unavailable");
+    assert_eq!(open.count(), 0);
+
+    let (_, state) = core.prepare_preview("POST", &headers, "/things", Instant::now()).await.unwrap();
+    state.enroll(&core, "POST", Some("/things"), &headers).await.unwrap();
+    state.complete();
+    let kept = state.finish(handler_response(200)).await;
+    assert_eq!(json_body(&kept)["session"]["step"], 1);
+    core.shutdown_sessions().await;
 }
 
 #[tokio::test]

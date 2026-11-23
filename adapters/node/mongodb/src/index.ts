@@ -16,8 +16,8 @@
  * middleware) fails the Preview with 500, so a rollback is never claimed for it.
  */
 import { readSet, storeLabel } from '@sendproof/core';
-import type { CaptureRecorder, DataStore, DataStoreDescription } from '@sendproof/core';
-import type { MongoClient } from 'mongodb';
+import type { DataStore, DataStoreDescription } from '@sendproof/core';
+import type { ClientSession, MongoClient } from 'mongodb';
 import { guardClient } from './driver.js';
 import { MongoEngine } from './engine.js';
 import { hookMongoose } from './mongoose.js';
@@ -69,14 +69,15 @@ function engineFor(client: MongoClient, options: MongoStoreOptions): MongoEngine
 }
 
 /** The DataStore methods shared by both registrations. */
-function store(engine: MongoEngine, name: string | undefined, around: (capture: CaptureRecorder, dispatch: () => Promise<unknown>) => Promise<unknown>) {
+function store(engine: MongoEngine, name: string | undefined, run: <T>(session: ClientSession | undefined, dispatch: () => Promise<T>) => Promise<T>): DataStore & { system: 'mongodb' } {
   return {
     system: 'mongodb' as const,
     async describe(): Promise<DataStoreDescription> {
       return { system: 'mongodb', ...(name === undefined ? {} : { name }), ...await engine.detect() };
     },
-    around: around as DataStore['around'],
-    finishPreview: (capture: CaptureRecorder) => engine.finish(capture),
+    async around(capture, dispatch, mode) { return run((await engine.begin(capture, mode))?.session, dispatch); },
+    finishPreview: capture => engine.finish(capture),
+    openSession: () => engine.openSession(run),
   };
 }
 
@@ -92,7 +93,7 @@ export function mongoStore(client: MongoClient, options: MongoStoreOptions = {})
   }
   const engine = engineFor(client, options);
   return {
-    ...store(engine, name, async (capture, dispatch) => { await engine.begin(capture); return dispatch(); }),
+    ...store(engine, name, (_session, dispatch) => dispatch()),
     client: guardClient(client, engine),
   };
 }
@@ -107,5 +108,5 @@ export function mongooseStore(mongoose: MongooseLike, options: MongoStoreOptions
   if (!client) throw new TypeError('Call mongooseStore after mongoose.connect(), with a connected Mongoose instance.');
   const engine = engineFor(client, options);
   const run = hookMongoose(mongoose, engine, () => mongoose.connection.name);
-  return store(engine, name, async (capture, dispatch) => run((await engine.begin(capture))?.session, dispatch));
+  return store(engine, name, run);
 }

@@ -11,6 +11,7 @@ module Sendproof
     class Provider < Sendproof::Provider
       # Adapters whose Previews take turns: MySQL and MariaDB (see {Turns}).
       SERIAL_ADAPTERS = %w[mysql2 trilogy mysql].freeze
+      SESSION_ADAPTERS = (%w[sqlite3 postgresql postgis] + SERIAL_ADAPTERS).freeze
 
       # The SQL provider ids the workbench has a store mark for, by Active Record adapter name.
       SYSTEMS = { "sqlite3" => "sqlite", "postgresql" => "postgresql", "postgis" => "postgresql", "mysql2" => "mysql",
@@ -73,6 +74,24 @@ module Sendproof
 
       def begin_observation(_context)
         Observation.new(Tracker.new)
+      end
+
+      def holds_preview?
+        @connection_classes.any? && @connection_classes.all? do |klass|
+          db = klass.connection_db_config
+          SESSION_ADAPTERS.include?(db.adapter.to_s) &&
+            (db.adapter.to_s != "sqlite3" || !db.database.to_s.match?(/\A(?::memory:|file:.*(?:memory:|mode=memory))/))
+        end
+      rescue ::ActiveRecord::ConnectionNotEstablished
+        false
+      end
+
+      def begin_held_preview(_context)
+        if serialize?
+          turn = @turns.try_take
+          raise PreviewSessions::StoreBusy, database || "the database" unless turn
+        end
+        HeldSession.new(@connection_classes, @safe_procedures, database, release_turn: turn)
       end
 
       private

@@ -5,11 +5,14 @@ import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
 import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.Json;
+import io.github.mprync.sendproof.core.JourneyFiles;
+import io.github.mprync.sendproof.core.PreviewSessions;
 import io.github.mprync.sendproof.core.TraceOwner;
 import io.github.mprync.sendproof.core.TraceStore;
 import io.github.mprync.sendproof.core.WorkbenchAssets;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.MappingMatch;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -21,7 +24,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,11 +51,13 @@ class WorkbenchController {
     private final TraceOwnerResolver owners;
     private final TraceStore traces;
     private final WorkbenchAssets assets;
+    private final PreviewSessions sessions;
+    private final UnguardedClients unguarded;
 
     WorkbenchController(SendproofSettings settings, Environment environment, PreviewProviders providers,
                         SendproofStores stores, PreviewOperations operations, OpenApiDocuments documents,
                         WorkbenchIdentityResolver identities, WorkbenchAccess access, TraceOwnerResolver owners,
-                        TraceStore traces, WorkbenchAssets assets) {
+                        TraceStore traces, WorkbenchAssets assets, PreviewSessions sessions, UnguardedClients unguarded) {
         this.settings = settings;
         this.environment = environment;
         this.providers = providers;
@@ -62,6 +69,8 @@ class WorkbenchController {
         this.owners = owners;
         this.traces = traces;
         this.assets = assets;
+        this.sessions = sessions;
+        this.unguarded = unguarded;
     }
 
     /** {@code GET /sendproof} redirects to the trailing-slash URL so relative asset links resolve. */
@@ -72,7 +81,7 @@ class WorkbenchController {
         }
         String query = request.getQueryString() == null ? "" : "?" + request.getQueryString();
         return ResponseEntity.status(HttpStatus.FOUND)
-                .header(HttpHeaders.LOCATION, request.getContextPath() + "/sendproof/" + query).build();
+                .header(HttpHeaders.LOCATION, mount(request) + "/sendproof/" + query).build();
     }
 
     @GetMapping("/")
@@ -93,6 +102,11 @@ class WorkbenchController {
     private ResponseEntity<byte[]> asset(HttpServletRequest request, String path) {
         if (!access.permits(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (JourneyFiles.matches(path)) {
+            var document = settings.journeys().find(path, mount(request));
+            return document == null ? noStore(ResponseEntity.status(HttpStatus.NOT_FOUND)).build() : json(document.toString()
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
         var asset = assets.find(path.isEmpty() ? "index.html" : path);
         if (asset.isEmpty()) {
@@ -116,7 +130,7 @@ class WorkbenchController {
         if (!access.permits(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        String mount = request.getContextPath();
+        String mount = mount(request);
         var provider = providers.get();
         // A hooked data store is enough to Preview, so an application without a SQL provider still lists its operations.
         boolean canPreview = provider != null || stores.any();
@@ -141,8 +155,69 @@ class WorkbenchController {
                 .map(module -> mount + module).toList(), apiName, environmentName(),
                 database(provider), identities.resolve(request), providersList,
                 previewOperations, !previewOperations.isEmpty(), docs, describeStores(), unavailable,
-                new Capabilities.Binding("java", "Spring Boot"));
+                new Capabilities.Binding("java", "Spring Boot"), sessionsSupported(provider),
+                settings.journeys().discover(mount));
         return json(Json.MAPPER.writeValueAsBytes(body));
+    }
+
+    private boolean sessionsSupported(io.github.mprync.sendproof.core.PreviewProvider provider) {
+        return unguarded.block() == null && PreviewSessions.supported(provider, stores.all());
+    }
+
+    @PostMapping("/_api/sessions")
+    ResponseEntity<?> openSession(HttpServletRequest request) {
+        if (!access.permits(request) || !SendproofFilter.isSameOrigin(request)) {
+            return sessionProblem(new PreviewSessions.Refusal(403, null, "Preview session access was refused."));
+        }
+        try {
+            var provider = providers.get();
+            if (!sessionsSupported(provider)) {
+                throw new PreviewSessions.Refusal(409, null, "Preview sessions are unavailable for this host's stores.");
+            }
+            var opened = sessions.open(SendproofInterceptor.sessionOwner(owners, identities, request), provider, stores.all());
+            return noStore(ResponseEntity.status(HttpStatus.CREATED)).contentType(MediaType.APPLICATION_JSON).body(opened);
+        } catch (PreviewSessions.Refusal refused) {
+            return sessionProblem(refused);
+        }
+    }
+
+    @PostMapping("/_api/sessions/{id}/rewind")
+    ResponseEntity<?> rewindSession(HttpServletRequest request, @PathVariable String id) throws java.io.IOException {
+        try (var lease = enterSession(request, id)) {
+            var input = request.getInputStream().readNBytes(1025);
+            lease.rewind(input.length > 1024 ? 0 : PreviewSessions.rewindStep(input));
+            return noStore(ResponseEntity.status(HttpStatus.NO_CONTENT)).build();
+        } catch (PreviewSessions.Refusal refused) {
+            return sessionProblem(refused);
+        }
+    }
+
+    @DeleteMapping("/_api/sessions/{id}")
+    ResponseEntity<?> endSession(HttpServletRequest request, @PathVariable String id) {
+        try (var lease = enterSession(request, id)) {
+            lease.end();
+            return noStore(ResponseEntity.status(HttpStatus.NO_CONTENT)).build();
+        } catch (PreviewSessions.Refusal refused) {
+            return sessionProblem(refused);
+        }
+    }
+
+    private PreviewSessions.Lease enterSession(HttpServletRequest request, String id) {
+        if (!access.permits(request) || !SendproofFilter.isSameOrigin(request)) {
+            throw PreviewSessions.notFound();
+        }
+        return sessions.enter(id, SendproofInterceptor.sessionOwner(owners, identities, request));
+    }
+
+    private static ResponseEntity<byte[]> sessionProblem(PreviewSessions.Refusal refused) {
+        var outcome = refused.outcome();
+        return noStore(ResponseEntity.status(outcome.status())).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(outcome.problem());
+    }
+
+    static String mount(HttpServletRequest request) {
+        return request.getContextPath() + (request.getHttpServletMapping().getMappingMatch() == MappingMatch.PATH
+                ? request.getServletPath() : "");
     }
 
     /** Reads the trace of an observed send; only its owner can. */

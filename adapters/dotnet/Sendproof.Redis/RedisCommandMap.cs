@@ -193,7 +193,44 @@ internal static class RedisCommandMap
     /// The sanitized command text: the command name, then its key arguments, then one <c>?</c> for every other value
     /// (so <c>SET session:42 ?</c>). A value never appears. The first key is the entry's target.
     /// </summary>
-    internal static (string Statement, string? Target) Describe(Command command, object?[] arguments, bool keysKnown)
+    internal static (string Statement, string? Target) DescribeExecute(Command command, object?[] arguments)
+    {
+        // Execute(command, args...): the command's arguments are one array or collection after the command name. The
+        // shared table says which of them is the first key; a container command's subcommand is argument 1.
+        var items = arguments.Length > 1
+            ? arguments[1] switch
+            {
+                object?[] list => list,
+                System.Collections.IEnumerable enumerable and not string => [.. enumerable.Cast<object?>()],
+                _ => []
+            }
+            : [];
+        var keyIndex = StoreTables.Redis.FirstKeyPosition(command.Name, command.Sub) - 1;
+        var parts = new List<string> { command.Sub is null ? command.Name : $"{command.Name} {command.Sub}" };
+        string? target = null;
+        for (var index = command.Sub is null ? 0 : 1; index < items.Length; index++)
+        {
+            if (items[index] is CommandFlags or CancellationToken or null)
+            {
+                continue;
+            }
+
+            if (index == keyIndex)
+            {
+                target = Convert.ToString(items[index] is byte[] bytes ? System.Text.Encoding.UTF8.GetString(bytes) : items[index], System.Globalization.CultureInfo.InvariantCulture);
+                parts.Add(target ?? "?");
+            }
+            else
+            {
+                parts.Add("?");
+            }
+        }
+
+        return (string.Join(' ', parts), target);
+    }
+
+    /// <summary>The sanitized command text and target of a typed (non-<c>Execute</c>) method: see <see cref="DescribeExecute"/>.</summary>
+    internal static (string Statement, string? Target) Describe(Command command, object?[] arguments)
     {
         var parts = new List<string> { command.Sub is null ? command.Name : $"{command.Name} {command.Sub}" };
         string? target = null;
@@ -201,11 +238,11 @@ internal static class RedisCommandMap
         {
             switch (argument)
             {
-                case RedisKey key when keysKnown:
+                case RedisKey key:
                     target ??= key.ToString();
                     parts.Add(key.ToString());
                     break;
-                case RedisKey[] keys when keysKnown:
+                case RedisKey[] keys:
                     foreach (var key in keys)
                     {
                         target ??= key.ToString();

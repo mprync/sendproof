@@ -8,12 +8,16 @@ import { captureResponse, toResponse, unmatchedHeader } from './response.js';
 export type SendproofOptions<E extends Env = Env> = BenchOptions<Context<E>> & {
   /** Path on the parent app where this router is mounted, without a trailing slash. */
   basePath?: string;
+  /** Parent application, if session GETs must reach routes registered outside this router. */
+  application?: Hono<E>;
 };
 
 /** A Hono route handler or middleware, as accepted by `app.get(path, …)`. */
 export type OperationHandler<E extends Env = Env> = Handler<E> | MiddlewareHandler<E>;
 
 export type SendproofRouter<E extends Env = Env> = Hono<E> & {
+  /** Roll back all sessions as the HTTP host shuts down. */
+  close(): Promise<void>;
   /** Register the same Hono handlers for Send and rollback Preview. */
   operation(method: string, template: string, ...handlers: OperationHandler<E>[]): SendproofRouter<E>;
   /**
@@ -46,7 +50,7 @@ function describe<E extends Env>(c: Context<E>, basePath: string): BenchRequest<
  * `app.route(basePath || '/', router)`.
  */
 export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}): SendproofRouter<E> {
-  const { basePath = '', ...benchOptions } = options;
+  const { basePath = '', application, ...benchOptions } = options;
   assertBasePath(basePath);
 
   const app = new Hono<E>({ strict: true }) as SendproofRouter<E>;
@@ -54,21 +58,30 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   const internal = new Hono<E>({ strict: true });
   const operations: RegisteredOperation[] = [];
   const bench = createBench<Context<E>>(benchOptions, () => operations, { language: 'node', framework: 'Hono' });
+  const sessionReads = new WeakSet<Request>();
+  app.close = bench.close;
 
   app.use('*', async (c, next) => {
+    if (sessionReads.has(c.req.raw)) return next();
     const request = describe(c, basePath);
-    const answer = await bench.lookup(request);
+    const answer = await bench.lookup(request, async () => {
+      const input = await captureResponse(new Response(c.req.raw.body), 1024);
+      return input.exceeded ? null : JSON.parse(input.body.toString());
+    });
     // Attribute the request's store writes to it on runtimes without Node's HTTP server, whose
     // requests the core attributes itself.
     if (!answer) return attributeRequest(next);
     if (!('target' in answer)) return toResponse(answer, c.req.method);
 
     const rendered = await bench.preview(request, async () => {
-      const target = new URL(answer.target, request.origin);
-      const response = await internal.fetch(new Request(target, c.req.raw), c.env);
+      const sessionRead = c.req.method === 'GET' && Boolean(answer.session);
+      const target = new URL((sessionRead && application ? basePath : '') + answer.target, request.origin);
+      const input = new Request(target, c.req.raw);
+      if (sessionRead) sessionReads.add(input);
+      const response = await (sessionRead ? application ?? app : internal).fetch(input, c.env);
       if (response.status === 404 && response.headers.get(unmatchedHeader) === '1') return { unmatched: true };
       return captureResponse(response, bench.maxResponseBytes);
-    });
+    }, answer.session);
     return toResponse(rendered, c.req.method);
   });
   internal.notFound(() => new Response(null, { status: 404, headers: { [unmatchedHeader]: '1' } }));
@@ -89,9 +102,11 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
   app.unavailable = (method, template, options, ...handlers) => {
     const upper = register(method, template, handlers);
     const entry = unavailableOperation(upper, template, options);
-    // Only the public router gets the handlers, so a Preview dispatch finds no operation.
     const [first, ...rest] = handlers as [OperationHandler<E>, ...OperationHandler<E>[]];
-    app.on(upper, routePath(template), first, ...rest);
+    app.on(upper, routePath(template), async (c, next) => {
+      if (sessionReads.has(c.req.raw)) return new Response(null, { status: 404, headers: { [unmatchedHeader]: '1' } });
+      await next();
+    }, first, ...rest);
     operations.push({ ...entry, preview: false });
     return app;
   };
@@ -101,7 +116,7 @@ export function sendproof<E extends Env = Env>(options: SendproofOptions<E> = {}
     const path = routePath(template);
     // The observation wrapper times and captures a real Send when the client asked for a trace.
     const observe: MiddlewareHandler<E> = async (c, next) => {
-      if (c.req.method !== upper) return next();
+      if (c.req.method !== upper || sessionReads.has(c.req.raw)) return next();
       const observed = await bench.observation(describe(c, basePath));
       if (!observed) return next();
       await observed.run(next);

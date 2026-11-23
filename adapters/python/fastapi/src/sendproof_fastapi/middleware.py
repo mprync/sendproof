@@ -15,8 +15,11 @@ from starlette.routing import Match
 
 from sendproof_core import Identity, PreviewUnavailable, RequestScope, protocol
 from sendproof_core.capture import Capture
+from sendproof_core.marker import enter, unavailable_info
 from sendproof_core.provider import run_in_thread
 from sendproof_core.scope import activate, deactivate, request_context
+from sendproof_core.sessions import HEADER, Call, HeldSession, SessionError, arun, is_route, not_found, session_id
+from sendproof_core.sync_engine import Inner, ResponseTooLarge
 from sendproof_core.workbench import Response, Workbench, blocked_response, json_response, problem_response, trace_owner
 
 from .capture_send import BufferedResponse
@@ -41,8 +44,18 @@ class SendproofMiddleware:
         self.bench = bench
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] == "lifespan":
+            async def lifecycle():
+                message = await receive()
+                if message["type"] == "lifespan.shutdown":
+                    with anyio.CancelScope(shield=True):
+                        await arun(self.bench.sessions.shutdown())
+                return message
+
+            await self.app(scope, lifecycle, send)
+            return
         if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)  # lifespan: its background tasks belong to no request
+            await self.app(scope, receive, send)
             return
         # Every request is attributed, so a store write that no request accounts for (a thread a
         # Preview handler started without its context) can fail the open Previews.
@@ -101,37 +114,57 @@ class SendproofMiddleware:
     def _origin_ok(scope: dict, headers: Headers) -> bool:
         return protocol.is_same_origin(headers.getlist, scope.get("scheme", "http"), headers.get("host", ""))
 
+    async def _describe_stores(self) -> list[dict]:
+        described = []
+        for store in self.bench.stores:
+            try:
+                described.append(await store.adescribe())
+            except Exception:
+                logger.warning("Sendproof could not describe a data store.", exc_info=True)
+        return described
+
     # ---------------------------------------------------------------- workbench
     async def _workbench(self, scope: dict, receive: Callable, send: Callable, path: str) -> None:
         bench: Any = self.bench
         method = scope["method"]
-        if method not in ("GET", "HEAD"):
+        session_route = is_route(path)
+        if not session_route and method not in ("GET", "HEAD"):
             await _send(send, Response(405, [("allow", "GET, HEAD")]), head=False)
             return
         identity = await self._identity(scope, receive)
-        if not await self._authorized(scope, receive, identity):
+        authorized = await self._authorized(scope, receive, identity)
+        if not session_route and not authorized:
             await _send(send, problem_response(403 if identity else 401, "Access to the workbench is denied."), head=method == "HEAD")
             return
         root = scope.get("root_path", "")
         workbench: Workbench = bench.workbench
-        if path == protocol.BENCH_PREFIX:
+        app = scope["app"]
+        openapi = getattr(app, "openapi_url", None) or "/openapi.json"
+        if session_route:
+            async def read_body() -> bytes:
+                body = bytearray()
+                async for chunk in Request(scope, receive).stream():
+                    body.extend(chunk[:4097 - len(body)])
+                    if len(body) > 4096:
+                        return b""
+                return bytes(body)
+
+            with anyio.CancelScope(shield=True):
+                response = await arun(bench.sessions.route(
+                    path, method, identity, root, authorized, self._origin_ok(scope, Headers(scope=scope)),
+                    Call(None, async_call=self._describe_stores), Call(None, async_call=read_body),
+                ))
+        elif path == protocol.BENCH_PREFIX:
             query = scope.get("query_string", b"").decode("latin-1")
             location = f"{root}/sendproof/" + (f"?{query}" if query else "")
             response = Response(307, [("location", location), ("cache-control", "no-store")])
         elif path in ("/sendproof/", "/sendproof/signin.html"):
             response = workbench.asset("index.html")
         elif path == "/sendproof/_api/capabilities":
-            app = scope["app"]
-            described = []
-            for store in bench.stores:
-                try:
-                    described.append(await store.adescribe())
-                except Exception:
-                    logger.warning("Sendproof could not describe a data store.", exc_info=True)
+            described = await self._describe_stores()
             response = workbench.capabilities(
-                root, identity, preview_operations(app.router.routes),
-                getattr(app, "openapi_url", None) or "/openapi.json", getattr(app, "title", "API"),
-                unavailable_operations(app.router.routes), described,
+                root, identity, preview_operations(app.router.routes), openapi, getattr(app, "title", "API"),
+                unavailable_operations(app.router.routes), described, bench.sessions.supported(described),
             )
         elif path.startswith("/sendproof/_api/traces/"):
             headers = Headers(scope=scope)
@@ -140,13 +173,13 @@ class SendproofMiddleware:
         elif path.startswith("/sendproof/_api/"):
             response = Response(404, [("cache-control", "no-store")])
         else:
-            response = workbench.asset(path[len("/sendproof/"):])
+            response = workbench.asset(path[len("/sendproof/"):], root)
         await _send(send, response, head=method == "HEAD")
 
     # ------------------------------------------------------------------ preview
     async def _preview(self, scope: dict, receive: Callable, send: Callable, path: str, started: float) -> None:
-        bench: Any = self.bench
         headers = Headers(scope=scope)
+        id = session_id(headers.getlist(HEADER))
         if not protocol.has_exact_preference(headers.getlist):
             await _send(send, problem_response(400, "A Sendproof preview requires Prefer: tx=rollback."))
             return
@@ -158,9 +191,26 @@ class SendproofMiddleware:
             await _send(send, problem_response(400, "The Sendproof preview target is invalid."))
             return
         if not self._origin_ok(scope, headers):
-            await _send(send, problem_response(403, "This preview is forbidden."))
+            await _send(send, not_found().response if id is not None else problem_response(403, "This preview is forbidden."))
             return
+        identity = await self._identity(scope, receive)
+        held = None
+        try:
+            if id is not None:
+                held = self.bench.sessions.acquire(id, identity, scope.get("root_path", ""), True)
+            response = await self._dispatch_preview(scope, receive, send, path, target, started, identity, held)
+        except SessionError as error:
+            response = error.response
+        finally:
+            if held is not None:
+                with anyio.CancelScope(shield=True):
+                    await arun(self.bench.sessions.release(held))
+        if response is not None:
+            await _send(send, response)
 
+    async def _dispatch_preview(self, scope: dict, receive: Callable, send: Callable, path: str, target: str,
+                                started: float, identity: Identity | None, held: HeldSession | None) -> Response | None:
+        bench: Any = self.bench
         prefix = scope["path"][: len(scope["path"]) - len(path)]
         inner = dict(scope)
         inner["path"] = prefix + target
@@ -182,21 +232,36 @@ class SendproofMiddleware:
 
         found = find_route(scope["app"].router.routes, inner)
         if found is None or found[1] != Match.FULL:
-            await _send(send, problem_response(404 if found is None else 405, "The preview target was not found for this method."))
-            return
-        if not is_previewable(getattr(found[0], "endpoint", None)):
-            await _send(send, problem_response(409, "This operation is unavailable for preview."))
-            return
-        inner[PREVIEW_ROUTE] = found[0]
-        identity = await self._identity(scope, receive)
+            return problem_response(404 if found is None else 405, "The preview target was not found for this method.")
+        endpoint = getattr(found[0], "endpoint", None)
+        read_step = held is not None and scope["method"] == "GET"
+        if unavailable_info(endpoint) is not None or (not read_step and not is_previewable(endpoint)):
+            return problem_response(409, "This operation is unavailable for preview.")
+        inner[PREVIEW_ROUTE] = (found[0], read_step)
         if not await self._authorized(scope, receive, identity):
-            await _send(send, problem_response(403 if identity else 401, "This preview is forbidden."))
-            return
+            return problem_response(403 if identity else 401, "This preview is forbidden.")
         provider = bench.provider
         if provider is None or not provider.is_available:
-            await _send(send, problem_response(503, "Preview requires one available preview provider."))
+            return problem_response(503, "Preview requires one available preview provider.")
+        if held is None:
+            await self._run_preview(inner, receive, send, provider, started, scope["method"], path)
             return
-        await self._run_preview(inner, receive, send, provider, started, scope["method"], path)
+
+        async def dispatch() -> Inner:
+            buffered = BufferedResponse()
+            await inner["app"](inner, receive, buffered)
+            if buffered.exceeded:
+                raise ResponseTooLarge
+            if not buffered.started:
+                raise RuntimeError("The Preview did not produce a response.")
+            return Inner(buffered.status, buffered.headers, buffered.body)
+
+        request_scope = RequestScope(Capture(rollback=True, started=started), bench.options.environment or "",
+                                     bench.options.show_sql_values)
+        # The held step can be interrupted during dispatch. The driver still completes the
+        # rewind/cleanup commands before the session lease is returned.
+        with anyio.CancelScope(shield=True):
+            return await arun(held.preview(request_scope, Call(None, async_call=dispatch), bench.workbench))
 
     async def _inner_preview(self, scope: dict, receive: Callable, send: Callable) -> None:
         """Last check of a re-dispatched preview, after every host middleware has run.
@@ -206,9 +271,13 @@ class SendproofMiddleware:
         nothing executes and the preview answers 409.
         """
         found = find_route(scope["app"].router.routes, scope)
-        if found is None or found[1] != Match.FULL or found[0] is not scope[PREVIEW_ROUTE]:
+        expected, read_step = scope[PREVIEW_ROUTE]
+        if (found is None or found[1] != Match.FULL or found[0] is not expected
+                or (read_step and scope["method"] != "GET")):
             await _send(send, problem_response(409, "This operation is unavailable for preview."))
             return
+        if read_step:
+            enter()
         await self.app(scope, receive, send)
 
     async def _run_preview(

@@ -41,6 +41,18 @@ end
 
 Browse to `/sendproof/`. Nothing is enabled until `environments` names the running environment, and production is never implied.
 
+## Preview sessions and journeys
+
+Preview sessions are available automatically in enabled environments when all registered rollback-capable stores support held transactions. The workbench sends each step with `Sendproof-Session`. A session uses the caller's stable subject and allows one request at a time. It keeps up to four sessions per owner and sixteen per host, expires after five idle minutes or thirty minutes total, and rolls back when it ends. Use sticky routing when the API runs in multiple processes. See [store limits](data-stores.md#preview-session-limits).
+
+Register a file pair in the same initializer. Rails resolves relative paths from the application root. For plain Rack, call `journey` on `Sendproof::Configuration` with a path relative to the working directory or an absolute path.
+
+```ruby
+config.sendproof.journey "journeys/inventory.arazzo.json"
+```
+
+Place `inventory.expect.json` alongside the Arazzo 1.1 document. Use application-relative OpenAPI URLs in the Arazzo sources. Sendproof advertises both files in capabilities and serves them under `/sendproof/journeys/` within the application mount.
+
 ## Data stores
 
 MongoDB (Mongoid and the `mongo` driver), Redis (`redis-client`, `redis` 5), DynamoDB (`aws-sdk-dynamodb`), Elasticsearch (`elasticsearch` 8), OpenSearch (`opensearch-ruby` 3) and Firestore (`google-cloud-firestore`, gRPC) are covered only through the clients the hooks reach. Cassandra and Cosmos DB are not supported. [Data stores in the Ruby binding](data-stores.md) covers setup, the `sendproof_no_preview` mark and what each store does in a Preview.

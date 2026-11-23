@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..provider import PreviewChange, PreviewObservation, PreviewProvider, PreviewSession, run_in_thread
+from ..provider import PreviewChange, PreviewObservation, PreviewProvider, PreviewSession, PreviewUnavailable, run_in_thread
 from ..scope import RequestScope
 
 
@@ -52,6 +52,16 @@ class DataStore:
         """Async form of :meth:`finish`; the default runs it in a worker thread."""
         await run_in_thread(self.finish, scope)
 
+    def supports_held(self, asynchronous: bool) -> bool:
+        """Whether this rollback-capable store can hold a session."""
+        return False
+
+    def hold(self) -> Any:
+        raise PreviewUnavailable("This store cannot hold a Preview transaction.")
+
+    async def ahold(self) -> Any:
+        return await run_in_thread(self.hold)
+
 
 class _NoChanges(PreviewSession, PreviewObservation):
     """A session and an observation that capture no SQL changes and roll back nothing."""
@@ -82,6 +92,12 @@ class StoresOnlyProvider(PreviewProvider):
 
     database: Optional[str] = None
     system: Optional[str] = None
+
+    def supports_held(self, asynchronous: bool) -> bool:
+        return True
+
+    def hold(self) -> None:
+        return None
 
     def begin(self, scope: RequestScope) -> PreviewSession:
         return _NoChanges()

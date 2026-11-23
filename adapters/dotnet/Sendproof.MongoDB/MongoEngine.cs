@@ -28,6 +28,10 @@ namespace Sendproof.MongoDB;
 /// <item><b>Finish</b>: after the handler, changes are read (inside the transaction for <c>after</c>, at the transaction's
 /// own snapshot time for <c>before</c>), then the transaction is aborted and the session ended. A Preview that outlives
 /// its time limit is aborted early and answers 500.</item>
+/// <item><b>Preview sessions</b>: a session holds one client session and transaction across its steps' requests. MongoDB has
+/// no savepoints, so each step keeps the before image of every document it changed, and undoing or rewinding writes those
+/// images back inside the transaction. The server ends a transaction at <c>transactionLifetimeLimitSeconds</c> (60 seconds by
+/// default); the next command then fails with <c>NoSuchTransaction</c> and the session fails.</item>
 /// </list>
 /// </summary>
 internal sealed class MongoEngine
@@ -48,10 +52,13 @@ internal sealed class MongoEngine
     internal static readonly TimeSpan DefaultPreviewTimeout = TimeSpan.FromSeconds(50);
 
     /// <summary>Most candidate documents read back for change capture in one Preview.</summary>
-    private const int CandidateLimit = 1000;
+    internal const int CandidateLimit = 1000;
 
     /// <summary><c>NoSuchTransaction</c>: the server has no such transaction, so nothing holds its locks.</summary>
     private const int NoSuchTransaction = 251;
+
+    /// <summary><c>SnapshotTooOld</c>: the start time is older than the server's snapshot history.</summary>
+    private const int SnapshotTooOld = 239;
 
     // How long the engine keeps trying to end a Preview transaction whose abort the server never acknowledged, and the
     // backoff between tries. Well inside the server's 60-second transaction lifetime.
@@ -83,6 +90,9 @@ internal sealed class MongoEngine
     // must never have its writes treated as joining a transaction.
     private readonly ConditionalWeakTable<SendproofPreview, string> _modes = new();
     private readonly ConditionalWeakTable<SendproofPreview, PreviewState> _states = new();
+
+    // The observed Sends in flight, by the request's recorder: their writes commit, so each one reads before images as it goes.
+    private readonly ConditionalWeakTable<SendproofPreview, MongoObservation> _observations = new();
     private readonly ConcurrentDictionary<int, Pending> _pending = new();
 
     // Each Preview whose session is still open, by the hex of its lsid, and the Preview of each abortTransaction sent and
@@ -175,7 +185,34 @@ internal sealed class MongoEngine
 
         /// <summary>Aborts the transaction when the Preview outlives its time limit.</summary>
         internal Timer? Timer { get; set; }
+
+        /// <summary>The step images of a preview session's transaction, or <see langword="null"/> for a single Preview.</summary>
+        internal SessionImages? Held { get; init; }
     }
+
+    /// <summary>What a preview session needs to undo a step: MongoDB transactions have no savepoints.</summary>
+    internal sealed class SessionImages
+    {
+        /// <summary>Every document a step has read back, as it now is inside the transaction (<see langword="null"/>: absent).</summary>
+        internal Dictionary<string, (Candidate Candidate, BsonDocument? Image)> Known { get; } = [];
+
+        /// <summary>For each step, the documents it changed, as they were before it.</summary>
+        internal Dictionary<int, Dictionary<string, (Candidate Candidate, BsonDocument? Before)>> Steps { get; } = [];
+
+        /// <summary>Steps whose changes weren't all read back (a capture limit): they can't be undone.</summary>
+        internal HashSet<int> Truncated { get; } = [];
+
+        internal int Step { get; set; }
+
+        private volatile string? _ended;
+
+        /// <summary>Why the server ended the transaction, once a command said so.</summary>
+        internal string? EndedReason { get => _ended; set => _ended = value; }
+    }
+
+    /// <summary>The reason a session fails once the server has ended its transaction.</summary>
+    internal const string EndedByServer = "MongoDB ended the session's transaction, as it does at transactionLifetimeLimitSeconds " +
+        "(60 seconds by default), so the session was closed and rolled back. Run the steps faster, or raise the limit on a development server.";
 
     /// <summary>One document a Preview may have changed, and how.</summary>
     internal sealed record Candidate(string Namespace, string Collection, BsonValue Id, string? Via);
@@ -207,6 +244,32 @@ internal sealed class MongoEngine
             .Subscribe<CommandFailedEvent>(OnFailed);
     }
 
+    /// <summary>Starts capturing the document changes of one observed Send, whose recorder is <paramref name="recorder"/>.</summary>
+    internal MongoObservation Observe(SendproofPreview recorder)
+    {
+        var observation = new MongoObservation(this, recorder);
+        _observations.AddOrUpdate(recorder, observation);
+        return observation;
+    }
+
+    /// <summary>Stops capturing for an observed Send.</summary>
+    internal void Unobserve(SendproofPreview recorder) => _observations.Remove(recorder);
+
+    /// <summary>Runs engine-internal commands that block (an observed Send's before images, read inside a monitoring event) without logging or tripping.</summary>
+    internal T Internal<T>(Func<T> work)
+    {
+        var previous = _internal.Value;
+        _internal.Value = true;
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            _internal.Value = previous;
+        }
+    }
+
     /// <summary>Runs engine-internal commands (topology, change capture, abort) without logging or tripping.</summary>
     internal async Task<T> InternalAsync<T>(Func<Task<T>> work)
     {
@@ -225,6 +288,12 @@ internal sealed class MongoEngine
     /// <summary>Detects the topology once: <c>preview</c> on a replica set or mongos with logical sessions.</summary>
     internal async Task<(string Mode, string? Reason)> DetectAsync()
     {
+        var (mode, reason, _) = await DetectWithStatusAsync();
+        return (mode, reason);
+    }
+
+    private async Task<(string Mode, string? Reason, bool Succeeded)> DetectWithStatusAsync()
+    {
         Task<(string Mode, string? Reason, bool Succeeded)> detection;
         lock (_detectGate)
         {
@@ -238,7 +307,7 @@ internal sealed class MongoEngine
             _ = Interlocked.CompareExchange(ref _detected, null, detection);
         }
 
-        return (mode, reason);
+        return (mode, reason, succeeded);
     }
 
     private async Task<(string Mode, string? Reason, bool Succeeded)> DetectCoreAsync()
@@ -296,6 +365,13 @@ internal sealed class MongoEngine
             return;
         }
 
+        if (preview.InSession)
+        {
+            // A session that holds no MongoDB transaction (it opened in guard mode) stays in guard mode for every step.
+            _modes.Add(preview, "guard");
+            return;
+        }
+
         var (mode, _) = await DetectAsync();
         _modes.Add(preview, mode);
         if (mode != "preview")
@@ -336,6 +412,134 @@ internal sealed class MongoEngine
             }
 
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens a preview session's MongoDB transaction: a client session and transaction that every step joins. Answers
+    /// <see langword="null"/> in guard mode, where there is nothing to hold.
+    /// </summary>
+    internal async Task<MongoHeldPreview?> HoldAsync(CancellationToken cancellationToken)
+    {
+        // A driver's server-selection timeout can be much longer than a session-open request should wait.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(4));
+        (string mode, string? reason, bool succeeded) detection;
+        try
+        {
+            detection = await DetectWithStatusAsync().WaitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new PreviewSessionFailedException("MongoDB could not be reached while opening the session.");
+        }
+
+        var (mode, _, succeeded) = detection;
+        if (!succeeded)
+        {
+            throw new PreviewSessionFailedException("MongoDB could not be reached while opening the session.");
+        }
+        if (mode != "preview")
+        {
+            return null;
+        }
+
+        var session = await Client.StartSessionAsync(cancellationToken: deadline.Token);
+        try
+        {
+            session.StartTransaction(new TransactionOptions(ReadConcern.Snapshot, writeConcern: WriteConcern.WMajority));
+            var lsid = HexOf(session.WrappedCoreSession.ServerSession.Id) ??
+                throw new InvalidOperationException("The MongoDB driver did not expose the session id.");
+            var state = new PreviewState(session, lsid) { Held = new SessionImages() };
+            _byLsid[lsid] = state;
+            return new MongoHeldPreview(this, state);
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Lets one step's Preview join a session's transaction, with the handler's view of the session bound to it.</summary>
+    internal void JoinStep(PreviewState state, SendproofPreview preview, int step)
+    {
+        var held = state.Held!;
+        if (held.EndedReason is { } ended)
+        {
+            throw new PreviewSessionFailedException(ended);
+        }
+
+        state.Used = false;
+        state.Candidates.Clear();
+        state.Filters.Clear();
+        held.Step = step;
+        state.Handle = GuardedSession.Create(this, state, preview);
+        _modes.AddOrUpdate(preview, "preview");
+        _states.AddOrUpdate(preview, state);
+    }
+
+    /// <summary>
+    /// Undoes steps <paramref name="step"/> and later: writes back each changed document's before image, newest step
+    /// first, inside the session's transaction.
+    /// </summary>
+    /// <exception cref="PreviewSessionFailedException">The server ended the transaction, or a step's changes weren't all read.</exception>
+    internal async Task RewindAsync(PreviewState state, int step, CancellationToken cancellationToken)
+    {
+        var held = state.Held!;
+        if (held.EndedReason is { } ended)
+        {
+            throw new PreviewSessionFailedException(ended);
+        }
+
+        if (held.Truncated.Any(truncated => truncated >= step))
+        {
+            throw new PreviewSessionFailedException(
+                "A step changed more MongoDB documents than Sendproof reads back, so the session can't be rewound past it.");
+        }
+
+        try
+        {
+            await InternalAsync(async () =>
+            {
+                foreach (var undone in held.Steps.Keys.Where(number => number >= step).OrderDescending().ToArray())
+                {
+                    foreach (var (key, (candidate, before)) in held.Steps[undone])
+                    {
+                        var collection = Client.GetDatabase(candidate.Namespace).GetCollection<BsonDocument>(candidate.Collection);
+                        var filter = new BsonDocumentFilterDefinition<BsonDocument>(new BsonDocument("_id", candidate.Id));
+                        if (before is null)
+                        {
+                            await collection.DeleteOneAsync(state.Session, filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await collection.ReplaceOneAsync(state.Session, filter, before, new ReplaceOptions { IsUpsert = true }, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+
+                        held.Known[key] = (candidate, before);
+                    }
+
+                    held.Steps.Remove(undone);
+                }
+
+                return true;
+            }).ConfigureAwait(false);
+        }
+        catch (MongoCommandException error) when (error.Code == NoSuchTransaction)
+        {
+            held.EndedReason = EndedByServer;
+            throw new PreviewSessionFailedException(EndedByServer, error);
+        }
+    }
+
+    /// <summary>Ends a session's transaction: aborts it and ends its client session.</summary>
+    internal async Task EndSessionAsync(PreviewState state)
+    {
+        if (await EndAsync(state).ConfigureAwait(false) is { } failure)
+        {
+            throw failure;
         }
     }
 
@@ -441,6 +645,11 @@ internal sealed class MongoEngine
         {
             WatchWrite(preview, command, database, lower);
         }
+        else if (kind == CommandKind.Write && _capture.Current is { } observed && _observations.TryGetValue(observed, out var observation))
+        {
+            // An observed Send: nothing rolls back, so the documents the write touches are read now, before it runs.
+            observation.Write(command, database, lower);
+        }
 
         if (kind == CommandKind.Session || Sensitive.Contains(lower))
         {
@@ -468,13 +677,27 @@ internal sealed class MongoEngine
         }
 
         state.Used = true;
+        Collect(state.Candidates, state.Filters, command, database, name);
+    }
+
+    /// <summary>
+    /// Reads a write command for the documents it may change: the ids an insert names, and the filters an update, delete,
+    /// findAndModify or bulkWrite matches by. Shared by a Preview's capture and an observed Send's.
+    /// </summary>
+    /// <param name="candidates">Receives the documents whose ids the command names.</param>
+    /// <param name="filters">Receives the filters the command matches by.</param>
+    /// <param name="command">The command document.</param>
+    /// <param name="database">The database the command ran against.</param>
+    /// <param name="name">The lower-cased command name.</param>
+    internal static void Collect(Dictionary<string, Candidate> candidates, List<Filter> filters, BsonDocument command, string database, string name)
+    {
         var collection = command.ElementCount > 0 && command[0] is BsonString text ? text.Value : "";
         switch (name)
         {
             case "insert" when command.GetValue("documents", null) is BsonArray documents:
                 foreach (var document in documents.OfType<BsonDocument>())
                 {
-                    AddCandidate(state, new Candidate(database, collection, document.GetValue("_id", BsonNull.Value), null), document.Contains("_id"));
+                    AddCandidate(candidates, new Candidate(database, collection, document.GetValue("_id", BsonNull.Value), null), document.Contains("_id"));
                 }
 
                 break;
@@ -482,20 +705,20 @@ internal sealed class MongoEngine
                 foreach (var update in updates.OfType<BsonDocument>())
                 {
                     var via = update.GetValue("upsert", false).ToBoolean() ? "upsert" : Replaces(update.GetValue("u", null)) ? "replace" : null;
-                    state.Filters.Add(new Filter(database, collection, Detach(update.GetValue("q", null)), via));
+                    filters.Add(new Filter(database, collection, Detach(update.GetValue("q", null)), via));
                 }
 
                 break;
             case "delete" when command.GetValue("deletes", null) is BsonArray deletes:
                 foreach (var remove in deletes.OfType<BsonDocument>())
                 {
-                    state.Filters.Add(new Filter(database, collection, Detach(remove.GetValue("q", null)), null));
+                    filters.Add(new Filter(database, collection, Detach(remove.GetValue("q", null)), null));
                 }
 
                 break;
             case "findandmodify":
                 var modifyVia = command.GetValue("upsert", false).ToBoolean() ? "upsert" : Replaces(command.GetValue("update", null)) ? "replace" : null;
-                state.Filters.Add(new Filter(database, collection, Detach(command.GetValue("query", null)), modifyVia));
+                filters.Add(new Filter(database, collection, Detach(command.GetValue("query", null)), modifyVia));
                 break;
             case "bulkwrite" when command.GetValue("ops", null) is BsonArray ops && command.GetValue("nsInfo", null) is BsonArray nsInfo:
                 // The client-level bulkWrite command: each op names its namespace by index.
@@ -508,11 +731,11 @@ internal sealed class MongoEngine
                         : (database, "");
                     if (op.GetValue("document", null) is BsonDocument inserted)
                     {
-                        AddCandidate(state, new Candidate(opDatabase, opCollection, inserted.GetValue("_id", BsonNull.Value), null), inserted.Contains("_id"));
+                        AddCandidate(candidates, new Candidate(opDatabase, opCollection, inserted.GetValue("_id", BsonNull.Value), null), inserted.Contains("_id"));
                     }
                     else
                     {
-                        state.Filters.Add(new Filter(opDatabase, opCollection, Detach(op.GetValue("filter", null)),
+                        filters.Add(new Filter(opDatabase, opCollection, Detach(op.GetValue("filter", null)),
                             op.GetValue("upsert", false).ToBoolean() ? "upsert" : null));
                     }
                 }
@@ -527,7 +750,10 @@ internal sealed class MongoEngine
     /// <summary>Whether an update document replaces the whole document rather than applying operators.</summary>
     private static bool Replaces(BsonValue? update) => update is BsonDocument { ElementCount: > 0 } document && !document.GetElement(0).Name.StartsWith('$');
 
-    private static void AddCandidate(PreviewState state, Candidate candidate, bool hasId = true)
+    private static void AddCandidate(PreviewState state, Candidate candidate, bool hasId = true) =>
+        AddCandidate(state.Candidates, candidate, hasId);
+
+    internal static void AddCandidate(Dictionary<string, Candidate> candidates, Candidate candidate, bool hasId = true)
     {
         if (!hasId)
         {
@@ -535,12 +761,42 @@ internal sealed class MongoEngine
         }
 
         candidate = candidate with { Id = candidate.Id.DeepClone() };
-        var key = $"{candidate.Namespace}\0{candidate.Collection}\0{BsonJson.Plain(candidate.Id)?.ToJsonString()}";
-        if (!state.Candidates.TryGetValue(key, out var known) || known.Via is null && candidate.Via is not null)
+        var key = KeyOf(candidate);
+        if (!candidates.TryGetValue(key, out var known) || known.Via is null && candidate.Via is not null)
         {
-            state.Candidates[key] = candidate;
+            candidates[key] = candidate;
         }
     }
+
+    /// <summary>
+    /// Adds the documents a write's reply names: ids an upsert created, and the document a findAndModify returned.
+    /// </summary>
+    internal static void CollectReply(Dictionary<string, Candidate> candidates, string database, string target, string name, BsonDocument reply)
+    {
+        // Upserted ids appear only in the reply.
+        if (reply.GetValue("upserted", null) is BsonArray upserted)
+        {
+            foreach (var item in upserted.OfType<BsonDocument>())
+            {
+                AddCandidate(candidates, new Candidate(database, target, item.GetValue("_id", BsonNull.Value), "upsert"), item.Contains("_id"));
+            }
+        }
+
+        if (name.Equals("findAndModify", StringComparison.OrdinalIgnoreCase) &&
+            reply.GetValue("value", null) is BsonDocument value && value.Contains("_id"))
+        {
+            AddCandidate(candidates, new Candidate(database, target, value["_id"], null));
+        }
+
+        if (reply.GetValue("lastErrorObject", null) is BsonDocument last && last.TryGetValue("upserted", out var one))
+        {
+            AddCandidate(candidates, new Candidate(database, target, one, "upsert"));
+        }
+    }
+
+    /// <summary>A document's identity across commands: its database, collection and <c>_id</c>.</summary>
+    internal static string KeyOf(Candidate candidate) =>
+        $"{candidate.Namespace}\0{candidate.Collection}\0{BsonJson.Plain(candidate.Id)?.ToJsonString()}";
 
     private void OnSucceeded(CommandSucceededEvent succeeded)
     {
@@ -563,26 +819,15 @@ internal sealed class MongoEngine
             state.StartTime = operationTime.DeepClone();
         }
 
-        if (state is not null && pending.Target is not null)
+        if (pending.Target is not null)
         {
-            // Upserted ids appear only in the reply.
-            if (reply.GetValue("upserted", null) is BsonArray upserted)
+            if (state is not null)
             {
-                foreach (var item in upserted.OfType<BsonDocument>())
-                {
-                    AddCandidate(state, new Candidate(pending.Namespace, pending.Target, item.GetValue("_id", BsonNull.Value), "upsert"), item.Contains("_id"));
-                }
+                CollectReply(state.Candidates, pending.Namespace, pending.Target, pending.Name, reply);
             }
-
-            if (pending.Name.Equals("findAndModify", StringComparison.OrdinalIgnoreCase) &&
-                reply.GetValue("value", null) is BsonDocument value && value.Contains("_id"))
+            else if (pending.Capture is not null && _observations.TryGetValue(pending.Capture, out var observation))
             {
-                AddCandidate(state, new Candidate(pending.Namespace, pending.Target, value["_id"], null));
-            }
-
-            if (reply.GetValue("lastErrorObject", null) is BsonDocument last && last.TryGetValue("upserted", out var one))
-            {
-                AddCandidate(state, new Candidate(pending.Namespace, pending.Target, one, "upsert"));
+                observation.Reply(pending.Namespace, pending.Target, pending.Name, reply);
             }
         }
 
@@ -615,6 +860,12 @@ internal sealed class MongoEngine
 
         var failure = failed.Failure;
         var code = (failure as MongoCommandException)?.Code ?? (failure as MongoWriteException)?.WriteError?.Code;
+        // The server no longer has the session's transaction (its lifetime limit, or something killed it): the session fails.
+        if (code == NoSuchTransaction && pending.Lsid is { } lsid && _byLsid.TryGetValue(lsid, out var heldState) && heldState.Held is { } held)
+        {
+            held.EndedReason = EndedByServer;
+        }
+
         // The server refused something a transaction can't do and applied nothing: a block, not a crash.
         if (pending.Preview is not null && StateOf(pending.Preview) is not null && code == 263)
         {
@@ -648,6 +899,28 @@ internal sealed class MongoEngine
         var state = StateOf(preview);
         if (state is null || state.Finished)
         {
+            return;
+        }
+
+        if (state.Held is { } held)
+        {
+            // A session step: read back what it changed, and keep the transaction for the next step.
+            try
+            {
+                if (state.Used)
+                {
+                    await InternalAsync(async () =>
+                    {
+                        await CaptureAsync(preview, state, cancellationToken).ConfigureAwait(false);
+                        return true;
+                    }).ConfigureAwait(false);
+                }
+            }
+            catch (MongoCommandException error) when (error.Code == NoSuchTransaction)
+            {
+                held.EndedReason = EndedByServer;
+            }
+
             return;
         }
 
@@ -838,9 +1111,10 @@ internal sealed class MongoEngine
     /// transaction. Without a start time (no reply carried one) it reads the majority-committed view, which the spec allows:
     /// nothing the Preview wrote is committed, so the only difference is a concurrent commit by another request.
     /// </summary>
-    private async Task<List<BsonDocument>> AtStartAsync(PreviewState state, string database, string collection, BsonDocument filter, bool idOnly, CancellationToken cancellationToken)
+    private async Task<List<BsonDocument>> AtStartAsync(PreviewState state, string database, string collection, BsonDocument filter, bool idOnly,
+        CancellationToken cancellationToken, bool majority = false)
     {
-        var readConcern = state.StartTime is null
+        var readConcern = state.StartTime is null || majority
             ? new BsonDocument("level", "majority")
             : new BsonDocument { { "level", "snapshot" }, { "atClusterTime", state.StartTime } };
         var command = new BsonDocument
@@ -864,12 +1138,29 @@ internal sealed class MongoEngine
             // The collection was created after the start time: nothing in it existed then.
             return [];
         }
+        catch (MongoCommandException error) when (error.Code == SnapshotTooOld && state.StartTime is not null && !majority)
+        {
+            // A session outlived the server's snapshot history (minSnapshotHistoryWindowInSeconds, 300 by default). Nothing
+            // the session wrote is committed, so the majority-committed view differs only by other requests' commits.
+            return await AtStartAsync(state, database, collection, filter, idOnly, cancellationToken, majority: true).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Compares each candidate's start-time and in-transaction versions and records the differences.</summary>
     private async Task CaptureAsync(SendproofPreview preview, PreviewState state, CancellationToken cancellationToken)
     {
         var session = state.Session;
+        var held = state.Held;
+        if (held is not null)
+        {
+            // A document an earlier step changed may change again through a filter that no longer matches it: read it too.
+            foreach (var (_, known) in held.Known)
+            {
+                AddCandidate(state, known.Candidate);
+            }
+        }
+
+        var undo = held is null ? null : new Dictionary<string, (Candidate Candidate, BsonDocument? Before)>();
         foreach (var filter in state.Filters.ToArray())
         {
             var target = Client.GetDatabase(filter.Namespace).GetCollection<BsonDocument>(filter.Collection);
@@ -892,18 +1183,30 @@ internal sealed class MongoEngine
             if (read++ >= CandidateLimit)
             {
                 preview.TruncateChanges();
+                held?.Truncated.Add(held.Step);
                 break;
             }
 
             var target = Client.GetDatabase(candidate.Namespace).GetCollection<BsonDocument>(candidate.Collection);
-            var was = (await AtStartAsync(state, candidate.Namespace, candidate.Collection, new BsonDocument("_id", candidate.Id), false, cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+            var key = KeyOf(candidate);
+            // In a session, a document an earlier step read back was, before this step, as that step left it.
+            var was = held is not null && held.Known.TryGetValue(key, out var known)
+                ? known.Image
+                : (await AtStartAsync(state, candidate.Namespace, candidate.Collection, new BsonDocument("_id", candidate.Id), false, cancellationToken).ConfigureAwait(false)).FirstOrDefault();
             var now = await (await target.FindAsync(session, new BsonDocumentFilterDefinition<BsonDocument>(new BsonDocument("_id", candidate.Id)), cancellationToken: cancellationToken)
                 .ConfigureAwait(false)).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (held is not null)
+            {
+                held.Known[key] = (candidate with { Via = null }, now);
+            }
+
             var (wasJson, nowJson) = (was is null ? null : BsonJson.Plain(was), now is null ? null : BsonJson.Plain(now));
             if (JsonNode.DeepEquals(wasJson, nowJson))
             {
                 continue;
             }
+
+            undo?.TryAdd(key, (candidate with { Via = null }, was));
 
             var operation = was is null ? "insert" : now is null ? "delete" : "update";
             preview.RecordChange(new PreviewChange(operation, candidate.Collection,
@@ -913,6 +1216,11 @@ internal sealed class MongoEngine
                 Namespace = candidate.Namespace,
                 Via = candidate.Via is not null && operation != "delete" ? candidate.Via : null
             });
+        }
+
+        if (held is not null && undo is { Count: > 0 })
+        {
+            held.Steps[held.Step] = undo;
         }
     }
 

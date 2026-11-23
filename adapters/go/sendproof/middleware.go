@@ -51,6 +51,10 @@ func (b *Sendproof) Middleware(next http.Handler) http.Handler {
 
 // serveWorkbench answers the /sendproof routes: the UI, discovery and traces.
 func (b *Sendproof) serveWorkbench(w http.ResponseWriter, r *http.Request) {
+	if hasSegmentPrefix(r.URL.EscapedPath(), sessionsPath) {
+		b.serveSessions(w, r)
+		return
+	}
 	if status := b.authorize(r); status != 0 {
 		title := "Authentication is required for the workbench."
 		if status == http.StatusForbidden {
@@ -80,7 +84,9 @@ func (b *Sendproof) serveWorkbench(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/sendproof/_api/"):
 		http.NotFound(w, r)
 	default:
-		serveAsset(w, r, strings.TrimPrefix(path, "/sendproof/"))
+		if !b.serveJourney(w, r) {
+			serveAsset(w, r, strings.TrimPrefix(path, "/sendproof/"))
+		}
 	}
 }
 
@@ -137,8 +143,13 @@ func (b *Sendproof) serveCapabilities(w http.ResponseWriter, r *http.Request) {
 			capabilities["previewUnavailable"] = unavailable
 		}
 	}
-	if len(b.cfg.stores) > 0 {
-		capabilities["dataStores"] = b.dataStores(r.Context())
+	stores := b.dataStores(r.Context())
+	if len(stores) > 0 {
+		capabilities["dataStores"] = stores
+	}
+	capabilities["previewSessions"] = b.sessionsReady(stores)
+	if len(b.cfg.journeys) > 0 {
+		capabilities["journeys"] = b.journeyDiscovery(base)
 	}
 	writeJSON(w, http.StatusOK, capabilities)
 }

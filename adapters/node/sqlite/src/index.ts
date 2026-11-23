@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { SQLInputValue, SQLOutputValue, StatementResultingChanges } from 'node:sqlite';
-import { endsTransaction, previewSavepointHeld, refuseInPreview, setPreviewSavepoint } from '@sendproof/core';
-import type { PreviewProvider } from '@sendproof/core';
+import { endsTransaction, PreviewStoreBusyError, previewSavepoint, previewSavepointHeld, refuseInPreview, setPreviewSavepoint } from '@sendproof/core';
+import type { HeldPreview, PreviewProvider } from '@sendproof/core';
 import { defaultTrackedKeyLimit, trackRows } from './rows.js';
 import type { Row, RowKey, TrackedRows } from './rows.js';
 import { allowedRead, allowedWrite, execute } from './statements.js';
@@ -39,6 +39,7 @@ export type RowMode = 'all' | 'get' | 'values' | 'run';
 /** One transaction or savepoint, alive while its callback runs. */
 interface Scope {
   open: boolean;
+  parent?: Scope;
   /** 0 for an outermost transaction, 1 for a savepoint inside it, and so on. */
   depth: number;
   /** Serializes savepoints opened from this scope, because savepoints must nest strictly. */
@@ -46,6 +47,7 @@ interface Scope {
 }
 
 const noScopeMessage = 'The SQLite preview transaction has ended.';
+const scopeOpen = (scope: Scope): boolean => scope.open && (!scope.parent || scopeOpen(scope.parent));
 
 /**
  * The error for a statement the guarded methods don't accept. A statement that would end the
@@ -81,10 +83,12 @@ export class SQLiteDatabase implements PreviewProvider {
   readonly system = 'sqlite';
   readonly #connection: DatabaseSync;
   readonly #scope = new AsyncLocalStorage<Scope>();
+  readonly #busyTimeoutMs: number;
   readonly #retries: number;
   readonly #retryDelayMs: number;
   readonly #trackedKeyLimit: number;
   #queue: Promise<void> = Promise.resolve();
+  #leases = 0;
   #savepoints = 0;
 
   /** Schema installation runs once when opening a new fixture or application database. */
@@ -94,6 +98,7 @@ export class SQLiteDatabase implements PreviewProvider {
       if (!Number.isInteger(value) || value < 0) throw new RangeError(name + ' must be a non-negative integer.');
     }
     this.#retries = retries;
+    this.#busyTimeoutMs = busyTimeoutMs;
     this.#retryDelayMs = retryDelayMs;
     this.#trackedKeyLimit = trackedKeyLimit;
     this.#connection = new DatabaseSync(filename, { timeout: busyTimeoutMs });
@@ -105,23 +110,35 @@ export class SQLiteDatabase implements PreviewProvider {
     }
   }
 
+  #takeTurn() {
+    const previous = this.#queue;
+    const turn = Promise.withResolvers<void>();
+    this.#queue = turn.promise;
+    this.#leases++;
+    return {
+      previous,
+      release: () => {
+        this.#leases--;
+        turn.resolve();
+      },
+    };
+  }
+
   /** Nesting depth of the calling context: 0 outside a transaction, 1 inside one, 2 in a savepoint. */
   get depth(): number {
     const scope = this.#scope.getStore();
-    return scope?.open ? scope.depth + 1 : 0;
+    return scope && scopeOpen(scope) ? scope.depth + 1 : 0;
   }
 
   /** Run `callback` on the connection, queueing behind other leases unless inside a transaction. */
   async #access<T>(callback: (connection: DatabaseSync) => T | Promise<T>): Promise<T> {
     const active = this.#scope.getStore();
     if (active) {
-      if (!active.open) throw new Error(noScopeMessage);
+      if (!scopeOpen(active)) throw new Error(noScopeMessage);
       return callback(this.#connection);
     }
 
-    const previous = this.#queue;
-    let release!: () => void;
-    this.#queue = new Promise<void>(resolve => { release = resolve; });
+    const { previous, release } = this.#takeTurn();
     try {
       await previous;
       return await callback(this.#connection);
@@ -180,7 +197,7 @@ export class SQLiteDatabase implements PreviewProvider {
   async transaction<T>(callback: () => Promise<T>): Promise<T> {
     const parent = this.#scope.getStore();
     if (!parent) return this.#outermost(callback, 'commit');
-    if (!parent.open) throw new Error(noScopeMessage);
+    if (!scopeOpen(parent)) throw new Error(noScopeMessage);
     return this.#savepoint(parent, callback);
   }
 
@@ -188,6 +205,47 @@ export class SQLiteDatabase implements PreviewProvider {
   async preview<T>(dispatch: () => Promise<T>): Promise<T> {
     if (this.#scope.getStore()) throw new Error('Nested SQLite previews are unavailable.');
     return this.#outermost(dispatch, 'rollback');
+  }
+
+  /** Hold the same connection and write transaction while separate Preview requests take turns. */
+  async openSession(): Promise<HeldPreview> {
+    if (this.#leases) throw new PreviewStoreBusyError('SQLite');
+    const { release } = this.#takeTurn();
+    const connection = this.#connection;
+    try {
+      connection.exec('PRAGMA busy_timeout = 0');
+      try { connection.exec('BEGIN IMMEDIATE'); }
+      finally { connection.exec('PRAGMA busy_timeout = ' + this.#busyTimeoutMs); }
+    } catch (error) {
+      try { this.#abandon(connection, error); }
+      finally { release(); }
+      if (isBusy(error)) throw new PreviewStoreBusyError('SQLite');
+      throw error;
+    }
+
+    const name = (step: number) => previewSavepoint + '_step_' + step;
+    const check = previewSavepoint + '_check';
+    return {
+      checkpoint: async step => {
+        if (!connection.isTransaction) throw new Error(noScopeMessage);
+        connection.exec('SAVEPOINT ' + name(step));
+        connection.exec('SAVEPOINT ' + check);
+      },
+      run: async (_capture, dispatch) => {
+        const scope: Scope = { open: true, depth: 0, children: Promise.resolve() };
+        try { return await this.#scope.run(scope, dispatch); }
+        finally { scope.open = false; }
+      },
+      verify: async () => { connection.exec('RELEASE ' + check); },
+      rewind: async step => {
+        connection.exec('ROLLBACK TO ' + name(step));
+        connection.exec('RELEASE ' + name(step));
+      },
+      close: async () => {
+        try { if (connection.isTransaction) connection.exec('ROLLBACK'); }
+        finally { release(); }
+      },
+    };
   }
 
   /** Close the connection. A transaction callback cannot close its own connection. */
@@ -269,23 +327,24 @@ export class SQLiteDatabase implements PreviewProvider {
     parent.children = new Promise<void>(resolve => { release = resolve; });
     try {
       await previous;
-      if (!parent.open) throw new Error(noScopeMessage);
+      if (!scopeOpen(parent)) throw new Error(noScopeMessage);
       const connection = this.#connection;
       const name = 'tb_savepoint_' + ++this.#savepoints;
       connection.exec('SAVEPOINT ' + name);
-      const scope: Scope = { open: true, depth: parent.depth + 1, children: Promise.resolve() };
+      const scope: Scope = { open: true, parent, depth: parent.depth + 1, children: Promise.resolve() };
       let result: T;
       try {
         result = await this.#scope.run(scope, callback);
       } catch (error) {
         scope.open = false;
-        if (connection.isTransaction) {
+        if (scopeOpen(parent) && connection.isTransaction) {
           connection.exec('ROLLBACK TO ' + name);
           connection.exec('RELEASE ' + name);
         }
         throw error;
       }
       scope.open = false;
+      if (!scopeOpen(parent)) throw new Error(noScopeMessage);
       connection.exec('RELEASE ' + name);
       return result;
     } finally {

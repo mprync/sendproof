@@ -1,5 +1,7 @@
 package io.github.mprync.sendproof.jdbc;
 
+import io.github.mprync.sendproof.core.HeldPreview;
+import io.github.mprync.sendproof.core.DatabaseSystem;
 import io.github.mprync.sendproof.core.PreviewChange;
 import io.github.mprync.sendproof.core.PreviewSavepoint;
 import io.github.mprync.sendproof.core.PreviewSession;
@@ -38,10 +40,13 @@ final class JdbcPreviewSession implements PreviewSession {
     private final String system;
     private final Set<String> safeProcedures;
     private final PreviewSavepoint savepoint;
+    private PreviewSavepoint stepStart;
+    private PreviewSavepoint stepWitness;
     private volatile boolean closed;
     private volatile boolean finishing;
     private volatile boolean rolledBackEarly;
     private volatile boolean lost;
+    private volatile SQLException lostCause;
     private volatile String violation;
 
     JdbcPreviewSession(JdbcScope scope, Connection real, String system, Set<String> safeProcedures) throws SQLException {
@@ -51,9 +56,17 @@ final class JdbcPreviewSession implements PreviewSession {
         this.safeProcedures = safeProcedures == null ? Set.of() : safeProcedures;
         this.target = real instanceof ProxyJdbcObject proxy ? proxy.getTarget() : null;
         try {
-            real.setAutoCommit(false);
+            if (held()) {
+                String actual = DatabaseSystem.of(physical().getMetaData().getDatabaseProductName());
+                if (!system.equals(actual)) {
+                    throw new SQLException("The Preview DataSource's database does not match its advertised system.");
+                }
+                PreviewSavepoint.beginHeld(physical(), system);
+            } else {
+                real.setAutoCommit(false);
+            }
             // On the pool's connection, past the SQL capture, so the probe never shows in the request's SQL log.
-            this.savepoint = PreviewSavepoint.open(target instanceof Connection physical ? physical : real, system);
+            this.savepoint = PreviewSavepoint.open(physical(), system);
         } catch (SQLException | RuntimeException failure) {
             closeQuietly(real);
             throw failure;
@@ -63,7 +76,49 @@ final class JdbcPreviewSession implements PreviewSession {
         if (target != null) {
             OPEN.put(target, this);
         }
-        scope.session(this);
+        if (scope != null) {
+            scope.session(this);
+        }
+    }
+
+    Connection physical() {
+        return target instanceof Connection connection ? connection : real;
+    }
+
+    boolean held() {
+        return scope == null;
+    }
+
+    void requireStep() {
+        if (held() && (closed || JdbcScope.current() == null || JdbcScope.current().session() != this)) {
+            throw new IllegalStateException("The held Preview connection is outside its request.");
+        }
+    }
+
+    void checkHeld() throws HeldPreview.UnsafeTransaction, HeldPreview.TransactionEnded {
+        if (lost) {
+            throw new HeldPreview.TransactionEnded("The database ended the held SQL transaction.", lostCause);
+        }
+        if (violation != null) {
+            throw new HeldPreview.UnsafeTransaction(violation, null);
+        }
+    }
+
+    void step(PreviewSavepoint start, PreviewSavepoint witness) {
+        stepStart = start;
+        stepWitness = witness;
+    }
+
+    void rollbackStep() throws SQLException {
+        requireStep();
+        try {
+            stepStart.rollback();
+            stepWitness.reopen();
+            JdbcScope.current().changes().clear();
+        } catch (SQLException error) {
+            refuse("Rolling back the held Preview's step");
+            throw error;
+        }
     }
 
     /** Returns the open session that owns {@code connection}, or {@code null}. */
@@ -100,6 +155,7 @@ final class JdbcPreviewSession implements PreviewSession {
         }
         if (TransactionControl.rollsBackTransaction(system, error)
                 || (TransactionControl.isSqlServer(system) && sqlServerTransactionGone())) {
+            lostCause = error;
             lost = true;
             refuse("Running SQL after the database rolled the Preview transaction back");
         }
@@ -107,8 +163,7 @@ final class JdbcPreviewSession implements PreviewSession {
 
     /** Asks SQL Server, on the pool's connection past the SQL capture, whether a transaction is still open. */
     private boolean sqlServerTransactionGone() {
-        Connection physical = target instanceof Connection connection ? connection : real;
-        try (var statement = physical.createStatement(); var rows = statement.executeQuery("SELECT @@TRANCOUNT")) {
+        try (var statement = physical().createStatement(); var rows = statement.executeQuery("SELECT @@TRANCOUNT")) {
             return !rows.next() || rows.getInt(1) == 0;
         } catch (SQLException unknown) {
             return true;
@@ -153,6 +208,9 @@ final class JdbcPreviewSession implements PreviewSession {
      * {@code releaseSavepoint(sp)}, {@code rollback(sp)}); the driver sends these without passing the SQL capture.
      */
     void checkSavepointCall(String method, Object[] args) {
+        if (held() && method.equals("rollback") && (args == null || args.length == 0)) {
+            throw refuse("Connection.rollback() of the held Preview transaction");
+        }
         if (savepoint == null || args == null || args.length != 1) {
             return;
         }
@@ -166,7 +224,7 @@ final class JdbcPreviewSession implements PreviewSession {
                 return;
             }
         }
-        if (name != null && name.replace("`", "").equalsIgnoreCase(PreviewSavepoint.NAME)) {
+        if (name != null && PreviewSavepoint.isReserved(name)) {
             throw refuse("Connection." + method + "() of the Preview's savepoint");
         }
     }
@@ -225,11 +283,23 @@ final class JdbcPreviewSession implements PreviewSession {
         if (target != null) {
             OPEN.remove(target);
         }
-        scope.session(null);
-        try {
-            real.setAutoCommit(true);
-        } finally {
+        if (held()) {
             real.close();
+        } else {
+            scope.session(null);
+            try {
+                real.setAutoCommit(true);
+            } finally {
+                real.close();
+            }
+        }
+    }
+
+    void endHeld() throws SQLException {
+        try {
+            physical().rollback();
+        } finally {
+            close();
         }
     }
 

@@ -23,7 +23,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use sendproof_axum::{Config, Identity, Sendproof, SendproofRouterExt};
-use sendproof_core::{BoxFuture, SendproofLayer};
+use sendproof_core::{BoxFuture, Enrollment, HeldStepError, PreviewProvider, SendproofLayer};
 use sendproof_sqlx::{Backend, Db, DbConn, DbError, SqlxProvider};
 use serde_json::{Value, json};
 use sqlx::{MySql, MySqlPool, Pool, Postgres, postgres::PgPoolOptions};
@@ -179,6 +179,35 @@ where
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
     }
+}
+
+#[tokio::test]
+async fn postgres_held_step_recovers_when_handler_catches_an_aborted_transaction() {
+    with_server::<Postgres, _, _>(|pool| async move {
+        let mut held = SqlxProvider::new(pool.clone()).begin_held_preview().await.expect("open held PostgreSQL preview");
+        let mut extensions = http::Extensions::new();
+        held.begin_step(1, &mut extensions).await.unwrap();
+        let enrollment = Enrollment(Arc::new(extensions));
+        let stale = Db::from_enrollment(pool.clone(), Some(&enrollment), true).unwrap();
+        let mut connection = stale.acquire().await.unwrap();
+        // A raw SQLx error leaves PostgreSQL's current subtransaction aborted even if caught.
+        assert!(Postgres::raw(&mut connection, "SELECT 1 / 0").await.is_err());
+        drop(connection);
+        assert!(matches!(held.keep_step().await, Err(HeldStepError::Recoverable(_))));
+        held.rewind(1).await.unwrap();
+
+        let mut extensions = http::Extensions::new();
+        held.begin_step(1, &mut extensions).await.unwrap();
+        assert!(matches!(stale.acquire().await, Err(DbError::NotEnrolled)));
+        let enrollment = Enrollment(Arc::new(extensions));
+        let db = Db::from_enrollment(pool.clone(), Some(&enrollment), true).unwrap();
+        db.acquire().await.unwrap().query("INSERT INTO items (id, name) VALUES ('held', 'kept')").execute().await.unwrap();
+        let changes = held.keep_step().await.expect("keep step after rewind");
+        assert!(changes.changes.iter().any(|change| change.table == "items" && change.operation == "insert"));
+        held.end().await.unwrap();
+        assert_eq!(Postgres::count(&pool, "SELECT count(*) FROM items").await, 0);
+    })
+    .await;
 }
 
 /// Coordination points a handler shares with its test.

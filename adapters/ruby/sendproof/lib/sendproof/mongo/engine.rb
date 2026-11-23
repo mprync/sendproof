@@ -66,13 +66,13 @@ module Sendproof
       # that ends a transaction whose abort was lost; it ends the session itself once done, so the session
       # id isn't reused meanwhile.
       State = Struct.new(:mode, :session, :lsid, :used, :opened, :finished, :expired, :candidates, :filters, :start_time,
-                         :timer, :lock, :killer, keyword_init: true)
+                         :timer, :lock, :killer, :held, keyword_init: true)
 
       # One document a Preview may have changed, and how.
       Candidate = Struct.new(:namespace, :collection, :id, :via)
 
       # A filter whose matches, before and inside the transaction, are change candidates.
-      Filter = Struct.new(:namespace, :collection, :filter, :via)
+      Filter = Struct.new(:namespace, :collection, :filter, :via, :collation)
 
       # A command seen by monitoring, kept until its reply arrives.
       Pending = Struct.new(:capture, :preview, :name, :namespace, :target, :statement, :started, :command)
@@ -234,12 +234,7 @@ module Sendproof
           recorder.set_store_state(self, State.new(mode: mode))
           return
         end
-        session = @client.start_session(causal_consistency: false)
-        lift_direct_connection_checks(session)
-        session.start_transaction(read_concern: { level: :snapshot }, write_concern: { w: :majority })
-        join_transaction(session, recorder)
-        state = State.new(mode: mode, session: session, lsid: hex(session.session_id), used: false, opened: false, finished: false,
-                          expired: false, candidates: {}, filters: [], lock: Mutex.new)
+        state = start_state(recorder)
         recorder.set_store_state(self, state)
         # A handler still running at the limit loses its transaction: later commands fail, nothing commits,
         # and the Preview answers 500 when it ends.
@@ -256,9 +251,7 @@ module Sendproof
       # is ever committed: no +commitTransaction+ is ever sent for the Preview session.
       def finish_preview(recorder)
         current = recorder.store_state(self)
-        # Bookkeeping for commands this thread never saw finish (a refused command is never sent).
-        Thread.current[:sendproof_mongo_refused]&.clear
-        Thread.current[:sendproof_mongo_pending]&.clear
+        clear_monitoring
         return unless current&.session
 
         failure = nil
@@ -283,6 +276,59 @@ module Sendproof
         # The timer is asleep, waiting for the lock or done: never stopped in the middle of an abort.
         current.timer&.kill unless current.timer.equal?(Thread.current)
         raise failure if failure
+      end
+
+      def begin_held_preview(&validate_client)
+        unless active? && hooked?(@client) && detect[:mode] == :preview
+          raise ConfigurationError, "MongoDB cannot hold a Preview transaction on this client."
+        end
+
+        state = start_state(nil)
+        state.held = HeldSession.new(self, state, @timeout, validate_client)
+      end
+
+      def attach_held(state, recorder)
+        raise PreviewSessions::StoreEnded unless active? && hooked?(@client)
+
+        state.used = false
+        state.candidates.clear
+        state.filters.clear
+        recorder.set_store_state(self, state)
+      end
+
+      def capture_held(state, recorder)
+        internal { capture_changes(recorder, state) } if state.used
+      rescue ::Mongo::Error::OperationFailure => error
+        raise PreviewSessions::StoreEnded if error.code == NO_SUCH_TRANSACTION
+
+        raise
+      ensure
+        clear_monitoring
+      end
+
+      def restore_held(state, images)
+        internal do
+          # Clear the changed documents before restoring their versions. Two documents can
+          # have exchanged values of a unique field during a step.
+          images.each do |candidate, _|
+            @client.use(candidate.namespace)[candidate.collection].delete_one({ _id: candidate.id }, session: state.session)
+          end
+          images.each do |candidate, before|
+            next unless before
+
+            @client.use(candidate.namespace)[candidate.collection].insert_one(before, session: state.session)
+          end
+        end
+      rescue ::Mongo::Error::OperationFailure => error
+        raise PreviewSessions::StoreEnded if error.code == NO_SUCH_TRANSACTION
+
+        raise
+      end
+
+      def close_held(state)
+        clear_monitoring
+        end_session(state)
+        raise PreviewTransactionControl, "MongoDB did not acknowledge the session's rollback." if state.killer
       end
 
       # ---- Monitoring ----
@@ -368,14 +414,36 @@ module Sendproof
 
         tripwire(event)
         pending = take(event) or return
+        current = pending.preview && state_for(pending.preview)
+        if current&.held && (failure["code"] == NO_SUCH_TRANSACTION || Array(failure["errorLabels"]).include?("TransientTransactionError"))
+          current.held.server_ended!
+        end
         # The server refused something a transaction can't do and applied nothing: a block, not a crash.
-        if pending.preview && state_for(pending.preview) && failure["code"] == 263
+        if current && failure["code"] == 263
           pending.preview.block(store: "mongodb", operation: pending.name, detail: Mongo.refused_reason(pending.name))
         end
         log(pending, event.duration, nil, failure["codeName"] || "Error")
       end
 
       private
+
+      def start_state(recorder)
+        session = @client.start_session(causal_consistency: false)
+        lift_direct_connection_checks(session)
+        session.start_transaction(read_concern: { level: :snapshot }, write_concern: { w: :majority })
+        join_transaction(session, recorder)
+        State.new(mode: :preview, session: session, lsid: hex(session.session_id), used: false, opened: false,
+                  finished: false, expired: false, candidates: {}, filters: [], lock: Mutex.new)
+      rescue StandardError
+        release(session) if session
+        raise
+      end
+
+      def clear_monitoring
+        # Refused commands were never sent, so there is no reply to remove their monitoring entry.
+        Thread.current[:sendproof_mongo_refused]&.clear
+        Thread.current[:sendproof_mongo_pending]&.clear
+      end
 
       def state_for(recorder) = recorder.store_state(self)&.then { |state| state.session ? state : nil }
 
@@ -408,7 +476,14 @@ module Sendproof
           if (refused = classification.refused_in_transaction)
             Stores::Guard.guard("mongodb", name, :write, Mongo.refused_reason(refused))
           end
-          verify_in_transaction(preview, state, event, command) if classification.kind == :write
+          if classification.kind == :write
+            if state&.held && !%w[insert update delete findandmodify bulkwrite].include?(name.downcase)
+              Stores::Guard.guard("mongodb", name, :write, Mongo.refused_reason(name))
+            end
+            verify_in_transaction(preview, state, event, command)
+          elsif state&.held && classification.kind == :read && hex(command["lsid"]) != state.lsid
+            raise refuse(preview, "A MongoDB #{name} read escaped the held Preview transaction.")
+          end
         else
           Stores::Guard.guard("mongodb", name, classification.kind)
         end
@@ -453,13 +528,15 @@ module Sendproof
         when "update"
           Array(command["updates"]).each do |update|
             via = update["upsert"] ? :upsert : (replaces?(update["u"]) ? :replace : nil)
-            state.filters << Filter.new(namespace, collection, update["q"] || {}, via)
+            state.filters << Filter.new(namespace, collection, update["q"] || {}, via, update["collation"])
           end
         when "delete"
-          Array(command["deletes"]).each { |remove| state.filters << Filter.new(namespace, collection, remove["q"] || {}, nil) }
+          Array(command["deletes"]).each do |remove|
+            state.filters << Filter.new(namespace, collection, remove["q"] || {}, nil, remove["collation"])
+          end
         when "findandmodify"
           via = command["upsert"] ? :upsert : (replaces?(command["update"]) ? :replace : nil)
-          state.filters << Filter.new(namespace, collection, command["query"] || {}, via)
+          state.filters << Filter.new(namespace, collection, command["query"] || {}, via, command["collation"])
         when "bulkwrite"
           collect_bulk(state, namespace, command)
         end
@@ -476,7 +553,7 @@ module Sendproof
           if op["document"]
             candidate(state, Candidate.new(database, target.to_s, op["document"]["_id"], nil))
           else
-            state.filters << Filter.new(database, target.to_s, op["filter"] || {}, op["upsert"] ? :upsert : nil)
+            state.filters << Filter.new(database, target.to_s, op["filter"] || {}, op["upsert"] ? :upsert : nil, op["collation"])
           end
         end
       end
@@ -484,10 +561,12 @@ module Sendproof
       def candidate(state, candidate)
         return if candidate.id.nil?
 
-        key = [candidate.namespace, candidate.collection, Plain.call(candidate.id).to_json]
+        key = candidate_key(candidate)
         known = state.candidates[key]
         state.candidates[key] = candidate if known.nil? || (known.via.nil? && candidate.via)
       end
+
+      def candidate_key(candidate) = [candidate.namespace, candidate.collection, Plain.call(candidate.id).to_json]
 
       # Whether an update document replaces the whole document rather than applying operators.
       def replaces?(update)
@@ -530,7 +609,7 @@ module Sendproof
       def join_transaction(session, recorder)
         refuse_call = lambda do |what|
           error = PreviewTransactionControl.new("Preview owns the MongoDB transaction, so the handler's #{what} cannot run during Preview.")
-          recorder.refuse(error)
+          (recorder || Capture.preview)&.refuse(error)
           error
         end
         session.define_singleton_method(:start_transaction) { |*_args| nil }
@@ -642,11 +721,13 @@ module Sendproof
       # is a raw +find+ command. Without a start time (no reply carried one), it reads the majority-committed
       # view, which the spec allows: nothing the Preview wrote is committed, so the only difference is a
       # concurrent commit by another request.
-      def at_start(state, namespace, collection, filter, projection = nil)
+      def at_start(state, namespace, collection, filter, projection = nil, collation: nil)
         read_concern = state.start_time.nil? ? { level: "majority" } : { level: "snapshot", atClusterTime: state.start_time }
-        command = { find: collection, filter: filter, batchSize: CANDIDATE_LIMIT, limit: CANDIDATE_LIMIT, singleBatch: true,
+        limit = state.held ? CANDIDATE_LIMIT + 1 : CANDIDATE_LIMIT
+        command = { find: collection, filter: filter, batchSize: limit, limit:, singleBatch: true,
                     readConcern: read_concern }
         command[:projection] = projection if projection
+        command[:collation] = collation if collation
         reply = @client.use(namespace).database.command(command).first
         reply.dig("cursor", "firstBatch") || []
       rescue ::Mongo::Error::OperationFailure => error
@@ -661,11 +742,21 @@ module Sendproof
         session = state.session
         state.filters.each do |filter|
           target = @client.use(filter.namespace)[filter.collection]
-          matches = target.find(filter.filter, projection: { _id: 1 }, session: session).to_a + at_start(state, filter.namespace, filter.collection, filter.filter, { _id: 1 })
+          options = { projection: { _id: 1 }, session: session }
+          options[:collation] = filter.collation if filter.collation
+          options[:limit] = CANDIDATE_LIMIT + 1 if state.held
+          matches = target.find(filter.filter, **options).to_a +
+                    at_start(state, filter.namespace, filter.collection, filter.filter, { _id: 1 }, collation: filter.collation)
+          # An earlier step may have inserted a document that this step deletes. It is absent
+          # both from the original snapshot and from this step's final view.
+          state.held.known_candidates(filter).each { |item| candidate(state, item) } if state.held
           matches.each do |document|
             candidate(state, Candidate.new(filter.namespace, filter.collection, document["_id"], filter.via))
-            break if state.candidates.size >= CANDIDATE_LIMIT
+            break if !state.held && state.candidates.size >= CANDIDATE_LIMIT
           end
+        end
+        if state.held && state.candidates.size > CANDIDATE_LIMIT
+          raise PreviewSessions::StoreEnded, "A MongoDB Preview step exceeded the before-image limit."
         end
         read = 0
         state.candidates.each_value do |candidate|
@@ -674,12 +765,18 @@ module Sendproof
             break
           end
           target = @client.use(candidate.namespace)[candidate.collection]
-          before = at_start(state, candidate.namespace, candidate.collection, { _id: candidate.id }).first
+          key = candidate_key(candidate)
+          before = if state.held&.known?(key)
+                     state.held.known_image(key)
+                   else
+                     at_start(state, candidate.namespace, candidate.collection, { _id: candidate.id }).first
+                   end
           after = target.find({ _id: candidate.id }, session: session).first
           was = before && Plain.call(before)
           now = after && Plain.call(after)
           next if was == now
 
+          state.held&.record(key, candidate, before, after)
           operation = was.nil? ? "insert" : (now.nil? ? "delete" : "update")
           change = { operation: operation, store: "mongodb", namespace: candidate.namespace, table: candidate.collection,
                      key: { "_id" => Plain.call(candidate.id) }, before: was, after: now }

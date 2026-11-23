@@ -1,6 +1,7 @@
 import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import String, create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -84,6 +85,63 @@ def client(app, **kwargs):
 def stored(engine):
     with Session(engine) as session:
         return sorted(item.id for item in session.scalars(select(Item)))
+
+
+async def test_failed_session_step_rewinds_and_send_ignores_session_header(tmp_path):
+    app, engine, bench = build(tmp_path)
+    async with client(app) as http:
+        opening = await http.post("/sendproof/_api/sessions")
+        assert opening.status_code == 201
+        resource = "/sendproof/_api/sessions/" + opening.json()["id"]
+        caller = {"Sendproof-Session": opening.json()["id"]}
+        step = {**ROLLBACK, **caller}
+        assert (await http.post("/sendproof/_preview/boom", headers=step)).status_code == 500
+        assert (await http.post(
+            "/sendproof/_preview/items", headers={**step, "origin": "https://other.test"}, json={}
+        )).json()["code"] == "session_not_found"
+        result = await http.post("/sendproof/_preview/items", headers=step, json={"id": "kept", "name": "Held"})
+        assert result.json()["session"]["step"] == 1
+        assert [change["key"] for change in result.json()["changes"]] == [{"id": "kept"}]
+        assert (await http.delete(resource)).status_code == 204
+        assert stored(engine) == []
+        assert (await http.post("/plain", headers=caller)).status_code == 200
+        assert stored(engine) == ["plain"]
+    await bench.aclose()
+
+
+def test_async_sqlalchemy_session_rolls_back_at_asgi_shutdown(tmp_path):
+    url = f"sqlite:///{tmp_path / 'async.sqlite'}"
+    reader = create_engine(url)
+    Base.metadata.create_all(reader)
+    engine = create_async_engine(url.replace("sqlite:", "sqlite+aiosqlite:"))
+    app = FastAPI()
+    Sendproof(app, provider=SQLAlchemyPreview(engine), environment="Development")
+
+    @app.post("/items")
+    @preview
+    async def create():
+        async with AsyncSession(engine) as session:
+            session.add(Item(id="pending", name="Pending"))
+            await session.commit()
+        return {"id": "pending"}
+
+    @app.get("/items")
+    async def read():
+        async with AsyncSession(engine) as session:
+            return [item.id for item in await session.scalars(select(Item))]
+
+    with TestClient(app) as http:
+        opened = http.post("/sendproof/_api/sessions")
+        assert opened.status_code == 201
+        headers = {**ROLLBACK, "Sendproof-Session": opened.json()["id"]}
+        assert http.post("/sendproof/_preview/items", headers=headers).json()["session"]["step"] == 1
+        assert http.get("/sendproof/_preview/items", headers=headers).json()["body"] == ["pending"]
+        assert stored(reader) == []
+    with reader.begin() as connection:
+        # A second writer can acquire SQLite's lock after lifespan shutdown.
+        connection.execute(Item.__table__.insert().values(id="durable", name="Durable"))
+    assert stored(reader) == ["durable"]
+    reader.dispose()
 
 
 async def test_disabled_by_default_everywhere(tmp_path, monkeypatch):

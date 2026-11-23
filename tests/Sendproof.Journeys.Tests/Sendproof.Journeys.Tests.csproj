@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- The parcel journeys' inputs read their descriptions from the XML comments. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <!-- Validates the generated Arazzo documents against the OpenAPI Initiative's published JSON Schema. -->
+    <PackageReference Include="JsonSchema.Net" Version="9.7.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" PrivateAssets="all" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.AspNetCore/Sendproof.AspNetCore.csproj" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.EntityFrameworkCore/Sendproof.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Journeys/Sendproof.Journeys.csproj" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Journeys.Testing/Sendproof.Journeys.Testing.csproj" />
+    <!-- Runs on this project (the parcel API's catalog) and is referenced by the generator's own tests. -->
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Journeys.Generators/Sendproof.Journeys.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Schemas/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="journeys/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

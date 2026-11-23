@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import type { BenchBinding, BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
+import type { BenchBinding, BenchIdentity, BenchOptions, BenchRequest, BlockedWrite, DispatchResponse, LookupResponse, Observation, PreviewProvider, RegisteredOperation, SessionAccess, Trace, TransportResponse, UnavailableOperation, UnavailableOptions } from './types.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { attributeHttpRequests, Capture, closePreview, openPreview } from './capture.js';
 import { hasPreference, localPath, requireLocalPath, requestsRollback, sameOrigin } from './paths.js';
 import { writeReason } from './stores/guard.js';
+import { journeyPrefix, registerJourneys } from './journeys.js';
+import { failed, notFound, PreviewSessionEndedError, SessionProblem, Sessions } from './sessions.js';
 
 export type * from './types.js';
+export { PreviewSessionEndedError, PreviewStoreBusyError } from './sessions.js';
 export { attributeRequest, Capture, currentCapture, currentPreview, deliverEffect, detached } from './capture.js';
 export { looksSecret, redacted, redactDeep, redactRow } from './secrets.js';
 export { classifyDynamo, classifyMongo, classifyRedis, partiqlVerb, type CommandKind, type MongoClassification } from './stores/classify.js';
@@ -29,6 +32,7 @@ export {
 
 const prefix = '/sendproof/_preview';
 const tracePrefix = '/sendproof/_api/traces/';
+const sessionsPath = '/sendproof/_api/sessions';
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 const noStore = { 'Cache-Control': 'no-store' };
 const privateHeaders = new Set([
@@ -41,6 +45,7 @@ const json = (status: number, value: unknown, headers: TransportResponse['header
   body: Buffer.from(JSON.stringify(value)),
 });
 const problem = (status: number, title: string) => json(status, { status, title }, { 'Content-Type': 'application/problem+json' });
+const noContent = (): TransportResponse => ({ status: 204, headers: noStore, body: Buffer.alloc(0) });
 
 /**
  * The blocked-Preview response of spec/data-stores.md: 409 problem+json, never a confirmation.
@@ -150,8 +155,9 @@ function databaseOf(label: string | null, provider: { system?: unknown } | undef
 export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, registered: () => RegisteredOperation[] = () => [], binding?: BenchBinding) {
   const {
     apiName = 'API', environment = process.env.NODE_ENV ?? 'production', environments = ['development'],
-    openApiUrl = '/openapi.json', documents = [], fieldModules = [], database = null, authProviders = [],
+    openApiUrl = '/openapi.json', documents = [], journeys = [], fieldModules = [], database = null, authProviders = [],
     resolveIdentity = () => null, authorize = () => true, discoverAuth, previewProvider: sqlProvider,
+    previewSessions = {},
     maxResponseBytes = 1024 * 1024, captureLimits = {}, traceTtlMs = 300000, traceClock = () => performance.now(),
     includeSqlParameterValues = environment.toLowerCase() === 'development', dataStores = [],
     onError = () => {},
@@ -180,9 +186,89 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
   // Preview is open can fail that Preview (guard.ts unattributedWrite).
   if (dataStores.length) attributeHttpRequests();
   const store = new TraceStore(traceTtlMs, traceClock);
+  const journeyFiles = registerJourneys(journeys);
+  const sessions = previewSessions === false ? undefined
+    : new Sessions(previewSessions.idleTimeoutSeconds ?? 300, previewSessions.maxLifetimeSeconds ?? 1800);
+  const hasSessions = (stores: Awaited<ReturnType<typeof describeStores>>) => Boolean(
+    sessions && previewProvider && (!sqlProvider || sqlProvider.openSession)
+    && stores.every(({ mode }, index) => mode === 'guard' || dataStores[index].openSession),
+  );
+  const describeStores = () => Promise.all(dataStores.map(store => store.describe()));
   let manifest: AssetManifest | undefined;
 
-  async function lookup(context: BenchRequest<Raw>): Promise<LookupResponse> {
+  function sessionError(error: unknown, context: BenchRequest<Raw>) {
+    if (error instanceof PreviewSessionEndedError) error = failed();
+    if (error instanceof SessionProblem) {
+      const { status, code, message: title } = error;
+      const idle = sessions?.idleTimeoutSeconds;
+      return json(status, {
+        type: 'about:blank', status, code, title,
+        ...(code === 'store_busy' ? {
+          detail: `That session ends by itself after its idle timeout (${idle} seconds), or when it is ended.`,
+          idleTimeoutSeconds: idle,
+        } : {}),
+      }, { 'Content-Type': 'application/problem+json' });
+    }
+    onError(error, context);
+    return problem(500, 'The preview session could not be completed safely.');
+  }
+
+  async function sessionRoute(context: BenchRequest<Raw>, subject: string | undefined, readBody?: () => Promise<unknown>) {
+    const { pathname, method } = context;
+    const resource = pathname.slice(sessionsPath.length).match(/^\/([^/]+)(\/rewind)?$/);
+    if (pathname === sessionsPath && method === 'POST') {
+      if (!sameOrigin(context)) return problem(403, 'Preview sessions must be opened from the application origin.');
+      if (!subject) return problem(403, 'A Preview session needs one stable subject for the signed-in caller.');
+      if (!sessions) return problem(409, 'Preview sessions are unavailable.');
+      try {
+        const stores = await describeStores();
+        if (!hasSessions(stores)) return problem(409, 'Preview sessions are unavailable.');
+        const guards = dataStores.filter((store, index) => stores[index].mode === 'guard' && store.around);
+        const opened = await sessions.open(subject, guards, async add => {
+          if (sqlProvider?.openSession) await add(await sqlProvider.openSession());
+          for (const [index, dataStore] of dataStores.entries()) {
+            if (stores[index].mode === 'preview') await add(await dataStore.openSession!());
+          }
+        }, error => onError(error, context));
+        return json(201, opened);
+      } catch (error) {
+        if (!(error instanceof SessionProblem)) onError(error, context);
+        return sessionError(error instanceof SessionProblem ? error : failed(), context);
+      }
+    }
+    if (!resource) return pathname === sessionsPath ? problem(405, 'Use POST to open a Preview session.') : sessionError(notFound(), context);
+    const [, id, rewind] = resource;
+    if (!sessions || !sameOrigin(context)) return sessionError(notFound(), context);
+    if (method !== (rewind ? 'POST' : 'DELETE')) return problem(405, 'Use POST to rewind or DELETE to end a Preview session.');
+    try {
+      const session = sessions.enter({ id, owner: subject });
+      try {
+        if (!rewind) {
+          await sessions.close(session);
+        } else {
+          const input = await readBody?.().catch(() => null);
+          const step = input && typeof input === 'object' && 'step' in input ? input.step : undefined;
+          if (typeof step !== 'number' || !Number.isSafeInteger(step) || step < 1 || step > session.nextStep) {
+            return problem(400, 'Choose a step from 1 through the next Preview step.');
+          }
+          if (step < session.nextStep) {
+            for (const part of session.parts.toReversed()) await part.rewind(step);
+            session.nextStep = step;
+          }
+        }
+        return noContent();
+      } catch (error) {
+        await sessions.close(session).catch(error => onError(error, context));
+        throw error;
+      } finally {
+        await sessions.exit(session);
+      }
+    } catch (error) {
+      return sessionError(error, context);
+    }
+  }
+
+  async function lookup(context: BenchRequest<Raw>, readBody?: () => Promise<unknown>): Promise<LookupResponse> {
     const { pathname, query = '', basePath = '', method, headers } = context;
     const prefer = headers.prefer;
     const isPreview = under(pathname, prefix);
@@ -192,14 +278,22 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
 
     const identity = await resolveIdentity(context);
     if (!await authorize(context, identity)) return problem(identity ? 403 : 401, 'Workbench access denied.');
+    const subject = () => identity ? owner(identity, basePath) : JSON.stringify([basePath]);
+    if (under(pathname, sessionsPath)) return sessionRoute(context, subject(), readBody);
     if (isPreview) {
       if (!hasPreference(prefer, 'tx=rollback')) return problem(400, 'A Sendproof preview requires Prefer: tx=rollback.');
       if (method === 'HEAD') return problem(405, 'A preview requires a response body.');
+      const sessionId = headers['sendproof-session'];
+      if (sessionId !== undefined && (!sessions || !sameOrigin(context))) return sessionError(notFound(), context);
       if (!sameOrigin(context)) return problem(403, 'Preview is restricted to the application origin.');
       const target = pathname.slice(prefix.length);
       if (!localPath(target) || under(decodeURIComponent(target).toLowerCase(), '/sendproof')) {
         return problem(400, 'The Sendproof preview target is invalid.');
       }
+      if (sessionId !== undefined) return {
+        target: target + query,
+        session: { id: typeof sessionId === 'string' ? sessionId : '', owner: subject() },
+      };
       if (!previewProvider) return problem(503, 'Preview requires an available provider.');
       return { target: target + query };
     }
@@ -207,6 +301,7 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     if (pathname === '/sendproof/_api/capabilities') {
       const addBase = (url: string | null) => url === null ? null : basePath + requireLocalPath(url);
       const providers = [...authProviders, ...((await discoverAuth?.(context)) ?? [])];
+      const stores = await describeStores();
       return json(200, {
         protocolVersion: 1, apiName, environment, ...(binding ? { binding: { language: binding.language, framework: binding.framework } } : {}),
         database: databaseOf(database, sqlProvider), identity: publicIdentity(identity),
@@ -216,7 +311,9 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
         authProviders: providers.map(({ kind, label, url }) => ({ kind, label, url: addBase(url) })),
         previewOperations: previewProvider ? operations() : [],
         ...(previewProvider && unavailable().length ? { previewUnavailable: unavailable() } : {}),
-        ...(dataStores.length ? { dataStores: await Promise.all(dataStores.map(store => store.describe())) } : {}),
+        ...(dataStores.length ? { dataStores: stores } : {}),
+        previewSessions: hasSessions(stores),
+        ...(journeys.length ? { journeys: journeyFiles.discover(basePath) } : {}),
         observedSend: Boolean(previewProvider),
       });
     }
@@ -227,6 +324,10 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
       return trace ? json(200, trace) : problem(404, 'Trace not found.');
     }
     if (pathname === '/sendproof') return { status: 302, headers: { ...noStore, Location: basePath + '/sendproof/' + query }, body: Buffer.alloc(0) };
+    if (pathname.startsWith(journeyPrefix)) {
+      const document = journeyFiles.document(pathname, basePath);
+      if (document !== undefined) return json(200, document, { 'X-Content-Type-Options': 'nosniff' });
+    }
     const asset = pathname.slice('/sendproof/'.length) || 'index.html';
     manifest ??= JSON.parse(readFileSync(join(assets, 'manifest.json'), 'utf8')) as AssetManifest;
     const entry = Object.hasOwn(manifest.files, asset) && manifest.files[asset];
@@ -240,8 +341,84 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     return { status: unchanged ? 304 : 200, headers: headersOut, body };
   }
 
-  async function preview(context: BenchRequest<Raw>, dispatch: () => Promise<DispatchResponse>): Promise<TransportResponse> {
+  function refusal(capture: Capture, response: TransportResponse): TransportResponse | undefined {
+    if (capture.fault) return problem(500, 'The preview could not be completed safely.');
+    if (capture.blocked) return blockedPreview(capture.blocked);
+    if (response.status === 401 || response.status === 403) return problem(response.status, 'Preview access denied.');
+    if (response.status >= 500) return problem(500, 'The preview operation did not complete safely.');
+    if (response.exceeded || response.body.length > maxResponseBytes) return problem(413, 'The preview response exceeds the configured size limit.');
+  }
+
+  const unmatched = () => problem(409, 'This operation is unavailable for preview.');
+
+  function confirmed(capture: Capture, response: TransportResponse, session?: { id: string; step: number }) {
+    const headers: Record<string, string> = Object.create(null);
+    const connectionTokens = Object.entries(response.headers)
+      .filter(([name]) => name.toLowerCase() === 'connection')
+      .flatMap(([, value]) => String(value ?? '').toLowerCase().split(',').map(token => token.trim()));
+    for (const [name, value] of Object.entries(response.headers).slice(0, 64)) {
+      const lower = name.toLowerCase();
+      if (value !== undefined && !privateHeaders.has(lower) && !connectionTokens.includes(lower)) headers[lower] = String(value).slice(0, 2048);
+    }
+    return json(200, {
+      status: response.status, headers, body: responseBody(response.body, headers['content-type']),
+      ...capture.finish().capture, rolledBack: true, ...(session ? { session } : {}),
+    }, { 'Preference-Applied': 'tx=rollback' });
+  }
+
+  async function sessionPreview(context: BenchRequest<Raw>, access: SessionAccess, dispatch: () => Promise<DispatchResponse>) {
+    if (!sessions) return sessionError(notFound(), context);
+    try {
+      const session = sessions.enter(access);
+      const step = session.nextStep;
+      const capture = new Capture('preview', captureLimits, includeSqlParameterValues);
+      openPreview(capture);
+      try {
+        for (const part of session.parts) await part.checkpoint(step);
+        const guarded = session.guards.reduceRight<() => Promise<DispatchResponse>>(
+          (next, store) => () => store.around!(capture, next, 'guard'), dispatch);
+        const handler = session.parts.reduceRight<() => Promise<DispatchResponse>>(
+          (next, part) => () => part.run(capture, next), guarded);
+        let rejected: TransportResponse;
+        try {
+          const response = await capture.run(handler);
+          if ('unmatched' in response) {
+            rejected = capture.blocked ? blockedPreview(capture.blocked) : unmatched();
+          } else {
+            const refused = refusal(capture, response);
+            if (!refused) {
+              for (const part of session.parts) await part.verify(step);
+              const rendered = confirmed(capture, response, { id: session.id, step });
+              session.nextStep++;
+              return rendered;
+            }
+            rejected = refused;
+          }
+        } catch (error) {
+          if (error instanceof PreviewSessionEndedError) throw error;
+          onError(error, context);
+          rejected = capture.blocked && !capture.fault
+            ? blockedPreview(capture.blocked) : problem(500, 'The preview could not be completed safely.');
+        }
+        if (capture.fault) throw capture.fault;
+        for (const part of session.parts.toReversed()) await part.rewind(step);
+        return rejected;
+      } catch (error) {
+        await sessions.close(session).catch(error => onError(error, context));
+        throw error;
+      } finally {
+        if (capture.active) capture.finish();
+        closePreview(capture);
+        await sessions.exit(session);
+      }
+    } catch (error) {
+      return sessionError(error, context);
+    }
+  }
+
+  async function preview(context: BenchRequest<Raw>, dispatch: () => Promise<DispatchResponse>, session?: SessionAccess): Promise<TransportResponse> {
     if (!enabled) return problem(404, 'Sendproof is unavailable.');
+    if (session) return sessionPreview(context, session, dispatch);
     if (!previewProvider) return problem(503, 'Preview requires an available provider.');
     const capture = new Capture('preview', captureLimits, includeSqlParameterValues);
     let storesFinished = true;
@@ -274,24 +451,8 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
       }));
       if (!storesFinished || capture.fault) return problem(500, 'The preview could not be completed safely.');
       if (capture.blocked) return blockedPreview(capture.blocked);
-      if ('unmatched' in response) return problem(409, 'This operation is unavailable for preview.');
-      if (response.status === 401 || response.status === 403) return problem(response.status, 'Preview access denied.');
-      if (response.status >= 500) return problem(500, 'The preview operation did not complete safely.');
-      if (response.exceeded || response.body.length > maxResponseBytes) {
-        return problem(413, 'The preview response exceeds the configured size limit.');
-      }
-      const headers: Record<string, string> = Object.create(null);
-      const connectionTokens = Object.entries(response.headers)
-        .filter(([name]) => name.toLowerCase() === 'connection')
-        .flatMap(([, value]) => String(value ?? '').toLowerCase().split(',').map(token => token.trim()));
-      for (const [name, value] of Object.entries(response.headers).slice(0, 64)) {
-        const lower = name.toLowerCase();
-        if (value !== undefined && !privateHeaders.has(lower) && !connectionTokens.includes(lower)) headers[lower] = String(value).slice(0, 2048);
-      }
-      return json(200, {
-        status: response.status, headers, body: responseBody(response.body, headers['content-type']),
-        ...capture.finish().capture, rolledBack: true,
-      }, { 'Preference-Applied': 'tx=rollback' });
+      if ('unmatched' in response) return unmatched();
+      return refusal(capture, response) ?? confirmed(capture, response);
     } catch (error) {
       onError(error, context);
       if ('error' in failure && error === failure.error && storesFinished && !capture.fault && capture.blocked) {
@@ -325,5 +486,5 @@ export function createBench<Raw = unknown>(options: BenchOptions<Raw> = {}, regi
     };
   }
 
-  return { lookup, preview, observation, maxResponseBytes };
+  return { lookup, preview, observation, maxResponseBytes, close: async () => sessions?.shutdown() };
 }

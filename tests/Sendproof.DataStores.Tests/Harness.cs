@@ -30,6 +30,12 @@ public sealed class ServiceFactAttribute : FactAttribute
         Skip = Unavailable(service);
     }
 
+    /// <summary>A fact that needs two services, such as MongoDB and Redis in one Preview.</summary>
+    public ServiceFactAttribute(string service, string other)
+    {
+        Skip = Unavailable(service) ?? Unavailable(other);
+    }
+
     internal static string? Unavailable(string service)
     {
         lock (Probes)

@@ -4,11 +4,13 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import test from 'node:test';
 import { parseArgs } from 'node:util';
-import { standard, alternates } from './protocol.mjs';
+import { standard, alternates, status } from './protocol.mjs';
 import { platformCommand, root, withFixture } from './host.mjs';
 import { engines, withFixtureDatabase } from './database.mjs';
 import { dataStores } from './data-stores.mjs';
 import { sharedRules } from './shared-rules.mjs';
+import { sessions } from './sessions.mjs';
+import { journeyDiscovery } from './journey-discovery.mjs';
 
 const manifest = JSON.parse(await readFile(new URL('./bindings.json', import.meta.url), 'utf8'));
 const { values, positionals } = parseArgs({ options: {
@@ -52,7 +54,11 @@ if (values.list) {
   }
 } else {
   const { default: Ajv2020 } = await import('ajv/dist/2020.js');
+  const { default: addFormats } = await import('ajv-formats');
   const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const arazzo = new URL('../Sendproof.Journeys.Tests/Schemas/arazzo-1.1-2026-04-15.schema.json', import.meta.url);
+  ajv.addSchema(JSON.parse(await readFile(arazzo, 'utf8')), 'arazzo.schema.json');
   for (const kind of ['capabilities', 'preview', 'trace']) {
     const filename = `${kind}.schema.json`;
     ajv.addSchema(JSON.parse(await readFile(new URL(`../../spec/${filename}`, import.meta.url), 'utf8')), filename);
@@ -68,7 +74,11 @@ if (values.list) {
     await test(binding.id, { timeout: binding.timeoutMs ?? 150000 }, async t => {
       if (binding.profile === 'store') {
         const { runStore } = await import('./store.mjs');
-        await withFixture(binding, 'standard', '', request => runStore(t, request, schemas));
+        await withFixture(binding, 'standard', '', async (request, database) => {
+          await runStore(t, request, schemas, database);
+          const caps = await (await status(await request('/sendproof/_api/capabilities'), 200)).json();
+          await journeyDiscovery(t, request, schemas, caps, '');
+        });
         return;
       }
       // The data-store reference fixture is not a binding: it implements only the data-store routes and shared rules.
@@ -77,7 +87,9 @@ if (values.list) {
         return;
       }
       await withFixture(binding, 'standard', '/tenant', async (request, database) => {
-        await standard(t, request, schemas, binding, database);
+        const context = await standard(t, request, schemas, binding, database);
+        await sessions(t, request, schemas, binding, database, context);
+        await journeyDiscovery(t, request, schemas, context.capabilities, '/tenant');
         await sharedRules(t, request, schemas, binding, database);
         await database.verify?.();
       });

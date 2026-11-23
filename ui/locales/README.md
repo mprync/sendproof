@@ -49,3 +49,6 @@ native speaker has reviewed a catalogue.
 The v5 strings added to `de` and `ar` (keys under `attr.`, `field.`, `select.`, `lookup.`,
 `dep.`, `match.`, `lang.`, `resp.raw.`, `resp.table.` and `resp.legend.`) are machine-translated
 too and need the same review.
+
+The `jr.*` (Journeys) strings in every catalogue, including `de` and `ar`, are machine-translated
+too and need the same review.

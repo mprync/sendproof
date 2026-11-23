@@ -87,6 +87,10 @@ pub(crate) struct PreviewState {
     /// The Preview's recorder, so monitoring can attribute a command that carries the Preview's `lsid`
     /// even when it was sent from a task without the request's task-local capture.
     pub recorder: Arc<Recorder>,
+    /// Shared by all steps of a held transaction. A retained handle cannot use the session after end.
+    pub lifetime_ended: Arc<AtomicBool>,
+    /// A handle from an earlier step cannot issue a command during a later step.
+    pub active: AtomicBool,
     data: Mutex<Data>,
 }
 
@@ -98,13 +102,38 @@ impl PreviewState {
             session: Some(Arc::new(tokio::sync::Mutex::new(session))),
             lsid: Some(lsid),
             recorder,
+            lifetime_ended: Arc::new(AtomicBool::new(false)),
+            active: AtomicBool::new(true),
             data: Mutex::default(),
         })
     }
 
+    /// Gives a step its own candidates and recorder while retaining the transaction and its lifetime.
+    pub fn step(held: &Arc<Self>, recorder: Arc<Recorder>) -> Arc<Self> {
+        let state = Arc::new(Self {
+            mode: held.mode,
+            session: held.session.clone(),
+            lsid: held.lsid.clone(),
+            recorder,
+            lifetime_ended: held.lifetime_ended.clone(),
+            active: AtomicBool::new(true),
+            data: Mutex::default(),
+        });
+        state.data().start_time = held.data().start_time;
+        state
+    }
+
     /// A Preview of a store that can't join one: reads run, the first write blocks.
     pub fn guard(recorder: Arc<Recorder>) -> Arc<Self> {
-        Arc::new(Self { mode: Mode::Guard, session: None, lsid: None, recorder, data: Mutex::default() })
+        Arc::new(Self {
+            mode: Mode::Guard,
+            session: None,
+            lsid: None,
+            recorder,
+            lifetime_ended: Arc::new(AtomicBool::new(false)),
+            active: AtomicBool::new(true),
+            data: Mutex::default(),
+        })
     }
 
     pub fn data(&self) -> MutexGuard<'_, Data> {
@@ -117,7 +146,7 @@ impl PreviewState {
         if matches!(candidate.id, Bson::Null) {
             return;
         }
-        let key = format!("{}\u{0}{}\u{0}{}", candidate.namespace, candidate.collection, crate::plain(&candidate.id));
+        let key = candidate_key(&candidate);
         let mut data = self.data();
         match data.seen.get(&key).copied() {
             None => {
@@ -129,6 +158,10 @@ impl PreviewState {
             Some(_) => {}
         }
     }
+}
+
+pub(crate) fn candidate_key(candidate: &Candidate) -> String {
+    format!("{}\u{0}{}\u{0}{}", candidate.namespace, candidate.collection, crate::plain(&candidate.id))
 }
 
 /// A command seen by monitoring, kept until its reply arrives.

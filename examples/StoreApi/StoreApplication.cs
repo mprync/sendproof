@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using Sendproof.AspNetCore;
 using Sendproof.EntityFrameworkCore;
+using Sendproof.Journeys;
 
 namespace StoreApi;
 
@@ -14,8 +15,13 @@ namespace StoreApi;
 /// the OpenAPI document, Sendproof with its Entity Framework Core preview, the optional Redis, MongoDB and
 /// DynamoDB stores, and every endpoint group.
 /// </summary>
-public static class StoreApplication
+/// <remarks>Not static, so tests can name it as their entry point: <c>JourneyTestSuite&lt;StoreApplication&gt;</c>.</remarks>
+public sealed class StoreApplication
 {
+    private StoreApplication()
+    {
+    }
+
     /// <summary>Builds the application and initializes a new demo database.</summary>
     public static async Task<WebApplication> BuildAsync(WebApplicationBuilder builder)
     {
@@ -63,6 +69,13 @@ public static class StoreApplication
         sendproof.AddEntityFrameworkCore<StoreDbContext>();
         // Redis, MongoDB and DynamoDB are optional: hooked only when DemoRedisUrl, DemoMongoUrl and DemoDynamoUrl are set.
         DemoStores.Add(builder.Services, sendproof, builder.Configuration);
+        // The journeys in Journeys/, published as /sendproof/journeys/store.arazzo.json and store.expect.json.
+        sendproof.AddJourneys(typeof(StoreApplication).Assembly, journeys =>
+        {
+            journeys.Name = "Store journeys";
+            journeys.FileName = "store";
+            journeys.MapCollection<OrderEventDocument>("order_events").MapCollection<OrderTimelineDocument>("order_timelines");
+        });
 
         var app = builder.Build();
         using (var scope = app.Services.CreateScope())

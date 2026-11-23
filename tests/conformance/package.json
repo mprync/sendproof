@@ -6,6 +6,7 @@
   "engines": { "node": ">=22" },
   "devDependencies": {
     "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "mysql2": "^3.17.0",
     "pg": "^8.16.3",
     "tedious": "^19.2.0"

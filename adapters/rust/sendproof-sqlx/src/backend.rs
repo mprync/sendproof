@@ -82,6 +82,15 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// instead. Taking turns keeps previews from waiting on one another's rolled-back rows.
     const SERIAL_PREVIEWS: bool = false;
 
+    /// Whether held sessions install a new capture for each step. PostgreSQL installs its
+    /// transactional audit triggers once so rewinding a step cannot remove them.
+    const CAPTURE_PER_STEP: bool = true;
+
+    /// Whether a failed statement aborted the current PostgreSQL subtransaction.
+    fn step_aborted(_error: &sqlx::Error) -> bool {
+        false
+    }
+
     /// Whether `error` means the database rolled the whole transaction back, so later statements would
     /// run outside it: a MySQL deadlock (1213) or lock wait timeout (1205, which rolls back with
     /// `innodb_rollback_on_timeout`; refused either way). PostgreSQL and SQLite keep the transaction.
@@ -93,7 +102,7 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     fn bind(query: Query<'static, Self, Self::Arguments>, value: SqlValue) -> Query<'static, Self, Self::Arguments>;
 
     /// Runs a statement without capturing it.
-    fn run_raw<'a>(connection: &'a mut Self::Connection, sql: &'static str) -> BoxFuture<'a, Result<(), sqlx::Error>>;
+    fn run_raw<'a>(connection: &'a mut Self::Connection, sql: &'a str) -> BoxFuture<'a, Result<(), sqlx::Error>>;
 
     /// Runs a named statement, reporting it (and, where the backend needs it, its rows) to `capture`.
     fn run<'a>(
@@ -110,6 +119,11 @@ pub trait Driver: Database<QueryResult: RowsAffected> + Sized {
     /// Collects what is still in the database and removes the capture. In a preview this runs
     /// before the rollback; for an observed send, after the handler.
     fn finish<'a>(connection: &'a mut Self::Connection, capture: &'a Self::Capture) -> BoxFuture<'a, Result<(), BoxError>>;
+
+    /// Collects changes for one kept step, while preserving any session-wide capture setup.
+    fn finish_held_step<'a>(connection: &'a mut Self::Connection, capture: &'a Self::Capture) -> BoxFuture<'a, Result<(), BoxError>> {
+        Self::finish(connection, capture)
+    }
 
     /// Removes the capture on a failure path, as far as possible.
     fn abandon<'a>(connection: &'a mut Self::Connection, capture: &'a Self::Capture) -> BoxFuture<'a, ()>;

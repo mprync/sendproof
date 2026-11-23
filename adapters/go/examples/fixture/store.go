@@ -44,6 +44,8 @@ type Database struct {
 	URL string
 	// Directory holds the SQLite file. It defaults to a temporary directory.
 	Directory string
+	// SQLitePath overrides the file so conformance can open an independent reader.
+	SQLitePath string
 }
 
 // engine describes one database engine for the fixture.
@@ -189,7 +191,10 @@ func DataSource(database Database) (driver, dsn string, err error) {
 // dataSource turns the runner's URL into the driver's data source name.
 func dataSource(engine string, database Database) (string, error) {
 	if engine == "sqlite" {
-		path := filepath.Join(database.Directory, "fixture.db")
+		path := database.SQLitePath
+		if path == "" {
+			path = filepath.Join(database.Directory, "fixture.db")
+		}
 		return "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", nil
 	}
 	if database.URL == "" {

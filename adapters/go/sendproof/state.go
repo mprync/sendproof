@@ -36,6 +36,8 @@ type requestState struct {
 	completed bool
 	session   Session
 	failure   error
+	held      *heldPreview
+	sealed    bool
 
 	// Data stores (spec/data-stores.md). blocked is the first refused write and
 	// fault a refused transaction-control command; both outlive the handler, so
@@ -97,10 +99,23 @@ func PreviewSession(ctx context.Context) (Session, error) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.session == nil {
+	if state.session == nil || state.sealed {
 		return nil, ErrNoPreviewSession
 	}
 	return state.session, nil
+}
+
+// IsPreviewStepActive reports whether a held Preview step still admits store
+// calls. Held data wrappers check this under their operation lock, so calls
+// retained by a handler cannot write into a later step.
+func IsPreviewStepActive(ctx context.Context) bool {
+	state := stateFrom(ctx)
+	if state == nil || state.held == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.invoked && !state.sealed
 }
 
 // SendObservation returns the observation an observed send runs under, so a

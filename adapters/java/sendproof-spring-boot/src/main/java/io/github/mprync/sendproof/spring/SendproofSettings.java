@@ -3,6 +3,7 @@ package io.github.mprync.sendproof.spring;
 import io.github.mprync.sendproof.core.Capabilities.AuthProvider;
 import io.github.mprync.sendproof.core.Capabilities.OpenApiDocument;
 import io.github.mprync.sendproof.core.DataStore;
+import io.github.mprync.sendproof.core.JourneyFiles;
 import io.github.mprync.sendproof.core.LocalUrl;
 import java.time.Duration;
 import java.util.List;
@@ -23,7 +24,7 @@ import java.util.List;
  */
 record SendproofSettings(String apiName, String environment, String openApiUrl, List<OpenApiDocument> documents,
                          List<AuthProvider> authProviders, List<String> fieldModules, Duration traceRetention,
-                         int filterOrder, List<DataStore> dataStores) {
+                         int filterOrder, List<DataStore> dataStores, JourneyFiles journeys) {
 
     /** Merges the builder (which may be {@code null}) over the bound properties. */
     static SendproofSettings resolve(SendproofProperties properties, Sendproof builder) {
@@ -43,7 +44,8 @@ record SendproofSettings(String apiName, String environment, String openApiUrl, 
                 documents, providers, modules,
                 builder != null && builder.traceRetention() != null ? builder.traceRetention()
                         : properties.getTrace().getRetention(),
-                properties.getFilterOrder(), builder == null ? List.of() : builder.dataStores());
+                properties.getFilterOrder(), builder == null ? List.of() : builder.dataStores(),
+                builder == null ? new JourneyFiles() : builder.journeys());
     }
 
     private static <T> T first(T preferred, T fallback) {

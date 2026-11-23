@@ -6,7 +6,7 @@ using Sendproof.AspNetCore;
 
 namespace Sendproof.EntityFrameworkCore;
 
-internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvider where TContext : DbContext
+internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvider, IPreviewSessionSource where TContext : DbContext
 {
     private readonly TContext _context;
 
@@ -63,6 +63,24 @@ internal sealed class EntityFrameworkPreviewProvider<TContext> : IPreviewProvide
     }
 
     public IPreviewObservation BeginObservation(HttpContext context) => new EntityFrameworkChangeCapture(_context);
+
+    /// <summary>
+    /// Preview sessions hold one transaction across requests, with EF Core's savepoints before each step, on every
+    /// relational provider. MongoDB's EF Core provider has no savepoints, so its hosts report <c>previewSessions: false</c>.
+    /// </summary>
+    public string? SessionUnavailableReason => _context.Database.IsRelational()
+        ? null
+        : $"Preview sessions need savepoints, which {_context.Database.ProviderName ?? "this database provider"} doesn't have.";
+
+    public async ValueTask<IHeldPreview?> HoldAsync(HttpContext context, CancellationToken cancellationToken)
+    {
+        if (SessionUnavailableReason is { } reason)
+        {
+            throw new InvalidOperationException(reason);
+        }
+
+        return await EntityFrameworkHeldPreview<TContext>.OpenAsync(context.RequestServices, Database ?? "the database", cancellationToken);
+    }
 
     public async ValueTask<IPreviewSession> BeginAsync(HttpContext context, CancellationToken cancellationToken)
     {

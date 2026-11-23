@@ -1,6 +1,7 @@
 package io.github.mprync.sendproof.jpa;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -8,6 +9,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mprync.sendproof.core.CaptureContext;
+import io.github.mprync.sendproof.core.HeldPreview;
+import io.github.mprync.sendproof.core.PreviewSessions;
+import io.github.mprync.sendproof.core.RequestCapture;
+import io.github.mprync.sendproof.jpa.testapp.WidgetService;
+import javax.sql.DataSource;
 import io.github.mprync.sendproof.jpa.testapp.JpaTestApp;
 import java.security.Principal;
 import java.util.ArrayList;
@@ -18,6 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -41,6 +50,12 @@ class JpaPreviewTest {
     MockMvc mvc;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    JpaPreviewProvider provider;
+    @Autowired
+    WidgetService widgets;
+    @Autowired
+    DataSource dataSource;
 
     @BeforeEach
     void clean() {
@@ -49,6 +64,139 @@ class JpaPreviewTest {
 
     private int count() {
         return jdbc.queryForObject("select count(*) from widgets", Integer.class);
+    }
+
+    @Test
+    void theSpringRoutesKeepAndRewindJpaSteps() throws Exception {
+        var user = new User("held-owner");
+        String route = "/sendproof/_api/sessions";
+        var opened = mvc.perform(post(route).principal(user)).andReturn();
+        assertThat(opened.getResponse().getStatus()).isEqualTo(201);
+        String id = json(opened).path("id").asText();
+        String session = route + "/" + id;
+        try {
+            var create = mvc.perform(post("/sendproof/_preview/widgets/held-api?name=initial")
+                    .principal(user).header("Prefer", "tx=rollback").header(PreviewSessions.HEADER, id)).andReturn();
+            assertThat(create.getResponse().getStatus()).isEqualTo(200);
+            assertThat(json(create).path("session").path("step").asInt()).isEqualTo(1);
+            assertThat(count()).isZero();
+
+            var rename = mvc.perform(patch("/sendproof/_preview/widgets/held-api?name=changed")
+                    .principal(user).header("Prefer", "tx=rollback").header(PreviewSessions.HEADER, id)).andReturn();
+            assertThat(rename.getResponse().getStatus()).isEqualTo(200);
+            assertThat(json(rename).path("session").path("step").asInt()).isEqualTo(2);
+            assertThat(mvc.perform(post(session + "/rewind").principal(user)
+                    .contentType("application/json").content("{\"step\":2}")).andReturn()
+                    .getResponse().getStatus()).isEqualTo(204);
+
+            var retry = mvc.perform(patch("/sendproof/_preview/widgets/held-api?name=again")
+                    .principal(user).header("Prefer", "tx=rollback").header(PreviewSessions.HEADER, id)).andReturn();
+            assertThat(json(retry).path("session").path("step").asInt()).isEqualTo(2);
+            assertThat(json(retry).path("changes").get(0).path("before").path("name").asText()).isEqualTo("initial");
+        } finally {
+            assertThat(mvc.perform(delete(session).principal(user)).andReturn().getResponse().getStatus()).isEqualTo(204);
+        }
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void aHeldJpaStepKeepsWritesAndCaptureAcrossFreshTransactionsUntilRewind() throws Exception {
+        assertThat(provider.supportsHeldPreview()).isTrue();
+        RequestCapture capture = new RequestCapture();
+        capture.begin(true, System.nanoTime());
+        try (HeldPreview preview = provider.beginHeld()) {
+            preview.checkpoint();
+            try (var scope = CaptureContext.enter(capture); var step = preview.begin(capture)) {
+                widgets.create("held", "first");
+                step.finish();
+                assertThat(step.changes()).hasSize(1);
+            }
+            assertThat(capture.finish().logs()).anyMatch(log -> log.sql() != null);
+            assertThat(count()).isZero();
+
+            var rename = preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                widgets.rename("held", "second");
+                step.finish();
+                assertThat(step.changes()).hasSize(1);
+                assertThat(jdbc.queryForObject("select name from widgets where id='held'", String.class))
+                        .isEqualTo("second");
+            }
+            rename.rollback();
+            rename.discard();
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                assertThat(jdbc.queryForObject("select name from widgets where id='held'", String.class))
+                        .isEqualTo("first");
+                step.finish();
+            }
+        }
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void aRollbackOnlySpringJdbcStepRewindsItsOwnWrites() throws Exception {
+        var manager = new DataSourceTransactionManager(dataSource);
+        var jdbcProvider = new JpaPreviewProvider(manager, null, () -> "test");
+        assertThat(jdbcProvider.supportsHeldPreview()).isTrue();
+        try (var preview = jdbcProvider.beginHeld()) {
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                jdbc.update("insert into widgets (id, name) values (?, ?)", "held", "kept");
+                step.finish();
+            }
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                new TransactionTemplate(manager).executeWithoutResult(status -> {
+                    jdbc.update("update widgets set name=? where id=?", "discarded", "held");
+                    status.setRollbackOnly();
+                });
+                step.finish();
+            }
+            preview.checkpoint();
+            try (var step = preview.begin(new RequestCapture())) {
+                assertThat(jdbc.queryForObject("select name from widgets where id='held'", String.class))
+                        .isEqualTo("kept");
+                step.finish();
+            }
+        }
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void capturedH2SettingsAreRefusedDuringHeldPreview() throws Exception {
+        try (var ordinary = provider.begin()) {
+            jdbc.execute("SET SCHEMA PUBLIC");
+            ordinary.rollback();
+        }
+        try (var held = provider.beginHeld()) {
+            held.checkpoint();
+            assertThatThrownBy(() -> {
+                try (var step = held.begin(new RequestCapture())) {
+                    widgets.create("held-setting", "before setting");
+                    assertThatThrownBy(() -> jdbc.execute("SET SCHEMA PUBLIC"))
+                            .hasStackTraceContaining("SQL statement SET");
+                    assertThatThrownBy(step::finish).isInstanceOf(HeldPreview.UnsafeTransaction.class);
+                }
+            }).isInstanceOf(HeldPreview.UnsafeTransaction.class);
+        }
+        assertThat(count()).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void aSwallowedConnectionCommitFailsTheHeldStep() throws Exception {
+        try (var preview = provider.beginHeld()) {
+            preview.checkpoint();
+            var step = preview.begin(new RequestCapture());
+            widgets.commitThroughTheConnection("held-commit");
+            assertThatThrownBy(step::finish).isInstanceOf(HeldPreview.UnsafeTransaction.class);
+            assertThatThrownBy(step::close).isInstanceOf(HeldPreview.UnsafeTransaction.class);
+        }
+        assertThat(count()).isZero();
     }
 
     private MvcResult preview(String method, String path) throws Exception {

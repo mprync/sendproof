@@ -1,11 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { basename } from 'node:path';
 import {
-  currentCapture, endsTransaction, mayWrite, previewSavepointHeld, rollsBackTransaction, safeProcedureNames, setPreviewSavepoint,
+  currentCapture, endsTransaction, mayWrite, PreviewStoreBusyError, previewSavepointHeld, rollsBackTransaction, safeProcedureNames, setPreviewSavepoint,
 } from '@sendproof/core';
-import type { PreviewProvider } from '@sendproof/core';
+import type { HeldPreview, PreviewProvider } from '@sendproof/core';
 import type { DataSource, EntityManager, EntityTarget, FindOptionsWhere, Logger, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { ChangeTracker } from './changes.js';
 import { ConnectionLease } from './lease.js';
+import { openTypeOrmSession, transactionState } from './session.js';
 
 /** Drivers that multiplex every query runner over one physical connection. */
 const singleConnectionDrivers = new Set(['better-sqlite3', 'sqlite', 'sqljs', 'react-native', 'cordova', 'capacitor', 'expo']);
@@ -48,6 +50,7 @@ interface Scope {
 
 /** Drivers whose implicit commits (DDL, LOCK TABLES) must also be refused during Preview. */
 const mysqlDrivers = new Set(['mysql', 'mariadb', 'aurora-mysql']);
+const sessionDrivers = new Set(['better-sqlite3', 'postgres', 'mysql', 'mariadb']);
 
 const previewOwnsMessage = 'Preview owns the transaction and must roll it back. Use manager.transaction() for a nested unit of work.';
 const endedMessage = 'The TypeORM request scope has ended.';
@@ -62,6 +65,7 @@ const endedMessage = 'The TypeORM request scope has ended.';
  */
 export class TypeOrmPreview implements PreviewProvider {
   readonly #source: DataSource;
+  readonly openSession?: () => Promise<HeldPreview>;
 
   /**
    * The SQL provider id discovery reports as `database.system`, from the data source's `type`:
@@ -93,6 +97,7 @@ export class TypeOrmPreview implements PreviewProvider {
    * statement on them is refused, since it would run with autocommit and commit for real.
    */
   readonly #broken = new WeakSet<QueryRunner>();
+  readonly #held = new WeakMap<QueryRunner, () => boolean>();
   /** Set while TypeORM's own transaction methods run, so their BEGIN, COMMIT and ROLLBACK pass the guard. */
   readonly #control = new AsyncLocalStorage<true>();
   readonly #previousLogger: Logger;
@@ -112,6 +117,7 @@ export class TypeOrmPreview implements PreviewProvider {
     this.#source = source;
     this.#lease = new ConnectionLease(singleConnectionDrivers.has(source.options.type));
     this.#previewTurns = new ConnectionLease(mysqlDrivers.has(source.options.type));
+    if (sessionDrivers.has(source.options.type)) this.openSession = () => this.#openSession();
     this.#tracker = new ChangeTracker(source, maxRows);
     this.#previousLogger = source.logger;
     this.#createQueryRunner = source.createQueryRunner;
@@ -220,6 +226,51 @@ export class TypeOrmPreview implements PreviewProvider {
     }));
   }
 
+  async #openSession(): Promise<HeldPreview> {
+    if (this.#scopes.getStore()) throw new Error('Nested TypeORM previews are unavailable.');
+    const options = this.#source.options;
+    const sqlite = options.type === 'better-sqlite3';
+    const label = sqlite ? (options.database !== ':memory:' ? basename(options.database) : 'SQLite')
+      : options.type === 'postgres' ? 'PostgreSQL' : 'MySQL';
+    const releaseTurn = this.#previewTurns.tryEnter();
+    if (!releaseTurn) throw new PreviewStoreBusyError(label);
+    let releaseConnection: (() => void) | undefined;
+    try {
+      releaseConnection = this.#lease.tryEnter();
+      if (!releaseConnection) throw new PreviewStoreBusyError(label);
+      const runner = this.#source.createQueryRunner('master');
+      const held = await openTypeOrmSession(runner, label, sqlite,
+        work => this.#hidden.run(true, work),
+        isOpen => {
+          this.#held.set(runner, isOpen);
+          this.#refused.delete(runner);
+          this.#broken.delete(runner);
+          const restore = this.#guardCommit(runner);
+          return {
+            run: (_capture, dispatch) => this.#withManager(runner.manager, dispatch, runner),
+            refused: () => this.#refused.has(runner),
+            broken: () => this.#broken.has(runner),
+            restore: () => {
+              restore();
+              this.#held.delete(runner);
+              this.#refused.delete(runner);
+              this.#broken.delete(runner);
+            },
+          };
+        },
+        () => this.#lease.invalidate());
+      let closing: Promise<void> | undefined;
+      return { ...held, close: () => closing ??= held.close().finally(() => {
+        releaseConnection?.();
+        releaseTurn();
+      }) };
+    } catch (error) {
+      releaseConnection?.();
+      releaseTurn();
+      throw error;
+    }
+  }
+
   /** Roll back the preview transaction and every savepoint the handler left open inside it. */
   /**
    * Answers whether the transaction was never committed (see {@link #neverCommitted}). The savepoints the handler left
@@ -227,7 +278,7 @@ export class TypeOrmPreview implements PreviewProvider {
    */
   async #rollBack(runner: QueryRunner): Promise<boolean> {
     if (!runner.isTransactionActive) throw new Error('The TypeORM preview transaction completed early.');
-    const depth = () => (runner as unknown as { transactionDepth: number }).transactionDepth;
+    const depth = () => transactionState(runner).transactionDepth;
     try {
       while (runner.isTransactionActive && depth() > 1) await runner.rollbackTransaction();
       const contained = await this.#neverCommitted(runner);
@@ -249,15 +300,21 @@ export class TypeOrmPreview implements PreviewProvider {
     const methods: Method[] = ['startTransaction', 'commitTransaction', 'rollbackTransaction'];
     const owned = methods.map(name => [name, Object.hasOwn(runner, name) ? runner[name] : undefined] as const);
     const original = Object.fromEntries(methods.map(name => [name, runner[name]])) as Pick<QueryRunner, Method>;
-    const depth = () => (runner as unknown as { transactionDepth: number }).transactionDepth;
+    const depth = () => transactionState(runner).transactionDepth;
+    const active = () => {
+      const scope = this.#scopes.getStore();
+      return !this.#held.has(runner) || (scope?.open === true && scope.preview === runner);
+    };
     const refuse = () => {
       this.#refused.add(runner);
       return Promise.reject(new Error(previewOwnsMessage));
     };
-    runner.startTransaction = (...args) => this.#control.run(true, () => original.startTransaction.apply(runner, args));
+    const control = (operation: () => Promise<void>) =>
+      active() ? this.#control.run(true, operation) : Promise.reject(new Error(endedMessage));
+    runner.startTransaction = (...args) => control(() => original.startTransaction.apply(runner, args));
     // Rolling back the outermost level would end the Preview transaction, and later writes would then commit on their own.
-    runner.rollbackTransaction = () => depth() > 1 ? this.#control.run(true, () => original.rollbackTransaction.apply(runner)) : refuse();
-    runner.commitTransaction = () => depth() > 1 ? this.#control.run(true, () => original.commitTransaction.apply(runner)) : refuse();
+    runner.rollbackTransaction = () => depth() > 1 ? control(() => original.rollbackTransaction.apply(runner)) : refuse();
+    runner.commitTransaction = () => depth() > 1 ? control(() => original.commitTransaction.apply(runner)) : refuse();
     // Releasing would hand the connection, with the Preview transaction still open on it, back to the pool.
     const ownRelease = Object.hasOwn(runner, 'release') ? runner.release : undefined;
     runner.release = () => refuse();
@@ -295,12 +352,16 @@ export class TypeOrmPreview implements PreviewProvider {
    */
   #guardStatement(runner: QueryRunner, text: string): void {
     const scope = this.#scopes.getStore();
-    if (!scope?.preview || this.#control.getStore()) return;
+    const held = this.#held.get(runner);
+    if (held && (scope?.preview !== runner || !scope.open)) throw new Error(endedMessage);
+    if (!scope?.preview) return;
     if (!scope.open) throw new Error(endedMessage);
+    if (!held && this.#control.getStore()) return;
     const provider = this.#mysql ? 'mysql' : this.#source.options.type;
-    if (this.#broken.has(scope.preview)) {
+    if (this.#broken.has(scope.preview) || held?.() === false) {
       throw new Error('The database rolled the Preview transaction back after a deadlock or lock wait timeout, so no further statement runs in this Preview.');
     }
+    if (this.#control.getStore()) return;
     if (runner === scope.preview) {
       if (endsTransaction(text, provider, this.#safeProcedures)) {
         this.#refused.add(runner);

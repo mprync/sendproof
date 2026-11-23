@@ -5,8 +5,15 @@ from sendproof_core.marker import apply_marker
 
 from .orm import DjangoOrmPreview
 
-__all__ = ["AuthProvider", "DjangoOrmPreview", "Identity", "preview"]
+__all__ = ["AuthProvider", "DjangoOrmPreview", "Identity", "close_sessions", "preview"]
 __version__ = "0.1.0a1"
+
+
+def close_sessions() -> None:
+    """Roll back held Preview sessions during worker shutdown."""
+    from .conf import get_bench
+
+    get_bench().engine.sessions.close()
 
 
 def preview(view=True, *, methods=None, reason=None, stores=None):

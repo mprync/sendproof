@@ -58,7 +58,13 @@ public class ItemsController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ItemResponse> get(@PathVariable String id) {
+    @io.swagger.v3.oas.annotations.Operation(operationId = "getItem")
+    public ResponseEntity<ItemResponse> get(@PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean hold)
+            throws InterruptedException {
+        if (hold) {
+            Thread.sleep(1000);
+        }
         Item item = items.find(id);
         return item == null ? ResponseEntity.notFound().build()
                 : ResponseEntity.ok(new ItemResponse(item.getId(), item.getName()));

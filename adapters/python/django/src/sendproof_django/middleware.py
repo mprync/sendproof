@@ -17,7 +17,9 @@ from django.http import HttpRequest, HttpResponse
 from django.urls import Resolver404, get_script_prefix, get_urlconf, get_resolver, resolve
 
 from sendproof_core import limits, protocol
+from sendproof_core.marker import enter
 from sendproof_core.scope import install_logging_capture, request_context
+from sendproof_core.sessions import HEADER, HeldSession, SessionError, session_id
 from sendproof_core.sync_engine import Inner, ResponseTooLarge, is_application_response
 from sendproof_core.workbench import Response, problem_response
 
@@ -147,7 +149,12 @@ class SendproofMiddleware:
         the marked view and method checked earlier, nothing runs and the preview answers 409.
         """
         match, _ = self._match(request, request.path_info)
-        if match is None or match.func is not expected or (request.method or "") not in view_methods(match.func):
+        expected_view, read_step = expected
+        if match is None or match.func is not expected_view:
+            return _to_http(problem_response(409, "This operation is unavailable for preview."))
+        if read_step and request.method == "GET" and "GET" not in view_methods(match.func, unavailable=True):
+            enter()
+        elif read_step or (request.method or "") not in view_methods(match.func):
             return _to_http(problem_response(409, "This operation is unavailable for preview."))
         return self.get_response(request)
 
@@ -163,23 +170,35 @@ class SendproofMiddleware:
             operations=lambda: preview_operations(get_resolver(conf_module).url_patterns),
             unavailable=lambda: unavailable_operations(get_resolver(conf_module).url_patterns),
             default_openapi_url="/openapi.json", default_api_name="API",
+            read_body=lambda: request.read(4097),
         )
 
     # ------------------------------------------------------------------ preview
     def _preview(self, request: HttpRequest, bench: Any, path: str, started: float) -> Response:
         engine, headers, method = bench.engine, _Headers(request), request.method or "GET"
+        origin_ok = self._origin_ok(request, headers)
         rejection = engine.check_preview_request(
-            method=method, path=path, get_header=headers.getlist, origin_ok=self._origin_ok(request, headers)
+            method=method, path=path, get_header=headers.getlist, origin_ok=origin_ok,
         )
         if rejection is not None:
             return rejection
+        identity = self._identity(request, bench)
+        try:
+            with engine.use_session(session_id(headers.getlist(HEADER)), identity, self._path_base(), origin_ok) as held:
+                return self._dispatch_preview(request, bench, path, started, identity, held)
+        except SessionError as error:
+            return error.response
+
+    def _dispatch_preview(self, request: HttpRequest, bench: Any, path: str, started: float,
+                          identity: Any, held: HeldSession | None) -> Response:
+        engine, method = bench.engine, request.method or "GET"
         target = path[len(protocol.PREVIEW_PREFIX):]
         match, _ = self._match(request, target)
         if match is None:
             return problem_response(404, "The preview target was not found for this method.")
-        if method not in view_methods(match.func):
+        read_step = held is not None and method == "GET"
+        if method in view_methods(match.func, unavailable=True) or (not read_step and method not in view_methods(match.func)):
             return problem_response(409, "This operation is unavailable for preview.")
-        identity = self._identity(request, bench)
         if not self._authorized(request, bench, identity):
             return problem_response(403 if identity else 401, "This preview is forbidden.")
 
@@ -197,7 +216,7 @@ class SendproofMiddleware:
             inner.META.pop("HTTP_ACCEPT_ENCODING", None)
             inner.META["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
             inner.resolver_match = None
-            setattr(inner, PREVIEW_VIEW, match.func)
+            setattr(inner, PREVIEW_VIEW, (match.func, read_step))
             # response.close() is deliberately not called: it sends request_finished, whose
             # close_old_connections receiver would close the connection mid-transaction.
             response = _middleware_chain()(inner)
@@ -207,7 +226,7 @@ class SendproofMiddleware:
                 raise unhandled if isinstance(unhandled, BaseException) else RuntimeError("Unhandled application error.")
             return Inner(response.status_code, [(k, v) for k, v in response.items()], body)
 
-        return engine.preview(dispatch=dispatch, started=started, method=method, path=path)
+        return engine.preview(dispatch=dispatch, started=started, method=method, path=path, held=held)
 
     # ----------------------------------------------------------------- observed
     def _observed(self, request: HttpRequest, bench: Any, headers: "_Headers", started: float) -> Any:

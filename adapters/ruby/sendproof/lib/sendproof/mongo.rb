@@ -21,6 +21,7 @@ module Sendproof
   # the command is sent, any write during a Preview that doesn't carry the Preview's session and
   # transaction, so a rollback is never claimed for a write that escaped.
   module Mongo
+    autoload :HeldSession, "sendproof/mongo/held_session"
     autoload :Engine, "sendproof/mongo/engine"
     autoload :Guarded, "sendproof/mongo/guarded"
     autoload :Plain, "sendproof/mongo/plain"

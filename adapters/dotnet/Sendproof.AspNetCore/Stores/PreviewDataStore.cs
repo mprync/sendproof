@@ -32,6 +32,13 @@ public interface IPreviewDataStore
     /// confirmation.
     /// </summary>
     ValueTask FinishPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+    /// <summary>
+    /// Optionally captures the store's changes in an observed Send, where writes commit normally and nothing is rolled
+    /// back. Called before the handler runs; the returned observation is completed after it and disposed once the trace
+    /// is collected. Its changes join the SQL provider's in the trace. The default captures nothing.
+    /// </summary>
+    IPreviewObservation? BeginObservation(Microsoft.AspNetCore.Http.HttpContext context) => null;
 }
 
 /// <summary>

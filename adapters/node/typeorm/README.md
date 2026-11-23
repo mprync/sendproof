@@ -34,3 +34,7 @@ SQL capture wraps the application's logger and redacts positional bindings; ever
 ## Verification
 
 Drivers exercised: `better-sqlite3`, `pg` (PostgreSQL) and `mysql2` (MySQL). Other TypeORM drivers are untested; SQL Server is not supported by the fixture. The package tests live in `adapters/node/tests/typeorm.test.mjs`. They run nine checks per database against real SQLite, PostgreSQL and MySQL, a PostgreSQL failed-inspection regression, plus six SQLite or provider-wide checks, and a strict declaration check in `typeorm-types.test.mjs`. Set `BENCH_POSTGRES_URL` and `BENCH_MYSQL_URL` to run the server databases; each run creates and drops its own database. The conformance fixture, `examples/fixture-typeorm.mjs`, honours `BENCH_DATABASE` (`sqlite`, `postgresql`, `mysql`) and `BENCH_DATABASE_URL` and creates its own table.
+
+## Preview sessions
+
+Preview sessions hold a TypeORM query runner and its transaction across requests on `better-sqlite3`, PostgreSQL, MySQL and MariaDB. Keep routing each step through `run()`. On SQLite, ordinary calls to `run()` wait for the shared connection until the session ends. On MySQL and MariaDB, the session holds the provider's Preview turn. A rewind discards the writes of that step and later steps. Closing the session rolls back every step and releases the runner.

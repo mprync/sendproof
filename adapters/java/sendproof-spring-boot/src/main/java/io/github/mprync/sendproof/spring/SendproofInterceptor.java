@@ -4,6 +4,7 @@ import io.github.mprync.sendproof.core.CaptureContext;
 import io.github.mprync.sendproof.core.ObservedExecution;
 import io.github.mprync.sendproof.core.PreviewObservation;
 import io.github.mprync.sendproof.core.PreviewProvider;
+import io.github.mprync.sendproof.core.PreviewSessions;
 import io.github.mprync.sendproof.core.Protocol;
 import io.github.mprync.sendproof.core.TraceOwner;
 import io.github.mprync.sendproof.core.TraceStore;
@@ -28,15 +29,20 @@ final class SendproofInterceptor implements HandlerInterceptor {
     private final SendproofStores stores;
     private final WorkbenchAccess access;
     private final TraceOwnerResolver owners;
+    private final WorkbenchIdentityResolver identities;
     private final TraceStore traces;
+    private final PreviewSessions sessions;
 
     SendproofInterceptor(PreviewProviders providers, SendproofStores stores, WorkbenchAccess access,
-                         TraceOwnerResolver owners, TraceStore traces) {
+                         TraceOwnerResolver owners, WorkbenchIdentityResolver identities, TraceStore traces,
+                         PreviewSessions sessions) {
         this.providers = providers;
         this.stores = stores;
         this.access = access;
         this.owners = owners;
+        this.identities = identities;
         this.traces = traces;
+        this.sessions = sessions;
     }
 
     @Override
@@ -58,7 +64,8 @@ final class SendproofInterceptor implements HandlerInterceptor {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             return false;
         }
-        if (!PreviewEligibility.isMarked(method) || preview.execution.hasInvoked()
+        boolean sessionRead = preview.sessionId != null && "GET".equals(request.getMethod());
+        if (!PreviewEligibility.allows(method, sessionRead) || preview.execution.hasInvoked()
                 || request.getDispatcherType() != DispatcherType.REQUEST) {
             response.setStatus(HttpServletResponse.SC_CONFLICT);
             return false;
@@ -66,6 +73,13 @@ final class SendproofInterceptor implements HandlerInterceptor {
         if (!SendproofFilter.isSameOrigin(request) || !access.permits(request)) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return false;
+        }
+        if (preview.sessionId != null) {
+            try {
+                preview.execution.join(sessions, preview.sessionId, sessionOwner(owners, identities, request));
+            } catch (PreviewSessions.Refusal denied) {
+                return false;
+            }
         }
         // A Preview needs a SQL provider or at least one hooked data store, so a MongoDB-only or guard-only app can Preview.
         PreviewProvider provider = providers.get();
@@ -75,6 +89,16 @@ final class SendproofInterceptor implements HandlerInterceptor {
         }
         preview.execution.begin(provider, stores.all());
         return true;
+    }
+
+    static TraceOwner sessionOwner(TraceOwnerResolver owners, WorkbenchIdentityResolver identities,
+                                   HttpServletRequest request) {
+        var owner = owners.resolve(request);
+        var mount = WorkbenchController.mount(request);
+        if (owner != null && !mount.equals(owner.mount())) {
+            owner = new TraceOwner(owner.authenticationType(), owner.subject(), mount);
+        }
+        return PreviewSessions.owner(owner, request.getUserPrincipal() != null || identities.resolve(request) != null, mount);
     }
 
     private void beginObservation(ObservedState observed, HttpServletRequest request, HttpServletResponse response,

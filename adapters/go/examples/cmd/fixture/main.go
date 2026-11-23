@@ -5,7 +5,7 @@
 // It reads PORT, BENCH_PATH_BASE and BENCH_SCENARIO from the environment, and
 // selects its database with BENCH_DATABASE (sqlite, postgresql, mysql or
 // sqlserver) and BENCH_DATABASE_URL, a fresh empty database for server engines.
-// The SQLite file goes to BENCH_TMP_DIR when it is set.
+// The SQLite file uses BENCH_SQLITE_PATH or defaults to BENCH_TMP_DIR.
 package main
 
 import (
@@ -34,7 +34,8 @@ func run() error {
 		Framework: arg(1, "nethttp"), Store: arg(2, "sql"),
 		Scenario: env("BENCH_SCENARIO", "standard"), PathBase: os.Getenv("BENCH_PATH_BASE"),
 		Database: fixture.Database{
-			Engine: env("BENCH_DATABASE", "sqlite"), URL: os.Getenv("BENCH_DATABASE_URL"), Directory: os.Getenv("BENCH_TMP_DIR"),
+			SQLitePath: os.Getenv("BENCH_SQLITE_PATH"),
+			Engine:     env("BENCH_DATABASE", "sqlite"), URL: os.Getenv("BENCH_DATABASE_URL"), Directory: os.Getenv("BENCH_TMP_DIR"),
 		},
 	}
 	handler, cleanup, err := fixture.New(cfg)

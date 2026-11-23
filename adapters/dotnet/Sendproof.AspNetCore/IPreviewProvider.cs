@@ -44,6 +44,13 @@ public interface IPreviewSession : IAsyncDisposable
 /// <summary>Captures changes in an observed send without managing its transaction.</summary>
 public interface IPreviewObservation : IDisposable
 {
+    /// <summary>
+    /// Runs once after the handler finished and before <see cref="Changes"/> is read, for an observation that has to read
+    /// the store to see what the handler did (a MongoDB document's after image). Observed sends only; it isn't called for
+    /// a send that was aborted. A failure drops the observation's changes, never the send.
+    /// </summary>
+    ValueTask CompleteAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
     /// <summary>Gets serializable snapshots of captured changes, available until disposal.</summary>
     IReadOnlyList<PreviewChange> Changes { get; }
 

@@ -30,10 +30,11 @@ module Sendproof
       end
 
       # @return [Symbol, nil] +:eligible+, +:ineligible+, or nil when the router has no such endpoint
-      def resolve(method, path)
+      def resolve(method, path, session: false)
         params = ::Rails.application.routes.recognize_path(path, method: method)
         controller = controller_class(params[:controller])
         return :ineligible unless controller.respond_to?(:sendproof_preview?)
+        return :eligible if session && !controller.sendproof_unavailable(params[:action])
 
         controller.sendproof_preview?(params[:action]) ? :eligible : :ineligible
       rescue ::ActionController::RoutingError

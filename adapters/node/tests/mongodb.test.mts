@@ -9,7 +9,7 @@ import { ClientSession, MongoClient, UUID } from 'mongodb';
 // The engine itself, for the kill's own timing: the package exports only the stores.
 import { MongoEngine } from '../mongodb/dist/engine.js';
 import mongoose from 'mongoose';
-import { detached } from '@sendproof/core';
+import { Capture, createBench, detached, PreviewSessionEndedError, PreviewTransactionControlError, PreviewWriteBlockedError } from '@sendproof/core';
 import { mongooseStore, mongoStore, standaloneReason, unreachableReason } from '@sendproof/mongodb';
 import { assertBlocked, assertUnconfirmed, dbEntries, fresh, handle, needs, services, startApp } from './support/stores.mts';
 
@@ -28,6 +28,189 @@ async function database(t: test.TestContext) {
   const documents = (filter: Record<string, unknown> = {}) => reader.db(name).collection('documents').find(filter).toArray();
   return { name, reader, documents };
 }
+
+for (const shape of ['driver', 'Mongoose']) {
+  test(`${shape}: a held Preview rewinds inserts, updates and deletes without exposing them`, await needs('mongodb'), async t => {
+    const { name, documents } = await database(t);
+    let store;
+    let read: (id: string) => Promise<{ name?: string } | null>;
+    let insert: () => Promise<unknown>;
+    let update: () => Promise<unknown>;
+    let remove: () => Promise<unknown>;
+    if (shape === 'driver') {
+      const raw = new MongoClient(url(name));
+      t.after(() => raw.close());
+      store = mongoStore(raw);
+      const collection = store.client.db().collection<{ _id: string; name: string }>('documents');
+      read = id => collection.findOne({ _id: id });
+      insert = () => collection.insertMany([{ _id: 'draft', name: 'Draft' }]);
+      update = () => collection.updateOne({ _id: 'draft' }, { $set: { name: 'Revised' } });
+      remove = () => collection.deleteOne({ _id: 'draft' });
+    } else {
+      const instance = new mongoose.Mongoose();
+      await instance.connect(url(name), { monitorCommands: true });
+      t.after(() => instance.disconnect());
+      store = mongooseStore(instance);
+      const Doc = instance.model('Doc', new instance.Schema({ _id: String, name: String }, { collection: 'documents' }));
+      await Doc.init();
+      read = id => Doc.findById(id).lean().exec();
+      insert = () => Doc.create({ _id: 'draft', name: 'Draft' });
+      update = () => Doc.findOneAndUpdate({ _id: 'draft' }, { $set: { name: 'Revised' } }).exec();
+      remove = () => Doc.deleteOne({ _id: 'draft' }).exec();
+    }
+    const held = await store.openSession!();
+    try {
+      const step = async (number: number, dispatch: () => Promise<unknown>) => {
+        const capture = new Capture('preview');
+        await held.checkpoint(number);
+        await capture.run(() => held.run(capture, dispatch));
+        await held.verify(number);
+        return capture.finish().capture.changes;
+      };
+      assert.equal((await step(1, insert))[0]?.operation, 'insert');
+      const changed = (await step(2, update))[0];
+      assert.equal(changed?.operation, 'update');
+      assert.equal(changed?.before?.name, 'Draft');
+      assert.equal(changed?.after?.name, 'Revised');
+      assert.equal((await step(3, remove))[0]?.operation, 'delete');
+      assert.deepEqual(await documents({ _id: 'draft' }), []);
+      await held.rewind(3);
+      assert.deepEqual(await step(3, async () => assert.equal((await read('draft'))?.name, 'Revised')), []);
+      await held.rewind(2);
+      assert.deepEqual(await step(2, async () => assert.equal((await read('draft'))?.name, 'Draft')), []);
+      await held.rewind(1);
+      assert.deepEqual(await step(1, async () => assert.equal(await read('draft'), null)), []);
+      await step(2, insert);
+    } finally {
+      await held.close();
+    }
+    assert.deepEqual(await documents({ _id: 'draft' }), []);
+  });
+}
+
+test('driver: a held Preview fails safely when it cannot capture an undo image', await needs('mongodb'), async t => {
+  const { name, reader, documents } = await database(t);
+  const raw = new MongoClient(url(name));
+  t.after(() => raw.close());
+  const store = mongoStore(raw);
+  const large = store.client.db().collection('large');
+  await reader.db().collection('large').insertMany(Array.from({ length: 1_001 }, (_, n) => ({ n })));
+  const held = await store.openSession!();
+  try {
+    const capture = new Capture('preview');
+    await held.checkpoint(1);
+    await assert.rejects(capture.run(() => held.run(capture, () => large.updateMany({}, { $set: { marked: true } }))), PreviewWriteBlockedError);
+    assert.equal(capture.blocked?.store, 'mongodb');
+    await held.rewind(1);
+    await held.checkpoint(1);
+    const next = new Capture('preview');
+    await next.run(() => held.run(next, () => store.client.db().collection('documents').deleteOne({ _id: 'seeded' as never })));
+    await held.verify(1);
+    assert.equal((await documents()).length, 1);
+  } finally {
+    await held.close();
+  }
+  assert.equal(await reader.db().collection('large').countDocuments({ marked: true }), 0);
+});
+
+test('driver: a held Preview with incomplete after images cannot confirm or rewind', await needs('mongodb'), async t => {
+  const { name, documents } = await database(t);
+  const raw = new MongoClient(url(name));
+  t.after(() => raw.close());
+  const store = mongoStore(raw);
+  const target = store.client.db().collection('documents');
+  const held = await store.openSession!();
+  try {
+    const capture = new Capture('preview');
+    await held.checkpoint(1);
+    await assert.rejects(capture.run(() => held.run(capture, () => target.insertMany(
+      Array.from({ length: 1_000 }, (_, n) => ({ n })),
+    ))), PreviewTransactionControlError);
+    await assert.rejects(held.verify(1), PreviewTransactionControlError);
+    await assert.rejects(held.rewind(1), PreviewTransactionControlError);
+  } finally {
+    await held.close();
+  }
+  assert.equal((await documents()).length, 1);
+});
+
+test('driver: a standalone topology keeps the write guard and monitoring in a Preview session', await needs('mongodb'), async t => {
+  const { name, documents } = await database(t);
+  const raw = standalone(new MongoClient(url(name)));
+  t.after(() => raw.close());
+  const store = mongoStore(raw);
+  assert.equal((await store.describe()).mode, 'guard');
+  await assert.rejects(store.openSession!(), /doesn't support transactions/);
+  const target = store.client.db().collection('documents');
+  const bench = createBench({ environment: 'development', dataStores: [store] });
+  try {
+    const base = { origin: 'http://localhost', raw: null };
+    const opened = await bench.lookup({ ...base, method: 'POST', pathname: '/sendproof/_api/sessions', headers: {} });
+    assert(opened && 'body' in opened);
+    assert.equal(opened.status, 201);
+    const { id } = JSON.parse(opened.body.toString());
+    const request = {
+      ...base, method: 'GET', pathname: '/sendproof/_preview/documents',
+      headers: { 'sendproof-session': id, prefer: 'tx=rollback' },
+    };
+    const route = await bench.lookup(request);
+    assert(route && 'target' in route && route.session);
+    const response = { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{}') };
+
+    const read = await bench.preview(request, async () => {
+      assert.equal((await target.findOne({}))?.name, 'Seeded');
+      return response;
+    }, route.session);
+    assert.equal(read.status, 200);
+    const blocked = await bench.preview(request, async () => {
+      await assert.rejects(target.deleteOne({ _id: 'seeded' as never }), PreviewWriteBlockedError);
+      return response;
+    }, route.session);
+    assert.equal(blocked.status, 409);
+    assert.equal((await documents()).length, 1);
+
+    let ran = false;
+    raw.removeAllListeners('commandStarted');
+    const unmonitored = await bench.preview(request, async () => { ran = true; return response; }, route.session);
+    assert.equal(unmonitored.status, 500);
+    assert.equal(ran, false);
+  } finally {
+    await bench.close();
+  }
+});
+
+test('driver: a held Preview distinguishes server expiry from a caught command error', await needs('mongodb'), async t => {
+  const { name, reader } = await database(t);
+  const raw = new MongoClient(url(name));
+  t.after(() => raw.close());
+  const store = mongoStore(raw);
+  const target = store.client.db().collection('documents');
+  const expired = await store.openSession!();
+  try {
+    await expired.checkpoint(1);
+    const capture = new Capture('preview');
+    const id = await capture.run(() => expired.run(capture, async () => {
+      await target.findOne({});
+      return store.client.startSession().id;
+    }));
+    await reader.db('admin').command({ killSessions: [id] });
+    await assert.rejects(expired.verify(1), PreviewSessionEndedError);
+  } finally {
+    await expired.close();
+  }
+
+  const aborted = await store.openSession!();
+  try {
+    await aborted.checkpoint(1);
+    const capture = new Capture('preview');
+    await assert.rejects(capture.run(() => aborted.run(capture, async () => {
+      await assert.rejects(target.insertOne({ _id: 'seeded' as never }), /duplicate key/);
+    })), PreviewTransactionControlError);
+    await assert.rejects(aborted.rewind(1), PreviewTransactionControlError);
+  } finally {
+    await aborted.close();
+  }
+});
 
 async function driverApp(t: test.TestContext, hook = true) {
   const { name, reader, documents } = await database(t);

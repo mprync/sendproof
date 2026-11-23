@@ -4,14 +4,14 @@ import { Controller, Delete, ForbiddenException, Get, Module, Patch, Post,
   Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SendproofModule, SendproofPreview } from '@sendproof/nestjs';
-import { authProviders, createFixture } from './fixture-service.mjs';
+import { authProviders, createFixture, journeys } from './fixture-service.mjs';
 import { createStoreRoutes } from './fixture-stores.mjs';
 
 const scenario = process.env.BENCH_SCENARIO ?? 'standard';
 const basePath = process.env.BENCH_PATH_BASE ?? '';
 const port = Number(process.env.PORT ?? 5355);
 const spec = JSON.parse(await readFile(new URL('./fixture-openapi.json', import.meta.url)));
-const fixture = createFixture(':memory:', scenario);
+const fixture = createFixture(scenario);
 const { session, previewProvider, ordinary } = fixture;
 const storeRoutes = await createStoreRoutes({ operation: fixture.operation, reply: fixture.reply, insertItem: fixture.insert });
 const operations = [...fixture.operations, ...storeRoutes.operations];
@@ -32,7 +32,7 @@ class FixtureController {
 }
 Controller()(FixtureController);
 Get('/ready')(FixtureController.prototype, 'ready', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'ready'));
-Get('/api-json')(FixtureController.prototype, 'openApi', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'openApi'));
+Get(['/api-json', '/openapi.json'])(FixtureController.prototype, 'openApi', Object.getOwnPropertyDescriptor(FixtureController.prototype, 'openApi'));
 
 const verbs = { DELETE: Delete, GET: Get, PATCH: Patch, POST: Post };
 for (const [index, operation] of [...operations, ...storeRoutes.unavailable, ...ordinary].entries()) {
@@ -69,11 +69,12 @@ Module({
   imports: [SendproofModule.forRoot({
     apiName: 'Sendproof Conformance',
     environment: scenario === 'disabled' ? 'production' : 'development',
-    basePath, database: 'SQLite', authProviders, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
+    basePath, database: 'SQLite', openApiUrl: '/openapi.json', authProviders, journeys, previewProvider, traceTtlMs: 5000, dataStores: storeRoutes.dataStores,
     resolveIdentity: ({ headers }) => session(headers.cookie),
   })],
 })(FixtureModule);
 
 const app = await NestFactory.create(FixtureModule, { logger: ['error'] });
 if (basePath) app.setGlobalPrefix(basePath.slice(1));
+app.enableShutdownHooks(['SIGTERM']);
 await app.listen(port, '127.0.0.1');

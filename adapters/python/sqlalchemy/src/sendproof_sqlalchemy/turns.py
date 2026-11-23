@@ -28,7 +28,7 @@ _turns: weakref.WeakKeyDictionary[Any, threading.Lock] = weakref.WeakKeyDictiona
 _turns_guard = threading.Lock()
 
 
-def take_turn(engine: Any) -> Callable[[], None] | None:
+def take_turn(engine: Any, *, nowait: bool = False) -> Callable[[], None] | None:
     """Wait for ``engine``'s preview turn and answer the callable that hands it back.
 
     Answers ``None`` for dialects whose previews run at the same time. An async engine runs this inside
@@ -41,6 +41,12 @@ def take_turn(engine: Any) -> Callable[[], None] | None:
         lock = _turns.get(engine)
         if lock is None:
             lock = _turns[engine] = threading.Lock()
+    if nowait:
+        if not lock.acquire(blocking=False):
+            from sendproof_core.sessions import StoreBusy
+
+            raise StoreBusy(engine.dialect.name)
+        return lock.release
     if getattr(engine.dialect, "is_async", False):
         from sqlalchemy.util import await_only
 

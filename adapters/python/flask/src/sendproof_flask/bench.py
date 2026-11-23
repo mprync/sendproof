@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
 from flask import Flask, Request
@@ -12,7 +13,7 @@ from werkzeug.routing import Rule
 
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
-from sendproof_core.marker import apply_marker, is_previewable, marked_methods, unavailable_info
+from sendproof_core.marker import apply_marker, enter, is_previewable, marked_methods, unavailable_info
 from sendproof_core.scope import current_scope, install_logging_capture
 from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
 from sendproof_core.sync_engine import SyncBench
@@ -105,6 +106,9 @@ class Sendproof:
         trace_ttl: float = 300.0,
         clock: Callable[[], float] = time.monotonic,
         assets: UiAssets | None = None,
+        journey_files: Iterable[str | Path] = (),
+        session_idle_timeout: int = 300,
+        session_max_lifetime: int = 1800,
     ) -> None:
         self.app = app
         stores = validate_stores(data_stores)
@@ -117,6 +121,8 @@ class Sendproof:
             environments=tuple(environments), auth_providers=list(auth_providers), field_modules=list(field_modules),
             include_sql_parameter_values=include_sql_parameter_values, trace_ttl=trace_ttl, clock=clock, identity=identity,
             framework="Flask",
+            journey_files=tuple(journey_files), session_idle_timeout=session_idle_timeout,
+            session_max_lifetime=session_max_lifetime,
         )
         self.workbench = Workbench(self.options, provider, assets)
         self.engine = SyncBench(self.options, provider, self.workbench, authorize, stores)
@@ -131,6 +137,10 @@ class Sendproof:
     def enabled(self) -> bool:
         return self.options.enabled
 
+    def close(self) -> None:
+        """Roll back held Preview sessions during WSGI worker shutdown."""
+        self.engine.sessions.close()
+
     def _verify_preview_target(self) -> Any:
         """Last check of a re-dispatched preview, after every WSGI middleware has run.
 
@@ -144,8 +154,13 @@ class Sendproof:
         if expected is None or request.routing_exception is not None:
             return None
         view = self.app.view_functions.get(request.endpoint)
-        if view is expected and request.method in marked_methods(view):
-            return None
+        expected_view, read_step = expected
+        if view is expected_view:
+            if read_step and request.method == "GET" and unavailable_info(view) is None:
+                enter()
+                return None
+            if not read_step and request.method in marked_methods(view):
+                return None
         return self.app.response_class(
             '{"status":409,"title":"This operation is unavailable for preview."}',
             status=409, content_type="application/problem+json",

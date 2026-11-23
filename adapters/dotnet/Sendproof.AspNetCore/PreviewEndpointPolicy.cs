@@ -110,9 +110,13 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
     private static async Task ExecuteAsync(HttpContext context, Endpoint endpoint)
     {
         var preview = context.Features.Get<PreviewRequest>()!;
-        // An operation marked Enabled = false (preview: false) is treated like an unmarked one: the handler never runs.
-        if (endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>() is not { Enabled: true } || endpoint.RequestDelegate is not { } execute ||
-            preview.HasInvokedEndpoint || !preview.MatchesTarget(context.Request))
+        // An operation marked Enabled = false (preview: false) is treated like an unmarked one: the handler never runs. Inside a
+        // session an unmarked GET may run too, so a journey's read step sees the earlier steps' uncommitted rows; it runs in
+        // the session's transaction, so anything it writes rolls back with the session, and guard stores still block.
+        var mark = endpoint.Metadata.GetMetadata<SendproofPreviewAttribute>();
+        var eligible = mark is { Enabled: true } || mark is null && HttpMethods.IsGet(context.Request.Method) &&
+            context.Request.Headers.ContainsKey(PreviewProtocol.SessionHeader);
+        if (!eligible || endpoint.RequestDelegate is not { } execute || preview.HasInvokedEndpoint || !preview.MatchesTarget(context.Request))
         {
             context.Response.StatusCode = StatusCodes.Status409Conflict;
             return;
@@ -141,10 +145,46 @@ internal sealed class PreviewEndpointPolicy(SendproofOptions options) : MatcherP
             return;
         }
 
+        var recorder = context.RequestServices.GetRequiredService<SendproofPreview>();
+        // A Preview inside a session: resolved here, after authentication, so the caller's subject decides ownership.
+        if (context.Request.Headers.TryGetValue(PreviewProtocol.SessionHeader, out var sessionId))
+        {
+            var sessions = context.RequestServices.GetRequiredService<PreviewSessionStore>();
+            PreviewSession? held = null;
+            var refused = sessionId.Count != 1 ? SessionRefusal.NotFound : sessions.TryEnter(sessionId[0], SessionOwner.From(context), out held);
+            if (refused is not null)
+            {
+                preview.SessionRefused = refused;
+                return;
+            }
+
+            preview.HeldSession = held;
+            preview.Step = held!.NextStep;
+            recorder.InSession = true;
+        }
+
         preview.HasInvokedEndpoint = true;
         preview.Clock.StartHandler();
-        var recorder = context.RequestServices.GetRequiredService<SendproofPreview>();
-        if (provider is not null)
+        if (preview.HeldSession is { } session)
+        {
+            // Every held transaction joins this request and takes the savepoint before this step. The provider's own
+            // per-request transaction is never begun.
+            try
+            {
+                foreach (var part in session.Parts)
+                {
+                    await part.BeginStepAsync(context, recorder, preview.Step, context.RequestAborted);
+                }
+            }
+            catch (Exception error)
+            {
+                preview.StepBroken = error;
+                throw;
+            }
+
+            preview.StepBegun = true;
+        }
+        else if (provider is not null)
         {
             preview.Session = await provider.BeginAsync(context, context.RequestAborted) ??
                 throw new InvalidOperationException("The preview provider returned no session.");

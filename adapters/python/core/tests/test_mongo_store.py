@@ -870,6 +870,46 @@ async def test_async_clients_roll_back_and_report_changes(ahooked, reader):
     assert {e["db"]["operation"] for e in db_entries(scope, "mongodb")} >= {"insert", "update", "find"}
 
 
+async def test_held_mongo_rewind_restores_the_previous_step_images(ahooked, reader):
+    store, documents = ahooked
+    seed(reader, {"_id": "existing", "name": "Initial"})
+    held = await store.ahold()
+    try:
+        first = preview_scope()
+        with active(first):
+            await held.ainvoke(held.attach, first, 1)
+            try:
+                await documents.update_one({"_id": "existing"}, {"$set": {"name": "First"}})
+                await held.ainvoke(held.collect, first, 1)
+            finally:
+                await held.ainvoke(held.detach, first)
+        second = preview_scope()
+        with active(second):
+            await held.ainvoke(held.attach, second, 2)
+            try:
+                await documents.delete_one({"_id": "existing"})
+                await documents.insert_one({"_id": "other", "name": "Second"})
+                await held.ainvoke(held.collect, second, 2)
+            finally:
+                await held.ainvoke(held.detach, second)
+        assert {change.operation: change.before for change in second.store_changes} == {
+            "delete": {"_id": "existing", "name": "First"}, "insert": None,
+        }
+        assert reader["documents"].find_one({"_id": "existing"})["name"] == "Initial"
+        await held.ainvoke(held.rewind, 2)
+        read = preview_scope()
+        with active(read):
+            await held.ainvoke(held.attach, read, 2)
+            try:
+                assert await documents.find_one({"_id": "existing"}) == {"_id": "existing", "name": "First"}
+                assert await documents.find_one({"_id": "other"}) is None
+            finally:
+                await held.ainvoke(held.detach, read)
+    finally:
+        await held.ainvoke(held.close)
+    assert list(reader["documents"].find({})) == [{"_id": "existing", "name": "Initial"}]
+
+
 async def test_async_blocked_commands_session_calls_and_escapes(ahooked, reader, database):
     store, documents = ahooked
     raw = new_mongo()  # synchronous and unhooked, only for the escape

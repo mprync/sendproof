@@ -1,0 +1,38 @@
+{
+  "name": "@sendproof/cli",
+  "version": "0.1.0-alpha.1",
+  "description": "Sendproof command line: an MCP server that lets AI agents explore, Preview and Send any API with a Sendproof adapter",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "openapi",
+    "api-testing",
+    "sendproof"
+  ],
+  "type": "module",
+  "bin": {
+    "sendproof": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b && npm run pack-engine",
+    "pack-engine": "node ../../../tools/pack-journeys-engine.mjs --out dist/engine",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.14"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}

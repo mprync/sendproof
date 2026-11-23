@@ -58,12 +58,32 @@ The workbench is mounted at `/sendproof/`. It is **off unless `environment` is l
 `SENDPROOF_ENVIRONMENT` and otherwise assumes `Production`, so a deployed application is not
 exposed by installing the packages.
 
+## Preview sessions and journey files
+
+An enabled workbench advertises Preview sessions automatically when all its rollback providers
+can hold a transaction. The session keeps earlier steps' changes visible to later steps, including
+GET requests, and rolls everything back when ended. A worker allows four sessions per owner and
+sixteen in total. The defaults are five minutes idle and thirty minutes total. Set
+`session_idle_timeout` and `session_max_lifetime` in seconds to override them.
+
+Pass local Arazzo files to FastAPI or Flask as `journey_files=["journeys/store.arazzo.json"]`. In
+Django, set `SENDPROOF["JOURNEY_FILES"]` to the same list and configure timeouts with
+`SESSION_IDLE_TIMEOUT` and `SESSION_MAX_LIFETIME`. Keep `store.expect.json` next to the Arazzo file.
+Use application-relative source URLs such as `/openapi.json`. Sendproof adds the application's path
+base to local source URLs and publishes both files in workbench discovery.
+
+Keep workbench traffic on the same worker for the life of a session. FastAPI closes sessions on
+ASGI shutdown. If the workbench is mounted on a sub-application, await its `Sendproof.aclose()` from
+the parent lifespan. Flask and Django roll back sessions at process exit. You can call
+`Sendproof.close()` or `sendproof_django.close_sessions()` in a WSGI server's worker shutdown hook
+to release connections before other resources are torn down. See [store limits](data-stores.md#held-preview-sessions).
+
 ## Develop in this repository
 
 ```sh
 python3 adapters/python/scripts/prepare.py     # venv, editable installs, embeds the UI bundle (needs network)
 adapters/python/.venv/bin/python -m pytest adapters/python -q
-node tests/conformance/run.mjs python-fastapi             # shared protocol runner: python-fastapi | python-flask | python-django
+node tests/conformance/run.mjs python-fastapi             # any Python binding in tests/conformance/bindings.json
 python3 adapters/python/scripts/build.py       # wheels and sdists in adapters/python/dist
 ```
 

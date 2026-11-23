@@ -42,6 +42,7 @@ module Sendproof
       @auth_providers = []
       @providers = []
       @data_stores = []
+      @journeys = Journeys.new
       @preview_operations = []
       @preview_unavailable = []
       @trace_ttl = 300
@@ -53,6 +54,27 @@ module Sendproof
     def api_name = @api_name || "API"
     def environment = @environment.to_s
     def framework = @framework || "Rack"
+    attr_reader :journeys
+
+    # Registers a paired Arazzo and expectations file. Relative paths use the host's working directory.
+    def journey(path, name: nil)
+      journeys.register(path, name:)
+    end
+
+    def preview_sessions?(provider = preview_provider)
+      provider.respond_to?(:begin_held_preview) &&
+        (!provider.respond_to?(:holds_preview?) || provider.holds_preview?) &&
+        data_stores.all? { |store| store.describe[:mode].to_s == "guard" || store.respond_to?(:begin_held_preview) }
+    end
+
+    # A Rack application can let its router handle GETs absent from the static preview allowlist.
+    def resolve_session_get(path, env)
+      marks = unavailable_operations.filter_map { |entry| entry.values_at(:method, :path) if entry[:method] == "GET" }
+      OperationMatcher.new(marks).resolve("GET", path) ? :ineligible : :eligible
+    end
+
+    def session_job(&block) = block
+    def wait_for_session = yield
 
     # Replaces the environments in which the workbench and preview are served. Production is never implied.
     def environments=(list)

@@ -73,7 +73,9 @@ module Sendproof
         context = request.env[Sendproof::ENV_KEY]
         return super unless context
 
-        context.around_handler(request: request, eligible: self.class.sendproof_preview?(method_name)) { super }
+        eligible = self.class.sendproof_preview?(method_name) ||
+                   (context.respond_to?(:session_get?) && context.session_get? && !self.class.sendproof_unavailable(method_name))
+        context.around_handler(request: request, eligible:) { super }
       end
     end
   end

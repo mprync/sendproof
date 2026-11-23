@@ -4,14 +4,15 @@
 // Without ?v7 nothing here runs, so every v3 to v6 screen renders exactly as before.
 //
 // Scenes (?jv=…), all on the "Order to shipment" journey of the Acme Store API:
-//   overview  the Journeys tab in the sidebar, the journey's inputs and steps, its last runs
+//   spec      Specification mode: the operation screen as before, with the mode switch above it
+//   overview  Journeys mode: the journeys sidebar, the journey's inputs and steps, its last runs
 //   step      a Preview run at step 4 (Ship order): the rail, bound values, what it should write
 //             (mode=send: the same step in a Send run, with Preview and Send per step)
 //   result    step 4 after its Preview, compared with its expected writes
 //   summary   the finished run: every step, timings, the approved differences used
 //   refused   a Send run stopped at step 3 by an unexpected 409
 //   empty     an API that publishes no journeys
-//   loading   the Journeys tab and overview while the Arazzo document loads
+//   loading   the journeys sidebar and overview while the Arazzo document loads
 // Other parameters: theme=dark, text=130, lang=ar, mview=request|result and drawer=1 (phones).
 (function () {
   const TB = window.TB;
@@ -110,11 +111,18 @@
   };
   const lastIco = k => { const [i, tone, label] = LAST[k]; return `<span class="lr7 is-${tone}" title="${esc(label)}">${ico(i, 'i i-sm')}<span class="sr-only">${label}</span></span>`; };
 
-  /** The Journeys tab: groups like Operations, a step-count box, the last result at the end.
+  /** The journeys sidebar: groups like Operations, a step-count box, the last result at the end.
    *  The open journey unfolds into its steps during a run: that list is the progress rail. */
   function sidebar({ open = 'orderToShipment', run = null, empty = false, loading = false } = {}) {
-    const tabs = `<div class="tabs" role="tablist" aria-label="${TB.t('browse')}">
-      ${tab(TB.t('operations'), { keys: 'G O' })}${tab(TB.t('models'), { keys: 'G M' })}${tab(L('Journeys', 'الرحلات'), { selected: true, keys: 'G J' })}</div>`;
+    // Journeys is a mode (the switch in the top bar), so this sidebar has no tabs. Its head row
+    // keeps the tab row's height, so the shell's head line holds in both modes, and names the
+    // document the journeys come from.
+    const src = empty
+      ? `<span class="jh7-src is-none">${ico('braces', 'i i-sm')}<span>${L('No journeys defined', 'لا توجد رحلات معرَّفة')}</span></span>`
+      : loading
+        ? `<span class="jh7-src">${ico('file-code', 'i i-sm')}<span class="sk sk-line" style="inline-size:7.5rem"></span></span>`
+        : `<a href="#" class="jh7-src" title="${L('Built from the journey classes at startup · open the generated Arazzo 1.1 document', 'مبنية من أصناف الرحلات عند التشغيل · افتح مستند Arazzo 1.1 المولَّد')}">${ico('braces', 'i i-sm')}<span>${L('From code', 'من الشيفرة')}</span><code dir="ltr">StoreApi.Journeys</code></a>`;
+    const tabs = `${q.drawer ? `<div class="mode7-drawer">${modeSwitch('journeys')}</div>` : ''}<div class="jh7">${src}</div>`;
     const search = `<div class="sidebar-search"><label class="input-sm">${ico('filter', 'i i-sm')}<span class="sr-only">${L('Filter journeys', 'تصفية الرحلات')}</span><input placeholder="${L('Filter journeys', 'تصفية الرحلات')}" ${empty || loading ? 'disabled' : ''}>${kbd('/')}</label></div>`;
     let body;
     if (loading) {
@@ -122,7 +130,7 @@
       body = `<div class="nav" aria-busy="true" aria-label="${L('Loading journeys', 'جارٍ تحميل الرحلات')}">${[[3, [72, 58, 64]], [2, [66, 48]], [1, [78]], [2, [70, 60]]].map(([, ws]) => `<div class="nav-group"><span class="nav-heading j7-sk-h"><span class="sk sk-line" style="inline-size:46%"></span></span><ul>${ws.map(sk).join('')}</ul></div>`).join('')}</div>`;
     } else if (empty) {
       body = `<div class="nav">${state({ icon: 'route', compact: true, title: L('No journeys yet', 'لا توجد رحلات بعد'),
-        body: L('This API lists no Arazzo document, and its OpenAPI document has no links to infer one from.', 'لا تذكر هذه الواجهة مستند Arazzo، ولا يحتوي مستند OpenAPI على روابط يُستنتج منها.') })}</div>`;
+        body: L('This API defines no journeys, and its OpenAPI document has no links to infer one from.', 'لا تعرّف هذه الواجهة أي رحلات، ولا يحتوي مستند OpenAPI على روابط يُستنتج منها.') })}</div>`;
     } else {
       body = `<div class="nav">${GROUPS.map(([name, items, inferred], gi) => `<div class="nav-group${inferred ? ' j7-inferred' : ''}">
         <button class="nav-heading" aria-expanded="true" aria-controls="jgrp-${gi}">${ico('chevron-down', 'i i-sm')}<span lang="en">${inferred ? L('Inferred from links', 'مستنتجة من الروابط') : name}</span><span class="count">${num(items.length)}</span></button>
@@ -134,13 +142,20 @@
             <span class="trail">${lastIco(j.last)}</span></a>${rail}</li>`;
         }).join('')}</ul></div>`).join('')}</div>`;
     }
-    const foot = loading
-      ? `<span class="bar-text">${ico('route', 'i i-sm')}<span>${L('Loading journeys…', 'جارٍ تحميل الرحلات…')}</span></span>`
-      : empty
-        ? `<span class="bar-text">${ico('route', 'i i-sm')}<span>${L('0 journeys', '0 رحلات')}</span></span>`
-        : `<span class="bar-text" title="store.arazzo.json · Arazzo 1.1.0">${ico('route', 'i i-sm')}<span>${L(`${TOTAL} journeys`, `${num(TOTAL)} رحلات`)}</span></span>
-           <button class="btn btn-ghost btn-xs" aria-keyshortcuts="${aks('alt', 'mod', '[')}">${ico('chevrons-ud', 'i i-sm')}${TB.t('foot.collapseAll')}</button>`;
-    return `<nav class="sidebar j7-side${q.drawer ? ' is-drawer' : ''}" aria-label="${TB.t('browse')}">${tabs}${search}${body}<div class="pane-bar side-bar">${foot}</div></nav>${q.drawer ? '<div class="drawer-scrim" aria-hidden="true"></div>' : ''}`;
+    // Run all previews every journey, one after another: the workbench's version of the CI run.
+    const runAll = `<button class="btn btn-sm run7-btn" type="button" title="${L('Preview every journey · Send-only ones are skipped', 'عاين كل الرحلات · تُتخطّى رحلات الإرسال فقط')}" ${loading || empty ? 'disabled' : ''}>${ico('play', 'i i-sm i-dir')}${L('Run all', 'شغّل الكل')}</button>`;
+    const foot = loading || empty
+      ? runAll
+      : `${runAll}<button class="btn btn-ghost btn-xs" aria-keyshortcuts="${aks('alt', 'mod', '[')}">${ico('chevrons-ud', 'i i-sm')}${TB.t('foot.collapseAll')}</button>`;
+    return `<nav class="sidebar j7-side${q.drawer ? ' is-drawer' : ''}" aria-label="${TB.t('browse')}">${tabs}${search}${body}<div class="pane-bar side-bar j7-bar">${foot}</div></nav>${q.drawer ? '<div class="drawer-scrim" aria-hidden="true"></div>' : ''}`;
+  }
+
+  /** The mode switch: Specification (operations and models, from the OpenAPI document) or
+   *  Journeys (workflows, from the Arazzo document). Two modes, so both stay visible: one click,
+   *  and the current one is never hidden behind a menu. Each mode reopens where it was left. */
+  function modeSwitch(current) {
+    const item = (id, icon, label, keys) => `<a href="#" class="mode7-i"${id === current ? ' aria-current="page"' : ''} aria-keyshortcuts="${keys}" title="${label} · ${keys}">${ico(icon, 'i i-sm')}<span>${label}</span></a>`;
+    return `<nav class="mode7" aria-label="${L('Mode', 'الوضع')}">${item('spec', 'braces', L('Specification', 'المواصفة'), 'G S')}${item('journeys', 'route', L('Journeys', 'الرحلات'), 'G J')}</nav>`;
   }
 
   /** The progress rail: one row per step, a connector between nodes, the state in the node. */
@@ -193,7 +208,7 @@
   /* =====================================================================
      Expected writes (before a step runs) and the comparison (after)
      ===================================================================== */
-  // Step 4's expectations, from store.expect.json.
+  // Step 4's expectations, from ShipOrderWrites.cs (built into the expectations document).
   const EXPECT4 = [
     { store: 'sqlite', op: 'update', t: 'Orders', key: ['Id', fromStep(1, 'orderId')], f: [['Status', 'Paid → Shipped'], ['ShippedAt', L('any date-time', 'أي تاريخ ووقت')], ['ShippedBy', `${ltr('<span class="j6-s">"ada.admin@acme.dev"</span>')} <span class="faint">${L('the persona', 'الشخصية')}</span>`]] },
     { store: 'sqlite', op: 'insert', t: 'Shipments', f: [['OrderId', fromStep(1, 'orderId')], ['Carrier', '"DHL"'], ['ServiceLevel', fromInput('shippingMethod')], ['TrackingNumber', `${L('matches', 'يطابق')} ${ltr('<code>^JD\\d{12}$</code>')}`]] },
@@ -208,12 +223,12 @@
       ${e.f ? `<dl class="ex7-f">${e.f.map(([k, v]) => `<div><dt dir="ltr">${k}</dt><dd>${v.startsWith('"') ? ltr(`<span class="j6-s">${esc(v)}</span>`) : v}</dd></div>`).join('')}</dl>` : ''}</li>`;
     const grp = (id, db, items) => `<section class="sg6 ex7-g"><header class="sg6-head">${logo(id, 'lg-20')}<h3>${id === 'sqlite' ? 'SQLite' : 'MongoDB'}</h3><code dir="ltr">${db}</code><span class="spacer"></span><span class="sg6-count">${L(`${items.length} ${id === 'sqlite' ? 'rows' : 'documents'}`, `${num(items.length)} ${id === 'sqlite' ? 'صفوف' : 'مستندات'}`)}</span></header><ul class="ex7-list">${items.map(row).join('')}</ul></section>`;
     return `<div class="j7-intro"><h3>${L('What step 4 should do', 'ما يجب أن تفعله الخطوة 4')}</h3><p>${L('After the Preview, Sendproof compares what the step wrote with this list. A difference passes only when an approved-difference record covers it.', 'بعد المعاينة يقارن Sendproof ما كتبته الخطوة بهذه القائمة. لا يُقبل أي فرق إلا إذا غطّاه سجل فرق معتمد.')}</p></div>
-      <div class="crit7"><span class="crit7-l">${L('Succeeds when', 'تنجح عندما')}</span><code dir="ltr">$statusCode == 201</code><span class="crit7-src">Arazzo · successCriteria</span></div>
+      <div class="crit7"><span class="crit7-l">${L('Succeeds when', 'تنجح عندما')}</span><code dir="ltr">$statusCode == 201</code><span class="crit7-src">${ltr('<code>SucceedsWith(201)</code>')}</span></div>
       ${grp('sqlite', 'store-demo.db', EXPECT4.filter(e => e.store === 'sqlite'))}
       ${grp('mongodb', 'store', EXPECT4.filter(e => e.store === 'mongodb'))}
       <section class="sg6 ex7-g"><header class="sg6-head"><span class="lg-ico">${ico('mail', 'i i-sm')}</span><h3>${TB.t('res.effects')}</h3><span class="spacer"></span><span class="sg6-count">${L('1 email', '1 بريد')}</span></header>
         <ul class="ex7-list"><li class="ex7"><div class="ex7-head"><span class="op-badge">EMAIL</span><span class="ex7-key">${L('to', 'إلى')} ${fromInput('customerEmail')} · ${L('subject matches', 'الموضوع يطابق')} ${ltr('<code>shipped</code>')}</span></div></li></ul></section>
-      <p class="cov6 j7-foot">${ico('file-code', 'i i-sm')}<span>${L('From', 'من')} ${ltr('<code>store.expect.json</code>')}. ${L('Unlisted changes fail the step; ignored:', 'التغييرات غير المدرجة تُفشل الخطوة؛ المتجاهَل:')} ${ltr('<code>__EFMigrationsHistory</code>')}.</span></p>`;
+      <p class="cov6 j7-foot">${ico('file-code', 'i i-sm')}<span>${L('From', 'من')} ${ltr('<code>ShipOrderWrites.cs</code>')}. ${L('Unlisted changes fail the step; ignored:', 'التغييرات غير المدرجة تُفشل الخطوة؛ المتجاهَل:')} ${ltr('<code>__EFMigrationsHistory</code>')}.</span></p>`;
   }
 
   const FIND = {
@@ -262,8 +277,8 @@
     return `<article class="ad7${unused ? ' is-unused' : ''}" id="ad-${id}">
       <header class="ad7-head">${adChip(id)}<span class="ad7-what">${what}</span><span class="spacer"></span><span class="ad7-step">${L('Step', 'الخطوة')} ${num(a.step)}</span></header>
       <p class="ad7-reason" lang="en">${esc(a.reason)}</p>
-      <p class="ad7-meta">${L(`Approved by ${a.by} · ${a.on}`, `اعتمده ${a.by} · ${a.on}`)}<span class="sep" aria-hidden="true">·</span><span class="${a.left < 10 ? 'is-soon' : ''}">${L(`Expires ${a.exp}, in ${a.left} days`, `ينتهي ${a.exp}، بعد ${num(a.left)} يومًا`)}</span><span class="sep" aria-hidden="true">·</span><a href="#" dir="ltr">${a.link}</a></p>
-      ${unused ? `<p class="ad7-unused">${ico('info', 'i i-sm')}<span>${L('Nothing in this run needed it. If that holds, remove it from', 'لم يحتج إليه شيء في هذا التشغيل. إن استمر ذلك فاحذفه من')} ${ltr('<code>store.expect.json</code>')}.</span></p>` : ''}
+      <p class="ad7-meta"><span title="${a.on}">${L(`Approved by ${a.by}`, `اعتمده ${a.by}`)}</span><span class="sep" aria-hidden="true">·</span><span class="${a.left < 10 ? 'is-soon' : ''}" title="${a.exp}">${L(`Expires in ${a.left} days`, `ينتهي بعد ${num(a.left)} يومًا`)}</span><span class="sep" aria-hidden="true">·</span><a href="#" dir="ltr">${a.link}</a></p>
+      ${unused ? `<p class="ad7-unused">${ico('info', 'i i-sm')}<span>${L('Nothing in this run needed it. If that holds, remove it from', 'لم يحتج إليه شيء في هذا التشغيل. إن استمر ذلك فاحذفه من')} ${ltr('<code>StoreApprovedDifferences.cs</code>')}.</span></p>` : ''}
     </article>`;
   }
   const matched = () => {
@@ -308,7 +323,14 @@
   document.title = 'Sendproof · v7 journeys mock';
   // The phone's pane switch names what each side holds in a journey.
   const SW = { overview: [L('Journey', 'الرحلة'), L('Runs', 'التشغيلات')], summary: [L('Summary', 'الملخص'), L('Differences', 'الفروق')], empty: [L('Journeys', 'الرحلات'), L('Runs', 'التشغيلات')], loading: [L('Journey', 'الرحلة'), L('Runs', 'التشغيلات')] }[scene] || [L('Step', 'الخطوة'), L('Result', 'النتيجة')];
-  document.querySelectorAll('[data-switch]').forEach(b => { b.textContent = b.dataset.switch === 'request' ? SW[0] : SW[1]; });
+  if (scene !== 'spec') document.querySelectorAll('[data-switch]').forEach(b => { b.textContent = b.dataset.switch === 'request' ? SW[0] : SW[1]; });
+  // The mode switch sits in the top bar after the environment, on every v7 screen. jv=spec shows
+  // Specification mode: the operation screen exactly as before, with the switch above it.
+  document.querySelector('.topbar .env')?.insertAdjacentHTML('afterend', `<span class="mode7-wrap desktop-only">${modeSwitch(scene === 'spec' ? 'spec' : 'journeys')}</span>`);
+  if (scene === 'spec') {
+    if (q.drawer) side?.insertAdjacentHTML('afterbegin', `<div class="mode7-drawer">${modeSwitch('spec')}</div>`);
+    return;
+  }
   if (!main || !aside || !side) return;
 
   const runFor = { step: RUNS.preview, result: RUNS.result, summary: RUNS.summary, refused: RUNS.refused }[scene] || null;
@@ -353,18 +375,18 @@
       <div class="pane-scroll"><div class="op-head j7-head">
         <div class="op-title-row"><h1 class="op-title" lang="en">Order to shipment</h1></div>
         <p class="op-desc" lang="en">Places an order for a customer, finds its payment, captures it, ships the parcel and checks that the order reads Shipped.</p>
-        <div class="op-meta"><span class="pill">${ico('route', 'i i-sm')}${L('5 steps', '5 خطوات')}</span><span class="pill">${ico('shield', 'i i-sm')}<span class="ltr">admin or support</span></span><span class="pill j7-stores">${logo('sqlite', 'lg-14')}SQLite${logo('mongodb', 'lg-14')}MongoDB</span><span class="pill" title="Arazzo 1.1.0">${ico('file-code', 'i i-sm')}${ltr('store.arazzo.json')}</span></div>
+        <div class="op-meta"><span class="pill">${ico('shield', 'i i-sm')}<span class="ltr">admin or support</span></span><span class="pill j7-stores">${logo('sqlite', 'lg-14')}SQLite${logo('mongodb', 'lg-14')}MongoDB</span><a href="#" class="pill j7-src-pill" title="${L('Defined in Journeys/OrderToShipmentJourney.cs', 'معرَّفة في Journeys/OrderToShipmentJourney.cs')}">${ico('braces', 'i i-sm')}${ltr('OrderToShipmentJourney')}</a></div>
       </div>
       <div class="form j7-body">
-        ${sectionLabel(L('Steps', 'الخطوات'), `<span class="j7-sl-end">${ico('user', 'i i-sm')}${L('as Ada Admin', 'باسم Ada Admin')}</span>`)}
+        ${sectionLabel(L('Steps', 'الخطوات'))}
         ${stepsList()}
-        ${sectionLabel(L('Inputs', 'المدخلات'), `<span class="j7-sl-end">${L('From the workflow’s inputs schema', 'من مخطط مدخلات سير العمل')}</span>`)}
+        ${sectionLabel(L('Inputs', 'المدخلات'), `<span class="j7-sl-end">${L('From', 'من')} ${ltr('<code>OrderToShipmentInputs</code>')}</span>`)}
         ${inputsForm()}
         ${sectionLabel(L('Ends with', 'تنتهي بـ'))}
         <div class="j7-ends"><p>${L('Step 5 reads the order back and expects', 'تقرأ الخطوة 5 الطلب وتتوقّع')} <code dir="ltr">$response.body#/status == "Shipped"</code>.</p>
           <dl class="j7-outs"><div><dt>${L('Outputs', 'المخرجات')}</dt><dd>${['orderId', 'orderNumber', 'shipmentId', 'trackingNumber'].map(o => `<code dir="ltr">${o}</code>`).join('')}</dd></div></dl></div>
       </div></div>
-      <div class="actionbar"><span class="status">${ico('undo', 'i i-sm i-dir')}<span>${L('Preview rolls back · Send commits', 'المعاينة تتراجع · الإرسال يحفظ')}</span></span>
+      <div class="actionbar"><span class="status">${ico('undo', 'i i-sm i-dir')}<span>${L('Preview rolls back', 'المعاينة تتراجع')}</span></span>
         <button class="btn btn-run btn-send" type="button" aria-keyshortcuts="${aks('shift', 'mod', 'enter')}">${ico('send', 'i i-sm i-dir')}${L('Send run', 'تشغيل بالإرسال')}${kbd('shift', 'mod', 'enter')}</button>
         <button class="btn btn-primary btn-run btn-preview" type="button" aria-keyshortcuts="${aks('mod', 'enter')}">${ico('play', 'i i-sm i-dir')}${L('Preview run', 'تشغيل بالمعاينة')}${kbd('mod', 'enter')}</button></div>`;
   }
@@ -410,8 +432,8 @@
     const status = after
       ? `<span class="status is-bad7">${ico('circle-x', 'i i-sm')}<span>${L('Step 4 failed', 'فشلت الخطوة 4')}</span></span>`
       : mode === 'send'
-        ? `<span class="status">${ico('db', 'i i-sm')}<span>${L('Preview first if you like; Send commits this step', 'عاين أولًا إن شئت؛ الإرسال يحفظ هذه الخطوة')}</span></span>`
-        : `<span class="status">${ico('bind', 'i i-sm i-dir')}<span>${L('Filled from earlier steps', 'مملوءة من الخطوات السابقة')}</span></span>`;
+        ? `<span class="status">${ico('db', 'i i-sm')}<span>${L('Commits for real', 'يحفظ فعليًا')}</span></span>`
+        : `<span class="status">${ico('bind', 'i i-sm i-dir')}<span>${L('From earlier steps', 'من الخطوات السابقة')}</span></span>`;
     const buttons = mode === 'send'
       ? `<button class="btn btn-run btn-send" type="button" aria-keyshortcuts="${aks('mod', 'enter')}">${ico('flask', 'i i-sm')}${L('Preview step 4', 'عاين الخطوة 4')}${kbd('mod', 'enter')}</button>
          <button class="btn btn-primary btn-run" type="button" aria-keyshortcuts="${aks('shift', 'mod', 'enter')}">${ico('send', 'i i-sm i-dir')}${L('Send step 4', 'أرسل الخطوة 4')}${kbd('shift', 'mod', 'enter')}</button>`
@@ -441,47 +463,64 @@
   /* ---------- Run summary ---------- */
   function summaryMain() {
     const r = RUNS.summary;
-    // Findings as counts; the one line under the step says what happened in words.
-    const ok = n => `<span class="fd7 is-ok" title="${L('Match', 'مطابق')}">${ico('check', 'i i-sm')}${num(n)}</span>`;
-    const ad = n => `<span class="fd7 is-ad" title="${L('Approved', 'معتمد')}">${ico('badge-check', 'i i-sm')}${num(n)}</span>`;
-    const bad = n => `<span class="fd7 is-bad" title="${L('Problems', 'المشكلات')}">${ico('circle-x', 'i i-sm')}${num(n)}</span>`;
-    const FINDS = [
-      [ok(5) + ad(1), L('AuditEvents row allowed by AD-0007', 'صف AuditEvents مسموح بموجب AD-0007')],
-      [`<span class="fd7 is-muted">${ico('eye', 'i i-sm')}${L('Reads', 'قراءة')}</span>`, L('Found 1 payment', 'وُجدت دفعة واحدة')],
-      [ok(3), ''],
-      [bad(2) + ad(1) + ok(5), L('ServiceLevel differs · reservation not deleted', 'ServiceLevel مختلف · لم يُحذف الحجز')],
-      [ok(1), L('Order reads Shipped', 'الطلب بحالة Shipped')],
-    ];
-    const VERD = { done: ['circle-check', 'ok', L('Passed', 'نجحت')], fail: ['circle-x', 'danger', L('Failed', 'فشلت')] };
+    // One row per step, one line each: the step, its findings as counts, where it sat in the
+    // run's 412 ms, and its time. The failed step opens in place to say what went wrong.
+    const RUN_MS = 412;
+    const AT = [38, 110, 136, 215, 338]; // each step's start, in ms from the run's start
+    const ok = n => `<span class="fd7 is-ok" title="${L(`${n} matched`, `${num(n)} مطابقة`)}">${ico('check', 'i i-sm')}${num(n)}</span>`;
+    const ad = n => `<span class="fd7 is-ad" title="${L(`${n} covered by an approved difference`, `${num(n)} يغطيه فرق معتمد`)}">${ico('badge-check', 'i i-sm')}${num(n)}</span>`;
+    const bad = n => `<span class="fd7 is-bad" title="${L(`${n} problems`, `${num(n)} مشكلات`)}">${ico('circle-x', 'i i-sm')}${num(n)}</span>`;
+    const CHIPS = [ok(5) + ad(1), `<span class="fd7 is-muted" title="${L('Reads only: nothing to compare', 'قراءة فقط: لا شيء للمقارنة')}">${ico('eye', 'i i-sm')}${L('Reads', 'قراءة')}</span>`, ok(3), bad(2) + ad(1) + ok(5), ok(1)];
+    const detail = `<div class="sm8-detail" id="sm8-d4">
+        <ul>
+          <li>${fTag('differs')}<code dir="ltr">Shipments.ServiceLevel</code><span class="sm8-dv">${ltr(`${v('Express')}<span class="sm8-arr" aria-hidden="true">→</span>${v('Standard')}`)}</span></li>
+          <li>${fTag('missing')}<code dir="ltr">StockReservations</code><span class="sm8-dv">${L('Row not deleted', 'لم يُحذف الصف')}</span></li>
+          <li>${fTag('approved')}<code dir="ltr">Shipments.Carrier</code><span class="sm8-dv">${ltr(`${v('DHL')}<span class="sm8-arr" aria-hidden="true">→</span>${v('DHL Express')}<span class="sm8-by">AD-0011</span>`)}</span></li>
+        </ul>
+        <a href="#" class="btn btn-sm sm8-open">${L('Open step 4', 'افتح الخطوة 4')}${ico('arrow-right', 'i i-sm i-dir')}</a>
+      </div>`;
     const rows = STEPS.map((st, i) => {
       const [k, sub] = r[i];
-      const [icon, tone, label] = VERD[k];
-      return `<li class="sm7-row${k === 'fail' ? ' is-fail' : ''}">
-        <span class="sm7-n">${num(st.n)}</span>
-        <span class="sm7-step"><span class="sm7-l1">${METHOD(st.method)}<a href="#" lang="en">${st.op}</a></span>${FINDS[i][1] ? `<span class="sm7-d">${FINDS[i][1]}</span>` : ''}</span>
-        <span class="sm7-v is-${tone}">${ico(icon, 'i i-sm')}${label}</span>
-        <span class="sm7-chips">${FINDS[i][0]}</span>
-        <span class="sm7-t">${ltr(sub.split(' · ')[1])}</span>
-      </li>`;
+      const fail = k === 'fail';
+      const ms = +sub.split(' · ')[1].replace(' ms', '');
+      return `<li class="${fail ? 'is-fail' : ''}"><a href="#" class="sm8-row is-${k}"${fail ? ' aria-expanded="true" aria-controls="sm8-d4"' : ''}>
+        <span class="sm8-node" aria-hidden="true">${num(st.n)}</span>
+        <span class="sm8-op">${METHOD(st.method)}<span class="sm8-name" lang="en">${st.op}</span><span class="sr-only">, ${L(`step ${st.n}`, `الخطوة ${st.n}`)}, ${fail ? L('failed', 'فشلت') : L('passed', 'نجحت')}</span></span>
+        <span class="sm8-chips">${CHIPS[i]}</span>
+        <span class="sm8-wf" aria-hidden="true" title="${L(`Started at ${AT[i]} ms`, `بدأت عند ${AT[i]} مللي ثانية`)}"><span style="inset-inline-start:${(AT[i] / RUN_MS * 100).toFixed(2)}%;inline-size:${(ms / RUN_MS * 100).toFixed(2)}%"></span></span>
+        <span class="sm8-t">${ltr(`${ms} ms`)}</span>
+        ${ico(fail ? 'chevron-down' : 'chevron-right', `i i-sm sm8-chev${fail ? '' : ' i-dir'}`)}
+      </a>${fail ? detail : ''}</li>`;
     }).join('');
+    const list = (rows) => `<ul class="sm8-list">${rows.map(([mark, name, what, state]) => `<li>${mark}<span class="sm8-ln">${name}</span><span class="sm8-lw">${what}</span><span class="sm8-tag">${state}</span></li>`).join('')}</ul>`;
+    const out = (k, val) => `<li><code class="sm8-ok" dir="ltr">${k}</code><code class="sm8-ov" dir="ltr">${val}</code>${copyBtn(L(`Copy ${k}`, `انسخ ${k}`), { size: 'btn-xs' })}</li>`;
     return `${ctx([['Order to shipment'], [L(`Run ${RUN}`, `التشغيل ${RUN}`), true, false]], `<button class="btn btn-ghost btn-xs back-btn">${ico('arrow-left', 'i i-sm i-dir')}<span class="back-label">${L('Back to the journey', 'عودة إلى الرحلة')}</span></button>`)}
-      <div class="pane-scroll"><div class="op-head j7-head sm7-head">
-        <div class="sm7-verdict is-fail"><span class="vd7-ico">${ico('circle-x')}</span><div><h1 class="op-title">${L('Failed at step 4 of 5', 'فشل في الخطوة 4 من 5')}</h1>
-          <p class="op-desc">${L('Step 4 shipped at the wrong service level and kept the stock reservation. Write differences don’t stop a run, so step 5 ran too.', 'شحنت الخطوة 4 بمستوى خدمة خاطئ وأبقت حجز المخزون. فروق الكتابة لا توقف التشغيل، لذا شُغّلت الخطوة 5 أيضًا.')}</p></div></div>
-        <div class="op-meta"><span class="pill pill-accent">${ico('flask', 'i i-sm')}${L('Preview run', 'تشغيل بالمعاينة')}</span><span class="j7-meta">${ico('user', 'i i-sm')}<span>Ada Admin · ${L('today, 14:02:07', 'اليوم، 14:02:07')} · ${ltr('412 ms')} · ${L('rolled back, nothing was written', 'تم التراجع، لم يُكتب شيء')}</span></span></div>
+      <div class="pane-scroll"><div class="op-head sm8-head">
+        <h1 class="op-title sm8-h">${ico('circle-x', 'i')}<span>${L('Failed at step 4 of 5', 'فشل في الخطوة 4 من 5')}</span></h1>
+        <p class="op-desc">${L('Ship order used the wrong service level and kept the stock reservation.', 'استخدمت Ship order مستوى خدمة خاطئًا وأبقت حجز المخزون.')}</p>
+        <p class="by8"><span class="by8-in">
+          <span class="by8-i"><span class="av8" aria-hidden="true">AA</span><strong lang="en">Ada Admin</strong>${L('ran a', 'شغّلت')}<strong class="by8-mode">${ico('flask', 'i i-sm')}${L('Preview', 'معاينة')}</strong></span>
+          <span class="by8-i"><time datetime="2026-11-22T14:02:07" title="22 Nov 2026, 14:02:07">${L('today at 14:02', 'اليوم الساعة 14:02')}</time></span>
+          <span class="by8-i"><span class="by8-dur" title="${L('Whole run, 5 steps. The last run took 398 ms.', 'التشغيل كله، 5 خطوات. استغرق التشغيل السابق 398 مللي ثانية.')}">${ico('clock', 'i i-sm')}${ltr('412 ms')}</span></span>
+          <span class="by8-i">${ico('undo', 'i i-sm i-dir')}${L('rolled back', 'تم التراجع')}</span>
+        </span></p>
       </div>
-      <div class="form j7-body">
-        <div class="sm7-stats"><div><strong>${num(4)}</strong><span>${L('passed', 'نجحت')}</span></div><div class="is-bad"><strong>${num(1)}</strong><span>${L('failed', 'فشلت')}</span></div><div><strong>${num(0)}</strong><span>${L('not run', 'لم تُشغَّل')}</span></div><div class="is-ad"><strong>${num(2)}</strong><span>${L('approved differences used', 'فروق معتمدة مستخدمة')}</span></div></div>
-        ${sectionLabel(L('Steps', 'الخطوات'))}
-        <ol class="sm7" aria-label="${L('Steps', 'الخطوات')}"><li class="sm7-row is-th" aria-hidden="true"><span></span><span>${L('Step', 'الخطوة')}</span><span>${L('Result', 'النتيجة')}</span><span>${L('Findings', 'النتائج')}</span><span>${L('Time', 'الوقت')}</span></li>${rows}</ol>
-        ${sectionLabel(L('Session', 'الجلسة'))}
-        <ul class="sm7-sess"><li>${logo('sqlite', 'lg-16')}<span>SQLite ${ltr('<code>store-demo.db</code>')}</span><span class="st">${ico('undo', 'i i-sm i-dir')}${L('Rolled back', 'تم التراجع')}</span></li><li>${logo('mongodb', 'lg-16')}<span>MongoDB ${ltr('<code>store</code>')}</span><span class="st">${ico('undo', 'i i-sm i-dir')}${L('Transaction aborted', 'أُلغيت المعاملة')}</span></li><li><span class="lg-ico">${ico('mail', 'i i-sm')}</span><span>${L('3 emails', '3 رسائل')}</span><span class="st">${L('Held, then discarded', 'حُجزت ثم أُهملت')}</span></li></ul>
-        ${sectionLabel(L('Outputs', 'المخرجات'))}
-        <dl class="kv j7-kv"><div class="k">orderNumber</div><div class="v" dir="ltr">${ORDER.number}</div><div class="k">orderId</div><div class="v" dir="ltr">${ORDER.id}</div><div class="k">shipmentId</div><div class="v" dir="ltr">${SHIP.id}</div><div class="k">trackingNumber</div><div class="v" dir="ltr">${SHIP.tracking}</div></dl>
+      <div class="form j7-body sm8-body">
+        ${sectionLabel(L('Steps', 'الخطوات'), `<span class="j7-sl-end">${L('4 passed · 1 failed', '4 نجحت · 1 فشلت')}</span>`)}
+        <ol class="sm8" aria-label="${L('Steps', 'الخطوات')}">${rows}</ol>
+        <p class="sm8-note">${ico('info', 'i i-sm')}<span>${L('Write differences don’t stop a run, so step 5 still ran.', 'فروق الكتابة لا توقف التشغيل، لذا شُغّلت الخطوة 5.')}</span></p>
+        ${sectionLabel(L('Rolled back', 'تم التراجع'), `<span class="j7-sl-end">${L('Nothing was written', 'لم يُكتب شيء')}</span>`)}
+        ${list([
+          [logo('sqlite', 'lg-16'), `SQLite ${ltr('<code>store-demo.db</code>')}`, L('11 changes undone', 'تراجع عن 11 تغييرًا'), `${ico('undo', 'i i-sm i-dir')}${L('Rolled back', 'تم التراجع')}`],
+          [logo('mongodb', 'lg-16'), `MongoDB ${ltr('<code>store</code>')}`, L('2 changes undone', 'تراجع عن تغييرين'), `${ico('undo', 'i i-sm i-dir')}${L('Aborted', 'أُلغيت')}`],
+          [`<span class="lg-ico">${ico('mail', 'i i-sm')}</span>`, L('Email', 'البريد'), L('3 held, none sent', '3 محجوزة، لم يُرسل شيء'), `${ico('x', 'i i-sm')}${L('Discarded', 'أُهملت')}`],
+        ])}
+        ${sectionLabel(L('Outputs', 'المخرجات'), `<span class="j7-sl-end">${L('From the rolled-back run', 'من التشغيل المتراجَع عنه')}</span>`)}
+        <ul class="sm8-list sm8-outs">${out('orderNumber', ORDER.number)}${out('orderId', ORDER.id)}${out('shipmentId', SHIP.id)}${out('trackingNumber', SHIP.tracking)}</ul>
       </div></div>
-      <div class="actionbar"><span class="status">${ico('circle-x', 'i i-sm')}<span>${L('Run finished · 1 step failed', 'انتهى التشغيل · فشلت خطوة واحدة')}</span></span>
-        <button class="btn btn-run btn-send" type="button">${ico('send', 'i i-sm i-dir')}${L('Send run', 'تشغيل بالإرسال')}${kbd('shift', 'mod', 'enter')}</button>
-        <button class="btn btn-primary btn-run btn-preview" type="button">${ico('refresh', 'i i-sm')}${L('Preview again', 'عاين مجددًا')}${kbd('mod', 'enter')}</button></div>`;
+      <div class="actionbar"><span class="status is-bad7">${ico('circle-x', 'i i-sm')}<span>${L('1 step failed', 'فشلت خطوة واحدة')}</span></span>
+        <button class="btn btn-run btn-send" type="button" aria-keyshortcuts="${aks('shift', 'mod', 'enter')}">${ico('send', 'i i-sm i-dir')}${L('Send run', 'تشغيل بالإرسال')}${kbd('shift', 'mod', 'enter')}</button>
+        <button class="btn btn-primary btn-run btn-preview" type="button" aria-keyshortcuts="${aks('mod', 'enter')}">${ico('refresh', 'i i-sm')}${L('Preview again', 'عاين مجددًا')}${kbd('mod', 'enter')}</button></div>`;
   }
   function summaryAside() {
     return `<div class="resp-head j7-rh"><strong class="j7-rh-t">${L(`Run ${RUN}`, `التشغيل ${RUN}`)}</strong><span class="status-code danger">${ico('circle-x', 'i i-sm')}${L('Failed', 'فشل')}</span><span class="spacer"></span>${copyBtn(L('Copy run as JSON', 'انسخ التشغيل بصيغة JSON'))}<button class="btn btn-sm" type="button">${ico('download', 'i i-sm')}JUnit XML</button></div>
@@ -544,15 +583,33 @@
 
   /* ---------- Empty and loading ---------- */
   function emptyMain() {
-    const caps = `<span class="j6-p">"journeys"</span><span class="j6-p">: [{</span>\n  <span class="j6-k">"name"</span><span class="j6-p">: </span><span class="j6-s">"Store journeys"</span><span class="j6-p">,</span>\n  <span class="j6-k">"arazzoUrl"</span><span class="j6-p">: </span><span class="j6-s">"/sendproof/journeys/store.arazzo.json"</span><span class="j6-p">,</span>\n  <span class="j6-k">"expectationsUrl"</span><span class="j6-p">: </span><span class="j6-s">"/sendproof/journeys/store.expect.json"</span>\n<span class="j6-p">}]</span>`;
+    // The steps to a first journey, in code. Small C# snippets, highlighted by hand like the JSON ones.
+    const k = t => `<span class="j6-k">${t}</span>`, str = t => `<span class="j6-s">${t}</span>`, p = t => `<span class="j6-p">${t}</span>`;
+    const cls = `${k('public sealed class')} OrderToShipmentJourney
+    ${p(':')} Journey${p('&lt;')}OrderToShipmentInputs${p('&gt;')}
+${p('{')}
+    ${k('protected override void')} Define(
+        JourneyBuilder${p('&lt;')}OrderToShipmentInputs${p('&gt;')} journey)
+    ${p('{')}
+        ${k('var')} place ${p('=')} journey.Step(${str('"placeOrder"')},
+            StoreOperations.Orders.Place);
+        place.Set(r ${p('=&gt;')} r.Body.CustomerId,
+            journey.Input(i ${p('=&gt;')} i.CustomerId));
+        Ref${p('&lt;')}Guid${p('&gt;')} orderId ${p('=')} place.Output(o ${p('=&gt;')} o.Id);
+        ${p('…')}
+    ${p('}')}
+${p('}')}`;
+    const reg = `sendproof.AddJourneys(${k('typeof')}(StoreApplication).Assembly);`;
+    const test = `${k('public sealed class')} JourneyTests ${p(':')} JourneyTestSuite${p('&lt;')}StoreApplication${p('&gt;')} ${p('{ }')}`;
+    const code = (src) => `<div class="blk6-code" dir="ltr"><pre lang="en">${src}</pre>${copyBtn('Copy', { size: 'btn-xs' })}</div>`;
     return `${ctx([[L('Journeys', 'الرحلات'), true, false]])}
       <div class="pane-scroll"><div class="j7-empty">${state({ icon: 'route', title: L('No journeys for this API yet', 'لا توجد رحلات لهذه الواجهة بعد'), heading: 'h1',
-        body: L('A journey is a set of steps that finish a task, such as taking an order through to shipment. Sendproof runs each step on its own screen and checks what it wrote. It reads journeys from an Arazzo document the API lists in its capabilities, and infers short ones from <code>links</code> in the OpenAPI document. Acme Store API has neither yet.', 'الرحلة مجموعة خطوات تُنجز مهمة، مثل إيصال طلب حتى الشحن. يشغّل Sendproof كل خطوة على شاشتها ويتحقق مما كتبته. يقرأ الرحلات من مستند Arazzo تذكره الواجهة في قدراتها، ويستنتج القصيرة منها من <code>links</code> في مستند OpenAPI. لا يتوفر لدى Acme Store API أيٌّ منهما بعد.') })}
+        body: L('A journey is a set of steps that finish a task, such as taking an order through to shipment. You define one in C#: its steps, the values each passes on, and what each should write. Sendproof runs it here one step at a time, and the same journey runs in <code>dotnet test</code> and in CI.', 'الرحلة مجموعة خطوات تُنجز مهمة، مثل إيصال طلب حتى الشحن. تعرّفها بلغة C#: خطواتها، والقيم التي تمررها كل خطوة، وما يجب أن تكتبه. يشغّلها Sendproof هنا خطوة بخطوة، وتعمل الرحلة نفسها في <code>dotnet test</code> وفي CI.') })}
+        <div class="j7-cta"><button class="btn btn-primary btn-sm" type="button">${ico('bot', 'i i-sm')}${L('Copy a prompt for your agent', 'انسخ موجّهًا لوكيلك')}</button><span>${L('or write the class yourself:', 'أو اكتب الصنف بنفسك:')}</span></div>
         <ol class="j7-how">
-          <li><span class="n">1</span><div><strong>${L('Write an Arazzo 1.1 document', 'اكتب مستند Arazzo 1.1')}</strong><p>${L('One workflow per journey; each step names an operationId and binds its inputs.', 'سير عمل لكل رحلة؛ تسمّي كل خطوة operationId وتربط مدخلاتها.')}</p></div></li>
-          <li><span class="n">2</span><div><strong>${L('Add the expectations next to it', 'أضف التوقعات بجانبه')}</strong><p>${L('Or let Sendproof record them from a clean Preview run, then commit the file.', 'أو دع Sendproof يسجّلها من تشغيل معاينة سليم، ثم احفظ الملف.')}</p></div></li>
-          <li><span class="n">3</span><div><strong>${L('List both in capabilities', 'اذكرهما في القدرات')}</strong>
-            <div class="blk6-code" dir="ltr"><pre lang="en">${caps}</pre>${copyBtn('Copy', { size: 'btn-xs' })}</div></div></li>
+          <li><span class="n">1</span><div><strong>${L('Write a journey class', 'اكتب صنف رحلة')}</strong><p>${L('Operations, request fields and tables are typed, so a wrong value doesn’t compile.', 'العمليات وحقول الطلب والجداول مكتوبة الأنواع، فالقيمة الخاطئة لا تُترجم.')}</p>${code(cls)}</div></li>
+          <li><span class="n">2</span><div><strong>${L('Register the journeys', 'سجّل الرحلات')}</strong><p>${L('At startup they become Arazzo and expected writes.', 'عند التشغيل تصبح Arazzo وكتابات متوقعة.')}</p>${code(reg)}</div></li>
+          <li><span class="n">3</span><div><strong>${L('Run them as tests too', 'شغّلها كاختبارات أيضًا')}</strong><p>${L('Every journey becomes a test case, previewed in memory.', 'تصبح كل رحلة حالة اختبار، تُعايَن في الذاكرة.')}</p>${code(test)}</div></li>
         </ol>
         <p class="j7-empty-foot"><a href="#" class="link">${L('Read the journeys guide', 'اقرأ دليل الرحلات')}</a><span class="sep" aria-hidden="true">·</span><a href="#" class="link">${L('Arazzo Specification 1.1.0', 'مواصفة Arazzo 1.1.0')}</a></p>
       </div></div>
@@ -572,7 +629,7 @@
           ${sectionLabel(L('Inputs', 'المدخلات'))}
           <div class="j7-sk-fields">${['100%', '100%', '48%', '48%'].map(w => `<div class="j7-sk-field" style="inline-size:${w}">${line('5.5rem')}<span class="sk j7-sk-control"></span>${line('60%')}</div>`).join('')}</div>
         </div></div>
-      <div class="actionbar"><span class="status"><span class="spinner" aria-hidden="true"></span><span>${L('Loading store.arazzo.json…', 'جارٍ تحميل store.arazzo.json…')}</span></span>
+      <div class="actionbar"><span class="status"><span class="spinner" aria-hidden="true"></span><span>${L('Loading journeys…', 'جارٍ تحميل الرحلات…')}</span></span>
         <button class="btn btn-run btn-send" type="button" disabled>${ico('send', 'i i-sm i-dir')}${L('Send run', 'تشغيل بالإرسال')}</button>
         <button class="btn btn-primary btn-run btn-preview" type="button" disabled>${ico('play', 'i i-sm i-dir')}${L('Preview run', 'تشغيل بالمعاينة')}</button></div>`;
   }

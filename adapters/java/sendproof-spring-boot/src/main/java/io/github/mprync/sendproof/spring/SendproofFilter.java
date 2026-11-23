@@ -4,6 +4,7 @@ import io.github.mprync.sendproof.core.CaptureContext;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.PreviewExecution;
 import io.github.mprync.sendproof.core.PreviewOutcome;
+import io.github.mprync.sendproof.core.PreviewSessions;
 import io.github.mprync.sendproof.core.Protocol;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -69,7 +70,11 @@ final class SendproofFilter extends OncePerRequestFilter {
                 reject(response, 400, "The Sendproof preview target is invalid.", null);
             } else if (!isSameOrigin(request)) {
                 // Refused before anything runs, so a cross-site page cannot drive filters or handlers through a preview.
-                reject(response, 403, "Cross-origin previews are refused.", null);
+                if (request.getHeader(PreviewSessions.HEADER) == null) {
+                    reject(response, 403, "Cross-origin previews are refused.", null);
+                } else {
+                    write(response, PreviewSessions.notFound().outcome());
+                }
             } else {
                 var rewritten = new PreviewRequestWrapper(request, path.substring(0, prefix) + target);
                 int refusal = targets.check(rewritten);
@@ -101,7 +106,7 @@ final class SendproofFilter extends OncePerRequestFilter {
     private void preview(HttpServletRequest request, HttpServletResponse response, FilterChain chain, long started,
                          PreviewRequestWrapper rewritten) throws IOException {
         var execution = new PreviewExecution(started);
-        request.setAttribute(PreviewState.ATTRIBUTE, new PreviewState(execution));
+        request.setAttribute(PreviewState.ATTRIBUTE, new PreviewState(execution, request.getHeader(PreviewSessions.HEADER)));
         var inner = new PreviewResponseWrapper(response);
         Throwable failure = null;
         PreviewOutcome outcome;
@@ -127,7 +132,7 @@ final class SendproofFilter extends OncePerRequestFilter {
         // Drops anything the container attached on its own, such as a new session cookie.
         response.reset();
         if (outcome.blocked()) {
-            // A guarded store refused a write: 409 problem+json, never a confirmation and without the handler's output.
+            // Session and store refusals already have a complete problem body.
             response.setStatus(outcome.status());
             response.setHeader("Cache-Control", "no-store");
             response.setContentType("application/problem+json;charset=UTF-8");

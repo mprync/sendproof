@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { backTarget, createHistory, followModel, formatRoute, parseRoute, sameRoute } from './router.js';
+import { backTarget, createHistory, followModel, formatRoute, isJourneyRoute, parseRoute, sameRoute } from './router.js';
 
 test('every route round-trips through its hash', () => {
   const routes = [
@@ -77,4 +77,18 @@ test('history entries record their place, the page before and the scroll they we
 test('a deep link has no previous entry in this session', () => {
   const nav = createHistory(fakeBrowser('#model/Payment?from=docs/Op'));
   assert.equal(nav.previousIs('#docs/Op'), false);
+});
+
+test('journey routes round-trip, with ids that need encoding', () => {
+  const routes = [
+    { kind: 'journeys' },
+    { kind: 'journey', journey: 'orderToShipment' },
+    { kind: 'jstep', journey: 'orderToShipment', step: 'shipOrder' },
+    { kind: 'jrun', journey: 'Start cart→Get/cart', run: '7f3c-1' },
+  ];
+  for (const route of routes) assert.deepEqual(parseRoute(formatRoute(route)), route);
+  assert.equal(formatRoute({ kind: 'jstep', journey: 'a/b', step: 'c d' }), '#journey/a%2Fb/step/c%20d');
+  assert.deepEqual(parseRoute('#journey/x/unknown/y'), { kind: 'overview' });
+  assert.ok(isJourneyRoute(parseRoute('#journey/x')));
+  assert.ok(!isJourneyRoute(parseRoute('#op/x')));
 });

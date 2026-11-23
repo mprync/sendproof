@@ -22,6 +22,24 @@ Install the client libraries you use; the core imports each hook on first use an
 
 Motor is not supported: `mongo_store` refuses a Motor client with a `TypeError`. Motor is deprecated in favour of PyMongo's own `AsyncMongoClient`, and it runs PyMongo in a thread pool that drops the Preview's context, so the binding could not attribute a stray write to a Preview. Move to `AsyncMongoClient`; its API is close to Motor's.
 
+## Held Preview sessions
+
+File-backed SQLite, PostgreSQL, MySQL and MariaDB hold one SQL connection per enrolled engine or
+Django alias. SQLite takes a write lock at open and reports `store_busy` promptly if another writer
+holds it. SQLAlchemy needs SQLite connections that can cross request threads. MySQL and MariaDB keep
+the Preview turn until the session ends. In-memory SQLite reports `previewSessions: false` because
+a separate connection cannot reliably share the application's database. Oracle also reports
+`false` because its dialect cannot release the savepoint used to verify a kept step.
+The Django ORM provider uses synchronous request middleware. Async SQLAlchemy and PyMongo clients
+require the ASGI adapter.
+
+On a replica set or sharded cluster, MongoDB keeps one transaction. It uses before images to rewind
+document writes, with a 1,000-document cap per touched collection and a 16 MiB cap for before images
+and the rewind journal. Its server-side `transactionLifetimeLimitSeconds` (60 seconds by default)
+still applies. A session whose transaction has expired returns `session_failed` and releases its
+other stores. MongoDB standalone, Redis, DynamoDB and the other guard-only stores allow reads and
+refuse writes within a step. The refused step also rewinds writes in the held stores.
+
 ## Coverage: only hooked clients are covered
 
 > [!WARNING]

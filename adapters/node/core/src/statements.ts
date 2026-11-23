@@ -317,9 +317,9 @@ export function rollsBackTransaction(error: unknown, provider: AdapterProvider):
  */
 export const previewSavepoint = 'sendproof_preview';
 
-/** A handler's savepoint statement naming {@link previewSavepoint}, including SQL Server's `SAVE TRANSACTION`. */
+/** A handler's statement naming a reserved Preview or session savepoint. */
 const previewSavepointStatement =
-  /^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?)\s+[`"[]?sendproof_preview[`"\]]?$/i;
+  /^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?)\s+[`"[]?sendproof_preview(?:_check|_step_[0-9]+)?[`"\]]?$/i;
 
 const isSqlServer = (provider: AdapterProvider): boolean => provider === 'mssql' || provider === 'sqlserver';
 

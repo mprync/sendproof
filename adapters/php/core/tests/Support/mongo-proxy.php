@@ -17,8 +17,11 @@ declare(strict_types=1);
  */
 
 [, $host, $port] = $argv;
-$listener = stream_socket_server('tcp://127.0.0.1:0', $errno, $error) ?: throw new RuntimeException($error);
-$control = stream_socket_server('tcp://127.0.0.1:0', $errno, $error) ?: throw new RuntimeException($error);
+// A test runner with a loopback allowlist can assign the proxy two explicit ports.
+$proxyPort = (int) (getenv('BENCH_MONGODB_PROXY_PORT') ?: 0);
+$controlPort = (int) (getenv('BENCH_MONGODB_PROXY_CONTROL_PORT') ?: 0);
+$listener = stream_socket_server("tcp://127.0.0.1:{$proxyPort}", $errno, $error) ?: throw new RuntimeException($error);
+$control = stream_socket_server("tcp://127.0.0.1:{$controlPort}", $errno, $error) ?: throw new RuntimeException($error);
 $portOf = static fn ($socket): string => substr(strrchr(stream_socket_get_name($socket, false), ':'), 1);
 echo $portOf($listener), ' ', $portOf($control), "\n";
 fflush(STDOUT);

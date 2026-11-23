@@ -26,7 +26,7 @@ function requireUrl(env) {
 export function knexConfig(env = process.env) {
   const family = knexDatabase(env);
   if (family === 'sqlite') {
-    return { client: 'better-sqlite3', connection: { filename: ':memory:' }, pool: { min: 1, max: 1 }, useNullAsDefault: true };
+    return { client: 'better-sqlite3', connection: { filename: env.BENCH_SQLITE_PATH ?? ':memory:' }, pool: { min: 1, max: 1 }, useNullAsDefault: true };
   }
   const url = requireUrl(env);
   if (family === 'postgresql') return { client: 'pg', connection: env.BENCH_DATABASE_URL };

@@ -11,35 +11,33 @@ namespace Sendproof.EntityFrameworkCore;
 /// (plain ADO.NET on a provider without a driver hook, a connection the application created, a trigger).
 /// </summary>
 /// <remarks>
-/// The provider makes savepoint <c>sendproof_preview</c> right after it opens the Preview transaction (<c>SAVE
-/// TRANSACTION</c> on SQL Server) and rolls back to it before the final rollback (<c>ROLLBACK TRANSACTION</c> on SQL
-/// Server). Every commit, explicit or implicit, erases every savepoint, so a missing savepoint means the Preview's writes
+/// The provider makes savepoint <c>sendproof_preview</c> with EF Core's savepoint API right after it opens the Preview
+/// transaction, and rolls back to it before the final rollback. Every commit, explicit or implicit, erases every savepoint, so a missing savepoint means the Preview's writes
 /// were committed: the Preview answers 500 without confirmation. A check made only at the end can't see a commit: MySQL
 /// has no <c>@@in_transaction</c>, and with auto-commit off MySQL and SQL Server (<c>IMPLICIT_TRANSACTIONS</c>) open a
 /// new transaction after one, so even <c>@@TRANCOUNT</c> looks open. Rolling back to the savepoint rather than releasing
-/// it also works in a PostgreSQL transaction a handled error left aborted. The commands run through plain ADO.NET, past
-/// EF Core's interceptors and Sendproof's guards, so the probe never shows in the captured SQL; the handler can't
-/// release, roll back to or recreate the savepoint (see <see cref="SqlStatements"/>).
+/// it also works in a PostgreSQL transaction a handled error left aborted. EF Core's savepoint API runs outside its
+/// command pipeline, so the savepoint never shows in the captured SQL, and it runs as Sendproof's own work
+/// (<see cref="OwnSql"/>), which the guards let through; the handler can't release, roll back to or recreate the
+/// savepoint (see <see cref="SqlStatements"/>).
 /// </remarks>
 internal sealed class PreviewSavepoint
 {
-    private const string SqlServer = "Microsoft.EntityFrameworkCore.SqlServer";
-
     private readonly DbContext _context;
-    private readonly bool _sqlServer;
 
-    private PreviewSavepoint(DbContext context)
-    {
-        _context = context;
-        _sqlServer = context.Database.ProviderName == SqlServer;
-    }
+    private PreviewSavepoint(DbContext context) => _context = context;
+
+    /// <summary>
+    /// The probe of a preview session's held MySQL transaction, for the MySql.Data hook (<see cref="StillOpen"/>). It makes
+    /// no savepoint of its own: the session's step savepoints do that job.
+    /// </summary>
+    internal static PreviewSavepoint Probe(DbContext held) => new(held);
 
     /// <summary>Makes the savepoint in the Preview transaction just opened on the context's connection.</summary>
     internal static async Task<PreviewSavepoint> OpenAsync(DbContext context, CaptureContext capture, CancellationToken cancellationToken)
     {
         var savepoint = new PreviewSavepoint(context);
-        await savepoint.RunAsync((savepoint._sqlServer ? "SAVE TRANSACTION " : "SAVEPOINT ") + SqlStatements.PreviewSavepointName,
-            cancellationToken);
+        await context.Database.CurrentTransaction!.CreateSavepointAsync(SqlStatements.PreviewSavepointName, cancellationToken);
         if (PreviewTurns.IsMySql(context.Database.ProviderName))
         {
             // Lets the MySql.Data hook prove the transaction is still open before each statement (see SqlGuard.CheckMySqlData).
@@ -55,8 +53,9 @@ internal sealed class PreviewSavepoint
     {
         try
         {
-            await OwnSql.RunAsync(() => RunAsync(
-                (_sqlServer ? "ROLLBACK TRANSACTION " : "ROLLBACK TO SAVEPOINT ") + SqlStatements.PreviewSavepointName, cancellationToken));
+            // A transaction the handler somehow disposed is as unverifiable as one it committed.
+            var transaction = _context.Database.CurrentTransaction ?? throw new InvalidOperationException("The Preview transaction is gone.");
+            await OwnSql.RunAsync(() => transaction.RollbackToSavepointAsync(SqlStatements.PreviewSavepointName, cancellationToken));
         }
         catch (Exception failure) when (failure is DbException or InvalidOperationException)
         {
@@ -68,6 +67,10 @@ internal sealed class PreviewSavepoint
     }
 
     /// <summary>A throwaway savepoint for <see cref="StillOpen"/>; being the newest, releasing it touches no other.</summary>
+    /// <remarks>
+    /// The probe runs inside the driver's own command hook, in the middle of another command, so it is one synchronous
+    /// round trip on the provider's connection rather than two calls through EF Core's savepoint API.
+    /// </remarks>
     private const string ProbeName = "sendproof_probe";
 
     /// <summary>
@@ -102,13 +105,6 @@ internal sealed class PreviewSavepoint
         command.CommandText = sql;
         command.Transaction = SendproofDbConnection.Unwrap(_context.Database.CurrentTransaction?.GetDbTransaction());
         return command;
-    }
-
-    private async Task RunAsync(string sql, CancellationToken cancellationToken)
-    {
-        // On the provider's own connection, past Sendproof's guarding one, which refuses this savepoint's name.
-        await using var command = Command(sql);
-        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }
 

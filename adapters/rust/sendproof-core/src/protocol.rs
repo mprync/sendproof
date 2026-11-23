@@ -19,6 +19,9 @@ pub const PREVIEW_PREFIX: &str = "/sendproof/_preview";
 pub const WORKBENCH_PREFIX: &str = "/sendproof";
 /// The response header carrying an observed-send trace identifier.
 pub const TRACE_HEADER: &str = "x-sendproof-trace";
+/// The request header selecting a held Preview session.
+pub const SESSION_HEADER: &str = "sendproof-session";
+pub(crate) const SESSIONS_PATH: &str = "/sendproof/_api/sessions";
 /// The value of the rollback preference.
 pub const ROLLBACK_PREFERENCE: &str = "tx=rollback";
 
@@ -188,11 +191,29 @@ pub fn capabilities(config: &Config, identity: Option<&Identity>, stores: &[Stor
         "identity": identity,
         "authProviders": auth,
         "previewOperations": preview_operations,
+        "previewSessions": config.can_hold_preview(stores),
         "observedSend": !operations.is_empty(),
         "documents": documents,
     });
     if !framework.is_empty() {
         document["binding"] = json!({ "language": "rust", "framework": framework });
+    }
+    if !config.journeys.is_empty() {
+        document["journeys"] = Value::Array(
+            config
+                .journeys
+                .iter()
+                .map(|journey| {
+                    let stem = journey.name();
+                    json!({
+                        "name": journey.display_name(),
+                        "source": "file",
+                        "arazzoUrl": with_path_base(base, &format!("/sendproof/journeys/{stem}.arazzo.json")),
+                        "expectationsUrl": with_path_base(base, &format!("/sendproof/journeys/{stem}.expect.json")),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
     }
     if !stores.is_empty() {
         document["dataStores"] = stores
@@ -336,6 +357,7 @@ pub fn build_envelope(
         effects,
         logs,
         rolled_back: true,
+        session: None,
         changes_truncated: changes.1,
         effects_truncated,
         logs_truncated,
@@ -421,5 +443,29 @@ mod tests {
         assert_eq!(read_body(Some("text/plain"), b"hi"), json!("hi"));
         assert_eq!(read_body(Some("application/octet-stream"), b"abc"), json!("YWJj"));
         assert_eq!(read_body(None, b""), Value::Null);
+    }
+
+    #[test]
+    fn advertises_registered_journey_files_under_the_mount() {
+        let config = Config::builder("x")
+            .path_base("/tenant")
+            .journey_file(
+                "sample",
+                br#"{"info":{"title":"Friendly sample","version":"1.0.0"},"sourceDescriptions":[{"name":"api","url":"/openapi.json","type":"openapi"}]}"#.to_vec(),
+                br#"{"sendproofExpectations":"1.0","journeys":{}}"#.to_vec(),
+            )
+            .journey_file(
+                "fallback-name",
+                br#"{"sourceDescriptions":[{"name":"api","url":"/openapi.json","type":"openapi"}]}"#.to_vec(),
+                br#"{"sendproofExpectations":"1.0","journeys":{}}"#.to_vec(),
+            )
+            .build()
+            .unwrap();
+        let capabilities = capabilities(&config, None, &[], "Axum");
+        assert_eq!(capabilities["journeys"][0]["name"], "Friendly sample");
+        assert_eq!(capabilities["journeys"][1]["name"], "fallback-name");
+        assert_eq!(capabilities["journeys"][0]["source"], "file");
+        assert_eq!(capabilities["journeys"][0]["arazzoUrl"], "/tenant/sendproof/journeys/sample.arazzo.json");
+        assert_eq!(capabilities["journeys"][0]["expectationsUrl"], "/tenant/sendproof/journeys/sample.expect.json");
     }
 }

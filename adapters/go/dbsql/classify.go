@@ -254,7 +254,7 @@ func checkStatement(text string, statement []token, dialect Dialect, safe map[st
 	}
 	if op, ok := savepointStatement(statement, words, dialect); ok {
 		// Every dialect's backstop relies on this savepoint, so a handler may not touch it.
-		if op.name == strings.ToUpper(previewSavepoint) {
+		if op.name == strings.ToUpper(previewSavepoint) || strings.HasPrefix(op.name, "SENDPROOF_STEP_") {
 			return refuse(statement, "the preview's own savepoint proves nothing committed it")
 		}
 		return nil

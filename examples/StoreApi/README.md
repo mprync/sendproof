@@ -1,6 +1,6 @@
 # Acme Store API demo
 
-A believable online-store API for judging Sendproof with realistic data: 46 operations over a catalogue, stock, customers, carts, orders, payments and refunds, shipments, coupons and users (50 with MongoDB, which adds order histories and product reviews).
+A believable online-store API for judging Sendproof with realistic data: 47 operations over a catalogue, stock, customers, carts, orders, payments and refunds, shipments, coupons and users (51 with MongoDB, which adds order histories and product reviews).
 
 Run `dotnet run --project examples/StoreApi` from the repository root, then open <http://localhost:5080/sendproof>. The launch profile selects Development. The OpenAPI 3.1 document is generated at `/openapi/v1.json` from the actual endpoints, contracts and their XML comments.
 
@@ -32,7 +32,7 @@ Authentication stays at `/auth/*` (`login`, `me`, `logout`, `personas`, `persona
 | Customers | list, get, register (public), update, list and add addresses |
 | Carts | get, add, change and remove lines (each holds stock for 15 minutes), and **quote a price** (`preview: false`, it writes Redis) |
 | Orders | list, get, **place** (idempotent, multi-store), cancel (optional body), and the event history from MongoDB |
-| Payments | list, get, refund (`Card`, `BankTransfer` or `GiftCard` payments) |
+| Payments | list, get, capture an authorised payment (a bank transfer that arrived), refund (`Card`, `BankTransfer` or `GiftCard` payments) |
 | Shipments | list, get, create for a paid order |
 | Reviews | list, add, vote (MongoDB only; nested documents) |
 | Coupons | list, a read-only check, **redeem** (counts with Redis `INCRBY`), create (`Percentage`, `FixedAmount` or `FreeShipping`) |
@@ -76,6 +76,19 @@ cd examples/StoreApi && ASPNETCORE_ENVIRONMENT=Development \
 
 Check it with `curl http://127.0.0.1:5189/sendproof/_api/capabilities` (200, with `dataStores` listing `redis`, `mongodb` and `dynamodb`). Stop it with `pkill -f 'StoreApi.dll'`. Leave out the `Demo…Url` variables to run it without the stores. The command must run from `examples/StoreApi`, because the database and keys sit beside the project.
 
+## Journeys
+
+Four journeys, defined in C# in [`Journeys/`](Journeys) and published at `/sendproof/journeys/store.arazzo.json` (Arazzo 1.1) and `store.expect.json` (what each step should write), as [Sendproof.Journeys](../../adapters/dotnet/Sendproof.Journeys/README.md) builds them at startup:
+
+| Journey | Steps | What it shows |
+| --- | --- | --- |
+| Order to shipment | place an order by bank transfer, find its payment, capture it, ship it, read it back | SQLite and MongoDB writes at steps 1, 3 and 4; the approved difference AD-0011 at step 4, which fails when the carrier input isn't `Dhl` |
+| Cancel before shipping | place an order by card, cancel it, find the refunded payment, read it back | stock, reservation, payment and refund writes |
+| Ship an unpaid order | place an order by bank transfer, try to ship it | an expected refusal (422) that writes nothing |
+| Price with a coupon | check a coupon, quote a basket, redeem the coupon | Send only: quoting writes Redis `SET quote:{id}` and redeeming `INCRBY` |
+
+The operations they call are `StoreOperations`, generated from the endpoint mappings. MongoDB and Redis expectations are checked only when those stores are configured; without them they are reported Not checked.
+
 ## Seed data
 
 A new database is filled once with deterministic data (a fixed random seed; dates are relative to the day it is created, so the data is always current): 5 staff and 6 customers with sign-ins, about 26 more customers (32 in all) across Ireland, Germany, the Netherlands, France, the UK, the US, Canada, Australia, Sweden, Switzerland and Japan with saved addresses; 21 categories; 44 products from six fictional brands with about 160 variants, each priced in ten currencies; stock with some variants out of stock and some low; 10 coupons (active, expired, exhausted, switched off); and about 140 orders in every status with payments (card, bank transfer, gift card), refunds, shipments with tracking scans and stock movements, plus open carts that hold stock. `NPK-JKT-BLK-M` always starts with exactly 40 units on hand and none reserved, and `Mia Customer` has no cart. Existing databases are never seeded or recreated.
@@ -90,10 +103,10 @@ This is a local development sample, not a production identity or payments system
 
 ## Code layout
 
-`Domain/` enums, persistence records, pricing rules and the notification queue · `Data/` the EF Core context · `Contracts/` the documented API models · `Endpoints/` one file per tag · `Stores/` the optional Redis, MongoDB and DynamoDB hooks · `OpenApi/` the document, operation and schema transformers and examples · `Seed/` the demo data.
+`Domain/` enums, persistence records, pricing rules and the notification queue · `Data/` the EF Core context · `Contracts/` the documented API models · `Endpoints/` one file per tag · `Journeys/` the journeys and their expected writes · `Stores/` the optional Redis, MongoDB and DynamoDB hooks · `OpenApi/` the document, operation and schema transformers and examples · `Seed/` the demo data.
 
 Documentation comes from XML comments (`GenerateDocumentationFile`). Two details matter for that: handler methods must be `internal` or `public`, and `AddOpenApi` must be called with a lambda, or the OpenAPI source generator skips them.
 
 ## Tests
 
-Run the in-process SQLite and TestServer integration tests with `dotnet test examples/StoreApi/tests/StoreApi.Tests.csproj`. They cover the Preview and Send flow, the order, shipment, refund and cancel flow, the seed data's integrity, and that every operation, parameter and schema property in the OpenAPI document has a description. If the test runner cannot bind a loopback socket, build that project and run `dotnet examples/StoreApi/tests/bin/Debug/net10.0/StoreApi.Tests.dll` to execute the same assertions without VSTest.
+Run the in-process SQLite and TestServer integration tests with `dotnet test examples/StoreApi/tests/StoreApi.Tests.csproj`. They cover the Preview and Send flow, the order, shipment, refund and cancel flow, the seed data's integrity, that every operation, parameter and schema property in the OpenAPI document has a description, and every journey (`JourneyTests`, each on a throwaway database). If the test runner cannot bind a loopback socket, build that project and run `dotnet examples/StoreApi/tests/bin/Debug/net10.0/StoreApi.Tests.dll` to execute the same assertions without VSTest.

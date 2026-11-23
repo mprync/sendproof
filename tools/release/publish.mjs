@@ -118,9 +118,15 @@ const publishers = {
       const next = crates.find(crate => !done.has(crate.name)
         && crate.deps.every(dep => done.has(dep) || !crates.some(other => other.name === dep)));
       require(next, 'The crates have a dependency cycle');
+      done.add(next.name);
+      if (await onCratesIo(next.name, versions.semver)) { console.log(`${next.name} ${versions.semver} is already on crates.io`); continue; }
+      // The packed Cargo.lock pins sibling crates to the checksums of cargo package's temporary local
+      // registry, which differ from the archives crates.io serves, so cargo publish would refuse it.
+      // cargo writes a fresh lock file against crates.io while publishing. Cargo.toml.orig is a name cargo
+      // reserves for the copy it writes itself, so the unpacked one goes too; Cargo.toml is unchanged.
+      for (const reserved of ['Cargo.lock', 'Cargo.toml.orig']) await rm(join(next.dir, reserved), { force: true });
       // cargo publish waits until the index serves the new version before returning.
       await exec('cargo', ['publish', '--no-verify', '--allow-dirty'], { cwd: next.dir });
-      done.add(next.name);
     }
   },
 
@@ -275,4 +281,18 @@ async function publishGo(source) {
       await delay(15000);
     }
   }
+}
+
+/**
+ * Whether crates.io already has this version, read from its sparse index, so a re-run after a partial
+ * upload skips the crates that made it instead of failing on them.
+ */
+async function onCratesIo(name, version) {
+  const lower = name.toLowerCase();
+  const path = lower.length <= 2 ? `${lower.length}/${lower}`
+    : lower.length === 3 ? `3/${lower[0]}/${lower}` : `${lower.slice(0, 2)}/${lower.slice(2, 4)}/${lower}`;
+  const response = await fetch(`https://index.crates.io/${path}`, { headers: { 'user-agent': 'sendproof-release' } });
+  if (response.status === 404) return false;
+  require(response.ok, `crates.io index returned ${response.status} for ${name}`);
+  return (await response.text()).split('\n').filter(Boolean).some(line => JSON.parse(line).vers === version);
 }

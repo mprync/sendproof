@@ -9,6 +9,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Sendproof\Core\Capabilities;
 use Sendproof\Core\Contracts\DescribesDatabaseSystem;
+use Sendproof\Core\JourneyFiles;
 use Sendproof\Core\Protocol;
 use Sendproof\Symfony\Http\RouteCatalog;
 use Sendproof\Symfony\SendproofManager;
@@ -91,7 +92,31 @@ final class WorkbenchController
             $provider instanceof DescribesDatabaseSystem ? $provider->databaseSystem() : null,
         );
 
+        $journeys = $this->journeyFiles()->discovery($base);
+        if ($journeys !== []) {
+            $capabilities['journeys'] = $journeys;
+        }
+
         return $this->json($capabilities);
+    }
+
+    public function journey(Request $request, string $file): Response
+    {
+        if (!$this->open()) {
+            return $this->notFound();
+        }
+        $json = $this->journeyFiles()->json($file, $request->getBaseUrl());
+
+        return $json === null ? $this->notFound() : new Response($json, 200, [
+            'Content-Type' => 'application/json',
+            'Cache-Control' => 'no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function journeyFiles(): JourneyFiles
+    {
+        return new JourneyFiles($this->manager->setting('journeys') ?? []);
     }
 
     public function trace(Request $request, string $id): Response

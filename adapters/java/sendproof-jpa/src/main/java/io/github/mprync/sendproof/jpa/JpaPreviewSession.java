@@ -1,6 +1,7 @@
 package io.github.mprync.sendproof.jpa;
 
 import io.github.mprync.sendproof.core.DatabaseSystem;
+import io.github.mprync.sendproof.core.HeldPreview;
 import io.github.mprync.sendproof.core.PreviewChange;
 import io.github.mprync.sendproof.core.PreviewSavepoint;
 import io.github.mprync.sendproof.core.PreviewSession;
@@ -39,6 +40,7 @@ final class JpaPreviewSession implements PreviewSession {
     private final ChangeLog changes;
     private final PreviewTransactionGuard.Scope guard;
     private final PreviewSavepoint savepoint;
+    private final PinnedConnection pinned;
 
     /**
      * Opens the Preview's outer transaction.
@@ -48,23 +50,38 @@ final class JpaPreviewSession implements PreviewSession {
      */
     JpaPreviewSession(PlatformTransactionManager transactions, EntityManagerFactory entityManagerFactory, String system,
                       Set<String> safeProcedures) {
+        this(transactions, entityManagerFactory, system, safeProcedures, null);
+    }
+
+    JpaPreviewSession(PlatformTransactionManager transactions, EntityManagerFactory entityManagerFactory, String system,
+                      Set<String> safeProcedures, PinnedConnection pinned) {
         this.transactions = transactions;
         this.entityManagerFactory = entityManagerFactory;
+        this.pinned = pinned;
         this.changes = ChangeLog.open();
         this.guard = PreviewTransactionGuard.enter(this::flush, system, safeProcedures);
         TransactionStatus started = null;
         PreviewSavepoint made = null;
         try {
             started = transactions.getTransaction(new DefaultTransactionDefinition());
-            made = openSavepoint(system);
+            if (pinned == null) {
+                made = openSavepoint(system);
+            } else {
+                if (!started.isNewTransaction()) {
+                    throw pinned.refuse("Spring joined an existing transaction");
+                }
+                pinned.verifyEnlisted();
+            }
             guard.savepoint(made);
             guard.started();
         } catch (RuntimeException | Error failure) {
             // Nothing was acquired, or the begin failed part-way: release everything this constructor took.
             try {
                 if (started != null && !started.isCompleted()) {
-                    transactions.rollback(started);
+                    rollbackSpring(started);
                 }
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
             } finally {
                 guard.close();
                 changes.close();
@@ -82,8 +99,7 @@ final class JpaPreviewSession implements PreviewSession {
      * guard's database when the provider didn't name one.
      */
     private PreviewSavepoint openSavepoint(String system) {
-        DataSource dataSource = transactions instanceof JpaTransactionManager jpa ? jpa.getDataSource()
-                : transactions instanceof DataSourceTransactionManager jdbc ? jdbc.getDataSource() : null;
+        DataSource dataSource = transactionDataSource(transactions);
         if (dataSource == null || !TransactionSynchronizationManager.hasResource(dataSource)) {
             return null;
         }
@@ -99,6 +115,33 @@ final class JpaPreviewSession implements PreviewSession {
         } finally {
             DataSourceUtils.releaseConnection(connection, dataSource);
         }
+    }
+
+    static DataSource transactionDataSource(PlatformTransactionManager transactions) {
+        return transactions instanceof JpaTransactionManager jpa ? jpa.getDataSource()
+                : transactions instanceof DataSourceTransactionManager jdbc ? jdbc.getDataSource() : null;
+    }
+
+    void checkHeldGuard() throws HeldPreview.UnsafeTransaction, HeldPreview.TransactionEnded {
+        if (guard.lost()) {
+            throw new HeldPreview.TransactionEnded("The database ended the held Preview transaction.", guard.violation());
+        }
+        if (guard.violation() != null) {
+            throw new HeldPreview.UnsafeTransaction("The held Preview transaction could not be confirmed.",
+                    guard.violation());
+        }
+    }
+
+    boolean finishHeld() throws HeldPreview.UnsafeTransaction, HeldPreview.TransactionEnded {
+        checkHeldGuard();
+        if (status.isCompleted()) {
+            throw new HeldPreview.UnsafeTransaction("Spring already completed the held Preview step.", null);
+        }
+        if (!status.isRollbackOnly()) {
+            flush();
+        }
+        checkHeldGuard();
+        return !status.isRollbackOnly();
     }
 
     @Override
@@ -180,14 +223,23 @@ final class JpaPreviewSession implements PreviewSession {
 
     @Override
     public void close() {
-        guard.finishing();
+        if (pinned == null) {
+            guard.finishing();
+        }
         try {
             if (!status.isCompleted()) {
-                transactions.rollback(status);
+                rollbackSpring(status);
             }
         } finally {
             guard.close();
             changes.close();
         }
+    }
+
+    private void rollbackSpring(TransactionStatus transaction) {
+        if (pinned != null) {
+            pinned.cleaningUp();
+        }
+        transactions.rollback(transaction);
     }
 }

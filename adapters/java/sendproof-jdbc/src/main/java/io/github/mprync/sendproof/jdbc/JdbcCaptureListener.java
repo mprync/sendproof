@@ -131,11 +131,13 @@ final class JdbcCaptureListener extends SqlLogListener {
         if (session == null) {
             return;
         }
+        session.requireStep();
         if (session.isLost()) {
             throw session.refuse("Running SQL after the database rolled the Preview transaction back");
         }
         for (QueryInfo query : queries) {
-            String keyword = TransactionControl.find(query.getQuery(), session.system(), session.safeProcedures());
+            String keyword = session.held() ? TransactionControl.findHeld(query.getQuery(), session.system(), session.safeProcedures())
+                    : TransactionControl.find(query.getQuery(), session.system(), session.safeProcedures());
             if (keyword != null) {
                 throw session.refuse("The SQL statement " + keyword.toUpperCase(Locale.ROOT));
             }

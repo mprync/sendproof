@@ -28,7 +28,11 @@ public final class PreviewExecution {
     private final RequestCapture capture = new RequestCapture();
     private final CaptureClock clock;
     private final List<DataStoreSession> storeSessions = new ArrayList<>();
+    private final List<HeldPreview.Step> heldSteps = new ArrayList<>();
     private PreviewSession session;
+    private PreviewSessions.Lease lease;
+    private PreviewSessions.Refusal refusal;
+    private Exception enrollmentFailure;
     private boolean invoked;
     private boolean completed;
 
@@ -46,6 +50,16 @@ public final class PreviewExecution {
     /** Returns whether the handler has been entered. */
     public boolean hasInvoked() {
         return invoked;
+    }
+
+    /** Resolves session ownership after the framework has authenticated the rewritten request. */
+    public void join(PreviewSessions sessions, String id, TraceOwner owner) {
+        try {
+            lease = sessions.enter(id, owner);
+        } catch (PreviewSessions.Refusal denied) {
+            refusal = denied;
+            throw denied;
+        }
     }
 
     /**
@@ -69,6 +83,19 @@ public final class PreviewExecution {
     public void begin(PreviewProvider provider, List<? extends DataStore> stores) throws Exception {
         invoked = true;
         clock.startHandler();
+        if (lease != null) {
+            try {
+                capture.begin(true, started);
+                lease.checkpoint();
+                for (HeldPreview part : lease.parts()) {
+                    heldSteps.add(part.begin(capture));
+                }
+            } catch (Exception error) {
+                enrollmentFailure = error;
+                throw error;
+            }
+            return;
+        }
         if (provider != null) {
             session = provider.begin();
             if (session == null) {
@@ -98,6 +125,12 @@ public final class PreviewExecution {
      * @param failure  an exception the handler or its callbacks threw, or {@code null}
      */
     public PreviewOutcome finish(CapturedResponse response, Throwable failure) {
+        if (refusal != null) {
+            return refusal.outcome();
+        }
+        if (lease != null) {
+            return finishHeld(response, failure);
+        }
         // Failures of the rollback machinery outrank a block and the handler's own failure.
         Throwable internal = null;
         for (int i = storeSessions.size() - 1; i >= 0; i--) {
@@ -113,7 +146,8 @@ public final class PreviewExecution {
                 session.rollback();
             }
             if (internal == null && failure == null && completed && !response.exceededLimit()) {
-                envelope = createEnvelope(response, session, capture);
+                envelope = createEnvelope(response, session == null ? List.of() : session.changes(),
+                        session != null && session.changesTruncated(), null, capture);
             }
         } catch (Throwable error) {
             internal = combine(internal, error);
@@ -136,8 +170,83 @@ public final class PreviewExecution {
                 }
             }
         }
-        clock.endHandler();
+        return outcome(response, failure, internal, envelope);
+    }
 
+    private PreviewOutcome finishHeld(CapturedResponse response, Throwable failure) {
+        Throwable internal = enrollmentFailure;
+        PreviewEnvelope envelope = null;
+        try (var current = lease) {
+            var changes = new ArrayList<PreviewChange>();
+            boolean truncated = false;
+            for (int i = heldSteps.size() - 1; i >= 0; i--) {
+                try {
+                    heldSteps.get(i).finish();
+                } catch (Throwable error) {
+                    internal = combine(internal, error);
+                }
+            }
+            try {
+                if (internal == null && failure == null && completed && !response.exceededLimit()
+                        && capture.blocked() == null && capture.fault() == null && response.status() < 500) {
+                    for (HeldPreview.Step step : heldSteps) {
+                        changes.addAll(step.changes());
+                        truncated |= step.changesTruncated();
+                    }
+                    envelope = createEnvelope(response, changes, truncated, current.marker(), capture);
+                }
+            } catch (Throwable error) {
+                internal = combine(internal, error);
+            } finally {
+                if (capture.isActive()) {
+                    capture.finish();
+                }
+                for (int i = heldSteps.size() - 1; i >= 0; i--) {
+                    try {
+                        heldSteps.get(i).close();
+                    } catch (Throwable error) {
+                        current.invalidate();
+                        internal = combine(internal, error);
+                    }
+                }
+            }
+            boolean ended = contains(internal, HeldPreview.TransactionEnded.class);
+            if (ended || contains(internal, HeldPreview.UnsafeTransaction.class) || capture.fault() != null) {
+                current.invalidate();
+            }
+            if (ended && !contains(internal, HeldPreview.UnsafeTransaction.class) && capture.fault() == null) {
+                return PreviewSessions.failed().outcome();
+            }
+            PreviewOutcome result = outcome(response, failure, internal, envelope);
+            try {
+                current.finish(result.confirmed());
+            } catch (HeldPreview.TransactionEnded error) {
+                return PreviewSessions.failed().outcome();
+            } catch (Exception error) {
+                return outcome(response, failure, error, null);
+            }
+            return result;
+        }
+    }
+
+    private static boolean contains(Throwable error, Class<? extends Throwable> type) {
+        if (error == null) {
+            return false;
+        }
+        if (type.isInstance(error)) {
+            return true;
+        }
+        for (Throwable suppressed : error.getSuppressed()) {
+            if (contains(suppressed, type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private PreviewOutcome outcome(CapturedResponse response, Throwable failure, Throwable internal,
+                                   PreviewEnvelope envelope) {
+        clock.endHandler();
         Throwable fault = capture.fault();
         if (internal != null || fault != null) {
             LOG.error("A Sendproof preview failed.", internal != null ? internal : fault);
@@ -207,11 +316,12 @@ public final class PreviewExecution {
         return PreviewOutcome.rejected(status, title, challenge);
     }
 
-    private static PreviewEnvelope createEnvelope(CapturedResponse response, PreviewSession session,
+    private static PreviewEnvelope createEnvelope(CapturedResponse response, List<PreviewChange> sqlChanges,
+                                                  boolean sqlTruncated, PreviewEnvelope.Session marker,
                                                   RequestCapture capture) {
-        var changes = new ArrayList<PreviewChange>(session == null ? List.of() : session.changes());
+        var changes = new ArrayList<>(sqlChanges);
         changes.addAll(capture.storeChanges());
-        boolean changesCut = capture.storeChangesTruncated() || (session != null && session.changesTruncated());
+        boolean changesCut = capture.storeChangesTruncated() || sqlTruncated;
         CaptureSnapshot snapshot = capture.finish();
         var bounded = CaptureLimits.snapshotChanges(changes);
         Map<String, String> headers = new LinkedHashMap<>();
@@ -225,14 +335,16 @@ public final class PreviewExecution {
         }
         return new PreviewEnvelope(response.status(), headers, response.body(), bounded.changes(), snapshot.effects(),
                 snapshot.logs(), true, ObservedTrace.flag(bounded.truncated() || changesCut),
-                ObservedTrace.flag(snapshot.effectsTruncated()), ObservedTrace.flag(snapshot.logsTruncated()));
+                ObservedTrace.flag(snapshot.effectsTruncated()), ObservedTrace.flag(snapshot.logsTruncated()), marker);
     }
 
     private static Throwable combine(Throwable previous, Throwable error) {
         if (previous == null) {
             return error;
         }
-        previous.addSuppressed(error);
+        if (previous != error) {
+            previous.addSuppressed(error);
+        }
         return previous;
     }
 }

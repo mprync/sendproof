@@ -27,5 +27,10 @@
     <ProjectReference Include="../../adapters/dotnet/Sendproof.Redis/Sendproof.Redis.csproj" />
     <ProjectReference Include="../../adapters/dotnet/Sendproof.MongoDB/Sendproof.MongoDB.csproj" />
     <ProjectReference Include="../../adapters/dotnet/Sendproof.DynamoDB/Sendproof.DynamoDB.csproj" />
+    <!-- Journeys in code (Journeys/), and the generator that writes StoreOperations from the endpoint mappings. A package
+         reference to Sendproof.Journeys brings the generator with it; a project reference names it as an analyzer. -->
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Journeys/Sendproof.Journeys.csproj" />
+    <ProjectReference Include="../../adapters/dotnet/Sendproof.Journeys.Generators/Sendproof.Journeys.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

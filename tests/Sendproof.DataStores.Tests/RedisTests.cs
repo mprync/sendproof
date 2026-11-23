@@ -115,6 +115,10 @@ public sealed class RedisTests
             var result = await redis.GetDatabase().ExecuteAsync(command, key is null ? [] : [Key(key)]);
             return Results.Ok(new { result = result.ToString() });
         }).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/execute-incrby/{key}", async (string key, IConnectionMultiplexer redis) =>
+            Results.Ok(new { result = (await redis.GetDatabase().ExecuteAsync("INCRBY", [Key(key), 3])).ToString() })).AllowAnonymous().WithSendproofPreview();
+        app.MapPost("/execute-encoding/{key}", async (string key, IConnectionMultiplexer redis) =>
+            Results.Ok(new { result = (await redis.GetDatabase().ExecuteAsync("OBJECT", ["ENCODING", Key(key)])).ToString() })).AllowAnonymous().WithSendproofPreview();
         app.MapPost("/script", async (string readOnly, IConnectionMultiplexer redis) =>
         {
             var db = redis.GetDatabase();
@@ -208,8 +212,10 @@ public sealed class RedisTests
         await f.Db.StringSetAsync(f.Prefix + "counter:k", "7");
         var read = await Expect.ConfirmedAsync(await f.App.PreviewAsync("POST", "/execute/GET?key=k"));
         Assert.Equal("7", read.GetProperty("body").GetProperty("result").GetString());
-        // The command text keeps no value: Execute's arguments are all replaced by ?.
-        Assert.Equal("GET ?", Assert.Single(Expect.DbEntries(read, "redis", "GET")).GetProperty("db").GetProperty("statement").GetString());
+        // The command text names the key, as a typed call's does, and keeps no value.
+        var db = Assert.Single(Expect.DbEntries(read, "redis", "GET")).GetProperty("db");
+        Assert.Equal(f.Prefix + "counter:k", db.GetProperty("target").GetString());
+        Assert.Equal("GET " + f.Prefix + "counter:k", db.GetProperty("statement").GetString());
 
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/execute/SET?key=k"), "redis", "SET");
         await Expect.BlockedAsync(await f.App.PreviewAsync("POST", "/script?readOnly=no"), "redis", "EVAL");
@@ -281,6 +287,46 @@ public sealed class RedisTests
         using var send = await f.App.Client.PostAsync("/counters/sent", null);
         Assert.Equal(HttpStatusCode.OK, send.StatusCode);
         Assert.Equal("2", await f.Db.StringGetAsync(f.Prefix + "counter:sent"));
+    }
+
+    [ServiceFact("redis")]
+    public async Task AnExecuteCommandsDbEntryNamesItsKeyFromTheSharedTable()
+    {
+        await using var f = await Fixture.StartAsync();
+        var key = f.Prefix + "counter:coupon";
+
+        // INCRBY sent through Execute: the key is argument 1; the value never appears.
+        var (incr, trace) = await f.App.ObservedAsync("POST", "/execute-incrby/coupon");
+        Assert.Equal(HttpStatusCode.OK, incr.StatusCode);
+        var entry = Assert.Single(Expect.DbEntries(trace, "redis", "INCRBY")).GetProperty("db");
+        Assert.Equal(key, entry.GetProperty("target").GetString());
+        Assert.Equal($"INCRBY {key} ?", entry.GetProperty("statement").GetString());
+        Assert.Equal("3", await f.Db.StringGetAsync(key));
+
+        // A container command: OBJECT ENCODING key has its key at argument 2, after the subcommand.
+        var (encoding, encodingTrace) = await f.App.ObservedAsync("POST", "/execute-encoding/coupon");
+        Assert.Equal(HttpStatusCode.OK, encoding.StatusCode);
+        var container = Assert.Single(Expect.DbEntries(encodingTrace, "redis", "OBJECT")).GetProperty("db");
+        Assert.Equal(key, container.GetProperty("target").GetString());
+        Assert.Equal($"OBJECT ENCODING {key}", container.GetProperty("statement").GetString());
+
+        // A command with no positional key carries no target.
+        var (_, keyless) = await f.App.ObservedAsync("POST", "/execute/dbsize");
+        Assert.False(Assert.Single(Expect.DbEntries(keyless, "redis", "DBSIZE")).GetProperty("db").TryGetProperty("target", out _));
+    }
+
+    [Fact]
+    public void TheSharedTableSaysWhereEachCommandsFirstKeyIs()
+    {
+        var table = StoreTables.Redis;
+        Assert.Equal(1, table.FirstKeyPosition("INCRBY", null));
+        Assert.Equal(1, table.FirstKeyPosition("SOME.MODULE.COMMAND", null));
+        Assert.Equal(2, table.FirstKeyPosition("OBJECT", "freq"));
+        Assert.Equal(2, table.FirstKeyPosition("BITOP", null));
+        Assert.Equal(0, table.FirstKeyPosition("PING", null));
+        Assert.Equal(0, table.FirstKeyPosition("OBJECT", "help"));
+        var (statement, target) = RedisCommandMap.DescribeExecute(new RedisCommandMap.Command("SET"), ["set", new object[] { "k", "v", "EX", 10 }]);
+        Assert.Equal(("SET k ? ? ?", "k"), (statement, target));
     }
 
     [ServiceFact("redis")]

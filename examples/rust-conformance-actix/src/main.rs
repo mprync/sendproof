@@ -156,12 +156,22 @@ async fn create<B: Backend>(
     items::create(&db, &fixture.outbox, &body).await.map(reply)
 }
 
-async fn read<B: Backend>(db: Db<B>, id: Path<String>) -> Result<HttpResponse, DbError>
+async fn read<B: Backend>(
+    db: Db<B>,
+    id: Path<String>,
+    query: Query<std::collections::HashMap<String, String>>,
+) -> Result<HttpResponse, DbError>
 where
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
 {
-    items::read(&db, &id).await.map(reply)
+    items::read(
+        &db,
+        &id,
+        query.get("hold").is_some_and(|hold| hold == "true"),
+    )
+    .await
+    .map(reply)
 }
 
 #[derive(serde::Deserialize)]
@@ -489,7 +499,7 @@ where
     eprintln!(
         "rust-conformance (actix, {label}) listening on http://127.0.0.1:{port}{base} ({scenario:?})"
     );
-    HttpServer::new({
+    let result = HttpServer::new({
         let (bench, pool, fixture, base, stores) = (
             bench.clone(),
             pool.clone(),
@@ -615,6 +625,8 @@ where
     .workers(2)
     .bind(("127.0.0.1", port))?
     .run()
-    .await?;
+    .await;
+    bench.shutdown_sessions().await;
+    result?;
     Ok(())
 }

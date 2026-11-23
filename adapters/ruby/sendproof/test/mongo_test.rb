@@ -274,6 +274,31 @@ class MongoHookTest < Minitest::Test
     assert_equal 1, stored(_id: "seeded").length
   end
 
+  def test_held_mongo_rewind_restores_the_image_from_an_earlier_step
+    held = @store.begin_held_preview(nil)
+    step = lambda do |number, &write|
+      recorder = Sendproof::Recorder.new(rollback: true)
+      Sendproof::Capture.with(recorder) do
+        held.begin_step(number, recorder)
+        write.call
+        held.capture_step(recorder)
+        recorder.finish
+      end
+    end
+
+    step.call(1) { @client[:documents].insert_one(_id: "draft", name: "Temporary") }
+    deleted = step.call(2) { @client[:documents].delete_one(name: "Temporary") }
+    assert_equal "Temporary", change(deleted, "delete").fetch(:before).fetch("name")
+    assert_empty stored(_id: "draft")
+
+    held.rewind(2)
+    step.call(2) { assert_equal "Temporary", @client[:documents].find(_id: "draft").first.fetch("name") }
+    held.rewind(1)
+    step.call(1) { assert_nil @client[:documents].find(_id: "draft").first }
+  ensure
+    held&.close
+  end
+
   def test_every_command_is_a_db_entry_without_values
     recorder = preview([@store]) do |_|
       @client[:documents].insert_one({ _id: "log", name: "Secretive" })

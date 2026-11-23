@@ -26,6 +26,15 @@ internal static class WorkbenchEndpoints
         routes.MapGet("/_api/capabilities", CapabilitiesAsync);
         routes.MapGet("/_api/traces/{id:guid}", TraceAsync).WithMetadata(new OutputCacheAttribute { NoStore = true });
         routes.MapGet("/_api/challenge", WorkbenchAuthentication.ChallengeAsync);
+        var noStore = new OutputCacheAttribute { NoStore = true };
+        routes.MapPost("/_api/sessions", PreviewSessionEndpoints.OpenAsync).WithMetadata(noStore);
+        routes.MapPost("/_api/sessions/{id}/rewind", PreviewSessionEndpoints.RewindAsync).WithMetadata(noStore);
+        routes.MapDelete("/_api/sessions/{id}", PreviewSessionEndpoints.EndAsync).WithMetadata(noStore);
+        foreach (var extension in app.Services.GetServices<IWorkbenchExtension>())
+        {
+            extension.MapRoutes(app, routes);
+        }
+
         routes.MapGet("/{**asset}", (HttpContext context, string asset) => WorkbenchAssets.Serve(context, asset));
     }
 
@@ -88,6 +97,8 @@ internal static class WorkbenchEndpoints
             ["authProviders"] = await WorkbenchAuthentication.DiscoverAsync(context, options),
             ["previewOperations"] = operations,
             ["observedSend"] = operations.Length > 0 || unavailable.Length > 0,
+            // Every store that can roll back can also hold its transaction across the requests of a session.
+            ["previewSessions"] = operations.Length > 0 && PreviewSessionEndpoints.Unavailable(context) is null,
             ["documents"] = documents
         };
         // Optional arrays are left out, not null: discovery lists only what the host has.
@@ -99,6 +110,11 @@ internal static class WorkbenchEndpoints
         if (dataStores.Length > 0)
         {
             capabilities["dataStores"] = dataStores;
+        }
+
+        foreach (var extension in context.RequestServices.GetServices<IWorkbenchExtension>())
+        {
+            await extension.AddCapabilitiesAsync(context, capabilities);
         }
 
         return Results.Json(capabilities, PreviewProtocol.JsonOptions);

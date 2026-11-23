@@ -42,7 +42,7 @@ export function drizzleStore(filename) {
 /** Open the store `BENCH_DATABASE` selects, resolving to the factory `createFixture` calls. */
 export async function createDrizzleStore() {
   const dialect = process.env.BENCH_DATABASE ?? 'sqlite';
-  if (dialect === 'sqlite') return drizzleStore;
+  if (dialect === 'sqlite') return filename => drizzleStore(process.env.BENCH_SQLITE_PATH ?? filename);
   const url = process.env.BENCH_DATABASE_URL;
   if (!url) throw new Error('Set BENCH_DATABASE_URL for the ' + dialect + ' Drizzle fixture.');
   if (dialect === 'postgresql') return postgresStore(url);

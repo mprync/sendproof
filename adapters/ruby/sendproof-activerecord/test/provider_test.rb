@@ -75,6 +75,29 @@ class ProviderTest < Minitest::Test
     assert_empty durable_items
   end
 
+  def test_a_caught_postgres_statement_error_rewinds_the_step_and_keeps_the_lease
+    skip "PostgreSQL only" unless POSTGRESQL
+
+    held = Sendproof::ActiveRecord::Provider.new.begin_held_preview(nil)
+    recorder = Sendproof::Recorder.new(rollback: true)
+    Sendproof::Capture.with(recorder) do
+      held.begin_step(1)
+      Item.create!(id: "undone", name: "Will roll back")
+      assert_raises(ActiveRecord::StatementInvalid) { Item.lease_connection.execute("SELECT no_such_column FROM items") }
+      held.finalize_capture(recorder)
+      assert_raises(Sendproof::PreviewSessions::StepUndone) { held.keep_step }
+      held.rewind(1)
+      held.begin_step(1)
+      assert_empty Item.all
+      Item.create!(id: "temporary", name: "Still in the session")
+      held.finalize_capture(recorder)
+      held.keep_step
+    end
+    assert_empty durable_items
+  ensure
+    held&.close
+  end
+
   # Rails treats a non-joinable parent like transactional tests do: after_commit callbacks run when each
   # inner transaction completes. Their side effects must go through Sendproof.record_effect to be suppressed.
   def test_after_commit_callbacks_still_run_so_their_effects_can_be_recorded

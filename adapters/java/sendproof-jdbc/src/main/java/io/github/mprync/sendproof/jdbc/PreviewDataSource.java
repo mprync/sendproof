@@ -74,6 +74,10 @@ public final class PreviewDataSource implements DataSource {
                 safeProcedures);
     }
 
+    JdbcPreviewSession beginHeld(String system, java.util.Set<String> safeProcedures) throws SQLException {
+        return new JdbcPreviewSession(null, proxy.getConnection(), system, safeProcedures);
+    }
+
     @Override
     public Connection getConnection() throws SQLException {
         JdbcScope scope = JdbcScope.current();

@@ -9,6 +9,28 @@ Sendproof guards and previews data stores beyond SQL: MongoDB, Redis and DynamoD
 | [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.1`, conformance-tested |
 | [`examples/laravel-fixture`](examples/laravel-fixture/README.md), [`examples/symfony-fixture`](examples/symfony-fixture/README.md) | Disposable apps for the shared conformance runner | test code |
 
+## Register journey files
+
+Add Arazzo 1.1 JSON files to the workbench configuration. In Laravel's `config/sendproof.php`, set:
+
+```php
+'journeys' => [base_path('journeys/store.arazzo.json')],
+```
+
+In Symfony's `config/packages/sendproof.yaml`, set:
+
+```yaml
+sendproof:
+  journeys:
+    - '%kernel.project_dir%/journeys/store.arazzo.json'
+```
+
+Use unique filenames ending in `.arazzo.json` and application-relative OpenAPI URLs such as `/openapi/v1.json` in `sourceDescriptions`. Place `store.expect.json` alongside `store.arazzo.json` to attach expectations. Sendproof supplies empty expectations when there is no sibling. The workbench advertises and serves both files under its normal authorization policy, including any application path base in their URLs.
+
+## Preview sessions
+
+The Laravel/Eloquent and Symfony/Doctrine adapters advertise `previewSessions: false`. PHP-FPM and the PHP development server release the PHP transaction objects at request shutdown. Multi-request sessions have no enable switch. A future implementation could retain those transactions in long-lived Octane or FrankenPHP workers. See [store limits](data-stores.md#preview-session-limits).
+
 ## Develop
 
 Requires PHP 8.2+, Composer and `ext-pdo_sqlite`. Dependencies install into each package's own `vendor/`. The MongoDB hook needs `ext-mongodb` (and phpredis needs `ext-redis`); the tests for a store skip when its client or service is missing.

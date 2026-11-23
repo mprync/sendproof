@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import plugin from 'fastify-plugin';
 import { createBench, unavailableOperation } from '@sendproof/core';
+import { readSessionBody } from '@sendproof/core/node-http';
 import type { RegisteredOperation, UnavailableOptions } from '@sendproof/core';
 import { requestContext, sendTransport } from './context.js';
 import { dispatching, dispatchInProcess, matchedResponses } from './dispatch.js';
@@ -24,9 +25,10 @@ declare module 'fastify' {
 }
 
 /** Whether Fastify matched a route that was registered through `app.sendproof.operation`. */
-function isEligible(request: FastifyRequest): boolean {
+function routeEligibility(request: FastifyRequest): boolean | undefined {
   const config = request.routeOptions.config as unknown as Record<symbol, unknown> | undefined;
-  return config?.[eligible] === true;
+  const value = config?.[eligible];
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 /** Register Sendproof on a Fastify instance before registering its other routes. */
@@ -35,25 +37,29 @@ function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): 
   const operations: RegisteredOperation[] = [];
   const observations = new WeakMap<IncomingMessage, Observation>();
   const bench = createBench<FastifyRequest>(options, () => operations, { language: 'node', framework: 'Fastify' });
+  app.addHook('preClose', bench.close);
 
   app.addHook('onRequest', (request, reply, done) => {
-    // In-process Preview dispatch: only registered operations may run, everything else is a 404.
-    if (dispatching.has(request.raw)) {
-      if (!isEligible(request)) return reply.code(404).send();
+    const internal = dispatching.get(request.raw);
+    const route = routeEligibility(request);
+    if (internal) {
+      if (route === false || (!route && (!internal.sessionRead || request.is404))) return reply.code(404).send();
       matchedResponses.add(reply.raw);
       return done();
     }
     const context = requestContext(request, basePath);
-    bench.lookup(context).then(async answer => {
+    bench.lookup(context, () => readSessionBody(request.raw)).then(async answer => {
       if (answer) {
         reply.hijack();
         const response = 'target' in answer
-          ? await bench.preview(context, () => dispatchInProcess(app, request.raw, basePath + answer.target, bench.maxResponseBytes))
+          ? await bench.preview(context, () => dispatchInProcess(
+            app, request.raw, basePath + answer.target, bench.maxResponseBytes, request.method === 'GET' && Boolean(answer.session),
+          ), answer.session)
           : answer;
         sendTransport(reply, response, request.method);
         return;
       }
-      if (!isEligible(request)) return done();
+      if (!route) return done();
       const observed = await bench.observation(context);
       if (!observed) return done();
       observations.set(request.raw, observed);
@@ -92,8 +98,10 @@ function registerSendproof(app: FastifyInstance, options: FastifyBenchOptions): 
     unavailable(method: string, template: string, options: UnavailableOptions, route: OperationRoute) {
       const { verb, definition } = register(method, template, route);
       const entry = unavailableOperation(verb, template, options);
-      // Not marked eligible: Send runs it, and a Preview dispatch answers 404 without running it.
-      app.route({ ...definition, method: verb, url: routePath(template) } as RouteOptions);
+      app.route({
+        ...definition, method: verb, url: routePath(template),
+        config: { ...definition.config, [eligible]: false },
+      } as RouteOptions);
       operations.push({ ...entry, preview: false });
       return api;
     },

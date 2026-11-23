@@ -9,7 +9,7 @@ type WriteCallback = (error?: Error | null) => void;
 export type DispatchResult = TransportResponse | { unmatched: true };
 
 /** Requests being dispatched in-process, so the plugin hooks can tell them from real traffic. */
-export const dispatching = new WeakSet<IncomingMessage>();
+export const dispatching = new WeakMap<IncomingMessage, { sessionRead: boolean }>();
 
 /** Responses whose route was a registered Sendproof operation. */
 export const matchedResponses = new WeakSet<ServerResponse>();
@@ -22,7 +22,7 @@ export const matchedResponses = new WeakSet<ServerResponse>();
  * handler is told the connection closed rather than being buffered indefinitely.
  */
 export function dispatchInProcess(
-  app: FastifyInstance, request: IncomingMessage, target: string, limit: number,
+  app: FastifyInstance, request: IncomingMessage, target: string, limit: number, sessionRead: boolean,
 ): Promise<DispatchResult> {
   const originalUrl = request.url;
   const response = new ServerResponse(request);
@@ -30,7 +30,7 @@ export function dispatchInProcess(
   let size = 0;
   let settled = false;
   request.url = target;
-  dispatching.add(request);
+  dispatching.set(request, { sessionRead });
 
   return new Promise<DispatchResult>((resolve, reject) => {
     const finish = (error: unknown, value?: DispatchResult): void => {

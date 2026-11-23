@@ -104,6 +104,7 @@ export async function withFixtureDatabase(engine, run) {
       // A MariaDB entry reaches fixtures as `mysql`, since they all use their MySQL driver on the wire-compatible
       // server. `BENCH_DATABASE_SERVER` names the server for a fixture that has to tell the two apart.
       env: { BENCH_DATABASE: engine === 'mariadb' ? 'mysql' : engine, BENCH_DATABASE_SERVER: engine, BENCH_DATABASE_URL: target.href },
+      query: sql => useConnection(engine, target, client => client.query(sql)),
       async verify() {
         const rows = await useConnection(engine, target, client =>
           client.query("SELECT id, name FROM items WHERE id IN ('traced', 'preview-create', 'failed', 'oversized')"));

@@ -7,13 +7,16 @@ module Sendproof
     # @return [#rollback!, nil] the provider session opened before the handler ran
     attr_accessor :session
 
-    def initialize(recorder:, clock:)
+    def initialize(recorder:, clock:, session_get: false)
       @recorder = recorder
       @clock = clock
       @invoked = false
       @completed = false
       @rejected = false
+      @session_get = session_get
     end
+
+    def session_get? = @session_get
 
     # @return [Boolean] whether the endpoint handler started
     def invoked? = @invoked

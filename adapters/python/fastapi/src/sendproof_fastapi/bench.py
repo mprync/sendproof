@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
 from starlette.middleware import Middleware
@@ -11,6 +12,7 @@ from starlette.requests import Request
 from sendproof_core import AuthProvider, BenchOptions, Identity, OpenApiDocument, PreviewProvider
 from sendproof_core.assets import UiAssets
 from sendproof_core.scope import install_logging_capture
+from sendproof_core.sessions import SessionRegistry, arun
 from sendproof_core.stores.base import DataStore, StoresOnlyProvider, validate_stores
 from sendproof_core.workbench import Workbench
 
@@ -74,6 +76,9 @@ class Sendproof:
         trace_ttl: float = 300.0,
         clock: Callable[[], float] = time.monotonic,
         assets: UiAssets | None = None,
+        journey_files: Iterable[str | Path] = (),
+        session_idle_timeout: int = 300,
+        session_max_lifetime: int = 1800,
     ) -> None:
         self.stores = validate_stores(data_stores)
         # Without a SQL provider, hooked stores alone can carry a Preview: MongoDB aborts its own
@@ -95,8 +100,11 @@ class Sendproof:
             clock=clock,
             identity=identity,
             framework="FastAPI",
+            journey_files=tuple(journey_files), session_idle_timeout=session_idle_timeout,
+            session_max_lifetime=session_max_lifetime,
         )
         self.workbench = Workbench(self.options, provider, assets)
+        self.sessions = SessionRegistry(self.options, provider, self.stores, asynchronous=True)
         if getattr(app, "middleware_stack", None) is not None:
             raise RuntimeError("Create Sendproof before the application starts serving requests.")
         # Appended last so the host's own middleware (sessions, authentication) runs first.
@@ -107,3 +115,7 @@ class Sendproof:
     def enabled(self) -> bool:
         """Whether the workbench is active in the configured environment."""
         return self.options.enabled
+
+    async def aclose(self) -> None:
+        """Roll back sessions when a parent ASGI app owns the lifespan."""
+        await arun(self.sessions.shutdown())

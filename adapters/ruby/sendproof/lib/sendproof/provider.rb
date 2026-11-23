@@ -12,6 +12,10 @@ module Sendproof
   # A provider opens a rollback-only session on the connection the request handler will use,
   # captures change snapshots, rolls back explicitly, and releases every resource on every
   # failure path. Subclassing is optional; any object with these methods works.
+  #
+  # To support Preview sessions, implement +begin_held_preview(context)+. Its return value
+  # implements +begin_step(step)+, +keep_step+, +rewind(step)+ and +close+ alongside the capture
+  # methods. The core calls these on the same worker thread throughout the session.
   class Provider
     # @return [Boolean] whether this request can be previewed
     def available?
@@ -73,9 +77,13 @@ module Sendproof
       # A session with nothing to roll back.
       class Session < PreviewSession
         def rollback! = nil
+        def begin_step(_step); end
+        def keep_step; end
+        def rewind(_step); end
       end
 
       def begin_preview(_context) = Session.new
+      def begin_held_preview(_context) = Session.new
 
       def begin_observation(_context) = Observation.new
     end

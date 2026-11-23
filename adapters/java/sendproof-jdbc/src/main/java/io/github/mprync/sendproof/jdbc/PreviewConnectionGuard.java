@@ -21,6 +21,7 @@ final class PreviewConnectionGuard implements MethodExecutionListener {
         if (session == null) {
             return;
         }
+        session.requireStep();
         Method method = context.getMethod();
         Object[] args = context.getMethodArgs();
         switch (method.getName()) {

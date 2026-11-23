@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let label = database.label();
     // MongoDB, Redis and DynamoDB are hooked only when the runner provisions them.
     let stores = Stores::from_env().await?;
-    let router = match &database {
+    let (bench, router) = match &database {
         Database::Sqlite { pool, .. } => app::build(pool.clone(), label, &base, scenario, stores)?,
         Database::Postgres(pool) => app::build(pool.clone(), label, &base, scenario, stores)?,
         Database::MySql(pool) => app::build(pool.clone(), label, &base, scenario, stores)?,
@@ -37,10 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "rust-conformance (axum, {label}) listening on http://127.0.0.1:{port}{base} ({scenario:?})"
     );
-    axum::serve(listener, router)
+    let result = axum::serve(listener, router)
         .with_graceful_shutdown(shutdown())
-        .await?;
+        .await;
+    bench.shutdown_sessions().await;
     database.close().await;
+    result?;
     Ok(())
 }
 

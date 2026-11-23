@@ -16,9 +16,10 @@ export const title = 'npm';
 
 const NODE = join(root, 'adapters', 'node');
 // Dependency order: everything needs core; drizzle also needs sqlite. The data-store guards (redis,
-// dynamodb, mongodb, cassandra, elasticsearch, cosmosdb, firestore) need only core.
+// dynamodb, mongodb, cassandra, elasticsearch, cosmosdb, firestore) need only core. The cli (the MCP
+// server) needs none of them: it talks to any adapter over HTTP.
 const PACKAGES = ['core', 'sqlite', 'express', 'fastify', 'hono', 'nestjs', 'drizzle', 'knex', 'typeorm', 'prisma',
-  'redis', 'dynamodb', 'mongodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore'];
+  'redis', 'dynamodb', 'mongodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore', 'cli'];
 
 /** The npm CLI cache stays in the repository so sandboxed runs never write to the home directory. */
 const npmEnv = () => ({ npm_config_cache: process.env.npm_config_cache ?? join(root, 'artifacts', 'npm-cache'),

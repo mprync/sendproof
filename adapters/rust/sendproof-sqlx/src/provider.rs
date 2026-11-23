@@ -3,7 +3,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use http::Extensions;
-use sendproof_core::{BoxError, BoxFuture, Changes, Observation, PreviewProvider, PreviewSession, capture};
+use sendproof_core::{BoxError, BoxFuture, Changes, HeldPreview, Observation, OpenSessionError, PreviewProvider, PreviewSession, capture};
 use sqlx::Pool;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
@@ -12,6 +12,8 @@ use crate::{
     db::{Scope, Slot},
     query::Rules,
 };
+
+mod held;
 
 /// The savepoint taken right after a preview begins (spec/data-stores.md, `sendproof_preview`).
 /// Rolling back to it before the final rollback proves the handler did not end the transaction (a
@@ -114,6 +116,14 @@ impl<B: Backend> PreviewProvider for SqlxProvider<B> {
 
     fn is_available(&self) -> bool {
         !self.pool.is_closed()
+    }
+
+    fn supports_held_preview(&self) -> bool {
+        true
+    }
+
+    fn begin_held_preview(&self) -> BoxFuture<'_, Result<Box<dyn HeldPreview>, OpenSessionError>> {
+        Box::pin(held::open(self))
     }
 
     fn begin_preview<'a>(&'a self, extensions: &'a mut Extensions) -> BoxFuture<'a, Result<Box<dyn PreviewSession>, BoxError>> {

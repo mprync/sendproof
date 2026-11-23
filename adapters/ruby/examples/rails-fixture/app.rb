@@ -32,9 +32,13 @@ elsif ENV["BENCH_DATABASE"] == "postgresql"
   # PostgreSQL through the pg gem (libpq), on the same kind of fresh server database.
   ENV["DATABASE_URL"] = ENV.fetch("BENCH_DATABASE_URL").sub(/\Apostgres(ql)?:/, "postgresql:") + "?pool=8"
 else
-  DATABASE_DIRECTORY = Dir.mktmpdir("sendproof-fixture-")
-  at_exit { FileUtils.remove_entry(DATABASE_DIRECTORY, true) }
-  ENV["DATABASE_URL"] = "sqlite3:#{File.join(DATABASE_DIRECTORY, 'fixture.sqlite3')}?timeout=5000&pool=8"
+  database_path = ENV["BENCH_SQLITE_PATH"]
+  unless database_path
+    directory = Dir.mktmpdir("sendproof-fixture-")
+    at_exit { FileUtils.remove_entry(directory, true) }
+    database_path = File.join(directory, "fixture.sqlite3")
+  end
+  ENV["DATABASE_URL"] = "sqlite3:#{database_path}?timeout=5000&pool=8"
 end
 
 module Fixture
@@ -109,6 +113,7 @@ module Fixture
     bench.environments = SCENARIO == "disabled" ? %w[staging] : [Rails.env]
     bench.api_name = "Sendproof Conformance"
     bench.open_api_url = "/openapi/v1.json"
+    bench.journey "journeys/conformance.arazzo.json"
     bench.trace_ttl = 5
     bench.auth_provider "Fixture sign-in", "cookie", "/auth/sign-in"
     bench.auth_provider "Fixture accounts", "personas", "/auth/personas"

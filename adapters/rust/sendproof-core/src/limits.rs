@@ -28,6 +28,8 @@ pub const PAYLOAD_BUDGET: usize = 128 * 1024;
 pub const MAX_DEPTH: usize = 16;
 /// Maximum size of a buffered preview response body (1 MiB).
 pub const PREVIEW_BODY_BYTES: usize = 1024 * 1024;
+/// Maximum size of the small JSON body selecting a Preview session step.
+pub const REWIND_BODY_BYTES: usize = 1024;
 
 /// Truncates `value` to at most `maximum` characters.
 pub fn clip(value: &str, maximum: usize) -> String {

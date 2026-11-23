@@ -1,8 +1,7 @@
 """Database selection shared by the Python conformance fixtures.
 
 The runner sets ``BENCH_DATABASE`` (``sqlite``, ``postgresql``, ``mysql`` or ``sqlserver``) and, for
-every database except SQLite, ``BENCH_DATABASE_URL`` pointing at a fresh disposable database. SQLite
-needs no URL: the fixture creates a file inside its own temporary directory.
+every database except SQLite, ``BENCH_DATABASE_URL`` pointing at a fresh disposable database.
 
 ``SQLAlchemyPreview`` supports SQLite, PostgreSQL, MySQL/MariaDB and Oracle. SQL Server has no
 ``SAVEPOINT`` dialect support there, so selecting it is a configuration error, not a skipped test.
@@ -19,6 +18,11 @@ from sqlalchemy.engine import URL, make_url
 #: Driver used when the runner supplies a URL without one (``postgresql://...`` or ``mysql://...``).
 DEFAULT_DRIVERS = {"postgresql": "psycopg", "mysql": "pymysql"}
 ALIASES = {"postgres": "postgresql", "pg": "postgresql", "mariadb": "mysql", "mssql": "sqlserver"}
+JOURNEY_FILE = Path(__file__).with_name("journeys") / "conformance.arazzo.json"
+
+
+def sqlite_path(directory: Path) -> str:
+    return os.environ.get("BENCH_SQLITE_PATH") or str(directory / "items.db")
 
 
 def database_kind() -> str:
@@ -35,7 +39,7 @@ def resolve(directory: Path) -> tuple[URL, str]:
     """
     kind = database_kind()
     if kind == "sqlite":
-        return URL.create("sqlite", database=str(directory / "items.db")), kind
+        return URL.create("sqlite", database=sqlite_path(directory)), kind
     if kind not in DEFAULT_DRIVERS:
         sys.exit(f"BENCH_DATABASE={kind!r} is not supported by the Python SQLAlchemy provider "
                  f"(supported: sqlite, {', '.join(DEFAULT_DRIVERS)}).")

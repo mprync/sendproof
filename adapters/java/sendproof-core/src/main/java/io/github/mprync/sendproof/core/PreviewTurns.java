@@ -48,6 +48,11 @@ public final class PreviewTurns {
         turn.release();
     }
 
+    /** Session admission fails promptly while another Preview owns the turn. */
+    public boolean tryAcquire() {
+        return turn.tryAcquire();
+    }
+
     /** Wraps a session so closing it hands the turn on, once, even if closing fails. */
     public PreviewSession holding(PreviewSession session) {
         return new PreviewSession() {

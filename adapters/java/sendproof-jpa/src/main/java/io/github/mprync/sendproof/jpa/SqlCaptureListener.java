@@ -37,11 +37,16 @@ final class SqlCaptureListener extends SqlLogListener {
             throw PreviewTransactionGuard.refuseWhileHandling("A statement after the database rolled the Preview transaction back");
         }
         String system = handling ? system(execution) : null;
+        boolean held = PinnedConnection.current() != null;
+        Set<String> safeProcedures = PreviewTransactionGuard.safeProcedures();
         for (QueryInfo query : queries) {
-            String control = handling
-                    ? TransactionControl.find(query.getQuery(), system, PreviewTransactionGuard.safeProcedures()) : null;
-            if (control != null) {
-                throw PreviewTransactionGuard.refuseWhileHandling("The SQL statement " + control.toUpperCase(Locale.ROOT));
+            if (handling) {
+                String control = held ? TransactionControl.findHeld(query.getQuery(), system, safeProcedures)
+                        : TransactionControl.find(query.getQuery(), system, safeProcedures);
+                if (control != null) {
+                    throw PreviewTransactionGuard.refuseWhileHandling(
+                            "The SQL statement " + control.toUpperCase(Locale.ROOT));
+                }
             }
             if (isWrite(query.getQuery()) && autoCommit(execution)) {
                 throw PreviewTransactionGuard.violation(new PreviewTransactionGuard.EnrollmentException(
@@ -64,7 +69,10 @@ final class SqlCaptureListener extends SqlLogListener {
             return;
         }
         String system = system(execution);
-        if (TransactionControl.rollsBackTransaction(system, error)
+        String state = error.getSQLState();
+        boolean lostHeld = PinnedConnection.current() != null && state != null
+                && (state.startsWith("08") || "h2".equals(system) && "40001".equals(state));
+        if (lostHeld || TransactionControl.rollsBackTransaction(system, error)
                 || (TransactionControl.isSqlServer(system) && sqlServerTransactionGone(execution))) {
             PreviewTransactionGuard.transactionLost();
         }

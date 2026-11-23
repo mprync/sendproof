@@ -211,6 +211,8 @@ const shots = [
   ['147-v7-loading-dark', 'workbench', `${V7}&jv=loading&theme=dark`],
   ['148-v7-board-findings', 'journeys', 'v6=1&v7=1&set=findings'],
   ['149-v7-board-findings-dark', 'journeys', 'v6=1&v7=1&set=findings&theme=dark'],
+  ['150-v7-mode-spec', 'workbench', `${V7}&jv=spec`],
+  ['151-v7-mode-spec-dark', 'workbench', `${V7}&jv=spec&theme=dark`],
   ['m32-v7-journeys-drawer-130', 'workbench', `${V7}&jv=overview&drawer=1&text=130`, true],
   ['m33-v7-overview-130', 'workbench', `${V7}&jv=overview&text=130`, true],
   ['m34-v7-step-130', 'workbench', `${V7}&jv=step&text=130`, true],
@@ -218,6 +220,20 @@ const shots = [
   ['m36-v7-result-ar-130-dark', 'workbench', `${V7}&jv=result&mview=result&text=130&lang=ar&theme=dark`, true],
   ['m37-v7-summary-130', 'workbench', `${V7}&jv=summary&text=130`, 320],
   ['m38-v7-refused-130', 'workbench', `${V7}&jv=refused&mview=result&text=130`, true],
+  ['m39-v7-summary-390', 'workbench', `${V7}&jv=summary`, true],
+  ['m40-v7-mode-drawer-spec-130', 'workbench', `${V7}&jv=spec&drawer=1&text=130`, true],
+  // v8 (README "v8"): the workbench's own dialogs, which replace every native browser dialog.
+  ['160-v8-dialog-send-run', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=sendrun`],
+  ['161-v8-dialog-send-run-dark', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=sendrun&theme=dark`],
+  ['162-v8-dialog-end-run', 'workbench', `${V7}&v8=1&jv=step&dlg=endrun`],
+  ['163-v8-dialog-stop-send', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=stopsend`],
+  ['164-v8-dialog-stop-send-dark', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=stopsend&theme=dark`],
+  ['165-v8-dialog-persona', 'workbench', `${V7}&v8=1&jv=step&dlg=persona`],
+  ['167-v8-dialog-persona-dark', 'workbench', `${V7}&v8=1&jv=step&dlg=persona&theme=dark`],
+  ['m45-v8-dialog-persona-130', 'workbench', `${V7}&v8=1&jv=step&dlg=persona&text=130`, true],
+  ['166-v8-dialog-expired', 'workbench', `${V7}&v8=1&jv=step&dlg=expired`],
+  ['m43-v8-dialog-send-run-130', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=sendrun&text=130`, true],
+  ['m44-v8-dialog-stop-send-130-dark', 'workbench', `${V7}&v8=1&jv=step&mode=send&dlg=stopsend&text=130&theme=dark`, true],
 ];
 
 /**

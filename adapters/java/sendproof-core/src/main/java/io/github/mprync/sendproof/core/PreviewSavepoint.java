@@ -26,14 +26,18 @@ import java.sql.Statement;
 public final class PreviewSavepoint {
     /** A name no ORM generates; Hibernate and Spring use unnamed JDBC savepoints. */
     public static final String NAME = "sendproof_preview";
+    private static final java.util.regex.Pattern RESERVED = java.util.regex.Pattern.compile(NAME + "(_[0-9]+)?");
 
     private final Connection connection;
     private final boolean sqlServer;
+    private final String name;
     private volatile Savepoint savepoint;
+    private long transactionId;
 
-    private PreviewSavepoint(Connection connection, boolean sqlServer) {
+    private PreviewSavepoint(Connection connection, boolean sqlServer, String name) {
         this.connection = connection;
         this.sqlServer = sqlServer;
+        this.name = name;
     }
 
     /**
@@ -42,9 +46,76 @@ public final class PreviewSavepoint {
      * @param system the SQL provider id ({@code mssql} uses {@code SAVE TRANSACTION}; others the JDBC savepoint API)
      */
     public static PreviewSavepoint open(Connection connection, String system) throws SQLException {
-        var made = new PreviewSavepoint(connection, TransactionControl.isSqlServer(system));
+        return open(connection, system, NAME);
+    }
+
+    /** Makes a named checkpoint reserved for the adapter. */
+    public static PreviewSavepoint open(Connection connection, String system, String name) throws SQLException {
+        if (!RESERVED.matcher(name).matches()) {
+            throw new IllegalArgumentException("Invalid Preview savepoint name.");
+        }
+        var made = new PreviewSavepoint(connection, TransactionControl.isSqlServer(system), name);
         made.reopen();
         return made;
+    }
+
+    public static boolean isReserved(String name) {
+        String normalized = name.replace("`", "").replace("\"", "").replace("[", "").replace("]", "")
+                .toLowerCase(java.util.Locale.ROOT);
+        return RESERVED.matcher(normalized).matches();
+    }
+
+    /** The supported held transactions have a driver-specific way to check or release their savepoint. */
+    public static boolean supportsHeld(String system) {
+        return system != null && switch (system) {
+            case "h2", "postgresql", "mysql", "mariadb", "mssql", "sqlite" -> true;
+            default -> false;
+        };
+    }
+
+    /** Starts a pinned SQL transaction, including its write reservation when the database is SQLite. */
+    public static void beginHeld(Connection connection, String system) throws SQLException {
+        if ("sqlite".equals(system)) {
+            try (Statement statement = connection.createStatement()) {
+                int timeout = sqlitePragma(statement, "busy_timeout");
+                statement.execute("PRAGMA busy_timeout=1000");
+                try {
+                    connection.setAutoCommit(false);
+                    // A deferred transaction only takes SQLite's writer lock on the first write.
+                    int version = sqlitePragma(statement, "user_version");
+                    statement.execute("PRAGMA user_version=" + version);
+                } finally {
+                    statement.execute("PRAGMA busy_timeout=" + timeout);
+                }
+            }
+            return;
+        }
+        connection.setAutoCommit(false);
+        if (PreviewTurns.needed(system)) {
+            // InnoDB can otherwise ignore a savepoint taken before the first data statement.
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("START TRANSACTION");
+            }
+        }
+    }
+
+    private static int sqlitePragma(Statement statement, String pragma) throws SQLException {
+        try (var rows = statement.executeQuery("PRAGMA " + pragma)) {
+            if (!rows.next()) {
+                throw new SQLException("SQLite did not return its " + pragma + " value.");
+            }
+            return rows.getInt(1);
+        }
+    }
+
+    public static boolean isStoreBusy(String system, SQLException error) {
+        int code = error.getErrorCode();
+        if ("sqlite".equals(system)) {
+            int primary = code & 0xff;
+            return primary == 5 || primary == 6;
+        }
+        return "55P03".equals(error.getSQLState()) || (TransactionControl.isSqlServer(system) && code == 1222)
+                || (PreviewTurns.needed(system) && code == 1205);
     }
 
     /**
@@ -58,10 +129,18 @@ public final class PreviewSavepoint {
             // two, so a commit would leave one open); without implicit transactions BEGIN TRANSACTION does.
             try (Statement statement = connection.createStatement()) {
                 statement.execute("IF @@TRANCOUNT = 0 AND (@@OPTIONS & 2) = 2 SELECT TOP 0 1 AS n FROM sys.objects; "
-                        + "IF @@TRANCOUNT = 0 BEGIN TRANSACTION; SAVE TRANSACTION " + NAME);
+                        + "IF @@TRANCOUNT = 0 BEGIN TRANSACTION; SAVE TRANSACTION " + name);
+                if (!NAME.equals(name)) {
+                    try (var rows = statement.executeQuery("SELECT CURRENT_TRANSACTION_ID()")) {
+                        if (!rows.next()) {
+                            throw new SQLException("SQL Server did not return a transaction ID.");
+                        }
+                        transactionId = rows.getLong(1);
+                    }
+                }
             }
         } else {
-            savepoint = connection.setSavepoint(NAME);
+            savepoint = connection.setSavepoint(name);
         }
     }
 
@@ -73,17 +152,37 @@ public final class PreviewSavepoint {
      */
     public void verify() {
         try {
-            if (sqlServer) {
-                // Not just @@TRANCOUNT: with IMPLICIT_TRANSACTIONS on (how drivers run auto-commit off) the next
-                // statement after a commit opens a new transaction, so only the savepoint tells the Preview's apart.
-                try (Statement statement = connection.createStatement()) {
-                    statement.execute("ROLLBACK TRANSACTION " + NAME);
-                }
-            } else {
-                connection.rollback(savepoint);
-            }
+            rollback();
         } catch (SQLException failure) {
             throw committed(failure);
+        }
+    }
+
+    public void rollback() throws SQLException {
+        if (sqlServer) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ROLLBACK TRANSACTION " + name);
+            }
+        } else {
+            connection.rollback(savepoint);
+        }
+    }
+
+    /** SQL Server has no release operation. Subsequent steps can reuse the name after rewind. */
+    public void release() throws SQLException {
+        if (!sqlServer) {
+            connection.releaseSavepoint(savepoint);
+        }
+    }
+
+    /** Fails when the database left the transaction in an aborted state, without undoing successful writes. */
+    public void check() throws SQLException {
+        try (Statement statement = connection.createStatement();
+             var rows = statement.executeQuery(sqlServer ? "SELECT XACT_STATE(), CURRENT_TRANSACTION_ID()" : "SELECT 1")) {
+            if (!rows.next() || rows.getInt(1) != 1
+                    || (sqlServer && !NAME.equals(name) && rows.getLong(2) != transactionId)) {
+                throw new SQLException("The held Preview transaction is unusable.");
+            }
         }
     }
 

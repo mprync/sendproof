@@ -4,6 +4,7 @@ import com.mongodb.ContextProvider;
 import com.mongodb.event.CommandListener;
 import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.DataStoreSession;
+import io.github.mprync.sendproof.core.HeldPreview;
 import io.github.mprync.sendproof.core.RequestCapture;
 import io.github.mprync.sendproof.core.stores.StoreGuard;
 import java.time.Duration;
@@ -138,6 +139,17 @@ public final class MongoStore implements DataStore {
                 current.release(capture);
             }
         };
+    }
+
+    @Override
+    public boolean supportsHeldStore() {
+        return true;
+    }
+
+    @Override
+    public HeldPreview beginHeldStore() {
+        MongoEngine current = engine;
+        return current == null ? null : current.hold(binder);
     }
 
     // ---- Wiring ----

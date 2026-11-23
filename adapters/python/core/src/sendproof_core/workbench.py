@@ -15,6 +15,7 @@ from . import limits, protocol
 from .assets import Asset, UiAssets, UiBundleError
 from .capture import CaptureSnapshot, CaptureTiming
 from .identity import Identity
+from .journeys import journey_document, load_journeys
 from .jsonsafe import body_from_bytes
 from .options import BenchOptions, OpenApiDocument, require_display_label
 from .provider import PreviewChange, PreviewProvider
@@ -107,6 +108,7 @@ class Workbench:
         self.provider = provider
         self.assets = assets or UiAssets()
         self.traces = TraceStore(options.trace_ttl, options.clock)
+        self.journeys = load_journeys(options.journey_files) if options.enabled else {}
 
     # ---------------------------------------------------------------- discovery
     def capabilities(
@@ -118,6 +120,7 @@ class Workbench:
         default_api_name: str,
         unavailable: Iterable[tuple[str, str, str, tuple[str, ...]]] = (),
         data_stores: Iterable[dict[str, Any]] = (),
+        preview_sessions: bool = False,
     ) -> Response:
         """Build ``GET /sendproof/_api/capabilities``.
 
@@ -174,13 +177,19 @@ class Workbench:
                 ),
                 **({"dataStores": list(data_stores)} if data_stores else {}),
                 "observedSend": bool(listed),
+                "previewSessions": preview_sessions,
+                **({"journeys": [j.describe(path_base) for j in self.journeys.values()]} if self.journeys else {}),
                 "documents": documents,
             },
             headers=[("x-content-type-options", "nosniff")],
         )
 
-    def asset(self, path: str) -> Response:
+    def asset(self, path: str, path_base: str = "") -> Response:
         """Serve a UI file."""
+        if path.startswith("journeys/") and path.endswith((".arazzo.json", ".expect.json")):
+            document = journey_document(path.removeprefix("journeys/"), self.journeys, path_base)
+            return (json_response(document, headers=[("x-content-type-options", "nosniff")]) if document is not None
+                    else Response(404, [("cache-control", "no-store")]))
         try:
             found: Asset | None = self.assets.get(path)
         except UiBundleError as error:

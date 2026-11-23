@@ -68,10 +68,10 @@ internal sealed class SendproofDbConnection : DbConnection
     /// <summary>Records a failed command, so a transaction the database rolled back refuses every later statement.</summary>
     internal void Failed(Exception error) => SqlGuard.Failed(_capture, error);
 
-    /// <summary>Refuses a savepoint method naming the backstop savepoint.</summary>
+    /// <summary>Refuses a savepoint method naming one of Sendproof's own savepoints, unless Sendproof itself calls it.</summary>
     internal void GuardSavepoint(string name)
     {
-        if (string.Equals(name.Trim('`', '"', '[', ']'), SqlStatements.PreviewSavepointName, StringComparison.OrdinalIgnoreCase))
+        if (!OwnSql.IsActive && SqlStatements.IsReservedSavepoint(name))
         {
             Refuse("using the Preview's savepoint");
         }

@@ -18,7 +18,11 @@ import com.mongodb.client.model.Updates;
 import io.github.mprync.sendproof.core.CaptureContext;
 import io.github.mprync.sendproof.core.Json;
 import io.github.mprync.sendproof.core.PreviewOutcome;
+import io.github.mprync.sendproof.core.PreviewSessions;
+import io.github.mprync.sendproof.core.TraceOwner;
+import io.github.mprync.sendproof.core.stores.CommandKind;
 import io.github.mprync.sendproof.core.stores.PreviewWriteBlockedException;
+import io.github.mprync.sendproof.core.stores.StoreGuard;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -82,6 +86,126 @@ class MongoStoreTest {
 
     private long committed(Object id) {
         return raw.getDatabase(databaseName).getCollection("documents").countDocuments(Filters.eq("_id", id));
+    }
+
+    @Test
+    void heldStepsCaptureTheirOwnBeforeImagesAndRewindAcrossAGuardedWrite() throws Exception {
+        var owner = new TraceOwner(null, null, "/sendproof");
+        try (var sessions = new PreviewSessions()) {
+            String id = sessions.open(owner, null, List.of(store)).id();
+            var first = Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                documents().insertOne(new Document("_id", "draft").append("name", "first"));
+                documents().updateOne(Filters.eq("_id", "seeded"), Updates.set("name", "first"));
+            }, store));
+            assertThat(first.get("changes")).hasSize(2);
+            assertThat(committed("draft")).isZero();
+
+            var second = Harness.envelope(Harness.preview(sessions, id, owner,
+                    () -> {
+                        documents().findOneAndUpdate(Filters.eq("_id", "seeded"), Updates.set("name", "second"));
+                        documents().updateMany(Filters.eq("name", "first"), Updates.set("name", "second"));
+                    }, store));
+            assertThat(second.get("changes")).hasSize(2).allSatisfy(change -> {
+                assertThat(change.path("before").path("name").asText()).isEqualTo("first");
+                assertThat(change.path("after").path("name").asText()).isEqualTo("second");
+            });
+
+            PreviewOutcome blocked = Harness.preview(sessions, id, owner, () -> {
+                documents().deleteOne(Filters.eq("_id", "draft"));
+                documents().insertOne(new Document("_id", "blocked"));
+                StoreGuard.guard("redis", "SET", CommandKind.WRITE, null);
+            }, store);
+            assertThat(blocked.status()).isEqualTo(409);
+            assertThat(blocked.blocked()).isTrue();
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                assertThat(documents().find(Filters.eq("name", "second")).into(new java.util.ArrayList<>())).hasSize(2);
+                assertThat(documents().find(Filters.eq("_id", "blocked")).first()).isNull();
+            }, store));
+
+            try (var lease = sessions.enter(id, owner)) {
+                lease.rewind(2);
+            }
+            Harness.envelope(Harness.preview(sessions, id, owner,
+                    () -> assertThat(documents().countDocuments(Filters.eq("name", "first"))).isEqualTo(2), store));
+            try (var lease = sessions.enter(id, owner)) {
+                lease.end();
+            }
+            assertThat(committed("draft")).isZero();
+            assertThat(raw.getDatabase(databaseName).getCollection("documents").find().first().getString("name")).isEqualTo("Seeded");
+        }
+    }
+
+    @Test
+    void aServerEndedHeldTransactionReturnsConflictBeforeAnotherHandler() throws Exception {
+        var owner = new TraceOwner(null, null, "/sendproof");
+        try (var sessions = new PreviewSessions()) {
+            String id = sessions.open(owner, null, List.of(store)).id();
+            var lsid = new AtomicReference<BsonDocument>();
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                documents().insertOne(new Document("_id", "ephemeral"));
+                var session = (ClientSession) store.engine().state().transaction.session;
+                lsid.set(session.getServerSession().getIdentifier());
+            }, store));
+            raw.getDatabase("admin").runCommand(new Document("killSessions", List.of(lsid.get())));
+            PreviewOutcome expired = Harness.preview(sessions, id, owner,
+                    () -> { throw new AssertionError("The expired transaction must refuse enrollment."); }, store);
+            assertThat(expired.status()).isEqualTo(409);
+            assertThat(Json.MAPPER.readTree(expired.problem()).path("code").asText()).isEqualTo("session_failed");
+            assertThat(committed("ephemeral")).isZero();
+        }
+    }
+
+    @Test
+    void heldClientBulkWritesRestoreBsonDocumentOrderAcrossNamespaces() throws Exception {
+        var owner = new TraceOwner(null, null, "/sendproof");
+        var secondary = raw.getDatabase(databaseName).getCollection("secondary");
+        secondary.insertOne(new Document("_id", "ordered").append("value", new Document("a", 1).append("b", 2)));
+        try (var sessions = new PreviewSessions()) {
+            String id = sessions.open(owner, null, List.of(store)).id();
+            var original = new com.mongodb.MongoNamespace(databaseName, "documents");
+            var other = new com.mongodb.MongoNamespace(databaseName, "secondary");
+            var reply = Harness.envelope(Harness.preview(sessions, id, owner, () -> client.bulkWrite(List.of(
+                    com.mongodb.client.model.bulk.ClientNamespacedWriteModel.insertOne(original, new Document("_id", "bulk")),
+                    com.mongodb.client.model.bulk.ClientNamespacedWriteModel.updateOne(other, Filters.eq("_id", "ordered"),
+                            Updates.set("value", new Document("b", 2).append("a", 1))))), store));
+            assertThat(reply.get("changes")).hasSize(2);
+            try (var lease = sessions.enter(id, owner)) {
+                lease.rewind(1);
+            }
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                assertThat(documents().find(Filters.eq("_id", "bulk")).first()).isNull();
+                Document value = client.getDatabase(databaseName).getCollection("secondary").find().first()
+                        .get("value", Document.class);
+                assertThat(value.keySet()).containsExactly("a", "b");
+            }, store));
+        }
+    }
+
+    @Test
+    void anOversizedMongoStepIsBlockedBeforeItsWriteAndPreservesEarlierSteps() throws Exception {
+        var owner = new TraceOwner(null, null, "/sendproof");
+        List<Document> oversized = java.util.stream.IntStream.range(0, 1_001)
+                .mapToObj(i -> new Document("_id", i)).toList();
+        var crowded = raw.getDatabase(databaseName).getCollection("crowded");
+        crowded.insertMany(oversized);
+        try (var sessions = new PreviewSessions()) {
+            String id = sessions.open(owner, null, List.of(store)).id();
+            Harness.envelope(Harness.preview(sessions, id, owner,
+                    () -> documents().insertOne(new Document("_id", "prior")), store));
+            var blocked = Harness.preview(sessions, id, owner, () -> {
+                documents().insertOne(new Document("_id", "discarded"));
+                client.getDatabase(databaseName).getCollection("crowded").updateMany(new Document(), Updates.set("changed", true));
+            }, store);
+            assertThat(blocked.blocked()).isTrue();
+            assertThat(Json.MAPPER.readTree(blocked.problem()).path("detail").asText()).contains("1,000-document");
+            assertThat(Harness.preview(sessions, id, owner, () -> documents().insertMany(oversized), store).blocked()).isTrue();
+            Harness.envelope(Harness.preview(sessions, id, owner, () -> {
+                assertThat(documents().find(Filters.eq("_id", "prior")).first()).isNotNull();
+                assertThat(documents().find(Filters.eq("_id", "discarded")).first()).isNull();
+                assertThat(client.getDatabase(databaseName).getCollection("crowded")
+                        .countDocuments(Filters.exists("changed"))).isZero();
+            }, store));
+        }
     }
 
     @Test

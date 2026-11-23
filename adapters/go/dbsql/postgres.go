@@ -86,7 +86,7 @@ var auditBlind = `SELECT count(*) ` + auditTables + `
 
 // installAudit prepares the preview transaction. It reports how many writable
 // tables could not be instrumented.
-func installAudit(ctx context.Context, tx *sql.Tx) (blind int, err error) {
+func installAudit(ctx context.Context, tx *sql.Tx, lockTimeout string) (blind int, err error) {
 	for _, statement := range auditSetup {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return 0, fmt.Errorf("dbsql: prepare the PostgreSQL audit: %w", err)
@@ -96,7 +96,7 @@ func installAudit(ctx context.Context, tx *sql.Tx) (blind int, err error) {
 	if err := tx.QueryRowContext(ctx, `SELECT current_setting('lock_timeout')`).Scan(&previous); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `SELECT set_config('lock_timeout', '`+auditLockTimeout+`', true)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('lock_timeout', $1, true)`, lockTimeout); err != nil {
 		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, auditInstall); err != nil {

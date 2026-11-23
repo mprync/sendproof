@@ -44,6 +44,7 @@ module Sendproof
       end
 
       def begin_preview(_context, recorder) = @engine.begin_preview(recorder)
+      def begin_held_preview(_context) = @engine.begin_held_preview
 
       def finish_preview(recorder) = @engine.finish_preview(recorder)
 

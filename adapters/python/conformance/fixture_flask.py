@@ -16,6 +16,7 @@ import secrets
 import shutil
 import tempfile
 from pathlib import Path
+from time import sleep
 
 from flask import Flask, Response, abort, jsonify, request
 from sqlalchemy import text
@@ -134,6 +135,8 @@ def switch_persona(email: str):
 @app.get("/items/<id>")
 def read_item(id: str):
     require_user()
+    if request.args.get("hold") == "true":
+        sleep(1)
     item = db().get(Item, id)
     if item is None:
         abort(404)
@@ -572,6 +575,7 @@ Sendproof(
         AuthProvider("Fixture personas", "personas", "/auth/personas"),
     ],
     trace_ttl=TRACE_TTL_SECONDS,
+    journey_files=[fixture_database.JOURNEY_FILE],
 )
 
 # Mount under the path base (WSGI SCRIPT_NAME) so that the workbench is absent without the prefix.

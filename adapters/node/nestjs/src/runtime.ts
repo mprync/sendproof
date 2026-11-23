@@ -1,10 +1,10 @@
 import { Inject } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
-import type { OnApplicationBootstrap } from '@nestjs/common';
+import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { createBench } from '@sendproof/core';
 import type { BenchRequest } from '@sendproof/core';
-import { captureResponse, sendResponse } from '@sendproof/core/node-http';
+import { captureResponse, readSessionBody, sendResponse } from '@sendproof/core/node-http';
 import { previewOperation } from './decorator.js';
 import type { PreviewOperation } from './decorator.js';
 import { optionsKey } from './options.js';
@@ -19,12 +19,13 @@ export interface ExpressApplication {
 export interface InternalState {
   /** Set once the interceptor confirms the request reached an eligible controller action. */
   entered: boolean;
+  sessionRead: boolean;
 }
 
 const basePathPattern = /^\/[a-zA-Z0-9._~-]+(?:\/[a-zA-Z0-9._~-]+)*$/;
 
 /** Shared state behind the module: protocol core, discovered operations and the preview middleware. */
-export class BenchRuntime implements OnApplicationBootstrap {
+export class BenchRuntime implements OnApplicationBootstrap, OnModuleDestroy {
   /** Requests currently being re-dispatched for Preview. */
   readonly internal = new WeakMap<Request, InternalState>();
   readonly basePath: string;
@@ -45,6 +46,10 @@ export class BenchRuntime implements OnApplicationBootstrap {
       ({ method, path, enabled, reason, stores }) => enabled === false
         ? { method, path, preview: false as const, reason: reason!, ...(stores ? { stores } : {}) }
         : { method, path }), { language: 'node', framework: 'NestJS' });
+  }
+
+  onModuleDestroy() {
+    return this.bench.close();
   }
 
   /** Collect every controller action decorated with `@SendproofPreview`. */
@@ -82,13 +87,13 @@ export class BenchRuntime implements OnApplicationBootstrap {
       if (this.internal.has(req)) return next();
       const context = this.context(req);
       if (!context) return next();
-      const answer = await this.bench.lookup(context);
+      const answer = await this.bench.lookup(context, () => readSessionBody(req));
       if (!answer) return next();
       if (!('target' in answer)) return sendResponse(req, res, answer);
 
       const result = await this.bench.preview(context, async () => {
         const target = this.basePath + answer.target;
-        const state: InternalState = { entered: false };
+        const state: InternalState = { entered: false, sessionRead: req.method === 'GET' && Boolean(answer.session) };
         this.internal.set(req, state);
         try {
           const response = await captureResponse(
@@ -106,7 +111,7 @@ export class BenchRuntime implements OnApplicationBootstrap {
         } finally {
           this.internal.delete(req);
         }
-      });
+      }, answer.session);
       return sendResponse(req, res, result);
     };
   }

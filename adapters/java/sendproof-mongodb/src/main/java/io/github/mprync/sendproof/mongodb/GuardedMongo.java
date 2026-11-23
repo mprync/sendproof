@@ -1,6 +1,7 @@
 package io.github.mprync.sendproof.mongodb;
 
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoNamespace;
 import io.github.mprync.sendproof.core.stores.CommandKind;
 import io.github.mprync.sendproof.core.stores.PreviewTransactionControlException;
 import io.github.mprync.sendproof.core.RequestCapture;
@@ -10,6 +11,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
+import java.util.List;
 import org.bson.BsonDocument;
 import org.bson.codecs.configuration.CodecRegistry;
 
@@ -114,12 +116,23 @@ final class GuardedMongo {
             String collection = kind == Kind.COLLECTION ? collectionName() : database;
             BsonDocument command = rule.command(collection, args, registry);
             String operation = command.isEmpty() ? name : command.keySet().iterator().next();
-            engine.check(command, operation, database);
+            CommandKind commandKind = engine.check(command, operation, database);
             MongoEngine.PreviewState state = engine.state();
             if (state == null || MongoEngine.systemDatabase(database)) {
                 return call(method, target, args);
             }
-            return callInSession(method, args, state);
+            Runnable prepare = null;
+            if (state.held != null && commandKind == CommandKind.WRITE) {
+                List<MongoNamespace> targets = kind == Kind.CLIENT && name.equals("bulkWrite")
+                        ? MongoHeldPreview.clientBulkTargets(args) : MongoHeldPreview.writeTargets(command, database, operation);
+                if (targets.isEmpty()) {
+                    StoreGuard.guard("mongodb", operation, CommandKind.WRITE,
+                            "Preview unavailable: MongoDB " + operation + " cannot be rewound in a Preview session");
+                }
+                int possibleInserts = MongoHeldPreview.possibleInserts(kind == Kind.DATABASE, name, operation, command, args);
+                prepare = () -> state.held.prepare(operation, targets, possibleInserts);
+            }
+            return callInSession(method, args, state, prepare);
         }
 
         private boolean producesHandle(Method method) {
@@ -132,7 +145,7 @@ final class GuardedMongo {
          * Calls the driver's overload that takes the Preview session, or refuses a session that isn't the Preview's. The
          * driver always gets the driver's session (see {@link PreviewSessions}), never the handler's.
          */
-        private Object callInSession(Method method, Object[] args, MongoEngine.PreviewState state) throws Throwable {
+        private Object callInSession(Method method, Object[] args, MongoEngine.PreviewState state, Runnable prepare) throws Throwable {
             Class<?>[] parameters = method.getParameterTypes();
             if (parameters.length > 0 && backend.sessionType().isAssignableFrom(parameters[0])) {
                 Object given = args[0];
@@ -141,7 +154,7 @@ final class GuardedMongo {
                 }
                 Object[] swapped = args.clone();
                 swapped[0] = state.driverSession();
-                return call(method, target, swapped);
+                return preparedCall(method, swapped, state, prepare);
             }
             Class<?>[] withSession = new Class<?>[parameters.length + 1];
             withSession[0] = backend.sessionType();
@@ -158,7 +171,19 @@ final class GuardedMongo {
             if (args != null) {
                 System.arraycopy(args, 0, sessionArgs, 1, args.length);
             }
-            return call(overload, target, sessionArgs);
+            return preparedCall(overload, sessionArgs, state, prepare);
+        }
+
+        private Object preparedCall(Method method, Object[] arguments, MongoEngine.PreviewState state, Runnable prepare)
+                throws Throwable {
+            if (prepare == null) {
+                return call(method, target, arguments);
+            }
+            if (backend.reactive()) {
+                return ReactiveSupport.prepareWrite(call(method, target, arguments), state.capture, prepare);
+            }
+            prepare.run();
+            return call(method, target, arguments);
         }
 
         private PreviewTransactionControlException refuse(String message) {

@@ -139,7 +139,7 @@ pub fn build<B: Backend + RawCommit>(
     base: &str,
     scenario: Scenario,
     stores: Stores,
-) -> Result<Router, Box<dyn std::error::Error>>
+) -> Result<(Sendproof, Router), Box<dyn std::error::Error>>
 where
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
@@ -248,7 +248,8 @@ where
     } else {
         Router::new().nest(base, api)
     };
-    Ok(bench.wrap(mounted))
+    let router = bench.wrap(mounted);
+    Ok((bench, router))
 }
 
 async fn authorize<B: Backend>(
@@ -311,12 +312,22 @@ async fn create<B: Backend>(
     items::create(&db, &state.outbox, &body).await.map(reply)
 }
 
-async fn read<B: Backend>(db: Db<B>, Path(id): Path<String>) -> Result<Response, DbError>
+async fn read<B: Backend>(
+    db: Db<B>,
+    Path(id): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Response, DbError>
 where
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
 {
-    items::read(&db, &id).await.map(reply)
+    items::read(
+        &db,
+        &id,
+        query.get("hold").is_some_and(|hold| hold == "true"),
+    )
+    .await
+    .map(reply)
 }
 
 #[derive(serde::Deserialize)]

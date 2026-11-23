@@ -30,6 +30,8 @@ final class Configuration implements ConfigurationInterface
                     ->end()->end()
                 ->end()
                 ->arrayNode('field_modules')->scalarPrototype()->end()->end()
+                ->arrayNode('journeys')->scalarPrototype()->end()
+                    ->info('Paths to registered Arazzo 1.1 JSON files.')->end()
                 ->arrayNode('auth_providers')
                     ->info('Sign-in methods shown by the workbench.')
                     ->arrayPrototype()->children()

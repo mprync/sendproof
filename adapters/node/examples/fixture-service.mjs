@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { currentCapture, deliverEffect } from '@sendproof/core';
 import { SQLiteDatabase } from '@sendproof/sqlite';
 
@@ -6,6 +7,21 @@ export const authProviders = [
   { kind: 'cookie', label: 'Fixture password', url: '/auth/sign-in' },
   { kind: 'personas', label: 'Development personas', url: '/auth/personas' },
 ];
+export const journeys = [new URL('./fixture.arazzo.json', import.meta.url)];
+
+/** Fixtures own their clients, so exit after draining the HTTP host and rolling its sessions back. */
+export function stopOnSignal(close) {
+  process.once('SIGTERM', async () => {
+    try { await close(); process.exit(0); }
+    catch (error) { console.error(error); process.exit(1); }
+  });
+}
+
+export async function closeFixtureServer(server, bench) {
+  const sessions = bench.close();
+  const stopped = new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  await Promise.all([sessions, stopped]);
+}
 
 const admin = { name: 'Fixture Admin', role: 'admin', subject: 'admin@example.test', scheme: 'fixture' };
 const viewer = { name: 'Fixture Viewer', role: 'viewer', subject: 'viewer@example.test', scheme: 'fixture' };
@@ -50,8 +66,9 @@ export function escapeStatement(id, via) {
   return via === 'ddl' ? `CREATE TABLE sendproof_escape_${id} (n INT)` : 'CALL sendproof_commit_probe()';
 }
 
-export function createFixture(filename, scenario, store = sqliteStore) {
-  const { provider, insert, find, update, remove, secret, insertAccount, findAccount, commit, escape } = store(filename);
+export function createFixture(scenario, store = sqliteStore) {
+  const { provider, insert, find, update, remove, secret, insertAccount, findAccount, commit, escape } =
+    store(process.env.BENCH_SQLITE_PATH ?? ':memory:');
   const sessions = new Map();
   const previewProvider = scenario === 'no-provider' ? undefined : {
     async preview(dispatch) {
@@ -59,6 +76,7 @@ export function createFixture(filename, scenario, store = sqliteStore) {
       if (scenario === 'rollback-failure') throw new Error('Fixture rollback failure');
       return response;
     },
+    ...(provider.openSession ? { openSession: () => provider.openSession() } : {}),
   };
 
   function session(cookie) {
@@ -166,7 +184,8 @@ export function createFixture(filename, scenario, store = sqliteStore) {
     { method: 'POST', path: '/auth/sign-in', handler: ({ body }) => signIn(body) },
     { method: 'GET', path: '/auth/personas', handler: list },
     { method: 'POST', path: '/auth/personas/{email}', handler: switchPersona },
-    { method: 'GET', path: '/items/{id}', handler: access(async ({ params: { id } }) => {
+    { method: 'GET', path: '/items/{id}', handler: access(async ({ params: { id }, query }) => {
+      if (query.get('hold') === 'true') await delay(1000);
       const item = await find(id);
       return item ? reply(200, item) : reply(404);
     }, false) },

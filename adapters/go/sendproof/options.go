@@ -19,6 +19,7 @@ type config struct {
 	apiName       string
 	openAPIURL    string
 	documents     []document
+	journeys      []journeyDocument
 	fieldModules  []string
 	environment   string
 	environments  []string

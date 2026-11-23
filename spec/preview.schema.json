@@ -13,7 +13,16 @@
     "logs": {"type": "array", "items": {"$ref": "#/$defs/logs"}},
     "changesTruncated": {"type": "boolean"},
     "effectsTruncated": {"type": "boolean"},
-    "logsTruncated": {"type": "boolean"}
+    "logsTruncated": {"type": "boolean"},
+    "session": {
+      "type": "object",
+      "description": "Present when the Preview ran inside a preview session: the session and this step's number, counting from 1. changes, effects and logs are this step's only.",
+      "required": ["id", "step"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{32,}$"},
+        "step": {"type": "integer", "minimum": 1}
+      }
+    }
   },
   "$defs": {
     "changes": {

@@ -13,24 +13,44 @@ module Sendproof
     # Result of draining the inner response body.
     Response = Struct.new(:status, :headers, :body)
 
-    def initialize(app, config)
+    def initialize(app, config, sessions)
       @app = app
       @config = config
+      @sessions = sessions
     end
 
     # @param env [Hash] the Rack environment of the +/sendproof/_preview/...+ request
     # @param prefix [Integer] index of the reserved prefix in PATH_INFO
     # @return [Array] Rack response
     def call(env, request, prefix)
+      id = env[PreviewSessions::HEADER]
+      return PreviewSessions.not_found if id && !Protocol.same_origin?(request)
+
+      if id
+        return denied(request) unless @config.authorized?(request)
+
+        return @sessions.with_session(request, id) { |session| preview(env, request, prefix, session) }
+      end
+      preview(env, request, prefix)
+    end
+
+    private
+
+    def preview(env, request, prefix, held = nil)
       started = Clock.now
       path = env["PATH_INFO"].to_s
-      rejection = precheck(env, request, path, prefix)
+      rejection = precheck(env, request, path, prefix, held)
       return rejection if rejection.is_a?(Array)
 
       rewritten = path[0, prefix] + path[(prefix + Protocol::PREFIX.length)..]
-      resolution = @config.resolve_target(request.request_method, rewritten, env)
+      resolution = if held && request.get?
+                     @config.resolve_session_get(rewritten, env)
+                   else
+                     @config.resolve_target(request.request_method, rewritten, env)
+                   end
       return Protocol.problem(404, "The preview target was not found for this method.") if resolution.nil?
       return Protocol.problem(409, "This operation is unavailable for preview.") if resolution == :ineligible
+      return execute_held(env, request, held, rewritten, started) if held
 
       provider = @config.preview_provider
       return Protocol.problem(503, "Preview requires one available preview provider.") unless provider
@@ -38,9 +58,7 @@ module Sendproof
       execute(env, request, provider, rewritten, started)
     end
 
-    private
-
-    def precheck(env, request, path, prefix)
+    def precheck(env, request, path, prefix, held)
       return Protocol.problem(400, "A Sendproof preview requires Prefer: tx=rollback.") unless Protocol.exact_preference?(env)
       return Protocol.problem(405, "A preview requires a response body.") if request.head?
 
@@ -48,6 +66,8 @@ module Sendproof
       if target.empty? || target.start_with?("//") || bench_target?(target) || !valid_target?(target)
         return Protocol.problem(400, "The Sendproof preview target is invalid.")
       end
+      return if held # The outer request already passed admission and ownership checks.
+
       return Protocol.problem(403, "A preview must come from the application's own origin.") unless Protocol.same_origin?(request)
       return denied(request) unless @config.authorized?(request)
 
@@ -145,6 +165,61 @@ module Sendproof
       outcome(request, preview, response, failure, handler_failure, recorder, envelope)
     end
 
+    # Each request gets a new recorder; only the stores' transactions and rewind points survive it.
+    def execute_held(env, request, held, rewritten, started)
+      recorder = Recorder.new(rollback: true, started:, include_sql_values: @config.sql_parameter_values?)
+      preview = PreviewRequest.new(recorder:, clock: Clock::Request.new(started), session_get: request.get?)
+      context = ProviderContext.new(env:, request:, config: @config)
+      sql = held.sql
+      preview.session = sql
+      Attribution.open(recorder)
+      Capture.with(recorder) do
+        sql.begin_step(held.next_step)
+        held.stores.each { |store| store.begin_step(held.next_step, recorder) }
+        begin
+          held.guards.each do |store|
+            store.begin_preview(context, recorder) if store.respond_to?(:begin_preview)
+            raise PreviewSessions::StoreEnded unless store.describe[:mode].to_s == "guard"
+          end
+          response, handler_failure = dispatch(env, rewritten, preview)
+          preview.clock.end_handler
+        ensure
+          finish_guards(held.guards, recorder)
+        end
+        held.stores.each { |store| store.capture_step(recorder) }
+        sql.finalize_capture(recorder) if sql.respond_to?(:finalize_capture)
+        raise recorder.fault if recorder.fault
+
+        if handler_failure || !preview.completed? || response.nil? || response.status >= 500 || recorder.blocked
+          held.undo_step
+          handler_failure ||= RuntimeError.new("The preview handler returned a server error.") if response && response.status >= 500
+          return outcome(request, preview, response, nil, handler_failure, recorder, nil)
+        end
+
+        sql.keep_step
+        reply = serialize(response, sql, recorder.finish, preview, session: { id: held.id, step: held.next_step })
+        held.advance
+        reply
+      end
+    rescue PreviewSessions::StepUndone => error
+      held.undo_step
+      outcome(request, preview, nil, error, nil, recorder, nil)
+    ensure
+      skip_session_commit(env)
+      recorder.finish if recorder.active?
+      Attribution.close(recorder)
+    end
+
+    def finish_guards(guards, recorder)
+      failure = nil
+      guards.each do |store|
+        store.finish_preview(recorder) if store.respond_to?(:finish_preview)
+      rescue Exception => error # every guard gets its finish call even if another unwound
+        failure ||= error
+      end
+      raise failure if failure
+    end
+
     # Runs the inner request. Returns the buffered response and any failure.
     def dispatch(env, rewritten, preview)
       inner = inner_env(env, rewritten, preview)
@@ -186,6 +261,7 @@ module Sendproof
       inner["ORIGINAL_FULLPATH"] = full if env.key?("ORIGINAL_FULLPATH")
       inner["rack.hijack?"] = false
       inner.delete("HTTP_ACCEPT_ENCODING")
+      inner.delete(PreviewSessions::HEADER)
       inner["HTTP_CACHE_CONTROL"] = "no-cache, no-store"
       inner["rack.input"].rewind if inner["rack.input"].respond_to?(:rewind)
       inner[ENV_KEY] = preview
@@ -278,13 +354,14 @@ module Sendproof
       Protocol.problem(status, title, extra)
     end
 
-    def serialize(response, session, capture, preview)
-      changes, truncated = Limits.snapshot_changes(session.changes + capture.changes)
+    def serialize(response, provider_session, capture, preview, session: nil)
+      changes, truncated = Limits.snapshot_changes(provider_session.changes + capture.changes)
       headers = response.headers.reject { |name, _| Protocol::PRIVATE_HEADERS.include?(name) || name.length > Limits::NAME }
                         .first(Limits::PARAMETERS).to_h { |name, value| [name, Limits.clip(value)] }
       document = { status: response.status, headers:, body: read_body(response), changes:,
                    effects: capture.effects, logs: capture.logs, rolledBack: true }
-      document[:changesTruncated] = true if truncated || session.changes_truncated? || capture.changes_truncated
+      document[:session] = session if session
+      document[:changesTruncated] = true if truncated || provider_session.changes_truncated? || capture.changes_truncated
       document[:effectsTruncated] = true if capture.effects_truncated
       document[:logsTruncated] = true if capture.logs_truncated
       started = Clock.now

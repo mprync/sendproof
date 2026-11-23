@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configure, datePattern, formatBytes, formatNumber, LANGUAGES, loadLanguage, matchLanguage, parseLocalDate, t, th } from './i18n.js';
+import { configure, datePattern, formatBytes, formatNumber, LANGUAGES, loadLanguage, localizeDateTimes, matchLanguage, parseLocalDate, t, th } from './i18n.js';
 import { chordLong, chordText } from './shortcuts.js';
 
 test('languages match exactly, then by base language, then fall back to English (Ireland)', () => {
@@ -71,4 +71,16 @@ test('a chord is one keycap, in each platform’s own order and long form', () =
   assert.equal(chordText('Mod+Shift+Enter'), 'Ctrl ⇧↵');
   assert.equal(chordLong('Mod+Shift+Enter'), 'Ctrl+Shift+Enter');
   configure({ platform: 'mac' });
+});
+
+test('an ISO date-time inside a label reads as a local short date-time; other text is untouched', () => {
+  configure({ language: 'en-US' });
+  const text = localizeDateTimes('AS-2026-004641  2026-11-22T22:55:14.911522+00:00');
+  // The day depends on the machine's time zone (22:55 UTC is the 22nd or the 23rd), the shape does not.
+  assert.match(text, /^AS-2026-004641 {2}Nov 2[23], 2026.*\d{1,2}:\d{2}/);
+  assert.doesNotMatch(text, /T\d{2}:|\+00:00|:14/);
+  assert.equal(localizeDateTimes('AS-2026-004641'), 'AS-2026-004641');
+  assert.equal(localizeDateTimes('2026-11-22'), '2026-11-22', 'a date with no time stays as it is');
+  assert.equal(localizeDateTimes(undefined), '');
+  assert.equal(localizeDateTimes('Sent 2026-13-45T10:00:00Z'), 'Sent 2026-13-45T10:00:00Z', 'an impossible date is left alone');
 });

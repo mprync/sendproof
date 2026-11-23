@@ -9,17 +9,29 @@
  */
 export class PreviewTurns {
   #tail: Promise<void> = Promise.resolve();
+  #waiting = 0;
+
+  /** Sessions take an available turn immediately, so a second open cannot wait on the first. */
+  tryAcquire(): (() => void) | undefined {
+    return this.#waiting === 0 ? this.#enqueue().release : undefined;
+  }
 
   /** Run `operation` once every earlier operation has settled, whether it succeeded or failed. */
   async run<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = this.#tail;
-    let release!: () => void;
-    this.#tail = new Promise<void>(resolve => { release = resolve; });
+    const { previous, release } = this.#enqueue();
     try {
       await previous;
       return await operation();
     } finally {
       release();
     }
+  }
+
+  #enqueue() {
+    const previous = this.#tail;
+    const turn = Promise.withResolvers<void>();
+    this.#tail = turn.promise;
+    this.#waiting++;
+    return { previous, release: () => { this.#waiting--; turn.resolve(); } };
   }
 }

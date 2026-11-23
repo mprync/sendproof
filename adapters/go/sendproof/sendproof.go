@@ -35,8 +35,9 @@ import (
 // Sendproof is the Sendproof runtime for one application. It is safe for concurrent
 // use. Create it with New.
 type Sendproof struct {
-	cfg    config
-	traces *traceStore
+	cfg      config
+	traces   *traceStore
+	sessions sessionRegistry
 
 	mu          sync.RWMutex
 	ops         []*Operation
@@ -51,7 +52,8 @@ func New(options ...Option) (*Sendproof, error) {
 			return nil, err
 		}
 	}
-	return &Sendproof{cfg: cfg, traces: newTraceStore(cfg.traceTTL, cfg.clock)}, nil
+	return &Sendproof{cfg: cfg, traces: newTraceStore(cfg.traceTTL, cfg.clock),
+		sessions: sessionRegistry{open: make(map[string]*heldPreview)}}, nil
 }
 
 // Enabled reports whether the workbench and Preview are available in the
@@ -97,8 +99,14 @@ func (b *Sendproof) principal(r *http.Request) (Principal, bool) {
 // a stable subject owns nothing.
 func (b *Sendproof) owner(r *http.Request) (traceOwner, bool) {
 	principal, ok := b.principal(r)
-	base := b.pathBase(r)
-	if !ok || principal.Subject == "" || len(principal.Subject) > maxName || len(principal.Scheme) > maxName ||
+	if !ok {
+		return traceOwner{}, false
+	}
+	return b.principalOwner(principal, b.pathBase(r))
+}
+
+func (b *Sendproof) principalOwner(principal Principal, base string) (traceOwner, bool) {
+	if principal.Subject == "" || len(principal.Subject) > maxName || len(principal.Scheme) > maxName ||
 		len(principal.Issuer) > maxText || len(base) > 4096 {
 		return traceOwner{}, false
 	}
@@ -133,13 +141,17 @@ type Operation struct {
 // Registered operations are advertised to the workbench only when a provider is
 // registered.
 func (b *Sendproof) Operation(method, path string) *Operation {
-	template, rest := normalizeTemplate(path)
-	op := &Operation{bench: b, method: strings.ToUpper(method), path: template, rest: rest}
-	op.segments = strings.Split(strings.Trim(template, "/"), "/")
+	op := newOperation(b, method, path)
 	b.mu.Lock()
 	b.ops = append(b.ops, op)
 	b.mu.Unlock()
 	return op
+}
+
+func newOperation(b *Sendproof, method, path string) *Operation {
+	template, rest := normalizeTemplate(path)
+	return &Operation{bench: b, method: strings.ToUpper(method), path: template, rest: rest,
+		segments: strings.Split(strings.Trim(template, "/"), "/")}
 }
 
 // Router is the subset of http.ServeMux used by HandlePreview.

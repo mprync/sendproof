@@ -210,6 +210,14 @@ Each store takes `treatAsRead`, a list of exact command names the guard should l
 > [!WARNING]
 > `treatAsRead` is your statement that the command never writes. The guard trusts it: a listed command that does write is not blocked, and its write happens during the Preview. Names match exactly, with no wildcards.
 
+## Preview session limits
+
+- Sessions are process-local, take one request at a time, and roll back on end, after five minutes idle, after 30 minutes total, or during host shutdown. Each identity can open four sessions and each process can hold sixteen. Route workbench requests to the same instance across steps.
+- JDBC sessions cover H2, PostgreSQL, MySQL, MariaDB, SQL Server and SQLite. Spring sessions need a standard Hibernate JPA or Spring JDBC transaction manager using the same capture-wrapped data source. Other drivers and custom providers without a verified savepoint and connection lifetime report `previewSessions: false`.
+- Each SQL session holds one pool connection and retains its write locks. MySQL and MariaDB also hold the provider's Preview turn. SQLite holds a writer reservation and returns `store_busy` promptly when another writer has the lock.
+- MongoDB replica sets and sharded clusters hold one driver transaction. Rewind needs before images. The adapter budgets 1,000 documents across retained undo and the current step and refuses writes that would exceed it. Keep steps quick if the server uses the default 60-second transaction lifetime. A server-ended transaction closes the session and returns `session_failed`.
+- Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore and standalone MongoDB stay in guard mode in sessions. Reads run and writes are refused before execution. SQL and MongoDB writes from the refused step roll back to its checkpoint.
+
 ## MongoDB limits
 
 These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spec/data-stores.md#mongodb-in-preview).

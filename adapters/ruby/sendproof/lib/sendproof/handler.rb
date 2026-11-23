@@ -12,11 +12,13 @@ module Sendproof
     #
     # @param env [Hash] Rack environment of the request being handled
     # @param eligible [Boolean] whether the endpoint is preview-enabled
-    # @raise [IneligibleHandler] during a preview when +eligible+ is false (the block does not run)
+    # @raise [IneligibleHandler] when a preview requires eligibility and +eligible+ is false
     def around(env, request: nil, eligible: true, &block)
       context = env[ENV_KEY]
       return yield unless context
 
+      # The transport checks the configured previewUnavailable marks before running a session GET.
+      eligible ||= context.is_a?(PreviewRequest) && context.session_get?
       context.around_handler(request: request || Rack::Request.new(env), eligible:, &block)
     end
   end

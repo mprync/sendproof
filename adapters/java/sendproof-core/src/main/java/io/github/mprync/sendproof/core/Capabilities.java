@@ -21,6 +21,8 @@ import java.util.List;
  * @param dataStores        the data stores the binding has hooked and how Preview treats each
  * @param previewUnavailable operations marked {@code preview: false}, each with the reason the workbench shows
  * @param binding           the language and framework serving the workbench, or {@code null}
+ * @param previewSessions   whether every rollback-capable store supports held Preview sessions
+ * @param journeys          the registered journey document pairs
  */
 public record Capabilities(int protocolVersion, String openApiUrl, List<String> fieldModules, String apiName,
                            String environment, Object database, Identity identity, List<AuthProvider> authProviders,
@@ -28,7 +30,17 @@ public record Capabilities(int protocolVersion, String openApiUrl, List<String> 
                            List<OpenApiDocument> documents,
                            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<DataStore.Description> dataStores,
                            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<PreviewUnavailable> previewUnavailable,
-                           @JsonInclude(JsonInclude.Include.NON_NULL) Binding binding) {
+                           @JsonInclude(JsonInclude.Include.NON_NULL) Binding binding,
+                           boolean previewSessions,
+                           @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Journey> journeys) {
+
+    public Capabilities(int protocolVersion, String openApiUrl, List<String> fieldModules, String apiName,
+                        String environment, Object database, Identity identity, List<AuthProvider> authProviders,
+                        List<PreviewOperation> previewOperations, boolean observedSend, List<OpenApiDocument> documents,
+                        List<DataStore.Description> dataStores, List<PreviewUnavailable> previewUnavailable, Binding binding) {
+        this(protocolVersion, openApiUrl, fieldModules, apiName, environment, database, identity, authProviders,
+                previewOperations, observedSend, documents, dataStores, previewUnavailable, binding, false, List.of());
+    }
 
     /** Creates capabilities with no data stores, no unavailable operations and no binding. */
     public Capabilities(int protocolVersion, String openApiUrl, List<String> fieldModules, String apiName,
@@ -73,5 +85,9 @@ public record Capabilities(int protocolVersion, String openApiUrl, List<String> 
 
     /** A named OpenAPI document. */
     public record OpenApiDocument(String name, String url) {
+    }
+
+    /** A registered journey document and its paired expectations. */
+    public record Journey(String name, String source, String arazzoUrl, String expectationsUrl) {
     }
 }

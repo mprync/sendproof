@@ -6,10 +6,13 @@ dependencies {
     // flavor it needs (synchronous or reactive streams).
     compileOnly(rootProject.libs.mongodb.sync)
     compileOnly(rootProject.libs.mongodb.reactivestreams)
+    compileOnly(platform(rootProject.libs.spring.boot.bom))
+    compileOnly("io.projectreactor:reactor-core")
 
     testImplementation(platform(rootProject.libs.spring.boot.bom))
     testImplementation(rootProject.libs.mongodb.sync)
     testImplementation(rootProject.libs.mongodb.reactivestreams)
+    testImplementation("io.projectreactor:reactor-core")
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.assertj:assertj-core")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

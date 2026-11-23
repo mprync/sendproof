@@ -73,13 +73,17 @@ module Sendproof
         return if name == "TRANSACTION" || tracker.nil?
 
         recorder = Sendproof::Capture.preview or return
+        unless tracker.holds?(self)
+          error = Sendproof::Stores::Guard.refuse_in_preview("This connection is outside the held Preview transaction.")
+          raise error if error
+        end
         if (ended = tracker.ended(self))
           error = Sendproof::Stores::Guard.refuse_in_preview("Preview can't run this statement: #{ended}, so it would run outside the Preview transaction.")
           raise error if error
         end
         mysql = MYSQL_ADAPTERS.include?(pool.db_config.adapter.to_s)
         reason = Sendproof::TransactionControl.reason(sql, mysql: mysql, safe_procedures: tracker.safe_procedures,
-                                                           reserved: Session::SAVEPOINT)
+                                                           reserved: HeldSession::RESERVED)
         return unless reason
 
         error = Sendproof::Stores::Guard.refuse_in_preview("Preview owns the database transaction, so #{reason}; it cannot run during Preview.")

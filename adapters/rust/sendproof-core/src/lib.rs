@@ -26,6 +26,7 @@ pub mod model;
 pub mod protocol;
 pub mod provider;
 pub mod redact;
+mod sessions;
 pub mod stores;
 pub mod trace_store;
 pub mod transport;
@@ -39,7 +40,10 @@ pub use layer::SendproofLayer;
 pub use capture::{Blocked, DbEntry};
 pub use config::{Config, ConfigBuilder, ConfigError, Identity, Operation, UnavailableOperation};
 pub use headers::Headers;
-pub use provider::{BoxError, BoxFuture, Changes, Observation, PreviewProvider, PreviewRequired, PreviewSession};
+pub use provider::{
+    BoxError, BoxFuture, Changes, HeldPreview, HeldStepError, Observation, OpenSessionError, PreviewProvider, PreviewRequired,
+    PreviewSession,
+};
 pub use stores::{
     CaptureScope, CommandKind, DataStore, NotEnrolled, PreviewFault, PreviewWriteBlocked, StoreDescription, StoreMode, StoreScope, detached,
 };

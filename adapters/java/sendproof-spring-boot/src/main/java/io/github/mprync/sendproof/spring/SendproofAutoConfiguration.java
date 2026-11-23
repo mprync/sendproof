@@ -2,6 +2,7 @@ package io.github.mprync.sendproof.spring;
 
 import io.github.mprync.sendproof.core.DataStore;
 import io.github.mprync.sendproof.core.PreviewProvider;
+import io.github.mprync.sendproof.core.PreviewSessions;
 import io.github.mprync.sendproof.core.TraceStore;
 import io.github.mprync.sendproof.core.WorkbenchAssets;
 import org.springdoc.core.models.GroupedOpenApi;
@@ -47,6 +48,11 @@ public class SendproofAutoConfiguration {
     @ConditionalOnMissingBean
     TraceStore sendproofTraceStore(SendproofSettings settings) {
         return new TraceStore(settings.traceRetention(), System::nanoTime);
+    }
+
+    @Bean
+    PreviewSessions sendproofPreviewSessions() {
+        return new PreviewSessions();
     }
 
     @Bean
@@ -124,8 +130,9 @@ public class SendproofAutoConfiguration {
 
     @Bean
     SendproofInterceptor sendproofInterceptor(PreviewProviders providers, SendproofStores stores, WorkbenchAccess access,
-                                              TraceOwnerResolver owners, TraceStore traces) {
-        return new SendproofInterceptor(providers, stores, access, owners, traces);
+                                              TraceOwnerResolver owners, WorkbenchIdentityResolver identities,
+                                              TraceStore traces, PreviewSessions sessions) {
+        return new SendproofInterceptor(providers, stores, access, owners, identities, traces, sessions);
     }
 
     @Bean
@@ -145,9 +152,10 @@ public class SendproofAutoConfiguration {
                                                      PreviewOperations operations,
                                                      OpenApiDocuments documents, WorkbenchIdentityResolver identities,
                                                      WorkbenchAccess access, TraceOwnerResolver owners,
-                                                     TraceStore traces, WorkbenchAssets assets) {
+                                                     TraceStore traces, WorkbenchAssets assets, PreviewSessions sessions,
+                                                     UnguardedClients unguarded) {
         return new WorkbenchController(settings, environment, providers, stores, operations, documents, identities,
-                access, owners, traces, assets);
+                access, owners, traces, assets, sessions, unguarded);
     }
 
     /** Identity from Spring Security when it is present. */

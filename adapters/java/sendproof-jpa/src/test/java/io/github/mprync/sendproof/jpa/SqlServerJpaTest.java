@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.mprync.sendproof.core.PreviewSession;
+import io.github.mprync.sendproof.core.RequestCapture;
 import io.github.mprync.sendproof.jpa.testapp.JpaTestApp;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -29,7 +30,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * backstop fails a Preview whose transaction was committed by a route the guard can't see.
  */
 @SpringBootTest(classes = JpaTestApp.class, properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop", "sendproof.enabled=true", "sendproof.environment=Development"})
+        "spring.jpa.hibernate.ddl-auto=create", "sendproof.enabled=true", "sendproof.environment=Development"})
 @EnabledIf("sqlServerAvailable")
 class SqlServerJpaTest {
     private static final String SERVER = "jdbc:sqlserver://127.0.0.1:51433;encrypt=false;trustServerCertificate=true;"
@@ -71,6 +72,33 @@ class SqlServerJpaTest {
     void seed() {
         jdbc.update("DELETE FROM widgets");
         jdbc.update("INSERT INTO widgets (id, name) VALUES ('a', 'a')");
+    }
+
+    @Test
+    @SuppressWarnings("try")
+    void aHeldPreviewKeepsTheSqlServerTransactionAndCanRewind() throws Exception {
+        assertThat(provider.supportsHeldPreview()).isTrue();
+        try (var held = provider.beginHeld()) {
+            held.checkpoint();
+            try (var step = held.begin(new RequestCapture())) {
+                jdbc.update("INSERT INTO widgets (id, name) VALUES ('held', 'first')");
+                step.finish();
+            }
+            var second = held.checkpoint();
+            try (var step = held.begin(new RequestCapture())) {
+                jdbc.update("UPDATE widgets SET name='second' WHERE id='held'");
+                step.finish();
+            }
+            second.rollback();
+            second.discard();
+            held.checkpoint();
+            try (var step = held.begin(new RequestCapture())) {
+                assertThat(jdbc.queryForObject("SELECT name FROM widgets WHERE id='held'", String.class))
+                        .isEqualTo("first");
+                step.finish();
+            }
+        }
+        assertThat(count("held")).isZero();
     }
 
     @Test

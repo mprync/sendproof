@@ -53,7 +53,8 @@ describe('Transaction-control classifier', () => {
 
   it('refuses a handler touching the Preview savepoint on MySQL, and allows its own savepoints', () => {
     for (const sql of ['SAVEPOINT sendproof_preview', 'RELEASE SAVEPOINT sendproof_preview', 'release `sendproof_preview`',
-      'ROLLBACK TO SAVEPOINT sendproof_preview', 'ROLLBACK WORK TO SENDPROOF_PREVIEW']) {
+      'ROLLBACK TO SAVEPOINT sendproof_preview', 'ROLLBACK WORK TO SENDPROOF_PREVIEW',
+      'RELEASE SAVEPOINT sendproof_preview_check', 'ROLLBACK TO `sendproof_preview_step_2`']) {
       assert.ok(endsTransaction(sql, 'mysql'), sql);
     }
     for (const sql of ['SAVEPOINT trx2', 'RELEASE SAVEPOINT trx2', 'ROLLBACK TO SAVEPOINT sendproof_preview_2']) {

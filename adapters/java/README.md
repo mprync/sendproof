@@ -42,11 +42,24 @@ Configuration can also be written in code with `Sendproof.builder()` (see the [S
 
 Open `http://localhost:8080/sendproof/`. `GET /sendproof/_api/capabilities` is the discovery document.
 
+## Preview sessions and journeys
+
+Enable Sendproof with `sendproof.enabled=true` in Spring Boot or `enabled = true` in Ktor and configure your Preview
+provider and store hooks. Capabilities advertise `previewSessions: true` when every rollback-capable store can keep its
+transaction between requests. Signed-in callers use the same stable subject resolver as Observed Send
+(`traceOwnerResolver` in Spring Boot and `traceOwner` in Ktor).
+
+Put `store.arazzo.json` and `store.expect.json` together in `src/main/resources/journeys/`. In Spring Boot, register a
+`Sendproof` bean built with `Sendproof.builder().journey("journeys/store.arazzo.json").build()`. In Ktor, call
+`journey("journeys/store.arazzo.json")` in `install(Sendproof) { ... }`. Both also accept a filesystem `Path`.
+Use the application-relative OpenAPI URL in the Arazzo `sourceDescriptions`. Discovery and the served Arazzo document
+include the application's path base.
+
 ## Safety model
 
 - **Explicit opt-in.** Nothing is registered unless `sendproof.enabled=true`. Even then it stays off while a `prod` or `production` profile is active, unless `sendproof.allow-in-production=true` (a warning explains the refusal).
-- **The host stays in charge.** Preview rewrites `/sendproof/_preview/<path>` to the original path *before* Spring Security, then runs the real filter chain, routing, authorization, validation and handler in the same thread. A handler must carry `@SendproofPreview`, otherwise the preview is refused with 409.
-- **Rollback is confirmed, not assumed.** The result is a confirmed envelope only if the handler completed, the response stayed under 1 MiB, the rollback succeeded and the session was disposed. Anything else is a non-success status without `rolledBack`.
+- **The host stays in charge.** Preview rewrites `/sendproof/_preview/<path>` to the original path *before* Spring Security, then runs the real filter chain, routing, authorization, validation and handler in the same thread. Mark writes with `@SendproofPreview` or `sendproofPreview`. A session also permits unmarked GETs, subject to the host's authorization and any explicit Preview refusal.
+- **Rollback-only execution.** A standalone Preview rolls back before returning its envelope. A session keeps successful steps uncommitted until it ends so subsequent steps can read them.
 - **Escapes are blocked.** During a preview a nested `REQUIRES_NEW` transaction, or a data-changing statement on a connection with no transaction, is refused before it can persist.
 - **Secrets stay out of captures.** SQL values are hidden unless the environment is development-like (`sendproof.sql.include-parameter-values`), and values bound to secret-named columns or in secret-named statements are always `[REDACTED]`. Discovery never contains connection strings.
 

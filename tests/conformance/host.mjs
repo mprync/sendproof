@@ -51,6 +51,15 @@ async function runFixture(binding, scenario, base, run, database) {
   const origin = `http://127.0.0.1:${binding.port}`;
   const workspace = await mkdtemp(join(tmpdir(), 'sendproof-conformance-'));
   const values = { PORT: String(binding.port), BENCH_TMP_DIR: workspace };
+  if (binding.database === 'sqlite') {
+    const filename = join(workspace, 'store.db');
+    database.env.BENCH_SQLITE_PATH = filename;
+    database.query = async sql => {
+      const { DatabaseSync } = await import('node:sqlite');
+      const reader = new DatabaseSync(filename, { readOnly: true });
+      try { return reader.prepare(sql).all(); } finally { reader.close(); }
+    };
+  }
   const host = spawn(platformCommand(command), args.map(argument => expand(argument, values)), {
     cwd: root,
     // A process group lets POSIX stop the fixture's children too; Windows uses taskkill /T instead.

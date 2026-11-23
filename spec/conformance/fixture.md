@@ -8,6 +8,7 @@ Implement a disposable HTTP app backed by one real relational table, `items`, wi
 | `BENCH_PATH_BASE` | Application mount, empty or `/tenant` |
 | `BENCH_SCENARIO` | `standard`, `disabled`, `no-provider`, or `rollback-failure` |
 | `BENCH_TMP_DIR` | Disposable directory for fixture keys, storage and logs |
+| `BENCH_SQLITE_PATH` | SQLite file the runner opens independently to verify session rollback. Session-capable SQLite fixtures use this path. |
 | `BENCH_DATABASE` | Database selected by the manifest entry. Values are `sqlite`, `h2`, `postgresql`, `mysql` and `sqlserver`. |
 | `BENCH_DATABASE_URL` | Connection URL for a fresh database on a local service. Set for PostgreSQL, MySQL (and MariaDB) and SQL Server. |
 | `BENCH_DATABASE_SERVER` | The manifest `database`, which differs from `BENCH_DATABASE` only for MariaDB: a `mariadb` entry runs with `BENCH_DATABASE=mysql` (the MySQL wire protocol, the same fixture and driver) and `BENCH_DATABASE_SERVER=mariadb`. A fixture that has to tell the servers apart (Laravel's `mariadb` driver, the MariaDB JDBC driver) reads it. |
@@ -37,6 +38,12 @@ Server-database fixtures create the `items` table in the supplied empty database
 | `POST /items/{id}/ordinary` | Insert an item using ordinary Send only. This route stays unmarked for Preview. |
 
 Enable Preview for `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}`, and the `fail`, `large`, `redirect`, and `capture` operations. Route and authorize the rewritten request through the real framework. Changes identify the actual row key and include `insert`, `update`, or `delete` with before and after snapshots. Suppress the registered effect in Preview and mark it `delivered: true` when normal Send delivers it. Scope capture to one request and use the adapter's redaction rules for the secret-named SQL parameter. Use the default collection caps (500 logs, 100 effects, 200 changes), and configure trace retention at five seconds for tests when the adapter exposes a clock or TTL override. Other fixtures declare their retention or a local clock advance in the manifest.
+
+## Sessions and journey discovery
+
+The standard session fixture uses the existing admin and viewer identities and item CRUD routes. On `GET /items/{id}?hold=true`, keep the request in its handler for one second so two simultaneous Previews overlap. Leave the GET unmarked. The runner reads the disposable SQL database after DELETE. For a binding configured with data stores, it also uses the document routes and the mixed SQL/guarded write described below.
+
+A fixture implementing journey discovery registers at least one sample journey. Both advertised documents must be retrievable under the path base. The Arazzo document references a served OpenAPI document and validates against the vendored Arazzo 1.1 schema. See the [executable checks](../../tests/conformance/journey-discovery.mjs).
 
 ## Alternate scenarios
 

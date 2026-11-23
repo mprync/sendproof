@@ -1,0 +1,37 @@
+{
+  "arazzo": "1.1.0",
+  "info": { "title": "Conformance journeys", "version": "1.0.0" },
+  "sourceDescriptions": [
+    { "name": "conformance", "url": "/openapi/v1.json", "type": "openapi" }
+  ],
+  "workflows": [
+    {
+      "workflowId": "createAndReadItem",
+      "summary": "Create and read an item",
+      "inputs": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "default": "conformance-item" },
+          "name": { "type": "string", "default": "Fixture item" }
+        }
+      },
+      "steps": [
+        {
+          "stepId": "create",
+          "operationId": "createItem",
+          "requestBody": {
+            "contentType": "application/json",
+            "payload": { "id": "$inputs.id", "name": "$inputs.name" }
+          },
+          "successCriteria": [{ "condition": "$statusCode == 201" }]
+        },
+        {
+          "stepId": "read",
+          "operationId": "readItem",
+          "parameters": [{ "name": "id", "in": "path", "value": "$inputs.id" }],
+          "successCriteria": [{ "condition": "$statusCode == 200" }]
+        }
+      ]
+    }
+  ]
+}

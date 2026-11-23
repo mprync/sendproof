@@ -152,6 +152,160 @@ fn confirmed(reply: &Reply) -> bool {
     reply.headers.iter().any(|(name, value)| *name == "preference-applied" && value == "tx=rollback")
 }
 
+/// Exercises before images across steps without depending on the HTTP session registry. The core
+/// conformance suite covers the wire protocol; this protects MongoDB's no-savepoint undo path.
+#[tokio::test]
+async fn held_steps_see_prior_writes_and_rewind_restores_the_step_image() {
+    let fixture = fixture!();
+    let mut held = fixture.store.begin_held_preview().await.unwrap_or_else(|_| panic!("held MongoDB session opens")).expect("held handle");
+
+    let first = capture::Recorder::new_preview(Instant::now(), false);
+    first.begin(true);
+    let mut extensions = http::Extensions::new();
+    extensions.insert(CaptureScope(first.clone()));
+    held.begin_step(1, &mut extensions).await.unwrap();
+    let state = extensions.get::<States>().unwrap().0[0].1.clone();
+    capture::scope(first.clone(), async {
+        let mongo =
+            Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state.clone()) } };
+        mongo.collection::<Document>("documents").insert_one(doc! { "_id": "held", "name": "first" }).await.unwrap();
+    })
+    .await;
+    let first_changes = held.keep_step().await.unwrap_or_else(|_| panic!("first step captured"));
+    assert_eq!(first_changes.changes.len(), 1);
+    capture::scope(first, async {
+        let stale = Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+        assert!(stale.collection::<Document>("documents").insert_one(doc! { "_id": "stale" }).await.is_err());
+    })
+    .await;
+    assert!(fixture.find(doc! { "_id": "held" }).await.is_empty());
+
+    let second = capture::Recorder::new_preview(Instant::now(), false);
+    second.begin(true);
+    let mut extensions = http::Extensions::new();
+    extensions.insert(CaptureScope(second.clone()));
+    held.begin_step(2, &mut extensions).await.unwrap();
+    let state = extensions.get::<States>().unwrap().0[0].1.clone();
+    capture::scope(second, async {
+        let mongo = Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+        let collection = mongo.collection::<Document>("documents");
+        assert_eq!(collection.find_one(doc! { "_id": "held" }).await.unwrap().unwrap().get_str("name").unwrap(), "first");
+        collection.update_one(doc! { "_id": "held" }, doc! { "$set": { "name": "second" } }).await.unwrap();
+    })
+    .await;
+    let second_changes = held.keep_step().await.unwrap_or_else(|_| panic!("second step captured"));
+    assert_eq!(second_changes.changes.len(), 1);
+    assert_eq!(second_changes.changes[0].before.as_ref().unwrap()["name"], "first");
+    held.rewind(2).await.unwrap();
+
+    let again = capture::Recorder::new_preview(Instant::now(), false);
+    again.begin(true);
+    let mut extensions = http::Extensions::new();
+    extensions.insert(CaptureScope(again.clone()));
+    held.begin_step(2, &mut extensions).await.unwrap();
+    let state = extensions.get::<States>().unwrap().0[0].1.clone();
+    capture::scope(again, async {
+        let mongo = Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+        let document = mongo.collection::<Document>("documents").find_one(doc! { "_id": "held" }).await.unwrap().unwrap();
+        assert_eq!(document.get_str("name").unwrap(), "first");
+    })
+    .await;
+    assert!(held.keep_step().await.unwrap_or_else(|_| panic!("read step captured")).changes.is_empty());
+    held.end().await.unwrap();
+    assert!(fixture.find(doc! { "_id": "held" }).await.is_empty());
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn held_guard_mode_stays_guard_when_topology_changes() {
+    let store = MongoStore::builder(options().await.expect("parse local MongoDB URL"), format!("sp_test_{}", uuid_like()))
+        .build()
+        .expect("build guarded store");
+    store.engine.set_detected(engine::Detected { mode: preview::Mode::Guard, reason: Some(STANDALONE_REASON), monitored: true }).await;
+    let mut held = store.begin_held_preview().await.unwrap_or_else(|_| panic!("guard session opens")).expect("guard handle");
+    store.engine.set_detected(engine::Detected { mode: preview::Mode::Preview, reason: None, monitored: true }).await;
+    let recorder = capture::Recorder::new_preview(Instant::now(), false);
+    recorder.begin(true);
+    let mut extensions = http::Extensions::new();
+    extensions.insert(CaptureScope(recorder.clone()));
+    held.begin_step(1, &mut extensions).await.unwrap();
+    let state = extensions.get::<States>().unwrap().0[0].1.clone();
+    capture::scope(recorder, async {
+        let mongo = Mongo { access: Access { engine: store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+        assert!(mongo.collection::<Document>("documents").insert_one(doc! { "_id": "guard" }).await.is_err());
+    })
+    .await;
+    held.rewind(1).await.unwrap();
+    held.end().await.unwrap();
+}
+
+#[tokio::test]
+async fn held_delete_many_past_capture_limit_fails_closed() {
+    let fixture = fixture!();
+    let documents = (0..=engine::CANDIDATE_LIMIT).map(|id| doc! { "_id": id as i32 }).collect::<Vec<_>>();
+    fixture.reader.database(&fixture.database).collection::<Document>("documents").insert_many(documents).await.unwrap();
+    let mut held = fixture.store.begin_held_preview().await.unwrap_or_else(|_| panic!("held session opens")).expect("held handle");
+    let recorder = capture::Recorder::new_preview(Instant::now(), false);
+    recorder.begin(true);
+    let mut extensions = http::Extensions::new();
+    extensions.insert(CaptureScope(recorder.clone()));
+    held.begin_step(1, &mut extensions).await.unwrap();
+    let state = extensions.get::<States>().unwrap().0[0].1.clone();
+    capture::scope(recorder, async {
+        let mongo = Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+        mongo.collection::<Document>("documents").delete_many(doc! {}).await.unwrap();
+    })
+    .await;
+    assert!(matches!(held.keep_step().await, Err(sendproof_core::HeldStepError::Broken(_))));
+    held.end().await.unwrap();
+    assert_eq!(fixture.find(doc! {}).await.len(), engine::CANDIDATE_LIMIT + 1);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn held_bson_history_budget_fails_closed() {
+    let fixture = fixture!();
+    fixture.seed(doc! { "_id": "large", "blob": "x".repeat(7 * 1024 * 1024), "version": 0 }).await;
+    let mut held = fixture.store.begin_held_preview().await.unwrap_or_else(|_| panic!("held session opens")).expect("held handle");
+    let mut capped = false;
+    for step in 1..=5 {
+        let recorder = capture::Recorder::new_preview(Instant::now(), false);
+        recorder.begin(true);
+        let mut extensions = http::Extensions::new();
+        extensions.insert(CaptureScope(recorder.clone()));
+        held.begin_step(step, &mut extensions).await.unwrap();
+        let state = extensions.get::<States>().unwrap().0[0].1.clone();
+        capture::scope(recorder, async {
+            let mongo = Mongo { access: Access { engine: fixture.store.engine.clone(), scope: StoreScope::current(), state: Some(state) } };
+            mongo
+                .collection::<Document>("documents")
+                .update_one(doc! { "_id": "large" }, doc! { "$set": { "version": step as i32 } })
+                .await
+                .unwrap();
+        })
+        .await;
+        match held.keep_step().await {
+            Ok(_) => {}
+            Err(sendproof_core::HeldStepError::Broken(error))
+                if error
+                    .downcast_ref::<mongodb::error::Error>()
+                    .and_then(|error| error.get_custom::<sendproof_core::ConfigError>())
+                    .is_some_and(|error| error.0.contains("32 MiB")) =>
+            {
+                capped = true;
+                break;
+            }
+            Err(sendproof_core::HeldStepError::Broken(error)) => panic!("unexpected held capture failure: {error:?}"),
+            Err(sendproof_core::HeldStepError::Ended(error)) => panic!("transaction ended: {error}"),
+            Err(sendproof_core::HeldStepError::Recoverable(error)) => panic!("recoverable capture failure: {error}"),
+        }
+    }
+    assert!(capped, "retained BSON images must have a session-wide bound");
+    held.end().await.unwrap();
+    assert_eq!(fixture.find(doc! { "_id": "large" }).await[0].get_i32("version").unwrap(), 0);
+    fixture.cleanup().await;
+}
+
 #[tokio::test]
 async fn a_preview_reports_nested_changes_and_leaves_nothing_behind() {
     let fixture = fixture!();

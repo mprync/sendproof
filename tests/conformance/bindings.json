@@ -561,6 +561,138 @@
       "traceTtlMs": 5000
     },
     {
+      "id": "go-chi-postgresql",
+      "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5470,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "chi", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-chi-mysql",
+      "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5471,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "chi", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-chi-mariadb",
+      "database": "mariadb",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5472,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "chi", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-chi-sqlserver",
+      "database": "sqlserver",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5473,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "chi", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gin-postgresql",
+      "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5474,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "gin", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gin-mysql",
+      "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5475,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "gin", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gin-mariadb",
+      "database": "mariadb",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5476,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "gin", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-gin-sqlserver",
+      "database": "sqlserver",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5477,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "gin", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-echo-postgresql",
+      "database": "postgresql",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5478,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "echo", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-echo-mysql",
+      "database": "mysql",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5479,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "echo", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-echo-mariadb",
+      "database": "mariadb",
+      "sharedRules": ["secret-columns", "raw-commit", "mysql-escape"],
+      "toolchain": "go",
+      "port": 5480,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "echo", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
+      "id": "go-echo-sqlserver",
+      "database": "sqlserver",
+      "sharedRules": ["secret-columns", "raw-commit"],
+      "toolchain": "go",
+      "port": 5481,
+      "readiness": "/ready",
+      "prepare": "(cd adapters/go && ./scripts/go.sh generate ./internal/ui) && adapters/go/scripts/build-fixture.sh",
+      "start": ["artifacts/go/fixture", "echo", "sql"],
+      "traceTtlMs": 5000
+    },
+    {
       "id": "rust-axum",
       "database": "sqlite",
       "stores": ["mongodb", "redis", "dynamodb", "cassandra", "opensearch"],

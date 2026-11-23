@@ -25,6 +25,7 @@ dependencies {
     api(project(":sendproof-elasticsearch"))
     compileOnly(libs.mongodb.kotlin)
     api("io.ktor:ktor-server-core")
+    implementation("io.ktor:ktor-server-auth")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
 
     testImplementation("io.ktor:ktor-server-test-host")

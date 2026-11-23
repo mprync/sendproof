@@ -41,18 +41,28 @@ module Sendproof
       # Refuses to start when Mongoid now uses a client the store never hooked (one it built after
       # +Mongoid::Clients.clear+): that client's writes would be neither guarded nor rolled back.
       def begin_preview(_context, recorder)
-        if @engine.active? && !@engine.hooked?(::Mongoid::Clients.with_name(@client_name))
-          raise ConfigurationError, "Mongoid rebuilt its #{@client_name.inspect} client after Sendproof hooked it; " \
-                                    "create the Sendproof::Mongoid::Store after Mongoid's clients are configured."
-        end
-
+        check_client
         @engine.begin_preview(recorder)
+      end
+
+      def begin_held_preview(_context)
+        check_client
+        @engine.begin_held_preview { check_client }
       end
 
       def finish_preview(recorder) = @engine.finish_preview(recorder)
 
       # Turns the hook off: nothing is guarded or logged afterwards.
       def unhook! = @engine.unhook!
+
+      private
+
+      def check_client
+        if @engine.active? && !@engine.hooked?(::Mongoid::Clients.with_name(@client_name))
+          raise ConfigurationError, "Mongoid rebuilt its #{@client_name.inspect} client after Sendproof hooked it; " \
+                                    "create the Sendproof::Mongoid::Store after Mongoid's clients are configured."
+        end
+      end
     end
   end
 end

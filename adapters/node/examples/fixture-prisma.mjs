@@ -17,8 +17,9 @@ const dialects = {
     secret: 'SELECT ? AS value',
     async adapter() {
       const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
-      const directory = process.env.BENCH_TMP_DIR ?? await mkdtemp(join(tmpdir(), 'sendproof-prisma-'));
-      return new PrismaBetterSqlite3({ url: 'file:' + join(directory, 'fixture.db') });
+      const filename = process.env.BENCH_SQLITE_PATH ?? join(
+        process.env.BENCH_TMP_DIR ?? await mkdtemp(join(tmpdir(), 'sendproof-prisma-')), 'fixture.db');
+      return new PrismaBetterSqlite3({ url: 'file:' + filename });
     },
   },
   postgresql: {

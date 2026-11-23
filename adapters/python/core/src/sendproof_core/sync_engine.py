@@ -20,6 +20,7 @@ from .identity import Identity
 from .options import BenchOptions
 from .provider import PreviewProvider, PreviewUnavailable
 from .scope import RequestScope, activate, deactivate
+from .sessions import HEADER, Call, HeldSession, SessionRegistry, is_route, not_found, run, session_id
 from .stores.base import DataStore, StoresOnlyProvider, validate_stores
 from .trace_store import Reservation
 from .workbench import Response, Workbench, blocked_response, problem_response, trace_owner
@@ -105,6 +106,7 @@ class SyncBench:
                  authorize: Callable[..., bool] | None = None, stores: Iterable[DataStore] = ()) -> None:
         self.options, self.provider, self.workbench, self.authorize = options, provider, workbench, authorize
         self.stores = validate_stores(stores)
+        self.sessions = SessionRegistry(options, provider, self.stores)
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -125,8 +127,13 @@ class SyncBench:
         authorized: bool, origin_ok: bool, operations: Callable[[], Iterable[tuple[str, str]]],
         default_openapi_url: str, default_api_name: str,
         unavailable: Callable[[], Iterable[tuple[str, str, str, tuple[str, ...]]]] | None = None,
+        read_body: Callable[[], bytes] = bytes,
     ) -> Response:
         """Serve every ``/sendproof/*`` route except the preview prefix."""
+        if is_route(path):
+            return run(self.sessions.route(
+                path, method, identity, path_base, authorized, origin_ok, Call(self.describe_stores), Call(read_body),
+            ))
         if method not in ("GET", "HEAD"):
             return Response(405, [("allow", "GET, HEAD")])
         if not authorized:
@@ -137,16 +144,17 @@ class SyncBench:
         if path in ("/sendproof/", "/sendproof/signin.html"):
             return workbench.asset("index.html")
         if path == "/sendproof/_api/capabilities":
+            stores = self.describe_stores()
             return workbench.capabilities(
                 path_base, identity, operations(), default_openapi_url, default_api_name,
-                unavailable() if unavailable else (), self.describe_stores(),
+                unavailable() if unavailable else (), stores, self.sessions.supported(stores),
             )
         if path.startswith("/sendproof/_api/traces/"):
             owner = trace_owner(identity, path_base) if origin_ok else None
             return workbench.trace(path.rsplit("/", 1)[1], owner)
         if path.startswith("/sendproof/_api/"):
             return Response(404, [("cache-control", "no-store")])
-        return workbench.asset(path[len("/sendproof/"):])
+        return workbench.asset(path[len("/sendproof/"):], path_base)
 
     def describe_stores(self) -> list[dict[str, Any]]:
         """The capabilities ``dataStores`` entries. A store that cannot describe itself is left out."""
@@ -168,10 +176,22 @@ class SyncBench:
         if not protocol.is_valid_preview_target(path[len(protocol.PREVIEW_PREFIX):]):
             return problem_response(400, "The Sendproof preview target is invalid.")
         if not origin_ok:
+            if session_id(list(get_header(HEADER))) is not None:
+                return not_found().response
             return problem_response(403, "This preview is forbidden.")
         return None
 
-    def preview(self, *, dispatch: Callable[[RequestScope], Inner], started: float, method: str, path: str) -> Response:
+    @contextmanager
+    def use_session(self, id: str | None, identity: Identity | None, base: str, origin_ok: bool) -> Iterator[HeldSession | None]:
+        session = None if id is None else self.sessions.acquire(id, identity, base, origin_ok)
+        try:
+            yield session
+        finally:
+            if session is not None:
+                run(self.sessions.release(session))
+
+    def preview(self, *, dispatch: Callable[[RequestScope], Inner], started: float, method: str, path: str,
+                held: HeldSession | None = None) -> Response:
         """Run ``dispatch`` inside a rollback scope and wrap its response in the envelope.
 
         Order after the handler (spec/data-stores.md): abort every ``preview``-mode store
@@ -179,10 +199,12 @@ class SyncBench:
         (a handler ``COMMIT``, a write that escaped the MongoDB session), answer 500 without
         confirmation. Else, if the write guard blocked a write, answer 409. Otherwise confirm.
         """
+        scope = new_scope(self.options, True, started)
+        if held is not None:
+            return run(held.preview(scope, Call(dispatch, (scope,)), self.workbench))
         provider = self.provider
         if provider is None or not provider.is_available:
             return problem_response(503, "Preview requires one available preview provider.")
-        scope = new_scope(self.options, True, started)
         token = activate(scope)
         inner: Inner | None = None
         failure: BaseException | None = None

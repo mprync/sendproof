@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using Sendproof.AspNetCore;
@@ -104,7 +105,7 @@ public static class SendproofMongoExtensions
 }
 
 /// <summary>The MongoDB data store: its discovery entry and the Preview transaction.</summary>
-internal sealed class MongoStore(MongoEngine engine, string? name) : IPreviewDataStore
+internal sealed class MongoStore(MongoEngine engine, string? name) : IPreviewDataStore, IPreviewSessionSource
 {
     public string System => "mongodb";
 
@@ -138,4 +139,43 @@ internal sealed class MongoStore(MongoEngine engine, string? name) : IPreviewDat
 
     public async ValueTask FinishPreviewAsync(SendproofPreview preview, CancellationToken cancellationToken) =>
         await engine.FinishAsync(preview, cancellationToken);
+
+    /// <summary>
+    /// An observed Send's writes commit, so its changes are read around each write: the documents before it, and again after the
+    /// handler. Needs no transaction, so it works on a standalone server as well.
+    /// </summary>
+    public IPreviewObservation? BeginObservation(HttpContext context) =>
+        engine.MonitoringEnabled ? engine.Observe(context.RequestServices.GetRequiredService<SendproofPreview>()) : null;
+
+    public async ValueTask<IHeldPreview?> HoldAsync(HttpContext context, CancellationToken cancellationToken) =>
+        await engine.HoldAsync(cancellationToken);
+}
+
+/// <summary>
+/// A preview session's MongoDB transaction. Each step joins it through the guarded client; undoing a step or rewinding
+/// writes back the before images the steps' change capture kept, inside the same transaction.
+/// </summary>
+internal sealed class MongoHeldPreview(MongoEngine engine, MongoEngine.PreviewState state) : IHeldPreview
+{
+    /// <summary>The session's client session and step images.</summary>
+    internal MongoEngine.PreviewState State => state;
+
+    public string? EndedReason => state.Held!.EndedReason;
+
+    public ValueTask BeginStepAsync(HttpContext context, SendproofPreview preview, int step, CancellationToken cancellationToken)
+    {
+        engine.JoinStep(state, preview, step);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask KeepStepAsync(CancellationToken cancellationToken) =>
+        EndedReason is { } ended ? throw new PreviewSessionFailedException(ended) : ValueTask.CompletedTask;
+
+    public async ValueTask UndoStepAsync(CancellationToken cancellationToken) =>
+        await engine.RewindAsync(state, state.Held!.Step, cancellationToken);
+
+    public async ValueTask RewindAsync(int step, CancellationToken cancellationToken) =>
+        await engine.RewindAsync(state, step, cancellationToken);
+
+    public async ValueTask EndAsync() => await engine.EndSessionAsync(state);
 }

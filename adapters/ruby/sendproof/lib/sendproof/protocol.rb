@@ -50,8 +50,8 @@ module Sendproof
     end
 
     # A Rack response carrying an RFC 9457 problem document, never cacheable.
-    def problem(status, title, headers = {})
-      body = JSON.generate({ type: "about:blank", title:, status: })
+    def problem(status, title, headers = {}, **extensions)
+      body = JSON.generate({ type: "about:blank", title:, status:, **extensions })
       [status, { "content-type" => "application/problem+json", "cache-control" => "no-store",
                  "content-length" => body.bytesize.to_s }.merge(headers), [body]]
     end

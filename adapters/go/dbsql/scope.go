@@ -55,8 +55,13 @@ type scope struct {
 	warned   map[string]bool
 	// logContext is a statement context of the request, whose trace still
 	// records when the provider finishes with a context of its own.
-	logContext context.Context
-	closed     bool
+	logContext  context.Context
+	closed      bool
+	held        bool
+	cancel      context.CancelFunc
+	busyTimeout *int
+	statements  []*sql.Stmt
+	blind       bool
 	// queued reports that this preview holds its DB's preview turn, which
 	// release hands back.
 	queued bool
@@ -75,10 +80,19 @@ const pgStatementSavepoint = "sendproof_statement"
 
 // open acquires the dedicated connection and prepares capture on it.
 func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
+	return d.openScope(ctx, preview, nil)
+}
+
+// A held transaction's BeginTx context lives until Close. The acquisition
+// context still bounds all setup and is wired to that context until handoff.
+func (d *DB) openScope(ctx context.Context, preview bool, lifetime context.Context) (s *scope, err error) {
 	// A preview waits for its turn before it takes a connection, so waiting
 	// previews never hold pool connections the application needs.
 	if preview {
 		if err := d.previews.acquire(ctx); err != nil {
+			if lifetime != nil && errors.Is(err, context.DeadlineExceeded) {
+				err = errors.Join(sendproof.ErrStoreBusy, err)
+			}
 			return nil, err
 		}
 	}
@@ -90,11 +104,11 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 		return nil, err
 	}
 	s = &scope{db: d, dialect: d.dialect, preview: preview, conn: conn, metadata: map[string]*tableMeta{}, warned: map[string]bool{}, queued: preview}
-	defer func() {
+	defer func(opened *scope) {
 		if err != nil {
-			err = errors.Join(err, s.release(context.WithoutCancel(ctx)))
+			err = errors.Join(err, opened.release(context.WithoutCancel(ctx)))
 		}
-	}()
+	}(s)
 	if d.dialect == DialectSQLite {
 		if err := s.registerHooks(); err != nil {
 			return nil, fmt.Errorf("%w: %w", err, sendproof.ErrPreviewUnavailable)
@@ -103,12 +117,43 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 	if !preview {
 		return s, nil
 	}
-	if s.tx, err = conn.BeginTx(ctx, nil); err != nil {
+	txContext := ctx
+	if lifetime != nil {
+		s.held = true
+		txContext = lifetime
+		if d.dialect == DialectSQLite {
+			var busyTimeout int
+			if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+				return nil, err
+			}
+			s.busyTimeout = &busyTimeout
+			if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=0"); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if s.tx, err = conn.BeginTx(txContext, nil); err != nil {
 		return nil, err
 	}
 	switch d.dialect {
+	case DialectSQLite:
+		if s.held {
+			// Upgrade a deferred transaction to a write transaction on open,
+			// even before the first step. The header change rolls back too.
+			var version int
+			if err := s.tx.QueryRowContext(ctx, "PRAGMA main.user_version").Scan(&version); err != nil {
+				return nil, err
+			}
+			if _, err := s.tx.ExecContext(ctx, fmt.Sprintf("PRAGMA main.user_version=%d", version)); err != nil {
+				return nil, err
+			}
+		}
 	case DialectPostgres:
-		blind, err := installAudit(ctx, s.tx)
+		lockTimeout := auditLockTimeout
+		if s.held {
+			lockTimeout = "2s"
+		}
+		blind, err := installAudit(ctx, s.tx, lockTimeout)
 		if errors.Is(err, errLockTimeout) {
 			return nil, fmt.Errorf("%w: %w", err, sendproof.ErrPreviewUnavailable)
 		}
@@ -116,6 +161,7 @@ func (d *DB) open(ctx context.Context, preview bool) (s *scope, err error) {
 			return nil, err
 		}
 		if blind > 0 {
+			s.blind = true
 			s.journal.markIncomplete()
 			s.warnings = append(s.warnings, fmt.Sprintf("%d writable tables could not be instrumented, because the database role lacks the TRIGGER privilege; their changes are not shown", blind))
 		}
@@ -201,7 +247,7 @@ func (s *scope) onCommit() int32 {
 func (s *scope) onRollback() {
 	if s.preview {
 		if !s.finishing.Load() {
-			s.fail(errors.New("dbsql: the preview transaction was rolled back by a statement before the preview ended"))
+			s.fail(fmt.Errorf("dbsql: the preview transaction was rolled back by a statement: %w", sendproof.ErrSessionFailed))
 		}
 		return
 	}
@@ -234,6 +280,9 @@ func (s *scope) release(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.sentinel != "" {
 		if _, err := s.conn.ExecContext(ctx, "DROP TEMPORARY TABLE IF EXISTS "+s.sentinel); err != nil {
 			errs = append(errs, err)
@@ -256,6 +305,12 @@ func (s *scope) release(ctx context.Context) error {
 		})
 		if err != nil && !errors.Is(err, driver.ErrBadConn) {
 			errs = append(errs, err)
+		}
+	}
+	if s.busyTimeout != nil {
+		if _, err := s.conn.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout=%d", *s.busyTimeout)); err != nil && !errors.Is(err, sql.ErrConnDone) {
+			errs = append(errs, err)
+			_ = s.conn.Raw(func(any) error { return driver.ErrBadConn })
 		}
 	}
 	if err := s.conn.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
@@ -374,7 +429,7 @@ func (s *scope) checkAlive(ctx context.Context, failure error) {
 		return
 	}
 	if err != nil || alive == 0 {
-		s.fail(fmt.Errorf("dbsql: the database ended the preview transaction after an error (%v); the preview stops here", failure))
+		s.fail(fmt.Errorf("dbsql: the database ended the preview transaction after an error (%v): %w", failure, sendproof.ErrSessionFailed))
 	}
 }
 
@@ -382,7 +437,7 @@ func (s *scope) checkAlive(ctx context.Context, failure error) {
 func (s *scope) exec(ctx context.Context, target conn, inTx bool, text string, args []any) (sql.Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ready(ctx); err != nil {
+	if err := s.readyHandler(ctx); err != nil {
 		return nil, err
 	}
 	info := analyze(text, s.dialect)
@@ -587,7 +642,7 @@ func (s *scope) queryRow(ctx context.Context, target conn, inTx bool, text strin
 func (s *scope) withQuery(ctx context.Context, target conn, inTx bool, text string, args []any, run func([]any) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ready(ctx); err != nil {
+	if err := s.readyHandler(ctx); err != nil {
 		return err
 	}
 	info := analyze(text, s.dialect)
@@ -647,7 +702,7 @@ func (s *scope) withQuery(ctx context.Context, target conn, inTx bool, text stri
 func (s *scope) prepare(ctx context.Context, target conn, text string) (*sql.Stmt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ready(ctx); err != nil {
+	if err := s.readyHandler(ctx); err != nil {
 		return nil, err
 	}
 	info := analyze(text, s.dialect)
@@ -660,7 +715,18 @@ func (s *scope) prepare(ctx context.Context, target conn, text string) (*sql.Stm
 	if info.mayWrite && s.dialect != DialectSQLite && !(s.preview && s.dialect == DialectPostgres) {
 		s.incomplete(ctx, "writes through prepared statements are not read by keyed capture")
 	}
-	return target.PrepareContext(ctx, text)
+	stmt, err := target.PrepareContext(ctx, text)
+	if s.held && err == nil {
+		s.statements = append(s.statements, stmt)
+	}
+	return stmt, err
+}
+
+func (s *scope) readyHandler(ctx context.Context) error {
+	if s.held && !sendproof.IsPreviewStepActive(ctx) {
+		return sendproof.ErrNoPreviewSession
+	}
+	return s.ready(ctx)
 }
 
 // tableMeta returns the cached metadata of the statement's table.
@@ -681,7 +747,7 @@ func (s *scope) tableMeta(ctx context.Context, source rowSource, plan *dml) (*ta
 // transaction on the capture connection in an observed send.
 func (s *scope) beginApp(ctx context.Context, options *sql.TxOptions) (*sql.Tx, string, error) {
 	s.mu.Lock()
-	if err := s.ready(ctx); err != nil {
+	if err := s.readyHandler(ctx); err != nil {
 		s.mu.Unlock()
 		return nil, "", err
 	}
@@ -701,6 +767,10 @@ func (s *scope) beginApp(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 		return nil, "", err
 	}
 	s.mu.Lock()
+	if s.held && !sendproof.IsPreviewStepActive(ctx) {
+		s.mu.Unlock()
+		return nil, "", sendproof.ErrNoPreviewSession
+	}
 	s.depth++
 	s.savepoints = append(s.savepoints, strings.ToUpper(name))
 	s.mu.Unlock()
@@ -709,6 +779,9 @@ func (s *scope) beginApp(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 
 // endApp ends an application transaction.
 func (s *scope) endApp(ctx context.Context, tx *sql.Tx, savepoint string, commit bool) error {
+	if s.held && !sendproof.IsPreviewStepActive(ctx) {
+		return sql.ErrTxDone
+	}
 	if tx != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -732,13 +805,18 @@ func (s *scope) endApp(ctx context.Context, tx *sql.Tx, savepoint string, commit
 	if commit {
 		if release != "" {
 			_, err = s.exec(ctx, s.tx, true, release, nil)
-		} else {
-			s.journal.savepoint(savepointOp{kind: "release", name: strings.ToUpper(savepoint)})
 		}
 	} else if _, err = s.exec(ctx, s.tx, true, rollback, nil); err == nil && release != "" {
 		_, err = s.exec(ctx, s.tx, true, release, nil)
 	}
 	s.mu.Lock()
+	if s.held && !sendproof.IsPreviewStepActive(ctx) {
+		s.mu.Unlock()
+		return sql.ErrTxDone
+	}
+	if commit && release == "" {
+		s.journal.savepoint(savepointOp{kind: "release", name: strings.ToUpper(savepoint)})
+	}
 	s.depth--
 	for index, name := range s.savepoints {
 		if name == strings.ToUpper(savepoint) {

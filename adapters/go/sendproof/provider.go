@@ -55,6 +55,48 @@ type Session interface {
 	Close() error
 }
 
+// HeldProvider is a Provider that can keep a rollback-only transaction across requests.
+// The context bounds acquisition. Once acquired, the transaction lives until Close.
+type HeldProvider interface {
+	Provider
+	BeginHeld(context.Context) (HeldSQL, error)
+}
+
+// HeldSQL exposes a held transaction to handlers through PreviewSession.
+type HeldSQL interface {
+	Session
+	HeldTransaction
+}
+
+// HeldStore is a rollback-capable DataStore that can join a Preview session.
+// Return nil when the store is in guard mode.
+type HeldStore interface {
+	DataStore
+	BeginHeld(context.Context) (HeldDataStore, error)
+}
+
+// HeldDataStore exposes the held transaction to handlers through StorePreviewFor.
+type HeldDataStore interface {
+	StorePreview
+	HeldTransaction
+}
+
+// HeldTransaction manages the step boundaries of an open Preview session.
+// CaptureStep leaves successful writes in the transaction. Rewind must also
+// work after a failed capture or when a step ran but capture was skipped.
+type HeldTransaction interface {
+	StartStep(context.Context, int) error
+	CaptureStep(context.Context) error
+	Rewind(context.Context, int) error
+	Close() error
+}
+
+// ErrStoreBusy reports lock contention while acquiring a held transaction.
+var ErrStoreBusy = errors.New("sendproof: the preview store is busy")
+
+// ErrSessionFailed reports that the store ended the held transaction.
+var ErrSessionFailed = errors.New("sendproof: the store ended the preview session")
+
 // Observation captures changes during an observed send.
 type Observation interface {
 	// Finish returns the changes made since the observation began.

@@ -142,6 +142,13 @@ async fn article(search: OpenSearch) -> Result<Json<Value>, StatusCode> {
 - A `Db` entry shows the endpoint name (`search`, `update_by_query`), the index and the body with every literal replaced by `?`.
 - `.treat_as_read([...])` takes an endpoint name such as `search`, or `METHOD /path` with `{}` for each non-underscore segment (`POST /{}/_future`) for a path the table doesn't list.
 
+## Preview session limits
+
+- **SQLx** pins a pooled connection and uses named savepoints on SQLite, PostgreSQL, MySQL and MariaDB. SQLite holds its write lock until the session ends and a contended open returns `409 store_busy` within two seconds. PostgreSQL also keeps its capture trigger locks until rollback. MySQL and MariaDB reserve the provider's Preview turn for the whole session.
+- **MongoDB** holds one transaction on a monitored replica set or sharded cluster and saves document before images for rewind. The server's transaction lifetime limit applies (60 seconds by default). A step that exceeds MongoDB's capture limit or the session's 32 MiB image budget closes the session and rolls it back. Standalone servers operate in guard mode.
+- **Redis, DynamoDB, Cassandra, Elasticsearch and OpenSearch** remain in guard mode for every step. A blocked write rolls back that step's work in the held stores.
+- **Custom rollback providers** must implement held transactions and checkpoints to advertise `previewSessions`. A provider that supports only individual Previews leaves it `false`.
+
 ## Unsupported stores
 
 Cosmos DB and Firestore have no official Rust SDK (`docs/plans/data-stores.md`, batch two), so this binding has no hook for them and does not embed their tables. A Rust application that writes to either store through an unofficial crate or its REST API is not covered: Preview neither blocks nor rolls back those writes, and the workbench lists only the stores you hook. Mark the operations that write to them `preview: false` with `preview_unavailable`, so a Preview of one is refused (409) without running the handler.

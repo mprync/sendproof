@@ -195,12 +195,21 @@ pub struct PreviewEnvelope {
     pub effects: Vec<Effect>,
     pub logs: Vec<LogEntry>,
     pub rolled_back: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<PreviewStep>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub changes_truncated: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub effects_truncated: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub logs_truncated: bool,
+}
+
+/// Identifies a confirmed step in a held Preview session.
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewStep {
+    pub id: String,
+    pub step: u32,
 }
 
 /// The trace of an observed send, served at `/sendproof/_api/traces/{id}`.

@@ -40,6 +40,7 @@ public final class TransactionControl {
      */
     private static final Set<String> MYSQL = Set.of("lock", "analyze", "optimize", "repair", "check", "flush", "install",
             "uninstall", "load", "cache", "reset", "import", "change", "stop", "prepare", "execute");
+    private static final Set<String> H2 = Set.of("set", "runscript", "shutdown", "call", "execute", "analyze");
 
     /** Stands for a doubled backtick inside a quoted identifier, which no declared procedure name can contain. */
     private static final char ESCAPED_BACKTICK = '\u0001';
@@ -53,39 +54,43 @@ public final class TransactionControl {
      * {@link #find(String, String, Set)} when the database is known.
      */
     public static String find(String sql) {
-        if (sql == null) {
-            return null;
-        }
-        // Strings are read with and without backslash escapes (PostgreSQL's E'' strings and standard strings).
-        for (boolean backslashEscapes : new boolean[] {true, false}) {
-            for (List<String> statement : statements(SqlParameterNames.tokenize(text(sql, backslashEscapes, false)))) {
-                String keyword = check(statement, false);
-                if (keyword != null) {
-                    return keyword;
-                }
-            }
-        }
-        return null;
+        return find(sql, null, Set.of());
     }
 
     /**
      * Returns the leading keyword of the first statement in {@code sql} that would end or escape the transaction on the
      * given database, or {@code null}. On MySQL and MariaDB this adds the implicit-commit list and {@code CALL} (see the
-     * class description); other systems use {@link #find(String)}.
+     * class description).
      *
      * @param system         the SQL provider id ({@code mysql}, {@code mariadb}, {@code postgresql} ...), or {@code null}
      * @param safeProcedures procedures the host declared never commit, from {@link #safeProcedures(Collection)}
      */
     public static String find(String sql, String system, Set<String> safeProcedures) {
-        if (!isMySql(system)) {
-            return find(sql);
-        }
+        return find(sql, system, safeProcedures, false);
+    }
+
+    /** A held H2 transaction also refuses database settings and dynamic SQL that can implicitly commit. */
+    public static String findHeld(String sql, String system, Set<String> safeProcedures) {
+        return find(sql, system, safeProcedures, "h2".equals(system));
+    }
+
+    private static String find(String sql, String system, Set<String> safeProcedures, boolean h2Held) {
         if (sql == null) {
             return null;
         }
+        boolean mysql = isMySql(system);
         for (boolean backslashEscapes : new boolean[] {true, false}) {
-            for (List<String> statement : statements(SqlParameterNames.tokenize(text(sql, backslashEscapes, true)))) {
-                String keyword = checkMySql(statement, safeProcedures == null ? Set.of() : safeProcedures);
+            for (List<String> statement : statements(SqlParameterNames.tokenize(text(sql, backslashEscapes, mysql)))) {
+                String keyword = mysql ? checkMySql(statement, safeProcedures == null ? Set.of() : safeProcedures)
+                        : check(statement, false);
+                if (keyword == null && h2Held) {
+                    List<String> tokens = jdbcCall(statement);
+                    String first = tokens.isEmpty() ? "" : lower(tokens.get(0));
+                    if (H2.contains(first) || (first.equals("prepare") && tokens.size() > 1
+                            && lower(tokens.get(1)).equals("commit"))) {
+                        keyword = first;
+                    }
+                }
                 if (keyword != null) {
                     return keyword;
                 }
@@ -153,12 +158,7 @@ public final class TransactionControl {
     }
 
     private static String checkMySql(List<String> tokens, Set<String> safeProcedures) {
-        List<String> statement = tokens;
-        // The JDBC call escape: {call p(?)} or {? = call p(?)}.
-        if (!statement.isEmpty() && statement.get(0).equals("{")) {
-            int start = statement.size() > 2 && statement.get(1).equals("?") && statement.get(2).equals("=") ? 3 : 1;
-            statement = statement.subList(Math.min(start, statement.size()), statement.size());
-        }
+        List<String> statement = jdbcCall(tokens);
         if (statement.isEmpty()) {
             return null;
         }
@@ -170,6 +170,15 @@ public final class TransactionControl {
             return first;
         }
         return check(statement, true);
+    }
+
+    private static List<String> jdbcCall(List<String> statement) {
+        // The JDBC call escape: {call p(?)} or {? = call p(?)}.
+        if (!statement.isEmpty() && statement.get(0).equals("{")) {
+            int start = statement.size() > 2 && statement.get(1).equals("?") && statement.get(2).equals("=") ? 3 : 1;
+            return statement.subList(start, statement.size());
+        }
+        return statement;
     }
 
     /**
@@ -189,7 +198,7 @@ public final class TransactionControl {
             end--;
         }
         String last = lower(statement.get(end)).replace("`", "").replace("\"", "");
-        return last.equals(PreviewSavepoint.NAME);
+        return PreviewSavepoint.isReserved(last);
     }
 
     /** The procedure a {@code CALL} names, as {@link #safeProcedures(Collection)} normalises names. */

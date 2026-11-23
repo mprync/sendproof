@@ -34,4 +34,21 @@ The packages build from strict TypeScript in `src/` to ESM and generated declara
 
 Configure `NODE_ENV=development` or the equivalent `environment` option to enable the workbench with the default environment allowlist. Preview uses application-managed identity and authorization, and the provider must cover all writes. Use [the Node core recorder](core) to hold external effects until Send.
 
+## Preview sessions and journeys
+
+Sessions are enabled when the configured Preview provider and every rollback-capable store can hold transactions across requests. Set `previewSessions: false` to disable them, or pass `previewSessions: { idleTimeoutSeconds: 300, maxLifetimeSeconds: 1800 }` to tune the defaults. Discovery reports `previewSessions` for the current host. Sessions are bound to one process and a stable caller subject, with limits of four per caller and sixteen per host. Sign in before opening a session and use sticky routing on multi-instance hosts.
+
+Pass `journeys` with the Arazzo 1.1 JSON files to register. Each file needs a sibling `<name>.expect.json`. Use the host's application-relative OpenAPI URL in the Arazzo source description (for example, `/openapi.json`). Discovery and the served document include the workbench's application mount.
+
+```ts
+const bench = sendproof({
+  previewProvider: database,
+  journeys: [new URL('./journeys/store.arazzo.json', import.meta.url)],
+});
+```
+
+Use these options with Express or Hono `sendproof()`, the Fastify plugin, or `SendproofModule.forRoot()` in NestJS. In Hono, pass `application: app` when session GETs need routes declared on the parent app. On shutdown, await `bench.close()` for Express and Hono before disposing of database clients. Fastify and NestJS close the sessions through their application shutdown hooks.
+
+Session GETs see uncommitted changes from prior steps. A read marked `preview: false` stays refused. See [store and driver limits](data-stores.md#preview-sessions).
+
 MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore are covered only through the clients you hook. [Data stores in the Node binding](data-stores.md) covers setup, the `preview: false` mark and what each store does in a Preview.

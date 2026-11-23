@@ -42,6 +42,8 @@ final class PreviewTargets {
      * method not allowed, 415, 406, 400) when the match fails.
      */
     int check(HttpServletRequest request) {
+        boolean sessionRead = request.getHeader(io.github.mprync.sendproof.core.PreviewSessions.HEADER) != null
+                && "GET".equals(request.getMethod());
         var isolated = new PrivateAttributes(request);
         for (HandlerMapping mapping : mappings.orderedStream().toList()) {
             HandlerExecutionChain chain;
@@ -54,7 +56,8 @@ final class PreviewTargets {
                 if (!(chain.getHandler() instanceof HandlerMethod method)) {
                     return 404;
                 }
-                return PreviewEligibility.isMarked(method) && (unguarded == null || unguarded.block() == null) ? 0 : 409;
+                return PreviewEligibility.allows(method, sessionRead) && (unguarded == null || unguarded.block() == null)
+                        ? 0 : 409;
             }
         }
         return 404;

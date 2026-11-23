@@ -49,10 +49,17 @@ internal static partial class SqlStatements
     [GeneratedRegex(@"^CALL\s+(?<name>[^\s(;]+(?:\s*\.\s*[^\s(;]+)?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex MySqlCall();
 
-    // On every database: releasing the backstop savepoint, rolling back to it or making it again would hide a commit from
-    // the backstop. SQL Server spells these SAVE TRANSACTION and ROLLBACK TRANSACTION; names may be quoted.
-    [GeneratedRegex(@"^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK\s+(?:WORK\s+)?TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?|ROLLBACK\s+TRAN(?:SACTION)?)\s+[`""\[]?sendproof_preview[`""\]]?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // On every database: releasing one of Sendproof's savepoints (the backstop's, a preview session's step and check
+    // savepoints sendproof_check and sendproof_step_{n}), rolling back to it or making it again would hide a commit from the check or move
+    // a step's rewind point. SQL Server spells these SAVE TRANSACTION and ROLLBACK TRANSACTION; names may be quoted.
+    [GeneratedRegex(@"^(?:SAVEPOINT|RELEASE(?:\s+SAVEPOINT)?|ROLLBACK\s+(?:WORK\s+)?TO(?:\s+SAVEPOINT)?|SAVE\s+TRAN(?:SACTION)?|ROLLBACK\s+TRAN(?:SACTION)?)\s+[`""\[]?sendproof_(?:preview|check|step_\d+)[`""\]]?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PreviewSavepointStatement();
+
+    /// <summary>Whether a savepoint name is one of Sendproof's own, which the handler may not use.</summary>
+    internal static bool IsReservedSavepoint(string name) => ReservedSavepoint().IsMatch(name.Trim('`', '"', '[', ']'));
+
+    [GeneratedRegex(@"^sendproof_(?:preview|check|step_\d+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ReservedSavepoint();
 
     // MySQL and MariaDB run the body of /*! ... */ and /*M! ... */ comments as SQL.
     [GeneratedRegex(@"^/\*M?!\d*")]

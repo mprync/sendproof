@@ -80,6 +80,11 @@ impl Sendproof {
         self.core.config()
     }
 
+    /// Rolls back held Preview sessions after the HTTP server finishes graceful shutdown.
+    pub async fn shutdown_sessions(&self) {
+        self.core.shutdown_sessions().await;
+    }
+
     /// The outermost middleware: mounts `{path_base}/sendproof`, handles `{path_base}/sendproof/_preview/...`
     /// and forwards every other request. When Sendproof is disabled the workbench and previews answer
     /// as if they did not exist. Add it with `App::wrap`.
@@ -159,7 +164,7 @@ where
     }
 }
 
-async fn handle<S, B>(core: Arc<Core>, service: Rc<S>, request: ServiceRequest) -> Result<ServiceResponse<BoxBody>, Error>
+async fn handle<S, B>(core: Arc<Core>, service: Rc<S>, mut request: ServiceRequest) -> Result<ServiceResponse<BoxBody>, Error>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     B: MessageBody + 'static,
@@ -175,6 +180,16 @@ where
         }
         Route::Workbench { rest } => {
             let reply = core.workbench(&method, rest, request.uri().query(), &headers).await;
+            Ok(request.into_response(respond(reply)))
+        }
+        Route::Session { tail } => {
+            let body = if method == "POST" && tail.ends_with("/rewind") {
+                let payload = request.extract::<actix_web::web::Payload>().await?;
+                payload.to_bytes_limited(limits::REWIND_BODY_BYTES).await.ok().and_then(Result::ok).unwrap_or_default()
+            } else {
+                Default::default()
+            };
+            let reply = core.session_request(&method, tail, &headers, &body).await;
             Ok(request.into_response(respond(reply)))
         }
         Route::Ordinary => match core.check_ordinary(&method, &headers) {
@@ -204,8 +219,8 @@ where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     B: MessageBody + 'static,
 {
-    let rewritten = match core.check_preview(method, headers, target).await {
-        Ok(path) => path,
+    let (rewritten, state) = match core.prepare_preview(method, headers, target, started).await {
+        Ok(prepared) => prepared,
         Err(reply) => return Ok(request.into_response(respond(reply))),
     };
     let path_and_query = match request.uri().query() {
@@ -221,7 +236,6 @@ where
     request.headers_mut().remove(header::ACCEPT_ENCODING);
     request.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache, no-store"));
 
-    let state = PreviewState::new(&core, started);
     request.extensions_mut().insert(state.clone());
     request.extensions_mut().insert(PreviewRequired { rollback: true });
     // The router needs the only reference to the request while it routes, so the request that the

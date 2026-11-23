@@ -29,6 +29,12 @@ sendproof.sql.safe-procedures=audit_touch,reports.refresh_totals
 
 A `@Transactional` method boundary flushes on return during a preview, so a duplicate key or other constraint violation surfaces where a real commit would raise it and your `@ControllerAdvice` can answer. Repository calls made directly from a controller flush at the end of the preview instead; a violation there leaves the preview unconfirmed (500).
 
+## Held Preview sessions
+
+Held Preview supports H2, PostgreSQL, MySQL, MariaDB, SQLite and SQL Server with a standard Hibernate `JpaTransactionManager`, `DataSourceTransactionManager` or `JdbcTransactionManager`. It checks out one physical JDBC connection for the session and opens a fresh Spring transaction and JPA persistence context for each request. A JDBC savepoint lets a failed step or rewind undo just the selected work. Ending the session rolls back the entire connection. MySQL and MariaDB hold the provider's Preview turn for the session, and SQLite acquires a database writer lock at session start.
+
+The transaction manager and Hibernate must use the same captured `DataSource`. Routing, delegating and single-connection data sources, other JPA providers, and custom transaction manager classes are ineligible because the adapter cannot verify that Spring will acquire and clean up an isolated pinned connection. During a step, use Spring-managed data access on the request thread. Connection state changes, additional connections and native handle unwrapping are refused.
+
 ## What is captured
 
 - **Changes** (entity writes): Hibernate post-insert/update/delete events give `insert`/`update`/`delete` with the row key and before/after values, keyed by physical column name as the naming strategy resolved it (`passwordHash` mapped to `password_hash` is reported as `password_hash`; an embeddable keeps its property name). A value is `[REDACTED]` when its column name or its property name is secret. Associations appear as the referenced key; collections are skipped. Bulk JPQL, native statements and `JdbcTemplate` writes are logged as SQL but are not row changes.

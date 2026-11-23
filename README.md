@@ -78,6 +78,7 @@ handler runs for real, then everything it wrote is rolled back, and you get the 
 | **Observed Send** | In development, a Send can be traced too: the same Database, Side effects and Logs tabs show what was committed. Traces are private to the user who sent them and expire after five minutes. |
 | **Code export** | Copy the edited request as cURL, JavaScript, Python, C#, Go, Java, Kotlin, PHP, Ruby, Rust or PowerShell, with credentials masked. |
 | **Built for real use** | Keyboard first (<kbd>⌘K</kbd> command search, <kbd>?</kbd> for shortcuts), light and dark themes, three densities, [29 interface languages](ui/locales/README.md) including Arabic, Hebrew and Persian right to left, and a phone layout. WCAG 2.2 AA is the release target. |
+| **For AI agents too** | [`@sendproof/cli`](adapters/node/cli) is an MCP server: an agent can list and read operations, find real IDs, Preview any request and see exactly what it would write, and Send when you allow it, as the signed-in user or a development persona. It works with every adapter. |
 | **Zero front-end setup** | Each package embeds the same prebuilt UI, verified by SHA-256. Your app needs no Node, no build step and no second list of endpoints. |
 
 ## A closer look
@@ -331,6 +332,16 @@ dotnet run --project examples/StoreApi
 Open <http://localhost:5080/sendproof/>, pick a seeded account, and Preview **Place order**. Its
 [README](examples/StoreApi/README.md) covers the accounts and how to start it with Redis, MongoDB and
 DynamoDB.
+
+### Connect an AI agent
+
+`sendproof mcp` gives an agent the same operations, Preview and Send over MCP. With the store example running:
+
+```sh
+claude mcp add store-api -- npx -y @sendproof/cli mcp --api http://localhost:5080 --persona ada.admin@acme.dev
+```
+
+Then ask it, for example, to preview placing an order and say what it would write. The [package README](adapters/node/cli/README.md) lists the tools, the sign-in options and how Send is guarded.
 
 ## How it works
 

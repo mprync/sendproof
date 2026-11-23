@@ -211,6 +211,19 @@ rdb.AddHook(redisbench.Hook(redisbench.TreatAsRead("MYMODULE.GET")))
 > [!WARNING]
 > `TreatAsRead` is your statement that the command never writes. The guard trusts it: a listed command that does write is not blocked, and its write happens during the Preview. Names match exactly, with no wildcards.
 
+## Preview sessions
+
+Sendproof advertises `previewSessions` when each rollback-capable store can keep its transaction across requests. Custom SQL providers and rollback-capable store hooks opt in through `sendproof.HeldProvider` and `sendproof.HeldStore`, respectively.
+
+| Store | Held Preview behavior |
+| --- | --- |
+| SQLite | Pins a write transaction on open. Another writer holding the database yields `store_busy` without waiting for the SQLite busy timeout. The held write lock lasts until the session ends. |
+| PostgreSQL | Keeps the locks required by the audit triggers between steps. Reads can proceed. Contended session opens allow up to two seconds for an audit lock, bounded by the three-second acquisition deadline. |
+| MySQL and MariaDB | Keep the wrapper's Preview turn until the session ends. Other session opens wait at most three seconds for the turn. Use InnoDB tables. |
+| SQL Server | Preserves the transaction ID and keeps locks across steps. Under locking read committed isolation, reads of rows held by the session may wait. |
+| MongoDB replica set or sharded cluster | Keeps the driver transaction and captures BSON before images of written collections per step. The binding's `WithPreviewTimeout` also applies, with a 50-second default. Adjust the server's transaction lifetime and the binding timeout together for longer development runs. MongoDB writes support up to 1,000 documents per touched collection and 32 MiB for retained images and step snapshots. A rewind that cannot be completed safely ends the session. |
+| Standalone MongoDB, Redis, DynamoDB, Cassandra, Elasticsearch, OpenSearch, Cosmos DB, Firestore | Guard mode remains active for each step. Reads can run and writes are refused. A guard refusal also rewinds writes made to the held stores in that step. |
+
 ## MongoDB limits
 
 These come from MongoDB's transaction limits; see [MongoDB in Preview](../../spec/data-stores.md#mongodb-in-preview).

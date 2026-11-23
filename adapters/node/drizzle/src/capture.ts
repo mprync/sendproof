@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { currentCapture } from '@sendproof/core';
-import type { CaptureRecorder } from '@sendproof/core';
+import type { CaptureRecorder, HeldPreview } from '@sendproof/core';
 import type { TrackedRows } from '@sendproof/sqlite';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Column, SQL, Table } from 'drizzle-orm';
@@ -15,6 +15,7 @@ import type { SessionLike } from './statements.js';
 export interface SQLiteConnection {
   queryRows(text: string, bindings: unknown[], method: 'all' | 'get' | 'values' | 'run', changes?: TrackedRows, captureSql?: boolean): Promise<unknown>;
   preview<T>(dispatch: () => Promise<T>): Promise<T>;
+  openSession?(): Promise<HeldPreview>;
   /** A transaction, or a savepoint inside one. Available from `@sendproof/sqlite` 0.1.0-alpha.2. */
   transaction?<T>(callback: () => Promise<T>): Promise<T>;
   /** 0 outside a transaction. Available with {@link transaction}. */

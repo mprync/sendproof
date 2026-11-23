@@ -137,7 +137,17 @@ internal static class StoreTables
             Read = new HashSet<string>(Strings(root.GetProperty("read")).Concat(Strings(root.GetProperty("moduleRead"))), StringComparer.Ordinal);
             Session = new HashSet<string>(Strings(root.GetProperty("session")), StringComparer.Ordinal);
             Transaction = new HashSet<string>(Strings(root.GetProperty("transaction")), StringComparer.Ordinal);
+            FirstKey = root.GetProperty("firstKey").EnumerateObject().ToDictionary(item => item.Name, item => item.Value.GetInt32(), StringComparer.Ordinal);
         }
+
+        /// <summary>
+        /// The position of a command's first key argument, counted from 1 over the arguments after the command name (a
+        /// container command's subcommand is one of them). Unlisted commands have it at 1; 0 means no positional key.
+        /// </summary>
+        internal int FirstKeyPosition(string name, string? sub) =>
+            sub is not null && FirstKey.TryGetValue($"{name}|{sub.ToUpperInvariant()}", out var position) ? position : FirstKey.GetValueOrDefault(name, 1);
+
+        private Dictionary<string, int> FirstKey { get; }
 
         /// <summary>Commands that only read, module reads included.</summary>
         internal HashSet<string> Read { get; }

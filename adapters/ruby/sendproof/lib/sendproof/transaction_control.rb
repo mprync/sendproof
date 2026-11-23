@@ -121,7 +121,7 @@ module Sendproof
     # @param mysql [Boolean] whether the database is MySQL or MariaDB, which also commit implicitly
     # @param safe_procedures [Array<String>] lower-cased names from {normalize_procedures}; any other
     #   +CALL+ is refused on MySQL and MariaDB
-    # @param reserved [String, nil] a savepoint the provider owns: the handler may not release or roll
+    # @param reserved [String, Regexp, nil] savepoints the provider owns: the handler may not release or roll
     #   back to it
     # @return [Boolean] whether it can end or replace the preview transaction
     def ends_transaction?(sql, mysql: false, safe_procedures: [], reserved: nil)
@@ -131,10 +131,11 @@ module Sendproof
     # Why +sql+ would end or escape the preview transaction, or nil when it is safe.
     # @return [String, nil]
     def reason(sql, mysql: false, safe_procedures: [], reserved: nil)
+      reserved = Regexp.escape(reserved) if reserved.is_a?(String)
       split(sql.to_s, mysql: mysql).each do |statement|
         verb = statement.split.first.to_s.upcase
         return "the handler's #{verb} would end the Preview transaction" if statement.match?(CONTROL) || statement.match?(SET_AUTOCOMMIT)
-        if reserved && statement.match?(/\A(?:RELEASE|ROLLBACK|SAVEPOINT)\b/i) && statement.match?(/(?<![\w$])`?#{Regexp.escape(reserved)}`?(?![\w$])/i)
+        if reserved && statement.match?(/\A(?:RELEASE|ROLLBACK|SAVEPOINT)\b/i) && statement.match?(/(?<![\w$])#{reserved}(?![\w$])/i)
           return "the Preview's own savepoint is reserved for Sendproof"
         end
         next unless mysql

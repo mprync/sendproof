@@ -32,6 +32,19 @@ public interface DataStore {
         return null;
     }
 
+    /** Guard stores need no held transaction. A rollback-capable store must explicitly support it. */
+    default boolean supportsHeldStore() {
+        return !"preview".equals(describe().mode());
+    }
+
+    /** Returns the held transaction, or null for a guard-only store. */
+    default HeldPreview beginHeldStore() throws Exception {
+        if ("preview".equals(describe().mode())) {
+            throw new UnsupportedOperationException("This store cannot hold transactions.");
+        }
+        return null;
+    }
+
     /**
      * How a store appears in capabilities.
      *

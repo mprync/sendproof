@@ -1,14 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import type { Knex } from 'knex';
-import { currentCapture, previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
-import type { Change, PreviewProvider } from '@sendproof/core';
+import { currentCapture, PreviewStoreBusyError, previewSavepointHeld, safeProcedureNames, setPreviewSavepoint } from '@sendproof/core';
+import type { Change, HeldPreview, PreviewProvider } from '@sendproof/core';
 import { dialectOf, isTransient, systemOf } from './dialect.js';
 import { compareKeys, insertedRows, keysFromData, keysFromResult, normalizeKey, readPrimaryKey, rowsOf } from './keys.js';
 import { guardPreview, guardStatements, resolveTable, trackClient } from './tracked.js';
 import type { BuilderState, TableName } from './tracked.js';
 import { PreviewTurns } from './turns.js';
+import { openKnexSession } from './session.js';
 import type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
 
 export type { Dialect, KeyValue, KnexPreviewOptions, RowKey, TrackedRows, TransactionOptions } from './types.js';
@@ -33,6 +35,10 @@ interface Scope {
   preview?: Scope;
   /** Set on a Preview when the database rolled its transaction back after a deadlock or lock wait timeout. */
   broken?: boolean;
+  /** The held transaction that owns this step's scope. */
+  held?: Knex.Transaction;
+  /** Whether the held driver's transaction is still open. */
+  isOpen?: () => boolean;
 }
 
 type Row = Record<string, unknown>;
@@ -70,6 +76,7 @@ function dbType(value: unknown): string {
 export class KnexPreview implements PreviewProvider {
   /** The SQL provider id discovery reports as `database.system`, such as `postgresql`. */
   readonly system: string | undefined;
+  readonly openSession?: () => Promise<HeldPreview>;
   readonly #database: Knex;
   readonly #dialect: Dialect;
   readonly #transaction = new AsyncLocalStorage<Scope>();
@@ -112,6 +119,9 @@ export class KnexPreview implements PreviewProvider {
     this.#dialect = dialectOf(database);
     this.system = systemOf(database);
     this.#turns = this.#dialect === 'mysql' ? new PreviewTurns() : undefined;
+    if (this.#dialect !== 'other' && (this.#dialect !== 'sqlite' || database.client.driverName === 'better-sqlite3')) {
+      this.openSession = () => this.#openSession();
+    }
     this.#trackedKeyLimit = trackedKeyLimit;
     this.#retries = retries;
     this.#retryDelayMs = retryDelayMs;
@@ -224,6 +234,47 @@ export class KnexPreview implements PreviewProvider {
     return this.#turns ? this.#turns.run(() => this.#previewNow(dispatch)) : this.#previewNow(dispatch);
   }
 
+  async #openSession(): Promise<HeldPreview> {
+    if (this.#transaction.getStore()) throw new Error('Nested Knex previews are unavailable.');
+    const filename = (this.#database.client.connectionSettings as { filename?: string } | undefined)?.filename;
+    const label = this.#dialect === 'sqlite' ? (filename && filename !== ':memory:' ? basename(filename) : 'SQLite')
+      : this.#dialect === 'mssql' ? 'SQL Server' : this.#dialect === 'postgresql' ? 'PostgreSQL' : 'MySQL';
+    const release = this.#turns?.tryEnter();
+    if (this.#turns && !release) throw new PreviewStoreBusyError(label);
+    try {
+      const held = await openKnexSession(this.#database, this.#dialect, label,
+        work => this.#internal.run(true, () => this.#ending.run(true, work)),
+        (trx, isOpen) => {
+          let last: Scope | undefined;
+          this.#guard(trx, () => {
+            const step = this.#transaction.getStore()?.preview;
+            return step?.held === trx ? step : undefined;
+          });
+          return {
+            run: async (_capture, dispatch) => {
+              const scope = this.#scope(trx, 0, undefined, true, true);
+              last = scope;
+              scope.held = trx;
+              scope.isOpen = isOpen;
+              try {
+                return await this.#transaction.run(scope, dispatch);
+              } finally {
+                scope.active = false;
+              }
+            },
+            refused: () => last?.refused === true,
+            broken: () => last?.broken === true,
+          };
+        });
+      if (!release) return held;
+      let closing: Promise<void> | undefined;
+      return { ...held, close: () => closing ??= held.close().finally(release) };
+    } catch (error) {
+      release?.();
+      throw error;
+    }
+  }
+
   /** Run one Preview: open its transaction, dispatch, then roll back and confirm the rollback. */
   async #previewNow<T>(dispatch: () => Promise<T>): Promise<T> {
     const connection = await this.#database.transaction(undefined as never, { doNotRejectOnRollback: true });
@@ -295,20 +346,13 @@ export class KnexPreview implements PreviewProvider {
    * Create a scope. A Preview scope hands the operation a guarded transaction that cannot commit
    * or end itself; the provider keeps the unguarded one for its own reads and the rollback.
    */
-  #scope(trx: Knex.Transaction, depth: number, parent?: Scope, preview = false): Scope {
+  #scope(trx: Knex.Transaction, depth: number, parent?: Scope, preview = false, guarded = false): Scope {
     const scope: Scope = { connection: trx, client: trx, active: true, tail: Promise.resolve(), depth };
     const root = preview ? scope : parent?.preview;
     if (root) {
       scope.preview = root;
       // Every transaction inside a Preview, savepoints included, shares its connection, so each is guarded.
-      guardStatements(trx, {
-        provider: this.#dialect,
-        safeProcedures: this.#safeProcedures,
-        refused: () => { root.refused = true; },
-        internal: () => this.#ending.getStore() === true,
-        broken: () => root.broken === true,
-        markBroken: () => { root.broken = true; },
-      });
+      if (!guarded) this.#guard(trx, () => root);
     }
     const connection = preview ? guardPreview(trx, () => { scope.refused = true; }) : trx;
     scope.connection = connection;
@@ -318,6 +362,27 @@ export class KnexPreview implements PreviewProvider {
     }
     scope.client = trackClient(connection, (builder, state, execute) => this.#mutation(trx, scope, builder, state, execute));
     return scope;
+  }
+
+  #guard(trx: Knex.Transaction, root: () => Scope | undefined): void {
+    guardStatements(trx, {
+      provider: this.#dialect,
+      safeProcedures: this.#safeProcedures,
+      internal: () => this.#ending.getStore() === true,
+      active: () => root()?.active === true,
+      broken: () => {
+        const preview = root();
+        return preview?.broken === true || preview?.isOpen?.() === false;
+      },
+      refused: () => {
+        const preview = root();
+        if (preview) preview.refused = true;
+      },
+      markBroken: () => {
+        const preview = root();
+        if (preview) preview.broken = true;
+      },
+    });
   }
 
   async #enter<T>(

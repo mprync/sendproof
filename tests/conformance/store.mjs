@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withSession } from './sessions.mjs';
 
 /**
  * Conformance profile for the Acme Store example (`examples/StoreApi`).
@@ -15,7 +16,7 @@ import assert from 'node:assert/strict';
  *   Sends a request to the running fixture. `cookie` is the first `Set-Cookie` segment from a sign-in.
  * @param {{assert(kind: 'capabilities' | 'preview' | 'trace', payload: unknown): void}} schemas Protocol schema validator.
  */
-export async function runStore(t, request, schemas) {
+export async function runStore(t, request, schemas, storeDatabase) {
   const ordersPath = '/api/v2/orders';
   const previewPath = '/sendproof/_preview' + ordersPath;
   const rollback = { Prefer: 'tx=rollback' };
@@ -23,6 +24,7 @@ export async function runStore(t, request, schemas) {
   const jacketSku = 'NPK-JKT-BLK-M';
   const startingStock = 40;
   let admin;
+  let previewSessions = false;
   /** The number of seeded orders, read before any test writes. */
   let baseline;
 
@@ -79,6 +81,7 @@ export async function runStore(t, request, schemas) {
     assert.match(response.headers.get('cache-control') ?? '', /\bno-store\b/);
     const capabilities = await response.json();
     schemas.assert('capabilities', capabilities);
+    previewSessions = capabilities.previewSessions === true;
     assert.equal(capabilities.identity, null);
     assert.equal(capabilities.observedSend, true);
     assert(capabilities.authProviders.some(provider => provider.kind === 'cookie' && provider.url === '/auth/login'));
@@ -153,6 +156,66 @@ export async function runStore(t, request, schemas) {
     const invalid = await confirmed(await preview(order({ items: [{ sku: jacketSku, quantity: 0 }] }), admin));
     assert.equal(invalid.status, 400);
     assert.deepEqual(invalid.changes, []);
+    await assertDatabase(admin, 0, startingStock);
+  });
+
+  await t.test('Store session shares, rewinds and rolls back order changes', { skip: !previewSessions }, async () => {
+    assert(admin);
+    assert.equal(typeof storeDatabase?.query, 'function', 'An independent SQLite reader is required');
+    const warehouse = cookieOf(await status(await request('/auth/personas/wes.warehouse%40acme.dev', { method: 'POST', cookie: admin }), 200));
+    // Count every table touched by place and cancel, and retain the exact stock row. This reader is separate
+    // from the API and is used only outside the held transaction, avoiding SQLite lock-dependent reads.
+    const snapshot = async () => ({
+      counts: await storeDatabase.query(`SELECT (SELECT COUNT(*) FROM Orders) AS orders,
+        (SELECT COUNT(*) FROM OrderLines) AS lines, (SELECT COUNT(*) FROM Payments) AS payments,
+        (SELECT COUNT(*) FROM Refunds) AS refunds, (SELECT COUNT(*) FROM Reservations) AS reservations,
+        (SELECT COUNT(*) FROM StockMovements) AS movements, (SELECT COUNT(*) FROM AuditEvents) AS audits`),
+      stock: await storeDatabase.query(`SELECT s.OnHand, s.Reserved FROM Stock s JOIN Variants v ON v.Id = s.VariantId WHERE v.Sku = 'NPK-JKT-BLK-M'`),
+    });
+    const before = await snapshot();
+    assert.equal(before.stock.length, 1);
+    let placedId;
+    await withSession(request, schemas, { cookie: admin }, async ({ id, step, rewind, end, resource }) => {
+      const foreign = await status(await request(resource, { method: 'DELETE', cookie: warehouse }), 404);
+      assert.equal((await foreign.json()).code, 'session_not_found');
+      const busy = await status(await request('/sendproof/_api/sessions', { method: 'POST', cookie: admin }), 409);
+      assert.equal((await busy.json()).code, 'store_busy');
+
+      const placed = await step(ordersPath, { method: 'POST', body: order() }, 1);
+      assert.equal(placed.status, 201);
+      assert.equal(placed.body.status, 'Paid');
+      placedId = placed.body.id;
+      assert(placedId);
+      assert(placed.changes.some(change => change.table === 'Orders' && change.operation === 'insert'));
+      assert(placed.effects.every(effect => effect.delivered !== true));
+      const read = await step(`${ordersPath}/${placedId}`, { method: 'GET' }, 2);
+      assert.equal(read.status, 200);
+      assert.equal(read.body.id, placedId);
+      assert.equal(read.body.status, 'Paid');
+      assert.deepEqual(read.changes, []);
+      const cancelled = await step(`${ordersPath}/${placedId}/cancel`, { method: 'POST', body: { reason: 'Session conformance' } }, 3);
+      assert.equal(cancelled.status, 200);
+      assert.equal(cancelled.body.status, 'Cancelled');
+      assert(cancelled.changes.some(change => change.table === 'Orders' && change.operation === 'update'));
+      const cancelledRead = await step(`${ordersPath}/${placedId}`, { method: 'GET' }, 4);
+      assert.equal(cancelledRead.body.status, 'Cancelled');
+      await rewind(3);
+      const restored = await step(`${ordersPath}/${placedId}`, { method: 'GET' }, 3);
+      assert.equal(restored.status, 200);
+      assert.equal(restored.body.status, 'Paid');
+      await rewind(1);
+      const absent = await step(`${ordersPath}/${placedId}`, { method: 'GET' }, 1);
+      assert.equal(absent.status, 404);
+      const retained = await step(ordersPath, { method: 'POST', body: order() }, 2);
+      assert.equal(retained.status, 201);
+      placedId = retained.body.id;
+      await end();
+      const ended = await status(await request(resource, { method: 'DELETE', cookie: admin }), 404);
+      assert.equal((await ended.json()).code, 'session_not_found');
+      assert.equal(id.length > 0, true);
+    });
+    assert.deepEqual(await snapshot(), before, 'Ending the session restores every affected SQL table and stock');
+    await status(await request(`${ordersPath}/${placedId}`, { cookie: admin }), 404);
     await assertDatabase(admin, 0, startingStock);
   });
 

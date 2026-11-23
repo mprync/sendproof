@@ -54,14 +54,16 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Generator, Iterable, Mapping, Optional
 
-from bson import json_util
+from bson import BSON, json_util
 from pymongo import monitoring
 from pymongo.errors import OperationFailure
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
-from ..provider import PreviewChange
+from ..capture import Capture
+from ..provider import PreviewChange, PreviewRollbackError
 from ..scope import RequestScope, attributed, current_scope, open_previews
+from ..sessions import HeldPart, StoreEnded
 from .base import DataStore
 from .classify import READ, SESSION, WRITE, classify_mongo
 from .guard import (
@@ -103,6 +105,7 @@ _ENVELOPE = frozenset({"lsid", "txnNumber", "autocommit", "startTransaction", "$
                        "apiDeprecationErrors", "maxTimeMS", "comment"})
 #: Most candidate documents read back for change capture in one Preview.
 _CANDIDATE_LIMIT = 1000
+_HELD_IMAGE_BYTES = 16 * 1024 * 1024
 #: Server error codes meaning the collection or snapshot did not exist at the start time.
 _ABSENT_AT_START = frozenset({26, 246})  # NamespaceNotFound, SnapshotUnavailable
 _SYSTEM_DATABASES = frozenset({"admin", "config", "local"})
@@ -140,6 +143,7 @@ Steps = Generator[Callable[[], Any], Any, Any]
 #: Set while the engine itself ends the Preview transaction: only then may the Preview's driver
 #: session commit, abort or end. A ``ContextVar``, so a handler thread never inherits the permission.
 _engine_call: ContextVar[bool] = ContextVar("sendproof_mongo_engine_call", default=False)
+_held_internal: ContextVar[bool] = ContextVar("sendproof_mongo_held_internal", default=False)
 #: The engine whose detection ``hello`` is being sent, so the monitor can prove it sees that client.
 _probe: ContextVar[Optional["MongoEngine"]] = ContextVar("sendproof_mongo_probe", default=None)
 
@@ -229,6 +233,8 @@ class PreviewState:
     #: Every later guarded call is refused, so a late write never runs on a session whose transaction
     #: is gone, where the driver would autocommit it.
     ending: bool = False
+    held: Optional["_HeldMongo"] = None
+    server_ended: bool = False
 
 
 #: Preview states by lsid, so a command is attributed to its Preview even where ``contextvars``
@@ -289,6 +295,8 @@ class MongoMonitor(monitoring.CommandListener):
                     self._aborts[(event.request_id, event.connection_id)] = state
             else:
                 state.sent = True  # the server may hold the transaction until an abort reaches it
+        if _held_internal.get():
+            return
         context = current_scope()
         scope = context if context is not None else (state.scope if state is not None else None)
         if scope is None:  # nothing to guard or log: the common case for an application's ordinary traffic
@@ -311,6 +319,8 @@ class MongoMonitor(monitoring.CommandListener):
         if kind == SESSION or lower in _SENSITIVE or _ends_transaction(lower):
             return
         target = command.get(name) if isinstance(command.get(name), str) else None
+        if state is not None and state.held is not None and target and not system_database(event.database_name):
+            state.held.target = (event.database_name, target)
         body = {key: value for key, value in command.items() if key not in _ENVELOPE}
         pending = _Pending(scope.capture, state if state is not None and state.scope is scope else None, name,
                            event.database_name, target, json.dumps(sanitize_document(body)), lsid)
@@ -363,6 +373,11 @@ class MongoMonitor(monitoring.CommandListener):
         # The server refused something a transaction cannot do and applied nothing: a block, not a crash.
         if pending.state is not None and failure.get("code") == 263:
             pending.state.scope.capture.block("mongodb", pending.name, refused_reason(pending.name))
+        if pending.state is not None and (
+            failure.get("code") == _NO_SUCH_TRANSACTION
+            or "TransientTransactionError" in failure.get("errorLabels", ())
+        ):
+            pending.state.server_ended = True
         self._log(pending, event.duration_micros / 1000, None, failure.get("codeName") or "Error")
 
     # -- helpers
@@ -394,6 +409,9 @@ class MongoMonitor(monitoring.CommandListener):
                 f"A MongoDB {name} escaped the Preview session; the Preview can't be confirmed."))
             return
         with state.lock:
+            if state.held is not None:
+                state.held.observe_write(namespace, name, command)
+                return
             state.used = True
             first = next(iter(command), "")
             collection = command[first] if isinstance(command.get(first), str) else ""
@@ -557,7 +575,7 @@ class MongoEngine:
             raise RuntimeError("An asynchronous MongoDB client needs the ASGI adapter (FastAPI or Starlette).")
 
     # -- begin
-    def _begin_steps(self, scope: RequestScope) -> Steps:
+    def _begin_steps(self, scope: RequestScope, *, held: bool = False) -> Steps:
         mode, _ = yield from self._detect_steps()
         if scope.rollback is not True:
             return None
@@ -587,7 +605,8 @@ class MongoEngine:
         records[id(self)] = state
         with _states_lock:
             _states[lsid] = state
-        self._arm_timer(state)
+        if not held:
+            self._arm_timer(state)
         return state
 
     def _discard_steps(self, session: Any) -> Steps:
@@ -651,6 +670,10 @@ class MongoEngine:
             elif state.ending or state.finished:
                 error = PreviewTransactionControl(
                     "The Preview has ended, so its MongoDB session refuses every further call.")
+            elif state.held is not None and not state.held.current(current_preview()):
+                raise PreviewTransactionControl("The MongoDB Preview step is no longer active.")
+            elif state.held is not None and state.inflight:
+                error = PreviewTransactionControl("A MongoDB session cannot run concurrent operations in one Preview step.")
             else:
                 state.inflight += 1
                 return
@@ -1256,8 +1279,26 @@ class _Handle:
             args, kwargs, state = self._prepare(rule, name, args, kwargs)  # type: ignore[arg-type]
             if state is None:
                 return self._wrap(value(*args, **kwargs))
+            held = state.held
+            if held is not None and engine.is_async:
+                async def run_held():
+                    engine.acquire(state)
+                    try:
+                        await _drive_async(held.before_write(self, rule, name, args, kwargs))
+                        result = value(*args, **kwargs)
+                        return await result if inspect.isawaitable(result) else self._wrap(result)
+                    finally:
+                        engine.release(state)
+
+                # Cursor factories are synchronous even on the async client. They only issue reads.
+                command = rule(self._sp_name, args, kwargs)
+                kind, _ = classify_mongo(command, engine.reads)
+                if kind == WRITE:
+                    return run_held()
             engine.acquire(state)
             try:
+                if held is not None and not engine.is_async:
+                    _drive_sync(held.before_write(self, rule, name, args, kwargs))
                 result = value(*args, **kwargs)
             except BaseException:
                 engine.release(state)
@@ -1365,6 +1406,234 @@ class MongoStore(DataStore):
 
     async def afinish(self, scope: RequestScope) -> None:
         await self.engine.afinish(scope)
+
+    def supports_held(self, asynchronous: bool) -> bool:
+        return asynchronous or not self.engine.is_async
+
+    def _hold(self) -> Steps:
+        scope = RequestScope(Capture(rollback=True), "", False)
+        state = yield from self.engine._begin_steps(scope, held=True)
+        if state is None and self.engine._detected is None:
+            raise PreviewRollbackError("Could not establish MongoDB's transaction support.")
+        return None if state is None else _HeldMongo(state)
+
+    def hold(self) -> Optional[HeldPart]:
+        self.engine._require_sync()
+        return _drive_sync(self._hold())
+
+    async def ahold(self) -> Optional[HeldPart]:
+        if self.engine.is_async:
+            return await _drive_async(self._hold())
+        return await asyncio.to_thread(self.hold)
+
+
+class _HeldMongo(HeldPart):
+    """MongoDB has no savepoints. Keep before images and restore them inside its transaction."""
+
+    def __init__(self, state: PreviewState) -> None:
+        self.state = state
+        self.engine = state.engine
+        state.held = self
+        self.active_scope: Optional[RequestScope] = None
+        self.step = 0
+        self.images: dict[tuple[str, str], dict[bytes, Any]] = {}
+        self.journal: dict[int, list[tuple[tuple[str, str], Any, Any]]] = {}
+        self.image_bytes = 0
+        self.recorded = False
+        self.target: Optional[tuple[str, str]] = None
+
+    def current(self, scope: Optional[RequestScope]) -> bool:
+        return scope is not None and self.active_scope is scope
+
+    def _check(self) -> None:
+        if self.state.server_ended:
+            raise StoreEnded("MongoDB ended the Preview transaction.")
+        if self.state.inflight:
+            raise PreviewRollbackError("A MongoDB operation was still running at the end of a Preview step.")
+
+    def attach(self, scope: RequestScope, step: int) -> None:
+        self._check()
+        self.active_scope = self.state.scope = scope
+        self.step = step
+        self.images.clear()
+        self.image_bytes = 0
+        self.recorded = False
+        self.state.candidates.clear()
+        self.state.filters.clear()
+        records = self.engine._records(scope)
+        records[("mode", id(self.engine))] = "preview"
+        records[id(self.engine)] = self.state
+
+    def detach(self, scope: RequestScope) -> None:
+        self.active_scope = None
+
+    def observe_write(self, database: str, name: str, command: Mapping[str, Any]) -> None:
+        """Trip if a command bypassed the guarded call that saved its before images."""
+        if name == "bulkwrite":
+            namespaces = [tuple(str(item["ns"]).split(".", 1)) for item in command.get("nsInfo", ())]
+        else:
+            namespaces = [(database, command.get(next(iter(command), "")))]
+        if not namespaces or any(target not in self.images for target in namespaces):
+            self.state.scope.capture.refuse(PreviewTransactionControl(
+                "A MongoDB write bypassed the Preview step's before images."))
+
+    def _collection(self, target: tuple[str, str]) -> Any:
+        database, collection = target
+        return self.engine.client[database][collection]
+
+    def _snapshot(self, target: tuple[str, str], budget: int) -> Steps:
+        """Return native before images, stopping at the first document beyond either cap."""
+        collection = self._collection(target)
+        cursor = collection.find({}, session=self.state.session).limit(_CANDIDATE_LIMIT + 1).batch_size(64)
+        docs = {}
+        size = 0
+        try:
+            while True:
+                try:
+                    doc = yield cursor.next
+                except (StopIteration, StopAsyncIteration):
+                    return docs, size
+                size += len(BSON.encode(doc, codec_options=collection.codec_options))
+                if len(docs) >= _CANDIDATE_LIMIT or size > budget:
+                    return None, size
+                docs[BSON.encode({"_id": doc["_id"]}, codec_options=collection.codec_options)] = doc
+        finally:
+            yield cursor.close
+
+    def before_write(self, handle: _Handle, rule: Rule, method: str, args: tuple, kwargs: dict) -> Steps:
+        command = rule(handle._sp_name, args, kwargs)
+        kind, _ = classify_mongo(command, self.engine.reads)
+        if kind != WRITE:
+            if handle._sp_kind == "collection":
+                self.target = (handle._sp_database, handle._sp_name)
+            return
+        operation, collection = next(iter(command.items()))
+        if handle._sp_kind == "collection" and operation.lower() in ("insert", "update", "delete", "findandmodify", "bulkwrite"):
+            targets = [(handle._sp_database, handle._sp_name)]
+        elif operation.lower() in ("insert", "update", "delete", "findandmodify") and isinstance(collection, str):
+            targets = [(handle._sp_database, collection)]
+        elif operation.lower() == "bulkwrite":
+            if "nsInfo" in command:
+                names = [item.get("ns") for item in command["nsInfo"]]
+            else:
+                requests = args[0] if args else kwargs.get("models", ())
+                names = [getattr(item, "_namespace", None) for item in requests]
+            targets = [tuple(name.split(".", 1)) for name in names if isinstance(name, str) and "." in name]
+            if len(targets) != len(names):
+                targets = []
+        else:
+            targets = []
+        if not targets or any(system_database(db) for db, _ in targets):
+            guard("mongodb", method, WRITE, refused_reason(method))
+        token = _held_internal.set(True)
+        try:
+            for target in targets:
+                self.target = target
+                if target not in self.images:
+                    images, size = yield from self._snapshot(target, _HELD_IMAGE_BYTES - self.image_bytes - self._journal_bytes())
+                    if images is None:
+                        guard("mongodb", method, WRITE, "The Preview session's MongoDB before-image limit was reached.")
+                    self.images[target] = images
+                    self.image_bytes += size
+        finally:
+            _held_internal.reset(token)
+
+    def _journal_bytes(self) -> int:
+        return sum(
+            len(BSON.encode(before if before is not None else {"_id": identifier},
+                            codec_options=self._collection(target).codec_options))
+            for values in self.journal.values() for target, identifier, before in values
+        )
+
+    def _verify(self) -> Steps:
+        self._check()
+        if self.target is not None:
+            collection = self._collection(self.target)
+            yield (lambda: collection.find_one({}, {"_id": 1}, session=self.state.session))
+
+    def _record(self, scope: Optional[RequestScope], step: int) -> Steps:
+        with self.state.lock:
+            self.active_scope = None
+            self._check()
+        undo = []
+        for target, before in self.images.items():
+            after, _ = yield from self._snapshot(target, _HELD_IMAGE_BYTES)
+            if after is None:
+                raise PreviewRollbackError("A MongoDB step exceeded the before-image document limit.")
+            for key in dict.fromkeys((*before, *after)):
+                was, now = before.get(key), after.get(key)
+                if was == now:
+                    continue
+                identifier = (was if now is None else now)["_id"]
+                undo.append((target, identifier, was))
+                if scope is not None:
+                    database, collection = target
+                    operation = "insert" if was is None else "delete" if now is None else "update"
+                    scope.store_changes.append(PreviewChange(
+                        operation, collection, {"_id": plain(identifier)}, plain(was), plain(now), "mongodb", database,
+                    ))
+        if not self.images:
+            yield from self._verify()
+        if undo:
+            self.journal[step] = undo
+        self.recorded = True
+        self.images.clear()
+        self.image_bytes = 0
+        if self._journal_bytes() > _HELD_IMAGE_BYTES:
+            raise PreviewRollbackError("The Preview session's MongoDB rewind journal is full.")
+
+    def _rewind(self, step: int) -> Steps:
+        if self.active_scope is not None and not self.recorded:
+            yield from self._record(None, self.step)
+        else:
+            yield from self._verify()
+        for index in sorted((i for i in self.journal if i >= step), reverse=True):
+            groups: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
+            for target, identifier, before in self.journal.pop(index):
+                groups.setdefault(target, []).append((identifier, before))
+            for target, images in groups.items():
+                collection = self._collection(target)
+                identifiers = [identifier for identifier, _ in images]
+                # Clear changed keys before restoring documents, including unique secondary values.
+                yield (lambda: collection.delete_many({"_id": {"$in": identifiers}}, session=self.state.session))
+                restored = [before for _, before in images if before is not None]
+                if restored:
+                    yield (lambda: collection.insert_many(restored, session=self.state.session))
+
+    def _execute(self, steps: Steps) -> Steps:
+        token = _held_internal.set(True)
+        try:
+            return (yield from steps)
+        except OperationFailure as error:
+            if error.code == _NO_SUCH_TRANSACTION or error.has_error_label("TransientTransactionError"):
+                raise StoreEnded("MongoDB ended the Preview transaction.") from error
+            raise
+        finally:
+            _held_internal.reset(token)
+
+    def collect(self, scope: RequestScope, step: int) -> None:
+        _drive_sync(self._execute(self._record(scope, step)))
+
+    def rewind(self, step: int) -> None:
+        _drive_sync(self._execute(self._rewind(step)))
+
+    def _close(self) -> Steps:
+        if not (yield from self.engine._end_steps(self.state)):
+            raise PreviewRollbackError("MongoDB did not acknowledge the Preview session rollback.")
+
+    def close(self) -> None:
+        _drive_sync(self._close())
+
+    async def ainvoke(self, method: Callable, *args: Any) -> Any:
+        if not self.engine.is_async:
+            return await super().ainvoke(method, *args)
+        if method == self.collect:
+            return await _drive_async(self._execute(self._record(*args)))
+        if method == self.rewind:
+            return await _drive_async(self._execute(self._rewind(*args)))
+        if method == self.close:
+            return await _drive_async(self._close())
+        return method(*args)
 
 
 #: Clients already hooked, by identity: two clients for the same seeds compare equal, so a set would conflate them.

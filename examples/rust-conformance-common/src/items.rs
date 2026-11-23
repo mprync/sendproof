@@ -103,11 +103,14 @@ pub async fn create<B: Backend>(
 }
 
 /// `GET /items/{id}`.
-pub async fn read<B: Backend>(db: &Db<B>, id: &str) -> Result<Outcome, DbError>
+pub async fn read<B: Backend>(db: &Db<B>, id: &str, hold: bool) -> Result<Outcome, DbError>
 where
     String: for<'r> sqlx::Decode<'r, B> + sqlx::Type<B>,
     usize: sqlx::ColumnIndex<B::Row>,
 {
+    if hold {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
     let mut conn = db.acquire().await?;
     let name = conn
         .query("SELECT name FROM items WHERE id = :id")

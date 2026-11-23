@@ -26,4 +26,9 @@ final class ChangeLog {
     synchronized boolean truncated() {
         return truncated;
     }
+
+    synchronized void clear() {
+        changes.clear();
+        truncated = false;
+    }
 }
