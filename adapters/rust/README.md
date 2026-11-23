@@ -5,6 +5,7 @@ Sendproof adds an API workbench to your service and lets you run any *declared* 
 | Crate | Purpose |
 | --- | --- |
 | [`sendproof-core`](sendproof-core) | Framework-neutral protocol: capture, limits, redaction, trace store, discovery, embedded UI. |
+| [`sendproof-journeys`](sendproof-journeys) | Code-first Arazzo workflows and Sendproof expectations for Axum and Actix Web. |
 | [`sendproof-axum`](sendproof-axum) | Axum integration: workbench mount, in-process preview dispatch, gate, observed send. |
 | [`sendproof-actix`](sendproof-actix) | Actix Web integration: the same transport on Actix middleware, plus the gate. |
 | [`sendproof-sqlx`](sendproof-sqlx) | SQLx data layer for SQLite, PostgreSQL and MySQL: transaction rollback, ordered row capture, statement capture with redaction. |
@@ -46,6 +47,48 @@ Both framework adapters advertise `previewSessions` automatically when Sendproof
 
 Open a session with `POST /sendproof/_api/sessions` and pass its ID as `Sendproof-Session` on Preview requests. Signed-in callers need an identity resolver that returns a stable `subject`. Sessions take one request at a time, stay in one process, and expire after five minutes idle or thirty minutes total. The limits are four sessions per owner and sixteen per application. Call `bench.shutdown_sessions().await` after graceful server shutdown and before closing database pools to await rollback.
 
+## Journeys in Rust
+
+Add `sendproof-journeys` and `schemars` to the API crate. Bind steps by OpenAPI `operationId` and pass the same OpenAPI document the API serves to `JourneyConfigExt::journey`.
+
+```rust
+use schemars::JsonSchema;
+use sendproof_axum::Config;
+use sendproof_journeys::{Journey, JourneyConfigExt, Parameter, Ref, Step};
+
+#[derive(JsonSchema)]
+struct LookupInputs {
+    id: String,
+}
+
+let lookup = Journey::new("itemLookup", "Look up an item")
+    .inputs::<LookupInputs>()
+    .step(
+        Step::new("getItem", "getItem") // OpenAPI operationId of GET /items/{id}
+            .parameter(Parameter::Path, "id", Ref::input("id"))
+            .succeeds_with(200)
+            .expect_nothing(),
+    );
+
+let config = Config::builder("Inventory")
+    .environment("Development")
+    .enable_in(["Development"])
+    .open_api_url("/openapi.json")
+    .journey("inventory", lookup, inventory_openapi())
+    .build()?;
+```
+
+Startup checks operation IDs and references. An invalid journey fails startup in Development. In other environments, Sendproof logs the error and skips that journey. Valid code journeys appear in capabilities with `source: "code"` alongside registered file journeys.
+
+In CI, start the API with Sendproof enabled and use the Sendproof CLI to run the served workflows. For the example above, keep the rollback provider and route gate from the quick start and create `inputs.json` with an item ID that exists in the test database. Preview is the default and uses one rollback session for the entire journey.
+
+```sh
+npx @sendproof/cli journeys run itemLookup --api http://localhost:3000 \
+  --inputs inputs.json --junit journeys.xml
+```
+
+Use `--mode send --yes --allow-send` against a disposable Development instance for Send-only journeys. The CLI exits nonzero when a journey fails or cannot run.
+
 ## Journey file discovery
 
 Register a paired Arazzo 1.1 document and Sendproof expectations document with `ConfigBuilder::journey_file`:
@@ -62,7 +105,7 @@ Config::builder("Inventory")
     .build()?;
 ```
 
-The name is the route stem, without a suffix. Capabilities use the Arazzo `info.title` as the display name, falling back to the route stem. Each root-relative source URL is prefixed with the configured mount; distinct URLs and absolute URLs are preserved. The Arazzo document must contain an OpenAPI `sourceDescriptions` entry. The paired documents are advertised in capabilities and served from `/sendproof/journeys/{name}.arazzo.json` and `/sendproof/journeys/{name}.expect.json`. Unregistered names and suffixes return no document. The conformance fixture references `/openapi.json` in its Arazzo file and includes a minimal expectations pair in `examples/rust-conformance-common/Journeys/`.
+The name is the route stem, without a suffix. Capabilities use the Arazzo `info.title` as the display name, falling back to the route stem. Each root-relative source URL is prefixed with the configured mount. The Arazzo document must contain an OpenAPI `sourceDescriptions` entry. The paired documents are advertised in capabilities and served from `/sendproof/journeys/{name}.arazzo.json` and `/sendproof/journeys/{name}.expect.json`.
 
 ## Safety model
 

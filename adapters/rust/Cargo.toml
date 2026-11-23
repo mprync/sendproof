@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "sendproof-core",
+    "sendproof-journeys",
     "sendproof-axum",
     "sendproof-actix",
     "sendproof-sqlx",

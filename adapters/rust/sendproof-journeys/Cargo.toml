@@ -1,0 +1,17 @@
+[package]
+name = "sendproof-journeys"
+description = "Code-first Arazzo journeys and Sendproof expectations for Rust APIs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../README.md"
+
+[dependencies]
+sendproof-core.workspace = true
+serde_json.workspace = true
+schemars = "1.2"
+time = { version = "0.3", default-features = false }

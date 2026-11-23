@@ -207,7 +207,7 @@ pub fn capabilities(config: &Config, identity: Option<&Identity>, stores: &[Stor
                     let stem = journey.name();
                     json!({
                         "name": journey.display_name(),
-                        "source": "file",
+                        "source": journey.source(),
                         "arazzoUrl": with_path_base(base, &format!("/sendproof/journeys/{stem}.arazzo.json")),
                         "expectationsUrl": with_path_base(base, &format!("/sendproof/journeys/{stem}.expect.json")),
                     })

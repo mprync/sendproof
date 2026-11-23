@@ -108,7 +108,7 @@ pub struct Config {
 impl Config {
     /// Starts a configuration for the API called `api_name`.
     pub fn builder(api_name: impl Into<String>) -> ConfigBuilder {
-        ConfigBuilder(Config {
+        let config = Config {
             api_name: api_name.into(),
             environment: "Production".into(),
             enabled_in: Vec::new(),
@@ -126,7 +126,8 @@ impl Config {
             stores: Vec::new(),
             identity: None,
             policy: None,
-        })
+        };
+        ConfigBuilder(config, Vec::new())
     }
 
     /// Whether the workbench and previews are served for the configured environment.
@@ -251,7 +252,7 @@ impl Config {
 }
 
 /// Builds a [`Config`].
-pub struct ConfigBuilder(Config);
+pub struct ConfigBuilder(Config, Vec<(String, journeys::GenerateJourney)>);
 
 impl ConfigBuilder {
     /// The environment label shown in the workbench, such as `Development`. Defaults to `Production`.
@@ -298,6 +299,18 @@ impl ConfigBuilder {
     /// `name` is the route stem without a file extension.
     pub fn journey_file(mut self, name: impl Into<String>, arazzo_json: impl Into<Vec<u8>>, expectations_json: impl Into<Vec<u8>>) -> Self {
         self.0.journeys.push(journeys::JourneyFile::new(name.into(), arazzo_json.into(), expectations_json.into()));
+        self
+    }
+
+    /// Registers a code journey generator. For the typed builder, use `sendproof_journeys::JourneyConfigExt::journey`.
+    /// The generator receives the primary OpenAPI route and unavailable operations during startup.
+    #[doc(hidden)]
+    pub fn journey_code(
+        mut self,
+        name: String,
+        generate: impl FnOnce(&str, &[UnavailableOperation]) -> Result<(serde_json::Value, serde_json::Value), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.1.push((name, Box::new(generate)));
         self
     }
 
@@ -425,6 +438,29 @@ impl ConfigBuilder {
                     operation.method, operation.path
                 )));
             }
+        }
+        let mut problems = Vec::new();
+        for (name, generate) in self.1 {
+            let result = if config.journeys.iter().any(|journey| journey.name() == name) {
+                Err(ConfigError(format!("journey `{name}` is registered more than once")))
+            } else {
+                journeys::JourneyFile::generate(name, generate, &config.open_api_url, &config.unavailable, base).and_then(|journey| {
+                    if let Some(id) =
+                        journey.workflow_ids().iter().find(|id| config.journeys.iter().any(|other| other.workflow_ids().contains(id)))
+                    {
+                        return Err(ConfigError(format!("journey `{}`: workflow id `{id}` is already registered", journey.name())));
+                    }
+                    Ok(journey)
+                })
+            };
+            match result {
+                Ok(journey) => config.journeys.push(journey),
+                Err(error) if config.environment.eq_ignore_ascii_case("Development") => problems.push(error.0),
+                Err(error) => tracing::warn!("Skipped a journey: {error}"),
+            }
+        }
+        if !problems.is_empty() {
+            return Err(ConfigError(problems.join("\n")));
         }
         Ok(config)
     }
