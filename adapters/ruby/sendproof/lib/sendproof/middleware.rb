@@ -10,10 +10,11 @@ module Sendproof
   # request is routed, authenticated and authorized by the host exactly like a real call.
   class Middleware
     # @param config [Configuration, nil] a shared configuration; otherwise built from +options+
-    def initialize(app, config = nil, **options)
+    def initialize(app, config = nil, load_code_journeys: true, **options)
       @app = app
       @config = config || Configuration.new(**options)
       @config.validate!
+      @config.load_code_journeys!(app) if load_code_journeys
       @sessions = PreviewSessions.new(@config)
       @workbench = Workbench.new(@config, @sessions)
       @preview = PreviewTransport.new(app, @config, @sessions)

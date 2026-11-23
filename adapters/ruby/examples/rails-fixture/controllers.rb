@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Models, controllers and the OpenAPI document. Loaded after the application initialized, like app/ code.
+# Models, controllers and the OpenAPI document. Loaded once the framework is ready.
 
 module Fixture
   class Item < ActiveRecord::Base

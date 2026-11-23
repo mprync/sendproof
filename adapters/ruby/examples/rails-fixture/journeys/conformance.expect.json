@@ -1,5 +1,26 @@
 {
   "sendproofExpectations": "1.0",
   "arazzo": "conformance.arazzo.json",
-  "journeys": {}
+  "journeys": {
+    "createAndReadItem": {
+      "steps": {
+        "create": {
+          "writes": [{
+            "store": "sqlite",
+            "table": "items",
+            "op": "insert",
+            "values": { "id": "$inputs.id", "name": "$inputs.name" }
+          }],
+          "effects": [{ "kind": "email", "to": "admin@example.test", "subject": { "pattern": "^Item .+$" } }],
+          "unlisted": "fail"
+        },
+        "read": {
+          "writes": [],
+          "effects": [],
+          "unlisted": "fail"
+        }
+      }
+    }
+  },
+  "approvedDifferences": []
 }

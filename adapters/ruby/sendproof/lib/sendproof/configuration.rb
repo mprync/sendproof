@@ -61,6 +61,15 @@ module Sendproof
       journeys.register(path, name:)
     end
 
+    # Registers a group of code-defined workflows under one Arazzo and expectations URL pair.
+    def code_journeys(slug, name:, source_name: nil, &definition)
+      journeys.register_code(slug, name:, source_name:, &definition)
+    end
+
+    def load_code_journeys!(app)
+      journeys.load_code!(app, self) if enabled?
+    end
+
     def preview_sessions?(provider = preview_provider)
       provider.respond_to?(:begin_held_preview) &&
         (!provider.respond_to?(:holds_preview?) || provider.holds_preview?) &&

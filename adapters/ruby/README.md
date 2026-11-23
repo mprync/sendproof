@@ -53,6 +53,41 @@ config.sendproof.journey "journeys/inventory.arazzo.json"
 
 Place `inventory.expect.json` alongside the Arazzo 1.1 document. Use application-relative OpenAPI URLs in the Arazzo sources. Sendproof advertises both files in capabilities and serves them under `/sendproof/journeys/` within the application mount.
 
+Register code-defined journeys alongside file pairs with `code_journeys`. The adapter builds both documents at startup and advertises them with `source: "code"`.
+
+```ruby
+config.sendproof.code_journeys :inventory, name: "Inventory journeys" do
+  journey :createAndReadItem, name: "Create and read an item" do
+    group "Inventory"
+    name = input :name, type: :string, default: "Sample item"
+    item_id = nil
+
+    step :create, :createItem do
+      body({ name: name })
+      succeeds_with 201
+      item_id = output :id, "$response.body#/id"
+      expect_writes { sql :items, :insert, values: { id: item_id, name: name } }
+    end
+
+    step :read, :readItem do
+      parameter :id, location: :path, value: item_id
+      succeeds_with 200
+      expect_writes { nothing }
+    end
+  end
+end
+```
+
+`input` takes a JSON Schema type and optional schema keywords. It returns an Arazzo expression, as does a step's `output`. Use `run_as` on the journey or a step to name a persona, and `send_only(reason)` on the journey to require Send. `expect_writes` supports `sql`, `mongo`, `redis`, `write` for other stores, `email` and `effect`. Match values with `any(type)`, `pattern(expression)` or `changed(from, to)`. A step's `approve_difference` takes the reviewed record's ID, target, reason, `approved_by`, `approved_on` and optional expected, actual, expiry (`expires`) and link fields.
+
+`open_api_url` must answer a local JSON GET during boot. Step operation IDs are checked against that document. Invalid references fail startup in development and are logged and skipped in other enabled environments.
+
+Run the API in CI and use the Sendproof CLI as the journey runner. The CLI defaults to Preview, which requires sessions. Use `--mode send --yes --allow-send` against a disposable development API for Send-only journeys or when sessions are unavailable.
+
+```sh
+npx --yes @sendproof/cli journeys run createAndReadItem --api http://127.0.0.1:3000 --junit journeys.xml
+```
+
 ## Data stores
 
 MongoDB (Mongoid and the `mongo` driver), Redis (`redis-client`, `redis` 5), DynamoDB (`aws-sdk-dynamodb`), Elasticsearch (`elasticsearch` 8), OpenSearch (`opensearch-ruby` 3) and Firestore (`google-cloud-firestore`, gRPC) are covered only through the clients the hooks reach. Cassandra and Cosmos DB are not supported. [Data stores in the Ruby binding](data-stores.md) covers setup, the `sendproof_no_preview` mark and what each store does in a Preview.

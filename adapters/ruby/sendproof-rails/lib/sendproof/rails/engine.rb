@@ -20,7 +20,17 @@ module Sendproof
       # Last in the stack: sessions, cookies and authentication middleware have already run, and
       # the next hop is the router, so a preview is routed and authorized exactly like a real call.
       initializer "sendproof.middleware" do |app|
-        app.middleware.use Sendproof::Middleware, app.config.sendproof
+        app.middleware.use Sendproof::Middleware, app.config.sendproof, load_code_journeys: false
+      end
+
+      # Rails constructs middleware before the router is ready. Load journeys once the OpenAPI
+      # endpoint can answer, including in development where route loading is normally lazy.
+      initializer "sendproof.journeys", after: :set_routes_reloader_hook do |app|
+        config = app.config.sendproof
+        if config.enabled? && config.journeys.code_registered?
+          app.routes_reloader.execute_unless_loaded
+          config.load_code_journeys!(app)
+        end
       end
 
       initializer "sendproof.logging" do |app|

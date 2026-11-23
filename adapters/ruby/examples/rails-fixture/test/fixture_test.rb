@@ -5,6 +5,7 @@ ENV["RAILS_ENV"] = "development"
 require_relative "../app"
 require "minitest/autorun"
 require "rack/test"
+require "json_schemer"
 
 # A fast in-process smoke test of the fixture. The shared HTTP conformance runner
 # (node tests/conformance/run.mjs ruby-rails) covers the full protocol over real sockets.
@@ -39,6 +40,25 @@ class FixtureTest < Minitest::Test
     assert_includes operations, "POST /items/{id}/capture"
     refute_includes operations, "POST /items/{id}/ordinary"
     assert_equal "Sendproof Conformance", Fixture::OPENAPI[:info][:title]
+  end
+
+  def test_code_journey_matches_the_original_files_and_arazzo_schema
+    get "/sendproof/_api/capabilities"
+    entry = json.fetch("journeys").fetch(0)
+    assert_equal "code", entry.fetch("source")
+
+    get entry.fetch("arazzoUrl")
+    document = json
+    assert_equal JSON.parse(File.read(File.expand_path("../journeys/conformance.arazzo.json", __dir__))), document
+    schema = File.expand_path("../../../../../tests/Sendproof.Journeys.Tests/Schemas/arazzo-1.1-2026-04-15.schema.json", __dir__)
+    draft = JSONSchemer.draft202012
+    resolver = ->(uri) { uri == draft.base_uri ? draft.value : draft.ref_resolver.call(uri) }
+    errors = JSONSchemer.schema(JSON.parse(File.read(schema)), ref_resolver: resolver).validate(document).to_a
+    assert_empty errors
+
+    get entry.fetch("expectationsUrl")
+    expected = JSON.parse(File.read(File.expand_path("../journeys/conformance.expect.json", __dir__)))
+    assert_equal expected, json
   end
 
   def test_preview_rolls_back_and_send_persists

@@ -113,7 +113,8 @@ module Fixture
     bench.environments = SCENARIO == "disabled" ? %w[staging] : [Rails.env]
     bench.api_name = "Sendproof Conformance"
     bench.open_api_url = "/openapi/v1.json"
-    bench.journey "journeys/conformance.arazzo.json"
+    require_relative "journeys/conformance"
+    ConformanceJourneys.register(bench)
     bench.trace_ttl = 5
     bench.auth_provider "Fixture sign-in", "cookie", "/auth/sign-in"
     bench.auth_provider "Fixture accounts", "personas", "/auth/personas"
@@ -157,8 +158,8 @@ module Fixture
     end
 
     config.paths["config/routes.rb"] << File.expand_path("routes.rb", __dir__)
+    config.to_prepare { require_relative "controllers" }
   end
 end
 
 Fixture::Application.initialize!
-require_relative "controllers"
