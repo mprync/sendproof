@@ -1,4 +1,4 @@
-// The Sendproof MCP server (@sendproof/cli) against a fake API that speaks protocol v1 under a path
+// The Sendproof MCP server (@sendproof/core/cli) against a fake API that speaks protocol v1 under a path
 // base: discovery, operations and models, lookups, Preview (confirmed, unconfirmed and blocked),
 // Send with its guard and trace, personas, journeys, and the stdio lifecycle.
 
@@ -15,8 +15,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createServer } from '@sendproof/cli';
-import type { SendPolicy } from '@sendproof/cli';
+import { createServer } from '@sendproof/core/cli';
+import type { SendPolicy } from '@sendproof/core/cli';
 
 const TRACE = '0123456789abcdef0123456789abcdef';
 const TRACE_QUOTE = 'fedcba9876543210fedcba9876543210';
@@ -399,7 +399,7 @@ test('resources expose the capabilities and the OpenAPI document', async t => {
 
 test('the stdio command completes the MCP lifecycle and keeps stdout to the protocol', async t => {
   const api = fakeApi(); const url = await api.listen(); t.after(() => api.server.close());
-  const cli = fileURLToPath(new URL('../cli/dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../core/dist/cli/cli.js', import.meta.url));
   const child = spawn(process.execPath, [cli, 'mcp', '--api', url, '--persona', 'ada@shop.dev'], { stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => child.kill());
   let stdout = '', stderr = '';
@@ -430,7 +430,7 @@ const execFileAsync = promisify(execFile);
 
 test('sendproof journeys list and run drive the same runner from the terminal', async t => {
   const api = fakeApi(); const url = await api.listen(); t.after(() => api.server.close());
-  const cli = fileURLToPath(new URL('../cli/dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../core/dist/cli/cli.js', import.meta.url));
   const dir = await mkdtemp(join(tmpdir(), 'sendproof-journeys-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
 
@@ -473,7 +473,7 @@ test('sendproof journeys list and run drive the same runner from the terminal', 
 
 test('sendproof journeys run in Send checks Redis commands against the trace’s Db log entries', async t => {
   const api = fakeApi(); const url = await api.listen(); t.after(() => api.server.close());
-  const cli = fileURLToPath(new URL('../cli/dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../core/dist/cli/cli.js', import.meta.url));
   const send = await execFileAsync(process.execPath, [cli, 'journeys', 'run', 'priceWithCoupon', '--mode', 'send', '--yes', '--allow-send', '--api', url])
     .catch(error => error as { stdout: string; stderr: string; code: number });
   assert.equal(send.code, 1, 'the INCRBY nothing recorded is missing');

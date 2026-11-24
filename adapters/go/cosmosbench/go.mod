@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 )
 
 require (

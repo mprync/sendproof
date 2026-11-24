@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/sqlite",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof rollback and row change capture for Node SQLite",
   "license": "MIT",
   "keywords": [
@@ -27,6 +27,6 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   }
 }

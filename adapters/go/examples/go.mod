@@ -14,16 +14,16 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/labstack/echo/v4 v4.16.5
 	github.com/microsoft/go-mssqldb v1.12.0
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/cassandrabench v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.2
-	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/cassandrabench v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.3
+	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.3
 	github.com/opensearch-project/opensearch-go/v4 v4.8.1
 	github.com/redis/go-redis/v9 v9.23.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0

@@ -10,8 +10,12 @@
 // the upload commands instead of running them, for local checks.
 //
 // Packages are uploaded in the order RELEASE.json lists them, which pack-all writes in dependency
-// order. A registry never lets a version be replaced, so a failed run is recovered by publishing the
-// missing packages by hand (see docs/publishing.md), never by rebuilding.
+// order. A registry never lets a version be replaced, so npm and crates.io skip a version that is
+// already there and a failed run is recovered by re-running the job, never by rebuilding.
+//
+// npm and crates.io accept trusted publishing only for a package that already exists, so for those two
+// every package name must already be on the registry. The check runs in --dry-run too, which CI does on
+// every push, so a new package name fails before it reaches a release.
 
 import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -61,10 +65,27 @@ const exec = async (command, args, { secrets = [], ...options } = {}) => {
 };
 const files = release.files.map(file => join(directory, file));
 
+// 2. Trusted publishing can't create a package, so every npm and crates.io name must already exist.
+const packageName = {
+  npm: file => `@sendproof/${basename(file).slice('sendproof-'.length, -`-${versions.semver}.tgz`.length)}`,
+  crates: file => basename(file, `-${versions.semver}.crate`),
+}[registry];
+if (packageName) {
+  const extension = registry === 'npm' ? '.tgz' : '.crate';
+  const names = files.filter(path => path.endsWith(extension)).map(packageName);
+  const missing = [];
+  for (const name of names) if (!await published(name)) missing.push(name);
+  require(!missing.length, `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not on ${registry} yet, and trusted `
+    + 'publishing cannot create a package. Ship the code inside an existing package instead (docs/publishing.md).');
+  console.log(`All ${names.length} ${registry} package names exist, so trusted publishing can upload them`);
+}
+
 const publishers = {
   async npm() {
     // npm 11.5.1+ exchanges the job's OIDC token itself (trusted publishing) and adds provenance.
     for (const file of files.filter(path => path.endsWith('.tgz'))) {
+      const name = packageName(file);
+      if (await published(name, versions.semver)) { console.log(`${name} ${versions.semver} is already on npm`); continue; }
       await exec('npm', ['publish', file, '--access', 'public', '--provenance', '--tag', versions.npmTag]);
     }
   },
@@ -119,7 +140,7 @@ const publishers = {
         && crate.deps.every(dep => done.has(dep) || !crates.some(other => other.name === dep)));
       require(next, 'The crates have a dependency cycle');
       done.add(next.name);
-      if (await onCratesIo(next.name, versions.semver)) { console.log(`${next.name} ${versions.semver} is already on crates.io`); continue; }
+      if (await published(next.name, versions.semver)) { console.log(`${next.name} ${versions.semver} is already on crates.io`); continue; }
       // The packed Cargo.lock pins sibling crates to the checksums of cargo package's temporary local
       // registry, which differ from the archives crates.io serves, so cargo publish would refuse it.
       // cargo writes a fresh lock file against crates.io while publishing. Cargo.toml.orig is a name cargo
@@ -284,15 +305,22 @@ async function publishGo(source) {
 }
 
 /**
- * Whether crates.io already has this version, read from its sparse index, so a re-run after a partial
- * upload skips the crates that made it instead of failing on them.
+ * Whether this registry (npm or crates.io) has the package, or with `version`, that version of it. Lets a
+ * re-run after a partial upload skip what made it, and the pre-check above find names that don't exist.
  */
-async function onCratesIo(name, version) {
-  const lower = name.toLowerCase();
-  const path = lower.length <= 2 ? `${lower.length}/${lower}`
-    : lower.length === 3 ? `3/${lower[0]}/${lower}` : `${lower.slice(0, 2)}/${lower.slice(2, 4)}/${lower}`;
-  const response = await fetch(`https://index.crates.io/${path}`, { headers: { 'user-agent': 'sendproof-release' } });
+async function published(name, version) {
+  let url;
+  if (registry === 'npm') {
+    url = `https://registry.npmjs.org/${name.replace('/', '%2f')}`;
+  } else {
+    const lower = name.toLowerCase();
+    url = `https://index.crates.io/${lower.length <= 2 ? `${lower.length}/${lower}`
+      : lower.length === 3 ? `3/${lower[0]}/${lower}` : `${lower.slice(0, 2)}/${lower.slice(2, 4)}/${lower}`}`;
+  }
+  const response = await fetch(url, { headers: { 'user-agent': 'sendproof-release' } });
   if (response.status === 404) return false;
-  require(response.ok, `crates.io index returned ${response.status} for ${name}`);
+  require(response.ok, `${registry} returned ${response.status} for ${name}`);
+  if (!version) return true;
+  if (registry === 'npm') return version in ((await response.json()).versions ?? {});
   return (await response.text()).split('\n').filter(Boolean).some(line => JSON.parse(line).vers === version);
 }

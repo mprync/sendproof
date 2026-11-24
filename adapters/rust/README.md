@@ -4,15 +4,14 @@ Sendproof adds an API workbench to your service and lets you run any *declared* 
 
 | Crate | Purpose |
 | --- | --- |
-| [`sendproof-core`](sendproof-core) | Framework-neutral protocol: capture, limits, redaction, trace store, discovery, embedded UI. |
-| [`sendproof-journeys`](sendproof-journeys) | Code-first Arazzo workflows and Sendproof expectations for Axum and Actix Web. |
+| [`sendproof-core`](sendproof-core) | Framework-neutral protocol: capture, limits, redaction, trace store, discovery, embedded UI. Feature `journeys`: code-first Arazzo workflows and Sendproof expectations for Axum and Actix Web. |
 | [`sendproof-axum`](sendproof-axum) | Axum integration: workbench mount, in-process preview dispatch, gate, observed send. |
 | [`sendproof-actix`](sendproof-actix) | Actix Web integration: the same transport on Actix middleware, plus the gate. |
 | [`sendproof-sqlx`](sendproof-sqlx) | SQLx data layer for SQLite, PostgreSQL and MySQL: transaction rollback, ordered row capture, statement capture with redaction. |
 | [`sendproof-redis`](sendproof-redis), [`sendproof-dynamodb`](sendproof-dynamodb), [`sendproof-mongodb`](sendproof-mongodb) | Data stores: a Redis write guard, a DynamoDB write guard (AWS SDK interceptor) and MongoDB Preview (a transaction that is aborted) with a write guard. See [data-stores.md](data-stores.md). |
 | [`../../examples/rust-conformance`](../../examples/rust-conformance), [`-actix`](../../examples/rust-conformance-actix), [`-common`](../../examples/rust-conformance-common) | The shared conformance fixtures (Axum and Actix + SQLx on SQLite, PostgreSQL or MySQL, chosen by `BENCH_DATABASE`). |
 
-Status: `0.1.0-alpha.2`. Tested: Axum 0.8 and Actix Web 4.20 with SQLx 0.9 on SQLite, PostgreSQL 17 and MySQL 8. Each backend captures rows differently, and MySQL captures less; see [`sendproof-sqlx`](sendproof-sqlx/README.md). Not implemented: Diesel and SeaORM.
+Status: `0.1.0-alpha.3`. Tested: Axum 0.8 and Actix Web 4.20 with SQLx 0.9 on SQLite, PostgreSQL 17 and MySQL 8. Each backend captures rows differently, and MySQL captures less; see [`sendproof-sqlx`](sendproof-sqlx/README.md). Not implemented: Diesel and SeaORM.
 
 ## Quick start
 
@@ -49,12 +48,17 @@ Open a session with `POST /sendproof/_api/sessions` and pass its ID as `Sendproo
 
 ## Journeys in Rust
 
-Add `sendproof-journeys` and `schemars` to the API crate. Bind steps by OpenAPI `operationId` and pass the same OpenAPI document the API serves to `JourneyConfigExt::journey`.
+Turn on `sendproof-core`'s `journeys` feature and add `schemars` to the API crate. Bind steps by OpenAPI `operationId` and pass the same OpenAPI document the API serves to `JourneyConfigExt::journey`.
+
+```toml
+sendproof-core = { version = "0.1.0-alpha.3", features = ["journeys"] }
+schemars = "1.2"
+```
 
 ```rust
 use schemars::JsonSchema;
 use sendproof_axum::Config;
-use sendproof_journeys::{Journey, JourneyConfigExt, Parameter, Ref, Step};
+use sendproof_core::journeys::{Journey, JourneyConfigExt, Parameter, Ref, Step};
 
 #[derive(JsonSchema)]
 struct LookupInputs {
@@ -83,7 +87,7 @@ Startup checks operation IDs and references. An invalid journey fails startup in
 In CI, start the API with Sendproof enabled and use the Sendproof CLI to run the served workflows. For the example above, keep the rollback provider and route gate from the quick start and create `inputs.json` with an item ID that exists in the test database. Preview is the default and uses one rollback session for the entire journey.
 
 ```sh
-npx @sendproof/cli journeys run itemLookup --api http://localhost:3000 \
+npx -y @sendproof/core journeys run itemLookup --api http://localhost:3000 \
   --inputs inputs.json --junit journeys.xml
 ```
 

@@ -21,6 +21,8 @@ pub mod assets;
 pub mod capture;
 pub mod config;
 pub mod headers;
+#[cfg(feature = "journeys")]
+pub mod journeys;
 pub mod limits;
 pub mod model;
 pub mod protocol;

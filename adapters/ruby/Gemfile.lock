@@ -1,22 +1,22 @@
 PATH
   remote: sendproof-activerecord
   specs:
-    sendproof-activerecord (0.1.0.alpha.2)
+    sendproof-activerecord (0.1.0.alpha.3)
       activerecord (>= 8.0, < 9)
-      sendproof-core (= 0.1.0.alpha.2)
+      sendproof-core (= 0.1.0.alpha.3)
 
 PATH
   remote: sendproof-rails
   specs:
-    sendproof-rails (0.1.0.alpha.2)
+    sendproof-rails (0.1.0.alpha.3)
       actionpack (>= 8.0, < 9)
       railties (>= 8.0, < 9)
-      sendproof-core (= 0.1.0.alpha.2)
+      sendproof-core (= 0.1.0.alpha.3)
 
 PATH
   remote: sendproof
   specs:
-    sendproof-core (0.1.0.alpha.2)
+    sendproof-core (0.1.0.alpha.3)
       rack (>= 3.0, < 4)
 
 GEM

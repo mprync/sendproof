@@ -85,7 +85,7 @@ end
 Run the API in CI and use the Sendproof CLI as the journey runner. The CLI defaults to Preview, which requires sessions. Use `--mode send --yes --allow-send` against a disposable development API for Send-only journeys or when sessions are unavailable.
 
 ```sh
-npx --yes @sendproof/cli journeys run createAndReadItem --api http://127.0.0.1:3000 --junit journeys.xml
+npx -y @sendproof/core journeys run createAndReadItem --api http://127.0.0.1:3000 --junit journeys.xml
 ```
 
 ## Data stores
@@ -111,7 +111,7 @@ bin/fixture     # conformance fixture; honours PORT, BENCH_PATH_BASE, BENCH_SCEN
 bundle exec rake build   # packs the UI and builds the three gems into pkg/
 ```
 
-The UI is never copied by hand. `rake ui:pack` runs `node tools/pack-ui.mjs --version 0.1.0-alpha.2` and writes `sendproof/lib/sendproof/ui` (`manifest.json` plus the files), which is embedded in the `sendproof-core` gem. Each file's SHA-256 is verified against the manifest before it is served.
+The UI is never copied by hand. `rake ui:pack` runs `node tools/pack-ui.mjs --version 0.1.0-alpha.3` and writes `sendproof/lib/sendproof/ui` (`manifest.json` plus the files), which is embedded in the `sendproof-core` gem. Each file's SHA-256 is verified against the manifest before it is served.
 
 Shared HTTP conformance, from the repository root: `node tests/conformance/run.mjs ruby-rails` (with `mongodb redis dynamodb` from `tests/conformance/compose.yml` and `opensearch` from its `heavy-stores` profile running, or `BENCH_STORES=mongodb,redis,dynamodb` to leave OpenSearch out) and `node tests/conformance/run.mjs ruby-rails-mysql` (with `BENCH_MYSQL_URL` and the `mysql` service), and `node tests/conformance/run.mjs ruby-rails-postgresql` (with `BENCH_POSTGRES_URL` and the `postgres` service).
 

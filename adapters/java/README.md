@@ -19,7 +19,7 @@ The conformance fixtures live in [`examples/java-spring-fixture`](../../examples
 
 ```kotlin
 dependencies {
-    implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.2")      // brings spring-boot, core and ui
+    implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.3")      // brings spring-boot, core and ui
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.17")  // optional: OpenAPI discovery
 }
 ```
@@ -89,12 +89,12 @@ environments Sendproof logs the error and skips that journey.
 Start the API in CI and run journeys with the Sendproof CLI:
 
 ```sh
-npx @sendproof/cli journeys run orderLookup --api http://localhost:8080 --junit report.xml
+npx -y @sendproof/core journeys run orderLookup --api http://localhost:8080 --junit report.xml
 ```
 
 The CLI uses Preview by default and returns a failing exit code if the journey fails. Pass `--inputs inputs.json` to
 override defaults. For an API without Preview sessions or a Send-only journey, use a disposable test environment and
-pass `--mode send --yes --allow-send` in Development. See the [CLI README](../node/cli/README.md) for authentication
+pass `--mode send --yes --allow-send` in Development. See the [CLI README](../node/core/README.md#the-sendproof-command) for authentication
 and Send options.
 
 ## Safety model

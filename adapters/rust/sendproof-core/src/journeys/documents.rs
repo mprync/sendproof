@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use sendproof_core::UnavailableOperation;
+use crate::UnavailableOperation;
 use serde_json::{Map, Value, json};
 
-use crate::Journey;
+use super::Journey;
 
 impl Journey {
     pub(super) fn documents(

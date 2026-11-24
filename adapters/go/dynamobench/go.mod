@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.3
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.74.1
 	github.com/aws/smithy-go v1.28.9
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 )
 
 require (

@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/redis",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof write guard for Redis: ioredis and node-redis",
   "license": "MIT",
   "keywords": [
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@ioredis/commands": "^1.2.0",
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   },
   "peerDependencies": {
     "ioredis": "^5.0.0",

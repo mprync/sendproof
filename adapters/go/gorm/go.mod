@@ -3,7 +3,7 @@ module github.com/mprync/sendproof/adapters/go/gorm
 go 1.24
 
 require (
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 	gorm.io/gorm v1.31.2
 )
 

@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/firestore v1.29.2
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 	google.golang.org/api v0.304.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/grpc v1.84.0

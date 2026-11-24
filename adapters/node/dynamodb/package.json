@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/dynamodb",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof write guard for DynamoDB: AWS SDK v3 client and document client",
   "license": "MIT",
   "keywords": [
@@ -26,7 +26,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   },
   "peerDependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0"

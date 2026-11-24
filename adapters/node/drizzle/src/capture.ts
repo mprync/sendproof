@@ -16,7 +16,7 @@ export interface SQLiteConnection {
   queryRows(text: string, bindings: unknown[], method: 'all' | 'get' | 'values' | 'run', changes?: TrackedRows, captureSql?: boolean): Promise<unknown>;
   preview<T>(dispatch: () => Promise<T>): Promise<T>;
   openSession?(): Promise<HeldPreview>;
-  /** A transaction, or a savepoint inside one. Available from `@sendproof/sqlite` 0.1.0-alpha.2. */
+  /** A transaction, or a savepoint inside one. Available from `@sendproof/sqlite` 0.1.0-alpha.3. */
   transaction?<T>(callback: () => Promise<T>): Promise<T>;
   /** 0 outside a transaction. Available with {@link transaction}. */
   readonly depth?: number;

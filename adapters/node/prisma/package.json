@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/prisma",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof rollback and row capture for Prisma driver adapters",
   "license": "MIT",
   "keywords": [
@@ -34,7 +34,7 @@
     "node": "^22.14 || >=24.0"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   },
   "peerDependencies": {
     "@prisma/client": "^7.10.0",

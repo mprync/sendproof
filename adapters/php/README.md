@@ -4,9 +4,9 @@ Sendproof guards and previews data stores beyond SQL: MongoDB, Redis and DynamoD
 
 | Package | Purpose | Status |
 | --- | --- | --- |
-| [`core`](core/README.md) | Framework-neutral protocol core: preview runner, observed send, capture, trace store, embedded UI | `0.1.0-alpha.2` |
-| [`laravel`](laravel/README.md) | Laravel service provider, config and Eloquent preview provider | `0.1.0-alpha.2`, conformance-tested |
-| [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.2`, conformance-tested |
+| [`core`](core/README.md) | Framework-neutral protocol core: preview runner, observed send, capture, trace store, embedded UI | `0.1.0-alpha.3` |
+| [`laravel`](laravel/README.md) | Laravel service provider, config and Eloquent preview provider | `0.1.0-alpha.3`, conformance-tested |
+| [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.3`, conformance-tested |
 | [`examples/laravel-fixture`](examples/laravel-fixture/README.md), [`examples/symfony-fixture`](examples/symfony-fixture/README.md) | Disposable apps for the shared conformance runner | test code |
 
 ## Define journeys in PHP
@@ -33,7 +33,7 @@ Use `output('itemId', '/id')` to expose a response field and `$step->ref('itemId
 In CI, start a disposable API and run its published journeys with the Sendproof CLI. Supply credentials as required by the app. Send executes requests against the fixture's data.
 
 ```sh
-npx --package @sendproof/cli sendproof journeys run itemLookup --api http://127.0.0.1:5361 --mode send --yes --allow-send-anywhere --junit journeys.xml
+npx -y @sendproof/core journeys run itemLookup --api http://127.0.0.1:5361 --mode send --yes --allow-send-anywhere --junit journeys.xml
 ```
 
 ## Register journey files

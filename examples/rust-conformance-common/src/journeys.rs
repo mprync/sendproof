@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use sendproof_journeys::{Journey, Parameter, Ref, Step};
+use sendproof_core::journeys::{Journey, Parameter, Ref, Step};
 
 #[derive(JsonSchema)]
 #[allow(dead_code)]
@@ -27,7 +27,7 @@ pub(crate) fn item_lookup() -> Journey {
 #[cfg(test)]
 mod tests {
     use sendproof_core::{Config, protocol::capabilities};
-    use sendproof_journeys::JourneyConfigExt;
+    use sendproof_core::journeys::JourneyConfigExt;
     use serde_json::Value;
 
     use super::*;

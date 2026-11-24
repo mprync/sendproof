@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 )
 
 require (

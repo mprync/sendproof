@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/typeorm",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof rollback and automatic row capture for TypeORM",
   "license": "MIT",
   "keywords": [
@@ -27,7 +27,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   },
   "peerDependencies": {
     "typeorm": "^0.3.28"

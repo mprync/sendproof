@@ -16,10 +16,11 @@ export const title = 'npm';
 
 const NODE = join(root, 'adapters', 'node');
 // Dependency order: everything needs core; drizzle also needs sqlite. The data-store guards (redis,
-// dynamodb, mongodb, cassandra, elasticsearch, cosmosdb, firestore) need only core. The cli (the MCP
-// server) needs none of them: it talks to any adapter over HTTP.
+// dynamodb, mongodb, cassandra, elasticsearch, cosmosdb, firestore) need only core. The `sendproof`
+// command (journeys runner and MCP server) ships inside core, so a release adds no new package names:
+// npm only accepts trusted publishing for packages that already exist.
 const PACKAGES = ['core', 'sqlite', 'express', 'fastify', 'hono', 'nestjs', 'drizzle', 'knex', 'typeorm', 'prisma',
-  'redis', 'dynamodb', 'mongodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore', 'cli'];
+  'redis', 'dynamodb', 'mongodb', 'cassandra', 'elasticsearch', 'cosmosdb', 'firestore'];
 
 /** The npm CLI cache stays in the repository so sandboxed runs never write to the home directory. */
 const npmEnv = () => ({ npm_config_cache: process.env.npm_config_cache ?? join(root, 'artifacts', 'npm-cache'),
@@ -62,8 +63,12 @@ export async function pack(ctx) {
     }
     require(!names.some(name => /^(src|tests?)\//.test(name) || name.endsWith('.tsbuildinfo')),
       `${packed.filename} contains source, tests or build info`);
-    if (dir === 'core') require(names.includes('assets/manifest.json') && names.includes('assets/index.html'),
-      `${packed.filename} is missing the embedded workbench UI`);
+    if (dir === 'core') {
+      require(names.includes('assets/manifest.json') && names.includes('assets/index.html'),
+        `${packed.filename} is missing the embedded workbench UI`);
+      require(names.includes('dist/cli/cli.js') && names.includes('dist/cli/engine/journeys/index.js'),
+        `${packed.filename} is missing the sendproof command or its journey engine`);
+    }
     ctx.log(`${packed.filename} (${packed.entryCount} files, ${packed.size} bytes)`);
     files.push(packed.filename);
   }
@@ -143,8 +148,10 @@ export async function verify(ctx) {
     require(tarballs.length === PACKAGES.length, `expected ${PACKAGES.length} tarballs in ${ctx.out}`);
     await writeJson(join(consumer, 'package.json'), { name: 'sendproof-npm-consumer', private: true, type: 'module' });
     ctx.log(`installing ${tarballs.length} tarballs and their peers into ${consumer}`);
-    // npm installs required peers (Express, Fastify, Nest, Prisma client, ...) automatically.
-    await run('npm', ['install', '--no-package-lock', '--ignore-scripts', ...tarballs, 'express@5', 'typescript@5.9.3', '@types/node@22', '@types/express@5'],
+    // npm installs required peers (Express, Fastify, Nest, Prisma client, ...) automatically. The MCP SDK is
+    // core's optional peer (only `sendproof mcp` needs it), so it is named here for the @sendproof/core/cli types.
+    await run('npm', ['install', '--no-package-lock', '--ignore-scripts', ...tarballs, 'express@5', 'typescript@5.9.3', '@types/node@22', '@types/express@5',
+      '@modelcontextprotocol/sdk@1'],
       { cwd: consumer, env: npmEnv(), label: 'npm consumer' });
 
     const installed = await readJson(join(consumer, 'node_modules', '@sendproof', 'core', 'package.json'));
@@ -170,6 +177,11 @@ export async function verify(ctx) {
     await writeFile(join(consumer, 'load.mjs'), `${PACKAGES.filter(dir => !['prisma', 'nestjs'].includes(dir))
       .map(dir => `await import('@sendproof/${dir}');`).join('\n')}\nconsole.log('entry points load');\n`);
     await run(process.execPath, ['load.mjs'], { cwd: consumer, label: 'node consumer' });
+
+    // The bin target itself (not the .bin shim, which differs on Windows) runs and reports this release.
+    const cli = join(consumer, 'node_modules', '@sendproof', 'core', installed.bin.sendproof);
+    const reported = await output(process.execPath, [cli, '--version'], { cwd: consumer });
+    require(reported === ctx.version, `the installed sendproof command reports ${reported}, not ${ctx.version}`);
 
     await writeFile(join(consumer, 'app.mjs'), `import express from 'express';
 import { sendproof } from '@sendproof/express';

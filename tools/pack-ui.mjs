@@ -19,7 +19,7 @@ const mimeTypes = {
 };
 
 const { values } = parseArgs({ options: { out: { type: 'string' }, version: { type: 'string' } } });
-const version = values.version ?? process.env.PACKAGE_VERSION ?? '0.1.0-alpha.2';
+const version = values.version ?? process.env.PACKAGE_VERSION ?? '0.1.0-alpha.3';
 if (!values.out || !/^\d+\.\d+\.\d+(?:-[\da-z.-]+)?(?:\+[\da-z.-]+)?$/i.test(version)) {
   throw new Error('Usage: node tools/pack-ui.mjs --out <directory> [--version <semver>]');
 }

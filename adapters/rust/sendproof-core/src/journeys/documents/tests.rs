@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
-use sendproof_core::{Config, protocol::capabilities};
+use crate::{Config, protocol::capabilities};
 use serde_json::{Value, json};
 use time::{Date, Month};
 
-use crate::{ApprovedDifference, Journey, JourneyConfigExt, Match, Parameter, Ref, Step, WriteExpectation};
+use crate::journeys::{ApprovedDifference, Journey, JourneyConfigExt, Match, Parameter, Ref, Step, WriteExpectation};
 
 #[derive(JsonSchema)]
 #[allow(dead_code)]

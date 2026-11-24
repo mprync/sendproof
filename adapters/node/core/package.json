@@ -1,16 +1,21 @@
 {
   "name": "@sendproof/core",
-  "version": "0.1.0-alpha.2",
-  "description": "Sendproof workbench protocol and shared UI for Node",
+  "version": "0.1.0-alpha.3",
+  "description": "Sendproof workbench protocol and shared UI for Node, and the sendproof command line (journeys runner and MCP server)",
   "license": "MIT",
   "keywords": [
     "openapi",
     "api-testing",
     "workbench",
     "swagger",
-    "rollback"
+    "rollback",
+    "mcp",
+    "model-context-protocol"
   ],
   "type": "module",
+  "bin": {
+    "sendproof": "./dist/cli/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -19,6 +24,10 @@
     "./node-http": {
       "types": "./dist/node-http.d.ts",
       "default": "./dist/node-http.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -30,9 +39,21 @@
     "node": ">=22.14"
   },
   "scripts": {
-    "build": "tsc -b && npm run pack-ui",
+    "build": "tsc -b && npm run pack-ui && npm run pack-engine",
     "pack-ui": "node ../../../tools/pack-ui.mjs --out assets",
+    "pack-engine": "node ../../../tools/pack-journeys-engine.mjs --out dist/cli/engine",
     "prepack": "npm run build",
     "embed-store-tables": "node scripts/embed-store-tables.mjs"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/mongodb",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Sendproof rollback Preview and write guard for MongoDB: the Node driver and Mongoose",
   "license": "MIT",
   "keywords": [
@@ -27,7 +27,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.2"
+    "@sendproof/core": "0.1.0-alpha.3"
   },
   "peerDependencies": {
     "mongodb": "^6.0.0",

@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
     "sendproof-core",
-    "sendproof-journeys",
     "sendproof-axum",
     "sendproof-actix",
     "sendproof-sqlx",
@@ -17,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -37,7 +36,6 @@ sendproof-dynamodb = { path = "sendproof-dynamodb" }
 sendproof-mongodb = { path = "sendproof-mongodb" }
 sendproof-cassandra = { path = "sendproof-cassandra" }
 sendproof-elasticsearch = { path = "sendproof-elasticsearch" }
-sendproof-journeys = { path = "sendproof-journeys" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "matched-path", "original-uri"] }
 actix-web = { version = "4", default-features = false, features = ["macros"] }
 http = "1"

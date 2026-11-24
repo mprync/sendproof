@@ -302,7 +302,7 @@ impl ConfigBuilder {
         self
     }
 
-    /// Registers a code journey generator. For the typed builder, use `sendproof_journeys::JourneyConfigExt::journey`.
+    /// Registers a code journey generator. For the typed builder, use `journeys::JourneyConfigExt::journey` (feature `journeys`).
     /// The generator receives the primary OpenAPI route and unavailable operations during startup.
     #[doc(hidden)]
     pub fn journey_code(

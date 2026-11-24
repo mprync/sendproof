@@ -16,6 +16,8 @@ include = ["src/**", "build.rs", "ui-assets/**", "README.md", "LICENSE"]
 default = ["tracing"]
 # `SendproofLayer`: capture `tracing` events of the current request.
 tracing = ["dep:tracing-subscriber"]
+# `journeys::Journey` and `JourneyConfigExt::journey`: code-first Arazzo journeys.
+journeys = ["dep:schemars", "dep:time"]
 
 [dependencies]
 http.workspace = true
@@ -25,6 +27,8 @@ tokio.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
+schemars = { version = "1.2", optional = true }
+time = { version = "0.3", default-features = false, optional = true }
 
 [build-dependencies]
 serde_json.workspace = true

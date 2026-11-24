@@ -1,9 +1,9 @@
 // Copies the journey engine (ui/journeys/, pure ES modules) and its vendored libraries
-// (ui/vendor/, built by vendor-journeys-libs.mjs) into @sendproof/cli at build, so the CLI, the
+// (ui/vendor/, built by vendor-journeys-libs.mjs) into @sendproof/core at build, so the CLI, the
 // MCP server and the workbench run the exact same engine code (journeys-build.md, Contract 3).
 // Nothing here is rewritten: only copied, dropping the engine's own tests and the vendor README.
 //
-//   node tools/pack-journeys-engine.mjs --out adapters/node/cli/dist/engine
+//   node tools/pack-journeys-engine.mjs --out adapters/node/core/dist/cli/engine
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

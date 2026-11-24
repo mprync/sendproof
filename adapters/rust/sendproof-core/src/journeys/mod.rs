@@ -1,10 +1,10 @@
-//! Define Arazzo workflows and expected writes alongside the API that serves them.
+//! Define Arazzo workflows and expected writes alongside the API that serves them (feature `journeys`).
 
 mod documents;
 mod expectations;
 
 use schemars::{JsonSchema, generate::SchemaSettings};
-use sendproof_core::ConfigBuilder;
+use crate::ConfigBuilder;
 use serde_json::{Map, Value, json};
 
 pub use expectations::{ApprovedDifference, Match, WriteExpectation};

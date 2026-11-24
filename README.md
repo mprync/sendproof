@@ -41,9 +41,9 @@ document, email and log line the request would produce. **Send for real** when i
 </p>
 
 > [!NOTE]
-> The first release, `0.1.0-alpha.2`, is in preparation. The install commands below use the names
-> the packages will be published under. Until then, `node tools/pack-all.mjs` builds every package
-> from this checkout ([CONTRIBUTING.md](CONTRIBUTING.md#build-every-package)).
+> Sendproof is an alpha prerelease, `0.1.0-alpha.3`, published to every registry the install
+> commands below use. `node tools/pack-all.mjs` builds every package from this checkout
+> ([CONTRIBUTING.md](CONTRIBUTING.md#build-every-package)).
 
 ## Why Sendproof
 
@@ -79,7 +79,7 @@ handler runs for real, then everything it wrote is rolled back, and you get the 
 | **Observed Send** | In development, a Send can be traced too: the same Database, Side effects and Logs tabs show what was committed. Traces are private to the user who sent them and expire after five minutes. |
 | **Code export** | Copy the edited request as cURL, JavaScript, Python, C#, Go, Java, Kotlin, PHP, Ruby, Rust or PowerShell, with credentials masked. |
 | **Built for real use** | Keyboard first (<kbd>⌘K</kbd> command search, <kbd>?</kbd> for shortcuts), light and dark themes, three densities, [29 interface languages](ui/locales/README.md) including Arabic, Hebrew and Persian right to left, and a phone layout. WCAG 2.2 AA is the release target. |
-| **For AI agents too** | [`@sendproof/cli`](adapters/node/cli) is an MCP server: an agent can list and read operations, find real IDs, Preview any request and see exactly what it would write, and Send when you allow it, as the signed-in user or a development persona. It works with every adapter. |
+| **For AI agents too** | The [`sendproof` command](adapters/node/core/README.md#the-sendproof-command) is an MCP server: an agent can list and read operations, find real IDs, Preview any request and see exactly what it would write, and Send when you allow it, as the signed-in user or a development persona. It works with every adapter. |
 | **Zero front-end setup** | Each package embeds the same prebuilt UI, verified by SHA-256. Your app needs no Node, no build step and no second list of endpoints. |
 
 ## Journeys
@@ -280,7 +280,7 @@ http.ListenAndServe(":8080", bench.Middleware(mux))
 <summary><b>Java and Kotlin</b>: Spring Boot (also Ktor)</summary>
 
 ```kotlin
-implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.2")   // brings the Spring Boot starter
+implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.3")   // brings the Spring Boot starter
 ```
 
 ```properties
@@ -409,10 +409,10 @@ DynamoDB.
 `sendproof mcp` gives an agent the same operations, Preview and Send over MCP. With the store example running:
 
 ```sh
-claude mcp add store-api -- npx -y @sendproof/cli mcp --api http://localhost:5080 --persona ada.admin@acme.dev
+claude mcp add store-api -- npx -y -p @sendproof/core -p @modelcontextprotocol/sdk@1 sendproof mcp --api http://localhost:5080 --persona ada.admin@acme.dev
 ```
 
-Then ask it, for example, to preview placing an order and say what it would write. The [package README](adapters/node/cli/README.md) lists the tools, the sign-in options and how Send is guarded.
+Then ask it, for example, to preview placing an order and say what it would write. The [command's README](adapters/node/core/README.md#the-sendproof-command) lists the tools, the sign-in options and how Send is guarded.
 
 ## How it works
 
@@ -612,8 +612,6 @@ The [binding checklist](docs/bindings/adding.md) walks through it.
 
 ## Roadmap
 
-- **First release.** Publish `0.1.0-alpha.2` to NuGet, npm, PyPI, Maven Central, crates.io,
-  RubyGems, Packagist and the Go module proxy ([publishing guide](docs/publishing.md)).
 - **More providers.** Dapper and raw ADO.NET for .NET; Diesel and SeaORM for Rust.
 - **Store gaps.** Cassandra and Cosmos DB for PHP and Ruby; Cosmos DB and Firestore for Rust, which
   have no official SDK today.

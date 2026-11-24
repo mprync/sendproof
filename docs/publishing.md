@@ -2,7 +2,7 @@
 
 Sendproof ships every binding to its language's registry from one version tag. CI builds each registry's packages once, installs them into fresh consumer applications on Linux, Windows and macOS, and only then lets the publish jobs upload the exact, checksum-verified artifacts. This guide is the one-time setup a maintainer does by hand, in order, followed by the release procedure.
 
-Nothing here has been done yet: no trusted publisher or secret exists. Placeholders below:
+This setup is done for every package listed below, and releases need no manual step. Placeholders below:
 
 - `OWNER/REPO`: the final GitHub repository, for example `mprync/sendproof`.
 - Workflow file: always `check.yml` (`.github/workflows/check.yml`).
@@ -22,6 +22,10 @@ Nothing here has been done yet: no trusted publisher or secret exists. Placehold
 | Go proxy | `adapters/go`, `/chi`, `/gin`, `/echo`, `/gorm`, `/redisbench`, `/dynamobench`, `/mongobench`, `/cassandrabench`, `/searchbench`, `/cosmosbench`, `/firestorebench` modules via tags | `go` | the job's `GITHUB_TOKEN` (`contents: write`) |
 
 The data-store hooks for Python, Ruby and PHP (Redis, DynamoDB, MongoDB and the batch-two Cassandra, Elasticsearch, OpenSearch, Cosmos DB and Firestore ones, where each language supports them) ship inside `sendproof-core`, the `sendproof-core` gem and `sendproof/core` (client libraries are optional extras or `suggest` entries), so those registries and the Packagist mirror repositories gain no packages. The Packagist archives leave out `compat/` in `sendproof/core`, the Elasticsearch 8 test run.
+
+### Adding code without adding a package
+
+npm and crates.io accept trusted publishing only for a package that already exists, and neither can create one from CI. So new npm and Rust code ships inside an existing package: the `sendproof` command (journeys runner and MCP server) is in `@sendproof/core`, with the MCP SDK as an optional peer, and the Rust journeys builder is `sendproof-core`'s `journeys` feature. `publish.mjs` checks every npm and crates.io name against the registry, including in the dry run CI does on every push, so a new name fails before it reaches a release.
 
 ## Package names
 
@@ -81,7 +85,7 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 
 1. Sign in as `mprync`, the owner of the `@sendproof` npm organisation, which the seventeen packages publish under.
 2. Enable two-factor authentication on every maintainer account.
-3. npm only lets you add a trusted publisher to a package that already exists, so the **first** version is published by hand from the verified CI artifact: download `packages-npm` from the tag's workflow run, check it with `sha256sum --check SHA256SUMS`, then publish in the order `RELEASE.json` lists (core, sqlite, then the rest) with `npm publish <file>.tgz --access public --tag next` (`latest` for a stable version).
+3. Done for all seventeen packages, and never needed again (see [Adding code without adding a package](#adding-code-without-adding-a-package)). npm only lets you add a trusted publisher to a package that already exists, so the **first** version was published by hand from the verified CI artifact: download `packages-npm` from the tag's workflow run, check it with `sha256sum --check SHA256SUMS`, then publish in the order `RELEASE.json` lists (core, sqlite, then the rest) with `npm publish <file>.tgz --access public --tag next` (`latest` for a stable version).
 4. For each package on npmjs.com → *Settings* → *Trusted publishing*, add GitHub Actions: organisation or user `OWNER`, repository `REPO`, workflow `check.yml`, environment `npm`. Then set *Publishing access* to "Require two-factor authentication and disallow tokens".
 5. No secret is needed. From then on the job's npm (11.5.1 or newer, bundled with Node 24) exchanges its OIDC token and publishes with provenance.
 
@@ -123,7 +127,7 @@ Make the `Verify`, `Protocol` and `Packages` checks required on `main`.
 ### 8. crates.io
 
 1. Sign in to crates.io with GitHub and verify your email address.
-2. crates.io only accepts trusted publishing for crates that already exist, so publish the **first** version by hand from the verified artifact: create an API token with the `publish-new` scope limited to `sendproof-*` and a short expiry, download `packages-crates`, check `SHA256SUMS`, then run `CARGO_REGISTRY_TOKEN=<token> node tools/release/publish.mjs crates <dir> --tag vX.Y.Z` (it unpacks each `.crate` and publishes core first). Revoke the token afterwards.
+2. Done for all nine crates, and never needed again (see [Adding code without adding a package](#adding-code-without-adding-a-package)). crates.io only accepts trusted publishing for crates that already exist, so the **first** version was published by hand from the verified artifact: create an API token with the `publish-new` scope limited to `sendproof-*` and a short expiry, download `packages-crates`, check `SHA256SUMS`, then run `CARGO_REGISTRY_TOKEN=<token> node tools/release/publish.mjs crates <dir> --tag vX.Y.Z` (it unpacks each `.crate` and publishes core first). Revoke the token afterwards.
 3. For each of the nine crates → *Settings* → *Trusted Publishing*, add GitHub: owner `OWNER`, repository `REPO`, workflow `check.yml`, environment `crates-io`. Optionally enable "trusted publishing only".
 4. No secret is needed afterwards. `rust-lang/crates-io-auth-action` exchanges the OIDC token for a 30-minute publish token.
 

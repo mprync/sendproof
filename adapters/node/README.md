@@ -69,7 +69,7 @@ The same `journeys` array accepts Arazzo 1.1 file URLs. Pair each file with a si
 In CI, start the API with representative test data and run its published journeys with the [Sendproof CLI](cli). The CLI defaults to Preview, requires Preview sessions for that mode, and returns a failing exit code if a journey fails.
 
 ```sh
-npx @sendproof/cli journeys run itemLookup --api http://127.0.0.1:5351 --junit sendproof.xml
+npx sendproof journeys run itemLookup --api http://127.0.0.1:5351 --junit sendproof.xml
 ```
 
 Pass the API's credentials with options such as `--sign-in` and the `SENDPROOF_PASSWORD` environment variable. For a Send-only journey, use `--mode send --yes --allow-send` against your development test API.

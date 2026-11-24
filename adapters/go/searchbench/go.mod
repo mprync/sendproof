@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/elastic/elastic-transport-go/v8 v8.9.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.7
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.3
 	github.com/opensearch-project/opensearch-go/v4 v4.8.1
 )
 

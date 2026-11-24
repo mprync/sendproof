@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use sendproof_core::{Config, ConfigBuilder};
-use sendproof_journeys::JourneyConfigExt;
+use sendproof_core::journeys::JourneyConfigExt;
 use sendproof_sqlx::{Backend, SqlxProvider};
 use sqlx::{
     MySqlPool, PgPool, Pool, SqlitePool,

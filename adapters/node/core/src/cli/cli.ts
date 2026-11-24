@@ -5,12 +5,11 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SendproofClient, SendproofError, type SendPolicy } from './client.js';
 import { listJourneys } from './journeys.js';
 import { endAllRuns, endRun, exportRun, runRemaining, startRun, toJUnit, type Run, type StepResult } from './journeys-run.js';
 import { isJsonObject, type JsonObject } from './openapi.js';
-import { createServer, VERSION } from './server.js';
+import { VERSION } from './version.js';
 
 const HELP = `sendproof ${VERSION}
 
@@ -44,7 +43,8 @@ Other
   --help, --version
 
 Example MCP client configuration
-  { "mcpServers": { "store-api": { "command": "npx", "args": ["-y", "@sendproof/cli", "mcp", "--api", "http://127.0.0.1:5189"] } } }
+  { "mcpServers": { "store-api": { "command": "npx", "args": ["-y", "-p", "@sendproof/core", "-p", "@modelcontextprotocol/sdk@1",
+    "sendproof", "mcp", "--api", "http://127.0.0.1:5189"] } } }
 `;
 
 function fail(message: string): never {
@@ -105,6 +105,15 @@ async function connect(values: Values) {
 
 async function runMcp(values: Values) {
   const allowSend: SendPolicy = values['allow-send-anywhere'] ? 'anywhere' : values['allow-send'] ? 'development' : 'off';
+  // The MCP SDK is an optional peer of @sendproof/core, so `journeys` works without it.
+  let mcp;
+  try {
+    mcp = await Promise.all([import('./server.js'), import('@modelcontextprotocol/sdk/server/stdio.js')]);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ERR_MODULE_NOT_FOUND') throw error;
+    fail('the MCP server needs @modelcontextprotocol/sdk. Run it with: npx -y -p @sendproof/core -p @modelcontextprotocol/sdk@1 sendproof mcp --api <url>');
+  }
+  const [{ createServer }, { StdioServerTransport }] = mcp;
   let created;
   try {
     created = createServer({ ...connectionOptions(values), allowSend });

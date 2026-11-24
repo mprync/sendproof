@@ -6,4 +6,4 @@ from .bench import Sendproof
 from .marker import preview
 
 __all__ = ["AuthProvider", "Identity", "OpenApiDocument", "Sendproof", "preview"]
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"

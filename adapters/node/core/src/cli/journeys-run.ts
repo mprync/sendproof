@@ -1,6 +1,6 @@
 // Running a journey: one Preview session per Preview run (spec/README.md, "Preview sessions"),
 // or traced Sends for a Send run, driving the journey engine (ui/journeys/, copied in at build as
-// ./engine/journeys/) exactly as the workbench would. This is the one place @sendproof/cli and
+// ./engine/journeys/) exactly as the workbench would. This is the one place the CLI and
 // its MCP tools step through a run, so `sendproof journeys run` and the MCP run tools give the
 // same results.
 import { bindStep, createRun, exportRun, recordStep, skipRun, toJUnit,

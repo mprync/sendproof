@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+Publishes the command line and the Rust journeys builder, which 0.1.0-alpha.2 couldn't: npm and crates.io accept trusted publishing only for packages that already exist, so both now ship inside existing packages.
+
+- The `sendproof` command (journeys runner and MCP server) is now in `@sendproof/core`, replacing `@sendproof/cli`. Run journeys with `npx -y @sendproof/core journeys run …`. The MCP server needs `@modelcontextprotocol/sdk`, an optional peer: `npx -y -p @sendproof/core -p @modelcontextprotocol/sdk@1 sendproof mcp …`. The programmatic API moves to `@sendproof/core/cli`.
+- Rust journeys are now `sendproof-core`'s `journeys` feature (`sendproof_core::journeys`), replacing `sendproof-journeys`.
+- The release checks every npm and crates.io package name against the registry on every push, and a re-run of the npm publish job skips versions that are already published.
+
 ## 0.1.0-alpha.2
 
 Adds journeys, Preview sessions and the MCP server to every binding. Every package shares the same version.
