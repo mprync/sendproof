@@ -12,7 +12,7 @@ Sendproof adds an API workbench to your service and lets you run any *declared* 
 | [`sendproof-redis`](sendproof-redis), [`sendproof-dynamodb`](sendproof-dynamodb), [`sendproof-mongodb`](sendproof-mongodb) | Data stores: a Redis write guard, a DynamoDB write guard (AWS SDK interceptor) and MongoDB Preview (a transaction that is aborted) with a write guard. See [data-stores.md](data-stores.md). |
 | [`../../examples/rust-conformance`](../../examples/rust-conformance), [`-actix`](../../examples/rust-conformance-actix), [`-common`](../../examples/rust-conformance-common) | The shared conformance fixtures (Axum and Actix + SQLx on SQLite, PostgreSQL or MySQL, chosen by `BENCH_DATABASE`). |
 
-Status: `0.1.0-alpha.1`. Tested: Axum 0.8 and Actix Web 4.20 with SQLx 0.9 on SQLite, PostgreSQL 17 and MySQL 8. Each backend captures rows differently, and MySQL captures less; see [`sendproof-sqlx`](sendproof-sqlx/README.md). Not implemented: Diesel and SeaORM.
+Status: `0.1.0-alpha.2`. Tested: Axum 0.8 and Actix Web 4.20 with SQLx 0.9 on SQLite, PostgreSQL 17 and MySQL 8. Each backend captures rows differently, and MySQL captures less; see [`sendproof-sqlx`](sendproof-sqlx/README.md). Not implemented: Diesel and SeaORM.
 
 ## Quick start
 

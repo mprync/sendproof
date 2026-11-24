@@ -18,7 +18,7 @@ Build both packages with the commands in the [quick start](../README.md#packages
 From the consuming application directory, choose the package and version explicitly.
 
 ```sh
-dotnet add package Sendproof.EntityFrameworkCore --version 0.1.0-alpha.1
+dotnet add package Sendproof.EntityFrameworkCore --version 0.1.0-alpha.2
 ```
 
 Once a version is listed on nuget.org, the same command works with that version and the public feed. Both Sendproof packages follow the same version.

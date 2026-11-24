@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.2
+
+Adds journeys, Preview sessions and the MCP server to every binding. Every package shares the same version.
+
+- Journeys: define the ordered calls of a task in your app's own language, next to its endpoints. Sendproof checks each journey at startup (operation IDs, inputs and earlier-step outputs) and publishes it as an Arazzo 1.1 workflow with Sendproof write expectations.
+- .NET: typed `Journey<TInputs>` classes with a source generator for operation references, `AddJourneys` registration, and `Sendproof.Journeys.Testing`, which runs every journey as an xUnit test through `WebApplicationFactory`.
+- Node, Python, Java and Kotlin, Go, Ruby, PHP and Rust: code-first journey builders that publish the same Arazzo and expectations documents.
+- Preview sessions (protocol v1, additive): one held transaction per rollback-capable store across several requests, with savepoints, rewind and end. PHP reports `previewSessions: false`, because FPM and the CLI server end transactions with each request.
+- Workbench Journeys mode: step-by-step Preview runs on one session, each step on its operation's own screen, write comparison field by field, approved differences, run summaries and custom dialogs in place of the browser's native ones.
+- `@sendproof/cli`: `journeys list` and `journeys run` with JUnit XML output for CI, and an MCP server covering the whole workbench (operations, Preview, Send, journeys and approved differences).
+- Redis, MongoDB and EF Core capture fixes found by the journey runs.
+- `sendproof-core` on PyPI now depends on `jsonschema` to validate journey inputs.
+
+## 0.1.0-alpha.1
 
 First prerelease of Sendproof. The two .NET NuGet packages share the same version.
 

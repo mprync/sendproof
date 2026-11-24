@@ -85,9 +85,10 @@ def main(dist: Path, semver: str, version: str, repository: str) -> list[str]:
               f"{label}: Project-URL is {urls}")
         requires = metadata.get_all("Requires-Dist") or []
         if name == "sendproof-core":
-            # Only the optional data-store client extras may add requirements.
+            # jsonschema validates journey inputs; anything else is an optional data-store client extra.
             required = [entry for entry in requires if "extra ==" not in entry]
-            check(not required, f"{label}: core must have no dependencies, has {required}")
+            check([r.split("<")[0].split(">")[0] for r in required] == ["jsonschema"],
+                  f"{label}: core may depend only on jsonschema, has {required}")
             extras = sorted(metadata.get_all("Provides-Extra") or [])
             check(extras == sorted(DATA_STORE_EXTRAS), f"{label}: data-store extras are {extras}")
         else:

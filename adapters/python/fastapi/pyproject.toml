@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sendproof-fastapi"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Sendproof workbench, rollback previews and observed sends for FastAPI and Starlette applications."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ classifiers = [
   "Topic :: Software Development :: Testing",
   "Typing :: Typed",
 ]
-dependencies = ["sendproof-core==0.1.0a1", "fastapi>=0.110"]
+dependencies = ["sendproof-core==0.1.0a2", "fastapi>=0.110"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sendproof_fastapi"]

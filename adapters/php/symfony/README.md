@@ -4,7 +4,7 @@ Sendproof adds an API workbench to a Symfony application: browse your OpenAPI do
 
 The bundle implements [Sendproof protocol v1](../../../spec/README.md). Preview hands the rewritten request to the real HTTP kernel in the same process, as a main request, inside a transaction that is always rolled back. The firewall, access control, listeners, argument resolvers and your controller all run exactly as for a normal request.
 
-> **Status:** `0.1.0-alpha.1`. Tested with Symfony 8.1, Doctrine DBAL 4.6, ORM 3.8 and DoctrineBundle 3.4 on PHP 8.4 and SQLite. The package allows Symfony 7–8 and PHP 8.2+, but only the tested combination is verified.
+> **Status:** `0.1.0-alpha.2`. Tested with Symfony 8.1, Doctrine DBAL 4.6, ORM 3.8 and DoctrineBundle 3.4 on PHP 8.4 and SQLite. The package allows Symfony 7–8 and PHP 8.2+, but only the tested combination is verified.
 
 ## Install
 

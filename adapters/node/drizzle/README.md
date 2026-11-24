@@ -68,7 +68,7 @@ MySQL derives keys for a multi-row `INSERT … VALUES` from the first generated 
 
 Statements are logged with their text, duration and rows affected. Drizzle sends positional parameters, which are logged as `$1`, `$2` and so on, and redacted because their names say nothing. Name them for one call with `withParameterNames(['fixture_secret'], () => client.execute(...))`. The capture then redacts secret-looking names, every value of a statement whose text names a secret, and, unless parameter values are enabled, every value. `withParameterNames` has no effect on SQLite, whose connection logs its own statements.
 
-## API changes from 0.1.0-alpha.1
+## API changes from 0.1.0-alpha.2
 
 - **`drizzlePreview(database, options)`:** now also accepts PostgreSQL and MySQL Drizzle databases.
 - **Options:** `trackedRowLimit` is new.

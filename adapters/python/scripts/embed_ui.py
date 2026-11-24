@@ -22,7 +22,7 @@ TARGET = ROOT / "adapters/python/core/src/sendproof_core/ui"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="0.1.0-alpha.1", help="UI bundle version passed to the packer")
+    parser.add_argument("--version", default="0.1.0-alpha.2", help="UI bundle version passed to the packer")
     parser.add_argument("--target", type=Path, default=TARGET)
     args = parser.parse_args()
     packer = ROOT / "tools/pack-ui.mjs"

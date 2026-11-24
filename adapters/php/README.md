@@ -4,9 +4,9 @@ Sendproof guards and previews data stores beyond SQL: MongoDB, Redis and DynamoD
 
 | Package | Purpose | Status |
 | --- | --- | --- |
-| [`core`](core/README.md) | Framework-neutral protocol core: preview runner, observed send, capture, trace store, embedded UI | `0.1.0-alpha.1` |
-| [`laravel`](laravel/README.md) | Laravel service provider, config and Eloquent preview provider | `0.1.0-alpha.1`, conformance-tested |
-| [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.1`, conformance-tested |
+| [`core`](core/README.md) | Framework-neutral protocol core: preview runner, observed send, capture, trace store, embedded UI | `0.1.0-alpha.2` |
+| [`laravel`](laravel/README.md) | Laravel service provider, config and Eloquent preview provider | `0.1.0-alpha.2`, conformance-tested |
+| [`symfony`](symfony/README.md) | Symfony bundle with a Doctrine DBAL/ORM preview provider | `0.1.0-alpha.2`, conformance-tested |
 | [`examples/laravel-fixture`](examples/laravel-fixture/README.md), [`examples/symfony-fixture`](examples/symfony-fixture/README.md) | Disposable apps for the shared conformance runner | test code |
 
 ## Define journeys in PHP

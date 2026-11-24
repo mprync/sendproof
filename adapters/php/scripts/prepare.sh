@@ -3,7 +3,7 @@
 # Run from the repository root: sh adapters/php/scripts/prepare.sh
 set -eu
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
-node "$root/tools/pack-ui.mjs" --version 0.1.0-alpha.1 --out "$root/adapters/php/core/resources/ui"
+node "$root/tools/pack-ui.mjs" --version 0.1.0-alpha.2 --out "$root/adapters/php/core/resources/ui"
 for package in core core/compat/elasticsearch-8 laravel symfony examples/laravel-fixture examples/symfony-fixture; do
   composer install --working-dir "$root/adapters/php/$package" --no-interaction --no-progress --prefer-dist
 done

@@ -4,7 +4,7 @@ Sendproof adds an API workbench to a Laravel application: browse your OpenAPI do
 
 The package implements [Sendproof protocol v1](../../../spec/README.md). Preview dispatches the real request through your own routing, middleware, validation and handler in the same process, inside a transaction that is always rolled back.
 
-> **Status:** `0.1.0-alpha.1`. Tested with Laravel 13.43 on PHP 8.4 and SQLite. The package allows Laravel 11–13 and PHP 8.2+, but only the tested combination is verified.
+> **Status:** `0.1.0-alpha.2`. Tested with Laravel 13.43 on PHP 8.4 and SQLite. The package allows Laravel 11–13 and PHP 8.2+, but only the tested combination is verified.
 
 ## Install
 

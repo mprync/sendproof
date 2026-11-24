@@ -1,7 +1,7 @@
 // Shared conventions for the Java bindings. Individual modules declare only what is specific to them.
 subprojects {
     group = "io.github.mprync"
-    version = (findProperty("sendproof.version") as String?) ?: "0.1.0-alpha.1"
+    version = (findProperty("sendproof.version") as String?) ?: "0.1.0-alpha.2"
 
     apply(plugin = "java-library")
 

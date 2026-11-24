@@ -47,9 +47,12 @@ def inspect_package(path):
             require(assembly + extension in names, f"Missing {assembly}{extension}")
         require(metadata.findtext("{*}description"), f"Missing description in {path.name}")
         if package_id != HOST:
-            dep = metadata.find(f".//{{*}}dependency[@id='{HOST}']")
-            require(dep is not None and dep.get("version") in (version, f"[{version}]"),
-                    f"{package_id} must depend on the matching {HOST} version")
+            # Each package reaches the host directly or through another Sendproof package, always at this version.
+            deps = [d for d in metadata.iter("{*}dependency") if d.get("id", "").startswith("Sendproof.")]
+            require(deps, f"{package_id} must depend on {HOST} or another Sendproof package")
+            for dep in deps:
+                require(dep.get("version") in (version, f"[{version}]"),
+                        f"{package_id} must depend on the matching {dep.get('id')} version")
         repository = metadata.find("{*}repository")
         # tools/pack-all.mjs passes the canonical repository (from adapters/go/MODULE_PATH).
         expected = os.getenv("REPOSITORY_URL")

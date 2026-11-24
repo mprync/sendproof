@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sendproof-core"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Framework-neutral core of the Sendproof Python adapters: protocol, capture, trace store and embedded workbench UI."
 readme = "README.md"
 requires-python = ">=3.10"

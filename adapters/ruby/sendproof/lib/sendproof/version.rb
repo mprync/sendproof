@@ -2,8 +2,8 @@
 
 module Sendproof
   # RubyGems version of every Sendproof Ruby gem.
-  VERSION = "0.1.0.alpha.1"
+  VERSION = "0.1.0.alpha.2"
 
   # The same release expressed as SemVer, as expected by tools/pack-ui.mjs.
-  UI_VERSION = "0.1.0-alpha.1"
+  UI_VERSION = "0.1.0-alpha.2"
 end

@@ -7,7 +7,7 @@ import { SendproofClient, type ClientOptions } from './client.js';
 import { callTool, listTools, type SendPolicy, type ToolContext } from './tools.js';
 import type { JsonObject } from './openapi.js';
 
-export const VERSION = '0.1.0-alpha.1';
+export const VERSION = '0.1.0-alpha.2';
 
 export interface ServerOptions extends ClientOptions {
   /** Whether send_request may commit: never, only when the API reports Development, or anywhere. */

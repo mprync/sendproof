@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/nestjs",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Sendproof module for NestJS with the Express HTTP adapter",
   "license": "MIT",
   "keywords": [
@@ -28,7 +28,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.2"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.0.0",

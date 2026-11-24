@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proves a fresh consumer can fetch the released Go modules, both ways Go can:
 #
-#   adapters/go/scripts/verify-release.sh [version, default v0.1.0-alpha.1]
+#   adapters/go/scripts/verify-release.sh [version, default v0.1.0-alpha.2]
 #
 # It works on a COPY of the Go tree under artifacts/go-release-check, so the
 # repository is not changed. The copy is retargeted to a placeholder repository
@@ -22,7 +22,7 @@
 # Needs network access for third-party dependencies (proxy.golang.org) and git.
 set -euo pipefail
 
-version="${1:-v0.1.0-alpha.1}"
+version="${1:-v0.1.0-alpha.2}"
 [[ "$version" == v* ]] || version="v$version"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$(cd "$here/../.." && pwd)"

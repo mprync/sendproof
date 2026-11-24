@@ -6,7 +6,7 @@ from sendproof_core.marker import apply_marker
 from .orm import DjangoOrmPreview
 
 __all__ = ["AuthProvider", "DjangoOrmPreview", "Identity", "close_sessions", "preview"]
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 
 def close_sessions() -> None:

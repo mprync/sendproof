@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/hono",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Sendproof integration for Hono",
   "license": "MIT",
   "keywords": [
@@ -28,7 +28,7 @@
     "node": ">=22.14"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.2"
   },
   "peerDependencies": {
     "hono": "^4.0.0"

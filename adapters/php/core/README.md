@@ -16,7 +16,7 @@ Framework-neutral PHP core of [Sendproof protocol v1](../../../spec/README.md). 
 The workbench UI is not copied into this repository's PHP sources. `resources/ui` is generated output of the shared packer and must be refreshed before a release:
 
 ```sh
-composer embed-ui   # node tools/pack-ui.mjs --version 0.1.0-alpha.1 --out resources/ui
+composer embed-ui   # node tools/pack-ui.mjs --version 0.1.0-alpha.2 --out resources/ui
 ```
 
 `UiBundle` serves only files listed in `manifest.json` and refuses any file whose hash does not match.

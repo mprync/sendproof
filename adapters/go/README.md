@@ -13,7 +13,7 @@ The workbench is the same prebuilt UI used by every Sendproof binding. It is emb
 | `…/adapters/go/echo` | `echosendproof` | Route marker for [Echo](https://echo.labstack.com) v4. |
 | `…/adapters/go/gorm` | `gormsendproof` | [GORM](https://gorm.io) connection pool on top of `dbsql`. |
 
-The framework and GORM adapters are separate modules, so an application only downloads the ones it imports. They require the core module at a released version (`v0.1.0-alpha.1` today). No `go.mod` contains a `replace` directive; [`go.work`](go.work) resolves those versions to this checkout for local development. See [Modules, versions and the module path](#modules-versions-and-the-module-path).
+The framework and GORM adapters are separate modules, so an application only downloads the ones it imports. They require the core module at a released version (`v0.1.0-alpha.2` today). No `go.mod` contains a `replace` directive; [`go.work`](go.work) resolves those versions to this checkout for local development. See [Modules, versions and the module path](#modules-versions-and-the-module-path).
 
 ## Quick start
 
@@ -262,12 +262,12 @@ The argument is the repository's import path; the base becomes `<repository>/ada
 
 ### Releasing
 
-Pass the version of the release, for example `v0.1.0-alpha.1`. Releases tag the eight public modules together at the same version:
+Pass the version of the release, for example `v0.1.0-alpha.2`. Releases tag the eight public modules together at the same version:
 
 ```sh
-adapters/go/scripts/package.sh v0.1.0-alpha.1    # checks metadata, UI, vet/race tests; writes zips, tags.txt, SHA256SUMS to artifacts/go-packages
-adapters/go/scripts/tags.sh v0.1.0-alpha.1       # the git tags to create
-adapters/go/scripts/verify-release.sh v0.1.0-alpha.1
+adapters/go/scripts/package.sh v0.1.0-alpha.2    # checks metadata, UI, vet/race tests; writes zips, tags.txt, SHA256SUMS to artifacts/go-packages
+adapters/go/scripts/tags.sh v0.1.0-alpha.2       # the git tags to create
+adapters/go/scripts/verify-release.sh v0.1.0-alpha.2
 ```
 
 `package.sh` refuses to continue when a `go.mod` has a `replace`, when an internal requirement is not at the release version (update the requirements and the `go.work` replace block together, then run `tidy.sh`) or when the committed embedded UI is stale. A module in a subdirectory is released by a tag named `<subdirectory>/<version>`, so the tags are `adapters/go/vX`, `adapters/go/chi/vX`, `adapters/go/gin/vX`, `adapters/go/echo/vX`, `adapters/go/gorm/vX`, `adapters/go/redisbench/vX`, `adapters/go/dynamobench/vX`, `adapters/go/mongobench/vX`, `adapters/go/cassandrabench/vX`, `adapters/go/searchbench/vX`, `adapters/go/cosmosbench/vX` and `adapters/go/firestorebench/vX`. `tags.sh` fails when a module path is not the repository path plus its directory, because such a tag could never resolve. Tag the core module first and wait until the proxy serves it, because the others require it.

@@ -27,16 +27,16 @@ use (
 )
 
 replace (
-	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.1 => ./
-	github.com/mprync/sendproof/adapters/go/cassandrabench v0.1.0-alpha.1 => ./cassandrabench
-	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.1 => ./chi
-	github.com/mprync/sendproof/adapters/go/cosmosbench v0.1.0-alpha.1 => ./cosmosbench
-	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.1 => ./dynamobench
-	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.1 => ./echo
-	github.com/mprync/sendproof/adapters/go/firestorebench v0.1.0-alpha.1 => ./firestorebench
-	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.1 => ./gin
-	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.1 => ./gorm
-	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.1 => ./mongobench
-	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.1 => ./redisbench
-	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.1 => ./searchbench
+	github.com/mprync/sendproof/adapters/go v0.1.0-alpha.2 => ./
+	github.com/mprync/sendproof/adapters/go/cassandrabench v0.1.0-alpha.2 => ./cassandrabench
+	github.com/mprync/sendproof/adapters/go/chi v0.1.0-alpha.2 => ./chi
+	github.com/mprync/sendproof/adapters/go/cosmosbench v0.1.0-alpha.2 => ./cosmosbench
+	github.com/mprync/sendproof/adapters/go/dynamobench v0.1.0-alpha.2 => ./dynamobench
+	github.com/mprync/sendproof/adapters/go/echo v0.1.0-alpha.2 => ./echo
+	github.com/mprync/sendproof/adapters/go/firestorebench v0.1.0-alpha.2 => ./firestorebench
+	github.com/mprync/sendproof/adapters/go/gin v0.1.0-alpha.2 => ./gin
+	github.com/mprync/sendproof/adapters/go/gorm v0.1.0-alpha.2 => ./gorm
+	github.com/mprync/sendproof/adapters/go/mongobench v0.1.0-alpha.2 => ./mongobench
+	github.com/mprync/sendproof/adapters/go/redisbench v0.1.0-alpha.2 => ./redisbench
+	github.com/mprync/sendproof/adapters/go/searchbench v0.1.0-alpha.2 => ./searchbench
 )

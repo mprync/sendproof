@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/firestore",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Sendproof write guard for Google Cloud Firestore: @google-cloud/firestore 7",
   "license": "MIT",
   "keywords": ["firestore", "google-cloud", "sendproof"],
@@ -10,7 +10,7 @@
   "files": ["dist"],
   "scripts": { "prepack": "tsc -b" },
   "engines": { "node": ">=22.14" },
-  "dependencies": { "@sendproof/core": "0.1.0-alpha.1" },
+  "dependencies": { "@sendproof/core": "0.1.0-alpha.2" },
   "peerDependencies": { "@google-cloud/firestore": "^7.0.0" },
   "devDependencies": { "@google-cloud/firestore": "^7.11.6" }
 }

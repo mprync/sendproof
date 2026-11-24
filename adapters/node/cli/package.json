@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/cli",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Sendproof command line: an MCP server that lets AI agents explore, Preview and Send any API with a Sendproof adapter",
   "license": "MIT",
   "keywords": [

@@ -19,7 +19,7 @@ The conformance fixtures live in [`examples/java-spring-fixture`](../../examples
 
 ```kotlin
 dependencies {
-    implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.1")      // brings spring-boot, core and ui
+    implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.2")      // brings spring-boot, core and ui
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.17")  // optional: OpenAPI discovery
 }
 ```

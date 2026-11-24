@@ -214,7 +214,9 @@ async function checkArchive(path, pkg, ctx) {
   if (pkg.dir === 'core') {
     for (const required of ['resources/ui/manifest.json', 'resources/ui/index.html']) require(has(required), `${label} is missing ${required}`);
   }
-  const unwanted = names.filter(name => /(^|\/)(vendor|tests|compat|\.git|\.phpunit\.cache)(\/|$)/.test(name) || /(^|\/)(composer\.lock|phpunit\.xml|\.phpunit\.result\.cache)$/.test(name));
+  // resources/ui/vendor/ is the workbench's own vendored ES modules, not Composer's vendor directory.
+  const unwanted = names.filter(name => !name.startsWith('resources/ui/'))
+    .filter(name => /(^|\/)(vendor|tests|compat|\.git|\.phpunit\.cache)(\/|$)/.test(name) || /(^|\/)(composer\.lock|phpunit\.xml|\.phpunit\.result\.cache)$/.test(name));
   require(!unwanted.length, `${label} contains files that must not ship: ${unwanted.slice(0, 5).join(', ')}`);
 
   const manifest = JSON.parse(entries.get('composer.json').toString('utf8'));

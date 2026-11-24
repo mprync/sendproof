@@ -41,7 +41,7 @@ document, email and log line the request would produce. **Send for real** when i
 </p>
 
 > [!NOTE]
-> The first release, `0.1.0-alpha.1`, is in preparation. The install commands below use the names
+> The first release, `0.1.0-alpha.2`, is in preparation. The install commands below use the names
 > the packages will be published under. Until then, `node tools/pack-all.mjs` builds every package
 > from this checkout ([CONTRIBUTING.md](CONTRIBUTING.md#build-every-package)).
 
@@ -280,7 +280,7 @@ http.ListenAndServe(":8080", bench.Middleware(mux))
 <summary><b>Java and Kotlin</b>: Spring Boot (also Ktor)</summary>
 
 ```kotlin
-implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.1")   // brings the Spring Boot starter
+implementation("io.github.mprync:sendproof-jpa:0.1.0-alpha.2")   // brings the Spring Boot starter
 ```
 
 ```properties
@@ -612,7 +612,7 @@ The [binding checklist](docs/bindings/adding.md) walks through it.
 
 ## Roadmap
 
-- **First release.** Publish `0.1.0-alpha.1` to NuGet, npm, PyPI, Maven Central, crates.io,
+- **First release.** Publish `0.1.0-alpha.2` to NuGet, npm, PyPI, Maven Central, crates.io,
   RubyGems, Packagist and the Go module proxy ([publishing guide](docs/publishing.md)).
 - **More providers.** Dapper and raw ADO.NET for .NET; Diesel and SeaORM for Rust.
 - **Store gaps.** Cassandra and Cosmos DB for PHP and Ruby; Cosmos DB and Firestore for Rust, which

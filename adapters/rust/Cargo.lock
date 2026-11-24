@@ -3081,7 +3081,7 @@ dependencies = [
 
 [[package]]
 name = "rust-conformance"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "axum",
  "rust-conformance-common",
@@ -3101,7 +3101,7 @@ dependencies = [
 
 [[package]]
 name = "rust-conformance-actix"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "rust-conformance-common",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "rust-conformance-common"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "aws-credential-types",
@@ -3458,7 +3458,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "sendproof-actix"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "futures-util",
@@ -3472,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-axum"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "axum",
  "futures-util",
@@ -3485,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-cassandra"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "async-trait",
@@ -3498,7 +3498,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "http 1.5.0",
  "serde",
@@ -3511,7 +3511,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-dynamodb"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "aws-credential-types",
  "aws-sdk-dynamodb",
@@ -3527,7 +3527,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-elasticsearch"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "axum",
@@ -3544,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-journeys"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "schemars 1.2.3",
  "sendproof-core",
@@ -3554,7 +3554,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-mongodb"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "axum",
@@ -3570,7 +3570,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-redis"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "axum",
@@ -3582,7 +3582,7 @@ dependencies = [
 
 [[package]]
 name = "sendproof-sqlx"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "actix-web",
  "axum",

@@ -1,6 +1,6 @@
 {
   "name": "@sendproof/express",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Sendproof middleware for Express",
   "license": "MIT",
   "keywords": [
@@ -28,7 +28,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@sendproof/core": "0.1.0-alpha.1"
+    "@sendproof/core": "0.1.0-alpha.2"
   },
   "peerDependencies": {
     "express": "^5.1.0"

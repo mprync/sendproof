@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sendproof-sqlalchemy"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "SQLAlchemy rollback previews and change capture for Sendproof."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,7 +26,7 @@ classifiers = [
   "Topic :: Database",
   "Typing :: Typed",
 ]
-dependencies = ["sendproof-core==0.1.0a1", "sqlalchemy>=2.0"]
+dependencies = ["sendproof-core==0.1.0a2", "sqlalchemy>=2.0"]
 
 [project.optional-dependencies]
 asyncio = ["sqlalchemy[asyncio]>=2.0"]

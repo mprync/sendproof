@@ -19,6 +19,8 @@ __pycache__/
 # Binding build output, local toolchains and dependency caches
 **/target/
 **/vendor/
+# Third-party ES modules the workbench imports directly; built by tools/vendor-journeys-libs.mjs.
+!ui/vendor/
 **/.venv/
 **/.gradle/
 **/.gradle-home/

@@ -1,6 +1,6 @@
 {
-  "version": "0.1.0-alpha.1",
-  "bundleHash": "05ce8aab63577a8fe06a6eb89a6f4f11f8c935d31d7974543d3ac04dd04eee55",
+  "version": "0.1.0-alpha.2",
+  "bundleHash": "67c7f7d569ffe46aa389c1601f844cde16a22504e7e0d43e5a20c5378c419f1f",
   "files": {
     "action-bar.js": {
       "sha256": "602e4e63ef32722957a0e7706b9d7f681842efe1642fbe99c20744e72c164016",
