@@ -48,7 +48,7 @@ def inspect_package(path):
         require(metadata.findtext("{*}description"), f"Missing description in {path.name}")
         if package_id != HOST:
             # Each package reaches the host directly or through another Sendproof package, always at this version.
-            deps = [d for d in metadata.iter("{*}dependency") if d.get("id", "").startswith("Sendproof.")]
+            deps = [d for d in metadata.findall(".//{*}dependency") if d.get("id", "").startswith("Sendproof.")]
             require(deps, f"{package_id} must depend on {HOST} or another Sendproof package")
             for dep in deps:
                 require(dep.get("version") in (version, f"[{version}]"),

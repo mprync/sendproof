@@ -38,7 +38,8 @@ else
     at_exit { FileUtils.remove_entry(directory, true) }
     database_path = File.join(directory, "fixture.sqlite3")
   end
-  ENV["DATABASE_URL"] = "sqlite3:#{database_path}?timeout=5000&pool=8"
+  # A URL needs forward slashes: BENCH_SQLITE_PATH arrives with backslashes on Windows.
+  ENV["DATABASE_URL"] = "sqlite3:#{database_path.tr("\\", "/")}?timeout=5000&pool=8"
 end
 
 module Fixture
